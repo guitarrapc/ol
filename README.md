@@ -1,0 +1,3 @@
+# LLC
+
+Library License Checker

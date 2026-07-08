@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ol.Benchmark/Ol.Benchmark.csproj" />
+    <Project Path="src/Ol.Core/Ol.Core.csproj" />
+    <Project Path="src/Ol.Update/Ol.Update.csproj" />
+    <Project Path="src/Ol/Ol.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ol.Tests/Ol.Tests.csproj" />
+    <Project Path="tests/Ol.Update.Tests/Ol.Update.Tests.csproj" />
+  </Folder>
+</Solution>

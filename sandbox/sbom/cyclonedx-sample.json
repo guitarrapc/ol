@@ -1,0 +1,1800 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.7",
+  "serialNumber": "urn:uuid:d9a94406-3fe3-4415-bfac-a6cf32c78e3c",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-07-08T10:18:01Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "authors": [
+            {
+              "name": "CycloneDX"
+            }
+          ],
+          "name": "CycloneDX module for .NET",
+          "version": "6.2.0.0",
+          "externalReferences": [
+            {
+              "url": "https://github.com/CycloneDX/cyclonedx-dotnet",
+              "type": "website"
+            }
+          ]
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "Ol@0.0.0",
+      "name": "Ol",
+      "version": "0.0.0"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/BenchmarkDotNet@0.15.8",
+      "authors": [
+        {
+          "name": ".NET Foundation and contributors"
+        }
+      ],
+      "name": "BenchmarkDotNet",
+      "version": "0.15.8",
+      "description": "Powerful .NET library for benchmarking",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "4146790A5480D3A68B766FA40BB9DBA4E13626586EEE5A0183CABC80B0D5E7006E43568F37B36CF9E1F17A2D66BE0B249434FAEB76BFB09952C4C2807DD15C27"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": ".NET Foundation and contributors",
+      "purl": "pkg:nuget/BenchmarkDotNet@0.15.8",
+      "externalReferences": [
+        {
+          "url": "https://github.com/dotnet/BenchmarkDotNet",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/BenchmarkDotNet",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+      "authors": [
+        {
+          "name": ".NET Foundation and contributors"
+        }
+      ],
+      "name": "BenchmarkDotNet.Annotations",
+      "version": "0.15.8",
+      "description": "Powerful .NET library for benchmarking",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "0C52D7D9C5C948335030EDF227368A8C664D37149FE6D94B4F220ABF3216F0D6C6346E0BB4CFCB6D02EF67FF54108359E3002B5CDAB50CF130DBD138BC84ACEF"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": ".NET Foundation and contributors",
+      "purl": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+      "externalReferences": [
+        {
+          "url": "https://github.com/dotnet/BenchmarkDotNet",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/BenchmarkDotNet",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/CommandLineParser@2.9.1",
+      "authors": [
+        {
+          "name": "gsscoder,nemec,ericnewton76,moh-hassan"
+        }
+      ],
+      "name": "CommandLineParser",
+      "version": "2.9.1",
+      "description": "Terse syntax C# command line parser for .NET.  For FSharp support see CommandLineParser.FSharp.  The Command Line Parser Library offers to CLR applications a clean and concise API for manipulating command line arguments and related tasks.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "4F364E45C9668C7E7CC6A922B488F3FA523033C20D7A432694F0A6AF05CE528EA0481D8375E2F4F1032C6990347B4803CE9A0E48068C6FE15EC46FB1254F085D"
+        }
+      ],
+      "copyright": "Copyright (c) 2005 - 2020 Giacomo Stelluti Scala \u0026 Contributors",
+      "purl": "pkg:nuget/CommandLineParser@2.9.1",
+      "externalReferences": [
+        {
+          "url": "https://github.com/commandlineparser/commandline",
+          "type": "website"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/ConsoleAppFramework@5.7.13",
+      "authors": [
+        {
+          "name": "Cysharp"
+        }
+      ],
+      "name": "ConsoleAppFramework",
+      "version": "5.7.13",
+      "description": "Zero Dependency, Zero Overhead, Zero Reflection, Zero Allocation, AOT Safe CLI Framework powered by C# Source Generator.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "8244276EE4086B1E6A06C08CAD595BA3280C4FE9473AE7E103A32D7F7D56029D9D64C093675A1B29AF5DEF4F5451B54C29FD21F2D3AC6830DE968A813B73E19A"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Cysharp, Inc.",
+      "purl": "pkg:nuget/ConsoleAppFramework@5.7.13",
+      "externalReferences": [
+        {
+          "url": "https://github.com/Cysharp/ConsoleAppFramework",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/Cysharp/ConsoleAppFramework",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+      "authors": [
+        {
+          "name": "Tom Longhurst"
+        }
+      ],
+      "name": "EnumerableAsyncProcessor",
+      "version": "3.8.4",
+      "description": "Various Enumerable Async Processors - Batch / Parallel / Rate Limited / One at a time",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "FDA2E2A0851C4491681776E4EA6886190A07B68EB146D5C4BB2C1F202CD911282F863A03A2D09CCD9621BF094B97DC6A0711248214187070025C0FD4D5076CE5"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+      "externalReferences": [
+        {
+          "url": "https://github.com/thomhurst/EnumerableAsyncProcessor",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/thomhurst/EnumerableAsyncProcessor",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Gee.External.Capstone@2.3.0",
+      "authors": [
+        {
+          "name": "Ahmed Garhy (@9ee1)"
+        }
+      ],
+      "name": "Gee.External.Capstone",
+      "version": "2.3.0",
+      "description": "Capstone.NET is a .NET Core and a .NET Framework binding for the Capstone disassembly framework. It is written in C#, supports Capstone 4, and has a friendly and simple type safe API that is ridiculously easy to learn and quick to pick up.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "9079D5705D591C3B819127B2E0B763DACABB212314E9F96B2F632F62B45A9F3E1C208F136DF91A4834DD1838A38AC2FD2161CE8B545FE70F8078B66FC66C4AA8"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "Copyright (c) Ahmed Garhy",
+      "purl": "pkg:nuget/Gee.External.Capstone@2.3.0",
+      "externalReferences": [
+        {
+          "url": "https://github.com/9ee1/Capstone.NET",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/9ee1/Capstone.NET",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Iced@1.21.0",
+      "authors": [
+        {
+          "name": "iced project and contributors \u003Chttps://github.com/icedland\u003E"
+        }
+      ],
+      "name": "Iced",
+      "version": "1.21.0",
+      "description": "iced is a blazing fast and correct x86 (16/32/64-bit) instruction decoder, disassembler and assembler written in C#.\n\n- \uD83D\uDC4D Supports all Intel and AMD instructions\n- \uD83D\uDC4D Correct: All instructions are tested and iced has been tested against other disassemblers/assemblers (xed, gas, objdump, masm, dumpbin, nasm, ndisasm) and fuzzed\n- \uD83D\uDC4D 100% C# code\n- \uD83D\uDC4D The formatter supports masm, nasm, gas (AT\u0026T), Intel (XED) and there are many options to customize the output\n- \uD83D\uDC4D The decoder decodes \u003E130 MB/s\n- \uD83D\uDC4D Small decoded instructions, only 40 bytes and the decoder doesn\u0027t allocate any memory\n- \uD83D\uDC4D Create instructions with code assembler, eg. \u0060asm.mov(eax, edx)\u0060\n- \uD83D\uDC4D The encoder can be used to re-encode decoded instructions at any address\n- \uD83D\uDC4D API to get instruction info, eg. read/written registers, memory and rflags bits; CPUID feature flag, control flow info, etc\n- \uD83D\uDC4D Supports \u0060.NET Standard 2.0/2.1\u002B\u0060 and \u0060.NET Framework 4.5\u002B\u0060\n- \uD83D\uDC4D License: MIT",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "960BDC10717639BCA88F9AD48D4A5F50040DC74263C28109E4D4DDBDD8174B250957D5FCC23537310431B916AE1FD1ADC706F45ADF6AB9BB801D532914591164"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "Copyright (C) 2018-present iced project and contributors",
+      "purl": "pkg:nuget/Iced@1.21.0",
+      "externalReferences": [
+        {
+          "url": "https://github.com/icedland/iced",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/icedland/iced",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.ApplicationInsights",
+      "version": "2.23.0",
+      "description": "Application Insights Base API. This package provides core functionality for transmission of all Application Insights Telemetry Types and is a dependent package for all other Application Insights packages. Please install the platform specific package for the best experience. Privacy statement: https://go.microsoft.com/fwlink/?LinkId=512156",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "DD497BFAD0C65E54A4F78D2A1644F3D0854D4CD01DD83BA506F8D5D53635E28152C7C13210DD5DD3985780AAB146A7620DE3EBAEAD8EF12C6F87088676C2157F"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+      "externalReferences": [
+        {
+          "url": "https://go.microsoft.com/fwlink/?LinkId=392727",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/Microsoft/ApplicationInsights-dotnet",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.CodeAnalysis.Analyzers",
+      "version": "3.11.0",
+      "description": "Analyzers for consumers of Microsoft.CodeAnalysis NuGet package, i.e. extensions and applications built on top of .NET Compiler Platform (Roslyn). This package is included as a development dependency of Microsoft.CodeAnalysis NuGet package and does not need to be installed separately if you are referencing Microsoft.CodeAnalysis NuGet package.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "B4FF522F32CAEF65C2131961F0A5DFACA6D4EB272664BDC4C4697F6B7325ECB372D9469A9BB8058E3526773C936243174F27240871E9CF1EDB0FA04CBA687C06"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+      "externalReferences": [
+        {
+          "url": "https://github.com/dotnet/roslyn-analyzers",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/roslyn-analyzers",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.CodeAnalysis.Common",
+      "version": "4.14.0",
+      "description": "A shared package used by the Microsoft .NET Compiler Platform (\u0022Roslyn\u0022).\n      Do not install this package manually, it will be added as a prerequisite by other packages that require it.\n    \n      More details at https://aka.ms/roslyn-packages\n      This package was built from the source at https://github.com/dotnet/roslyn/commit/8edf7bcd4f1594c3d68a6a567469f41dbd33dd1b.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "93D008CCEAED71956AAFDFA599C116D2F63CD1E9B25F1E4907FEF9ECAD07505F7A19E51E8930FE7633A5145DB2EE4E173D9A36D0BAEEE2D0E0428B3E54A06BD3"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+      "externalReferences": [
+        {
+          "url": "https://github.com/dotnet/roslyn",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/roslyn",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.CodeAnalysis.CSharp",
+      "version": "4.14.0",
+      "description": ".NET Compiler Platform (\u0022Roslyn\u0022) support for C#, Microsoft.CodeAnalysis.CSharp.dll.\n    \n      More details at https://aka.ms/roslyn-packages\n      This package was built from the source at https://github.com/dotnet/roslyn/commit/8edf7bcd4f1594c3d68a6a567469f41dbd33dd1b.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "92A4B6362855BCD407C732DE3EDC988A2266173A183BD5A6E3A3BD0E17D480821FE4DC136EF4B2EBA915F4433EA801E61A98BBCD0CB8C3C254E831673E50324C"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+      "externalReferences": [
+        {
+          "url": "https://github.com/dotnet/roslyn",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/roslyn",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Diagnostics.NETCore.Client",
+      "version": "0.2.510501",
+      "description": ".NET Core Diagnostics Client Library",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "81B656BECF5254F33E3FBFFDA0DCECB26817D95667B6C5EC5C1EFC6F0643E6D0D0E5C6B01146365785C2E8AA2D60B6E9B95FFE8E6A0EBE0C2F4CEF14AF99EF8F"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+      "externalReferences": [
+        {
+          "url": "https://github.com/dotnet/diagnostics",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/diagnostics",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Diagnostics.Runtime",
+      "version": "3.1.512801",
+      "description": "ClrMD is a set of advanced APIs for programmatically inspecting a crash dump of a .NET program much in the same way that the SOS Debugging Extensions (SOS) do. This allows you to write automated crash analysis for your applications as well as automate many common debugger tasks. In addition to reading crash dumps ClrMD also allows supports attaching to live processes.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "842C30EAFAD766A014A0593514887A1B4AEC84CCA814EC0CF0BA83D3BF3F9ABE6E9480C45CC054D6FA631CD8D66CC53ABA434AE2293A2116E294BE71A712ED31"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+      "externalReferences": [
+        {
+          "url": "https://github.com/Microsoft/clrmd",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/Microsoft/clrmd",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Diagnostics.Tracing.TraceEvent",
+      "version": "3.1.21",
+      "description": "TraceEvent is a .NET Framework library for capturing and analyzing ETW events.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "A63CD1F5A28263849B65EDCC00517909CF8E8C6001B66D4279A65DC53EB5102209E41BAFE34B417C7F66196686920B7D1AFBDDFB3D0894BCF58B391C8414DEC3"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+      "externalReferences": [
+        {
+          "url": "https://github.com/Microsoft/perfview",
+          "type": "website"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.DiaSymReader",
+      "version": "2.0.0",
+      "description": "Microsoft DiaSymReader interop interfaces and utilities.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "8A25467F107348B9A2E4DAEC472C788B33663C8715726376B65985FBAACD1B5A4468981EA25214AEF86450538A695ED03183F2B5580C9927755744A2066FE870"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+      "externalReferences": [
+        {
+          "url": "https://github.com/dotnet/symreader",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/symreader",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.DotNet.ILCompiler",
+      "version": "10.0.9",
+      "description": "Provides a native AOT compiler and runtime for .NET",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "15982DF03FBC8D4AF09A3F3EF5D7DF3E27C606CE4E9253DDED178241C5CB4007C40320018D07BEC5642D414F2D6D9C0B7D63ABCC3212B0A417B89ED551B6A02E"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/dotnet",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.DotNet.PlatformAbstractions",
+      "version": "3.1.6",
+      "description": "Abstractions for making code that uses file system and environment testable.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "55B87F544874686BED96889953B7E99E43426B79B0FAC31CC452E0F4A27CA5CC08522C0AC967BF9DF649F7C04137A5E2553D134AD79D5C1E69578367C2B4B4C6"
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "git://github.com/dotnet/core-setup",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Extensions.DependencyInjection",
+      "version": "6.0.0",
+      "description": "Default implementation of dependency injection for Microsoft.Extensions.DependencyInjection.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "C25EEFA020A785D8608F8C5BC1B7D479AA3F9BB3295AAC41A1B6B81440EE8C2D686F28AB5F7C9BD8C762152AD8957CC71B7ABFA7D4B6C85592BFC27E5155928A"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/runtime",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "6.0.0",
+      "description": "Abstractions for dependency injection.\n\nCommonly Used Types:\nMicrosoft.Extensions.DependencyInjection.IServiceCollection",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "015A392A362C81B35143B19C5DA4EAC0928CC2F2E13329AB2E945A15A5C9DEA077CD66B0C467C75F2DFE6F90C3E0BF2ECDC059D75096BAC39B4156A53F997BD2"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/runtime",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Extensions.DependencyModel",
+      "version": "6.0.2",
+      "description": "Abstractions for reading \u0060.deps\u0060 files.\n\nCommonly Used Types:\nMicrosoft.Extensions.DependencyModel.DependencyContext",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "5F91D917E60B639A0F44FFEBABE197B21187D3A0C4F78D9C6A6C3A20A14693C2FAB95611184EF8F6C5C09BFBC0207BE55335AAB6B8966615936EEC967160FFD3"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/runtime",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Extensions.Logging",
+      "version": "6.0.0",
+      "description": "Logging infrastructure default implementation for Microsoft.Extensions.Logging.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "F5DEC590A353B7FBB35FDA799C083DC07857C70FA0D46DAEC0E00C4950A8D65F42C6F399A86706E2D97EE51FB5042BE27F35637673A2479DC4F623590D597311"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/runtime",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "6.0.0",
+      "description": "Logging abstractions for Microsoft.Extensions.Logging.\n\nCommonly Used Types:\nMicrosoft.Extensions.Logging.ILogger\nMicrosoft.Extensions.Logging.ILoggerFactory\nMicrosoft.Extensions.Logging.ILogger\u003CTCategoryName\u003E\nMicrosoft.Extensions.Logging.LogLevel\nMicrosoft.Extensions.Logging.Logger\u003CT\u003E\nMicrosoft.Extensions.Logging.LoggerMessage\nMicrosoft.Extensions.Logging.Abstractions.NullLogger",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "BFB1B4B98242104803D1A65A1A051D0B8E481FBC987FA2F4B58A610AB459B4D24E8753C515C32A376DD2C6804D1CE2D39624B972A81C68E92481958E1A8A31DF"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/runtime",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Extensions.Options",
+      "version": "6.0.0",
+      "description": "Provides a strongly typed way of specifying and accessing settings using dependency injection.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "3C34452BAC02193264B0563654BA5282A74B03EDE2B675AD25FA85EBD915BDCCA857158153EB4A4A024065EB4E9D7BC1EBBD23485493CD895C4D049ABA4A5DD2"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/runtime",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Extensions.Primitives",
+      "version": "6.0.0",
+      "description": "Primitives shared by framework extensions. Commonly used types include:\n\nCommonly Used Types:\nMicrosoft.Extensions.Primitives.IChangeToken\nMicrosoft.Extensions.Primitives.StringValues\nMicrosoft.Extensions.Primitives.StringSegment",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "0B2697F35557AEFF0784B10AE6A4EAFD7601BF706121ED6584A61879EC6E494514EC7A3E0DA0AA6BAA99F3F716F69030EC7C4C82F657C8DFDBACB637BAC4547F"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/runtime",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.NET.ILLink.Tasks",
+      "version": "10.0.9",
+      "description": "MSBuild tasks for running the IL Linker",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "15E5D97D2C7F4555E2A2869676499DF60F13180282F8C782E48041C8F7F61604E047E3405CB31381F1E08A633A4F8895E34FACDADCC55CCFFB44A60B64A6631C"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/dotnet",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Testing.Extensions.CodeCoverage",
+      "version": "18.3.2",
+      "description": "Code coverage Microsoft.Testing.Platform extension.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "C4907E4F7F5BDBF750825106B091FB114B40846D687A8A9B507856F70147C48696C02E09FDA8D5EB593FE05C45600A493434ED703D11D1CD682F82BFE990E8EC"
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+      "externalReferences": [
+        {
+          "url": "https://github.com/microsoft/codecoverage",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/microsoft/codecoverage",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Testing.Extensions.Telemetry",
+      "version": "2.0.2",
+      "description": "Microsoft Testing is a set of platform, framework and protocol intended to make it possible to run any test on any target or device.\n\nThis package provides telemetry for the platform.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "AE82D85684E9CDB088B8CDF39CA61642CA1F65D29ADA494F002148F48123EED60D7578FBEA90442A1D342B8216C0C05C95F6C23591ACD1224E5EEB176C071098"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+      "externalReferences": [
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Testing.Extensions.TrxReport",
+      "version": "2.0.2",
+      "description": "Microsoft Testing is a set of platform, framework and protocol intended to make it possible to run any test on any target or device.\n\nThis package extends Microsoft Testing Platform to provide TRX test reports.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "70D7D6506C35DAC895DAAD5B52B1EFB3F71351C2E4F2FB1FCBF0883E394A307471ADFC89E0B3A6B44B98B22F0351BF839AAE4352573911BA46497587E8D462F2"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+      "externalReferences": [
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Testing.Extensions.TrxReport.Abstractions",
+      "version": "2.0.2",
+      "description": "Package Description",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "714F9D29FFCF04806179A0F4863B3EAB92C3ACA954781C878BF0DC6C6119156BDFC0B1077A9C2407A6C3C7FA69E93745D1EEA8E096FCB37B9712A867574ACB5F"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+      "externalReferences": [
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Testing.Platform",
+      "version": "2.0.2",
+      "description": "Microsoft Testing is a set of platform, framework and protocol intended to make it possible to run any test on any target or device.\n\nThis package provides the core platform and the .NET implementation of the protocol.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "19AA3F0C4FAF774EFA1F3930422374A28D561517F4BFA1D512D95BA6800A322649105BFC523B584332A979C86F54E3F5B4285857EAB821AD8302E3CE2699FDEB"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+      "externalReferences": [
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "Microsoft.Testing.Platform.MSBuild",
+      "version": "2.0.2",
+      "description": "Microsoft Testing is a set of platform, framework and protocol intended to make it possible to run any test on any target or device.\n\nThis package provides MSBuild integration of the platform, its extensions and configuration files.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "5A854867DE4B2D0CDEE21AB09D3C838FF9447D4BB73F07DD62CE8A15C76017A1829BC20C8910C6A5B13547FA5083903258B239F98C7566ABA12669F52B26A343"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+      "externalReferences": [
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/microsoft/testfx",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Perfolizer@0.6.1",
+      "authors": [
+        {
+          "name": "Andrey Akinshin"
+        }
+      ],
+      "name": "Perfolizer",
+      "version": "0.6.1",
+      "description": "Performance analysis toolkit",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "64497A138F1BDE160A492ECBE56D88C29F7D4460F6D63E3E36CA2CBD61AB473A5D3D39701F451B85F036C69F69B6B54984187502339F8EE77CAAC56463D7CA10"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "Copyright (C) 2020-2025 Andrey Akinshin",
+      "purl": "pkg:nuget/Perfolizer@0.6.1",
+      "externalReferences": [
+        {
+          "url": "https://github.com/AndreyAkinshin/perfolizer",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/AndreyAkinshin/perfolizer",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/Pragmastat@3.2.4",
+      "authors": [
+        {
+          "name": "Andrey Akinshin"
+        }
+      ],
+      "name": "Pragmastat",
+      "version": "3.2.4",
+      "description": "Pragmatic Statistical Toolkit",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "A23FB55EA0DC97B09FD0FFF2D51A8F29BF14FEB6EE3205020B9CFD9699EB4B86639CE1DB0F40A77376324C97DBC8AF12ADCBA6CAB9A665C98A60DA8947DFED08"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "Copyright (C) 2025 Andrey Akinshin",
+      "purl": "pkg:nuget/Pragmastat@3.2.4",
+      "externalReferences": [
+        {
+          "url": "https://pragmastat.dev/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/AndreyAkinshin/pragmastat",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+      "version": "10.0.9",
+      "description": "Internal implementation package not meant for direct consumption. Please do not reference directly. \nProvides a native AOT compiler and runtime for .NET",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "FB57736223F615F33104F5893988322B3820B610B2107176E5A3849449AF639DA75A282B7CE1844EF7A7B81DFD48D6EBE80F8D83D976DE7754ECBE449EA08B25"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/dotnet",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/System.CodeDom@9.0.5",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "System.CodeDom",
+      "version": "9.0.5",
+      "description": "Provides types that can be used to model the structure of a source code document and to output source code for that model in C# or Visual Basic.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "F334E8A8FFFB5CE70E4633C903555B24031DE4C3394EDFDC7CD0A55BEF7AE0B31CBD24F0483177D49D0CCB4F8FCBAC54AD330AFB0B83BD24A09BFEE51E6441A4"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/System.CodeDom@9.0.5",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/runtime",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/System.Management@9.0.5",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "System.Management",
+      "version": "9.0.5",
+      "description": "Provides access to a rich set of management information and management events about the system, devices, and applications instrumented to the Windows Management Instrumentation (WMI) infrastructure.\n\nCommonly Used Types:\nSystem.Management.ManagementClass\nSystem.Management.ManagementObject\nSystem.Management.SelectQuery",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "D14085F72B321F0AB75B94765BA165E103C93BFD981E4BA18143130E57DE7F99E5B1E2CEB5C05F10775709FB5219144A9E38725A91EB811B69D4C78BF7DE1DA1"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/System.Management@9.0.5",
+      "externalReferences": [
+        {
+          "url": "https://dot.net/",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/dotnet/runtime",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+      "authors": [
+        {
+          "name": "Microsoft"
+        }
+      ],
+      "name": "System.Reflection.TypeExtensions",
+      "version": "4.7.0",
+      "description": "Provides extensions methods for System.Type that are designed to be source-compatible with older framework reflection-based APIs.\n\nCommonly Used Types:\nSystem.Reflection.TypeExtensions\nSystem.Reflection.BindingFlags\n \nWhen using NuGet 3.x this package requires at least version 3.4.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "43F7DCCC73B7E7B7EA4E7B503D9052C21B2D1C271916F82A3B006790EFA584CC92DA96010ED5F27D141B94ADD261737C1971CE109CE334CE53AF5DB3A7BDDCE8"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+      "purl": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+      "externalReferences": [
+        {
+          "url": "https://github.com/dotnet/corefx",
+          "type": "website"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/TUnit@1.12.111",
+      "authors": [
+        {
+          "name": "Tom Longhurst"
+        }
+      ],
+      "name": "TUnit",
+      "version": "1.12.111",
+      "description": "A .NET Testing Framework",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "53FB855479C5FAD22FC2EDDAB1C6B9F6C13FEB8A30E37B84787086F947F3F964DB9B5B4A304DE192331D138822B59A4BD1C654150B4820CEB5FEBF7EACBC0926"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "Copyright (c) Tom Longhurst 2026",
+      "purl": "pkg:nuget/TUnit@1.12.111",
+      "externalReferences": [
+        {
+          "url": "https://github.com/thomhurst/TUnit",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/thomhurst/TUnit",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/TUnit.Assertions@1.12.111",
+      "authors": [
+        {
+          "name": "Tom Longhurst"
+        }
+      ],
+      "name": "TUnit.Assertions",
+      "version": "1.12.111",
+      "description": "A .NET Testing Framework",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "15CF4E9FFACF4A213DCA1AF27980AAC6E8AA002469779DCAFC1ECADD68BCD4111DF789FD7E84FC4FBC934E42020A8E0489E5D0C89A193321C11B28B74B2D2E2D"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "Copyright (c) Tom Longhurst 2026",
+      "purl": "pkg:nuget/TUnit.Assertions@1.12.111",
+      "externalReferences": [
+        {
+          "url": "https://github.com/thomhurst/TUnit",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/thomhurst/TUnit",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/TUnit.Core@1.12.111",
+      "authors": [
+        {
+          "name": "Tom Longhurst"
+        }
+      ],
+      "name": "TUnit.Core",
+      "version": "1.12.111",
+      "description": "A .NET Testing Framework",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "A5923F32CE239752158DC8DBCE1CA0F2726FA23902AAEFF8E208D7BF7BC4A38FC34BC274EAD608F4E39A3F0698918B1EAB29F4639D8834887CB8841AAAF46E42"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "Copyright (c) Tom Longhurst 2026",
+      "purl": "pkg:nuget/TUnit.Core@1.12.111",
+      "externalReferences": [
+        {
+          "url": "https://github.com/thomhurst/TUnit",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/thomhurst/TUnit",
+          "type": "vcs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:nuget/TUnit.Engine@1.12.111",
+      "authors": [
+        {
+          "name": "Tom Longhurst"
+        }
+      ],
+      "name": "TUnit.Engine",
+      "version": "1.12.111",
+      "description": "A .NET Testing Framework",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "E072D1F4505F0891962C4003D629F85CC87659E7E604A54ECACFC49476262065F973615C58379754DA80DD293DD912F80C1E74A9A7596EF900A31D470022B0B7"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "copyright": "Copyright (c) Tom Longhurst 2026",
+      "purl": "pkg:nuget/TUnit.Engine@1.12.111",
+      "externalReferences": [
+        {
+          "url": "https://github.com/thomhurst/TUnit",
+          "type": "website"
+        },
+        {
+          "url": "https://github.com/thomhurst/TUnit",
+          "type": "vcs"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "Ol@0.0.0",
+      "dependsOn": [
+        "pkg:nuget/BenchmarkDotNet@0.15.8",
+        "pkg:nuget/ConsoleAppFramework@5.7.13",
+        "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+        "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+        "pkg:nuget/TUnit@1.12.111"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/BenchmarkDotNet@0.15.8",
+      "dependsOn": [
+        "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+        "pkg:nuget/CommandLineParser@2.9.1",
+        "pkg:nuget/Gee.External.Capstone@2.3.0",
+        "pkg:nuget/Iced@1.21.0",
+        "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+        "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+        "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+        "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+        "pkg:nuget/Perfolizer@0.6.1",
+        "pkg:nuget/System.Management@9.0.5"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/CommandLineParser@2.9.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/ConsoleAppFramework@5.7.13",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Gee.External.Capstone@2.3.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Iced@1.21.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+        "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Extensions.Logging@6.0.0"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+        "pkg:nuget/System.Reflection.TypeExtensions@4.7.0"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+        "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+        "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+        "pkg:nuget/Microsoft.Extensions.Options@6.0.0"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+        "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+        "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+        "pkg:nuget/Microsoft.Testing.Platform@2.0.2"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+        "pkg:nuget/Microsoft.Testing.Platform@2.0.2"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Testing.Platform@2.0.2"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+        "pkg:nuget/Microsoft.Testing.Platform@2.0.2"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Testing.Platform@2.0.2"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/Perfolizer@0.6.1",
+      "dependsOn": [
+        "pkg:nuget/Pragmastat@3.2.4"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/Pragmastat@3.2.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/System.CodeDom@9.0.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/System.Management@9.0.5",
+      "dependsOn": [
+        "pkg:nuget/System.CodeDom@9.0.5"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/TUnit.Assertions@1.12.111",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/TUnit.Core@1.12.111",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:nuget/TUnit.Engine@1.12.111",
+      "dependsOn": [
+        "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+        "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+        "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+        "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+        "pkg:nuget/TUnit.Core@1.12.111"
+      ]
+    },
+    {
+      "ref": "pkg:nuget/TUnit@1.12.111",
+      "dependsOn": [
+        "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+        "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+        "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+        "pkg:nuget/TUnit.Assertions@1.12.111",
+        "pkg:nuget/TUnit.Engine@1.12.111"
+      ]
+    }
+  ]
+}

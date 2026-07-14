@@ -1,4 +1,4 @@
-namespace Ol.Core;
+﻿namespace Ol.Core;
 
 /// <summary>
 /// Identifies the parsed SBOM format.

@@ -1,8 +1,6 @@
 ﻿using System.Text;
 using System.Text.Json;
 using Ol.Core;
-using TUnit.Assertions;
-using TUnit.Core;
 
 namespace Ol.Tests;
 
@@ -272,9 +270,9 @@ public sealed class CycloneDxScanTests
         await Assert.That(report.Components[2].DependencyType).IsEqualTo(DependencyType.Transitive);
     }
 
-      [Test]
-      public async Task Scan_WithAmbiguousFormatMarkers_ThrowsUnsupportedFormatError()
-      {
+    [Test]
+    public async Task Scan_WithAmbiguousFormatMarkers_ThrowsUnsupportedFormatError()
+    {
         var sbom = Encoding.UTF8.GetBytes(
           """
           {
@@ -286,12 +284,12 @@ public sealed class CycloneDxScanTests
           """);
 
         await Assert.That(() => SbomScanner.Scan(sbom, Spdx)).Throws<JsonException>();
-      }
+    }
 }
 
 public sealed class SpdxScanTests
 {
-  private static readonly SpdxLicenseIndex Spdx = new(["Apache-2.0", "GPL-2.0-only", "MIT"], ["Classpath-exception-2.0"]);
+    private static readonly SpdxLicenseIndex Spdx = new(["Apache-2.0", "GPL-2.0-only", "MIT"], ["Classpath-exception-2.0"]);
 
     [Test]
     public async Task ScanSpdxPackageWithMatchingDeclaredAndConcludedReturnsMatchedComponent()

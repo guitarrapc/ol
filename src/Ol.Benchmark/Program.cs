@@ -8,8 +8,8 @@ BenchmarkRunner.Run<SbomScannerBenchmark>();
 [MemoryDiagnoser]
 public class SbomScannerBenchmark
 {
-		private readonly byte[] cycloneDx = Encoding.UTF8.GetBytes(
-				"""
+    private readonly byte[] cycloneDx = Encoding.UTF8.GetBytes(
+            """
 				{
 					"bomFormat": "CycloneDX",
 					"components": [
@@ -25,11 +25,11 @@ public class SbomScannerBenchmark
 				}
 				""");
 
-		private readonly SpdxLicenseIndex spdx = new(["MIT"], []);
+    private readonly SpdxLicenseIndex spdx = new(["MIT"], []);
 
-		[Benchmark]
-		public ScanReport ScanCycloneDx()
-		{
-				return SbomScanner.Scan(cycloneDx, spdx);
-		}
+    [Benchmark]
+    public ScanReport ScanCycloneDx()
+    {
+        return SbomScanner.Scan(cycloneDx, spdx);
+    }
 }

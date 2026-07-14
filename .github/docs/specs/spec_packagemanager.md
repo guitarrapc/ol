@@ -10,6 +10,12 @@ v1 does not fetch package metadata and does not maintain package/source evidence
 
 v2 adds automatic package metadata hints.
 
+## Current Implementation Status
+
+The implemented v2 slice consumes persistent package-metadata cache entries for supported versioned purls and reconciles them with SBOM evidence. It supports npm, NuGet, Cargo, and Go purl planning, cache metrics in JSON reports, `--refresh`, `--concurrency`, `--retry`, and `ol cache clear` categories.
+
+Registry fetchers are not active yet. Consequently, a cache miss or refresh attempt records a component-scoped `package_metadata_fetch_failed` warning rather than making a network request. Existing valid SBOM evidence remains authoritative for the component's final status.
+
 v3 keeps this behavior and adds source repository hints described in [spec_source.md](spec_source.md).
 
 ## User Experience

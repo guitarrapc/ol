@@ -130,10 +130,10 @@ Commands:
 
 Behavior:
 
-- `update` downloads `licenses.json` and `exceptions.json`, reads the license list version, stores them under the user data SPDX directory, and updates `current.json`.
+- `update` downloads `licenses.json` and `exceptions.json`, reads the license list version, stores them under the user data SPDX directory, and updates `current.txt`.
 - `version` prints active, user, and bundled versions.
 - `list` prints installed user-managed versions and marks the active version.
-- `use` switches `current.json` to an installed version.
+- `use` switches `current.txt` to an installed version.
 - `clear` removes user-managed SPDX data and leaves bundled data as fallback.
 
 ## SPDX Data Resolution
@@ -431,3 +431,22 @@ Golden outputs should avoid absolute paths and use stable timestamps or normaliz
 9. Sort, group, and renderers.
 10. Report metadata and privacy checks.
 11. Integration tests and golden outputs.
+
+## Implementation Status
+
+**Functional status: complete (2026-07-14).** The v1 scan flow supports CycloneDX JSON and SPDX JSON, the documented output formats and scan options, SPDX source resolution, structured component evidence, dependency classification, grouping, sorting, privacy-safe JSON metadata, and the SPDX user commands.
+
+The current implementation uses `current.txt` as the active user-managed SPDX version pointer. This is a deliberate simplification of the originally proposed `current.json` shape because the current runtime only needs the selected version; reports retain the version and logical data reference separately.
+
+The following verification debt remains outside the functional v1 implementation and should be addressed when expanding test assets:
+
+- Golden SBOM fixtures and golden rendered reports are not yet maintained as checked-in files.
+- SPDX update/version/list/use/clear controlled integration tests are not yet present.
+- The plan's full test matrix is represented primarily by focused scanner and CLI integration tests rather than a one-fixture-per-row suite.
+
+## Lessons Learned
+
+- UTF-8 BOMs occur in SBOM and SPDX JSON written by common Windows APIs. Parsers must strip an optional BOM before structural detection or JSON loading.
+- SBOM format detection must scan the complete document. Selecting the first marker silently misclassifies documents that contain both CycloneDX and SPDX markers.
+- Raw unknown-like values and deprecated identifiers must be retained as evidence even when they do not determine the rendered license. This stable candidate/evidence boundary is required for v2 metadata and v3 source evidence.
+- CLI integration tests must execute the already-built CLI DLL. Parallel `dotnet run` invocations race while regenerating the shared apphost executable.

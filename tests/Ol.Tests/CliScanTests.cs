@@ -1,11 +1,118 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Ol.Core;
 
 namespace Ol.Tests;
 
 public sealed class CliScanTests
 {
+    private static readonly SemaphoreSlim CliGate = new(1, 1);
+
+    [Test]
+    public async Task Scan_WithCachedNpmMetadata_ReconcilesPackageEvidenceAndReportsCacheHit()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-v2-cache-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var cacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(
+                sbomPath,
+                """
+                        {
+                            "bomFormat": "CycloneDX",
+                            "components": [
+                                {
+                                    "bom-ref": "pkg:npm/example@1.0.0",
+                                    "name": "example",
+                                    "version": "1.0.0",
+                                    "purl": "pkg:npm/example@1.0.0",
+                                    "licenses": [ { "license": { "id": "NOASSERTION" } } ]
+                                }
+                            ]
+                        }
+                        """,
+                Encoding.UTF8);
+        var cache = new PackageMetadataCache(cacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", "https://example.test/repository", [], []));
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var component = report.RootElement.GetProperty("components")[0];
+            await Assert.That(component.GetProperty("status").GetString()).IsEqualTo("matched");
+            await Assert.That(component.GetProperty("license").GetString()).IsEqualTo("MIT");
+            await Assert.That(component.GetProperty("licenseCandidates")[1].GetProperty("source").GetString()).IsEqualTo("npm-registry");
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("packageMetadata").GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheClear_PackageMetadata_RemovesMetadataCache()
+    {
+        var root = FindRepositoryRoot();
+        var cacheRoot = Path.Combine(Path.GetTempPath(), $"ol-v2-clear-{Guid.NewGuid():N}");
+        var cache = new PackageMetadataCache(cacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlWithCacheAsync(root, cacheRoot, "cache", "clear", "package-metadata");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).Contains("package-metadata cache cleared");
+            await Assert.That(stderr).IsEmpty();
+            await Assert.That(Directory.Exists(cacheRoot)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+            {
+                Directory.Delete(cacheRoot, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithRefresh_SkipsCachedMetadataWithoutChangingMatchedSbomEvidence()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-v2-refresh-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var cacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [ { "name": "example", "purl": "pkg:npm/example@1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] } ] }""", Encoding.UTF8);
+        await new PackageMetadataCache(cacheRoot).WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "Apache-2.0", string.Empty, [], []));
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--refresh");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var component = report.RootElement.GetProperty("components")[0];
+            var metadata = report.RootElement.GetProperty("metadata").GetProperty("packageMetadata");
+            await Assert.That(component.GetProperty("status").GetString()).IsEqualTo("matched");
+            await Assert.That(component.GetProperty("license").GetString()).IsEqualTo("MIT");
+            await Assert.That(metadata.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(metadata.GetProperty("cacheMissCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(metadata.GetProperty("refreshedCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("package_metadata_fetch_failed");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
     [Test]
     public async Task Scan_WithDeprecatedSpdxCandidate_RetainsCandidatesEvidenceAndWarningsInJson()
     {
@@ -222,25 +329,41 @@ public sealed class CliScanTests
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
+        => await RunOlWithCacheAsync(root, cacheRoot: null, args);
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithCacheAsync(string root, string? cacheRoot, params string[] args)
     {
-        var startInfo = new ProcessStartInfo("dotnet")
+        await CliGate.WaitAsync();
+        try
         {
-            WorkingDirectory = root,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        startInfo.ArgumentList.Add(Path.Combine(root, "src", "Ol", "bin", "Debug", "net10.0", "ol.dll"));
-        for (var i = 0; i < args.Length; i++)
-        {
-            startInfo.ArgumentList.Add(args[i]);
+            var startInfo = new ProcessStartInfo("dotnet")
+            {
+                WorkingDirectory = root,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            if (cacheRoot is not null)
+            {
+                startInfo.Environment["OL_PACKAGE_METADATA_CACHE_ROOT"] = cacheRoot;
+            }
+
+            startInfo.ArgumentList.Add(Path.Combine(root, "src", "Ol", "bin", "Debug", "net10.0", "ol.dll"));
+            for (var i = 0; i < args.Length; i++)
+            {
+                startInfo.ArgumentList.Add(args[i]);
+            }
+
+            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start ol CLI.");
+
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return (process.ExitCode, stdout, stderr);
         }
-
-        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start ol CLI.");
-
-        var stdout = await process.StandardOutput.ReadToEndAsync();
-        var stderr = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        return (process.ExitCode, stdout, stderr);
+        finally
+        {
+            CliGate.Release();
+        }
     }
 
     private static string FindRepositoryRoot()

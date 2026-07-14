@@ -23,6 +23,9 @@ internal sealed class ScanCommands
     /// <param name="sortOrder">Sort order: asc or desc.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="quiet">Suppress stderr summary.</param>
+    /// <param name="refresh">Skip package metadata cache entries.</param>
+    /// <param name="concurrency">Maximum concurrent package metadata lookups.</param>
+    /// <param name="retry">Reserved package metadata retry count.</param>
     [Command("scan")]
     public int Scan(
         string sbom,
@@ -34,7 +37,10 @@ internal sealed class ScanCommands
         string sort = "ecosystem,name,version",
         SortOrder sortOrder = SortOrder.Asc,
         string? spdxData = null,
-        bool quiet = false)
+        bool quiet = false,
+        bool refresh = false,
+        int concurrency = 0,
+        int retry = 1)
     {
         if (!File.Exists(sbom))
         {
@@ -42,10 +48,25 @@ internal sealed class ScanCommands
             return 1;
         }
 
+        concurrency = concurrency == 0 ? Math.Max(4, Math.Min(Environment.ProcessorCount, 8)) : concurrency;
+        if (concurrency < 1)
+        {
+            Console.Error.WriteLine("Concurrency must be at least 1.");
+            return 1;
+        }
+
+        if (retry < 0)
+        {
+            Console.Error.WriteLine("Retry must not be negative.");
+            return 1;
+        }
+
         var spdx = SpdxData.Load(spdxData);
         var sbomBytes = File.ReadAllBytes(sbom);
         var report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
-        var components = ScanView.Apply(report.Components, dependency, sort, sortOrder);
+        var metadataService = new PackageMetadataService(spdx.Index, new PackageMetadataCache(PackageMetadataPaths.DefaultRoot), refresh, retry);
+        var enrichment = metadataService.EnrichAsync(report.Components, concurrency).GetAwaiter().GetResult();
+        var components = ScanView.Apply(enrichment.Components, dependency, sort, sortOrder);
         var dependencyFilteredCount = dependency is null or "" ? 0 : report.Components.Length - components.Length;
         var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(report.Components, dependency);
         var text = groupBy is null or ""
@@ -53,10 +74,10 @@ internal sealed class ScanCommands
             {
                 ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
                 ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
-                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, report.SpecVersion, components, sbom, sbomBytes, spdx),
+                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, report.SpecVersion, components, sbom, sbomBytes, spdx, enrichment.Summary),
                 _ => throw new ArgumentOutOfRangeException(nameof(format)),
             }
-            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, report.SpecVersion, sbom, sbomBytes, spdx);
+            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, report.SpecVersion, sbom, sbomBytes, spdx, enrichment.Summary);
 
         if (outFile is { Length: > 0 })
         {
@@ -76,13 +97,13 @@ internal sealed class ScanCommands
         return 0;
     }
 
-    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, string specVersion, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
+    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, string specVersion, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
     {
         return format switch
         {
             ReportFormat.Text => ReportRenderer.RenderText(groups, groupBy),
             ReportFormat.Markdown => ReportRenderer.RenderMarkdown(groups, groupBy),
-            ReportFormat.Json => ReportRenderer.RenderJson(sbomFormat, specVersion, groups, groupBy, sbom, sbomBytes, spdx),
+            ReportFormat.Json => ReportRenderer.RenderJson(sbomFormat, specVersion, groups, groupBy, sbom, sbomBytes, spdx, metadataSummary),
             _ => throw new ArgumentOutOfRangeException(nameof(format)),
         };
     }
@@ -516,7 +537,7 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static string RenderJson(SbomFormat format, string specVersion, ScanComponent[] components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
+    public static string RenderJson(SbomFormat format, string specVersion, ScanComponent[] components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -531,6 +552,7 @@ internal static class ReportRenderer
             writer.WriteString("sbomSha256", Convert.ToHexString(SHA256.HashData(sbomBytes)).ToLowerInvariant());
             writer.WriteEndObject();
             WriteSpdxMetadata(writer, spdx);
+            WritePackageMetadata(writer, metadataSummary);
             writer.WriteEndObject();
 
             writer.WriteStartArray("components");
@@ -569,7 +591,7 @@ internal static class ReportRenderer
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    public static string RenderJson(SbomFormat format, string specVersion, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
+    public static string RenderJson(SbomFormat format, string specVersion, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -584,6 +606,7 @@ internal static class ReportRenderer
             writer.WriteString("sbomSha256", Convert.ToHexString(SHA256.HashData(sbomBytes)).ToLowerInvariant());
             writer.WriteEndObject();
             WriteSpdxMetadata(writer, spdx);
+            WritePackageMetadata(writer, metadataSummary);
             writer.WriteEndObject();
 
             var headers = groupBy.ToLowerInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -636,6 +659,20 @@ internal static class ReportRenderer
         writer.WriteString("dataRef", spdx.DataRef);
         writer.WriteString("licensesSha256", spdx.LicensesSha256);
         writer.WriteString("exceptionsSha256", spdx.ExceptionsSha256);
+        writer.WriteEndObject();
+    }
+
+    private static void WritePackageMetadata(Utf8JsonWriter writer, PackageMetadataSummary summary)
+    {
+        writer.WriteStartObject("packageMetadata");
+        writer.WriteNumber("supportedComponentCount", summary.SupportedComponentCount);
+        writer.WriteNumber("cacheHitCount", summary.CacheHitCount);
+        writer.WriteNumber("cacheMissCount", summary.CacheMissCount);
+        writer.WriteNumber("refreshedCount", summary.RefreshedCount);
+        writer.WriteNumber("fetchErrorCount", summary.FetchErrorCount);
+        writer.WriteNumber("unsupportedEcosystemCount", summary.UnsupportedEcosystemCount);
+        writer.WriteNumber("concurrency", summary.Concurrency);
+        writer.WriteNumber("retryCount", summary.RetryCount);
         writer.WriteEndObject();
     }
 

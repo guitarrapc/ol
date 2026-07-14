@@ -17,6 +17,19 @@ Each version must preserve the prior version's report fields unless a breaking v
 
 ## Commands
 
+### `ol cache clear`
+
+v2 provides cache management for shared evidence stores:
+
+```bash
+ol cache clear
+ol cache clear package-metadata
+ol cache clear source-repository
+ol cache clear all
+```
+
+`package-metadata` and `all` clear the persistent package metadata cache. `source-repository` is accepted as a reserved no-op until v3 activates that cache.
+
 ### `ol scan`
 
 `scan` is the primary command. It lists components and their license status from the available evidence sources for the current version.

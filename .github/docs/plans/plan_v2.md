@@ -336,3 +336,15 @@ Extend v1 golden outputs with package evidence in JSON while keeping text/markdo
 8. Add metadata evidence integration and report additions.
 9. Add cache clear command.
 10. Add integration and golden tests.
+
+## Implementation Status
+
+**In progress (2026-07-14).** The v2 foundation is implemented: supported, versioned npm, NuGet, Cargo, and Go purls are planned into stable cache keys; package metadata records use hash-named persistent cache files; cache entries reconcile through the common candidate/evidence contract; and JSON reports expose package-metadata cache metrics. `ol scan` accepts `--refresh`, `--concurrency`, and `--retry`, validates their documented ranges, and `ol cache clear [package-metadata|source-repository|all]` is available.
+
+The first vertical slice is deliberately cache-first. It consumes existing cache entries without network access. A cache miss or `--refresh` records `package_metadata_fetch_failed` as component evidence and leaves a valid SBOM result `matched`. npm, NuGet, Cargo, and Go HTTP fetchers, retry classification, cache writes from fetch results, and their fixture contract tests remain outstanding.
+
+## Lessons Learned
+
+- The CLI is AOT-enabled, so persistent cache serialization must use a source-generated `JsonSerializerContext`; reflection-based `JsonSerializer` APIs fail at runtime even though Debug unit tests can pass.
+- ConsoleAppFramework binds method parameters as named options. The documented positional cache category is translated before command dispatch so `ol cache clear package-metadata` remains supported.
+- Adding an overload whose second argument is an optional string can capture `scan` in existing `params string[]` CLI test helpers. Use a distinct helper name for cache-aware invocations.

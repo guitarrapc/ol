@@ -52,7 +52,7 @@ These decisions are normative design constraints. A feature specification may sp
 
 ## System Model
 
-Ol is designed as the following target pipeline. Inventory, SBOM evidence, SPDX normalization, package metadata, reconciliation, and reporting are implemented; source-repository evidence and policy evaluation are planned stages.
+Ol is designed as the following target pipeline. Inventory, SBOM evidence, SPDX normalization, package metadata, source-repository evidence, reconciliation, and reporting are implemented; policy evaluation remains a planned stage.
 
 ```mermaid
 flowchart LR
@@ -107,6 +107,16 @@ A license candidate is one source's claim about a component. It retains:
 
 Candidates are append-only inputs to reconciliation. Enrichment adds evidence rather than overwriting the original SBOM claim.
 
+### License evidence provenance
+
+Evidence provenance explains why a candidate exists and how that claim can be traced back to its source. It is not a second copy of the candidate. Canonical JSON therefore attaches one typed `evidence` object to each `licenseCandidates` item and does not expose a duplicate component-level candidate array.
+
+For audit purposes, evidence is a traceable observation: it must identify the input field or collected record that produced the candidate closely enough for a reviewer to locate and re-check it. Evidence establishes provenance, not legal truth. The candidate contains the observed claim and its interpretation; evidence contains only the additional coordinates, identity, time, and collection result needed to audit that claim.
+
+The initial provenance families are SBOM fields, package registry collection records, and source repository inspection records. Each family exposes only details that add audit value beyond the common candidate fields: the exact SBOM field and explicit acknowledgement, an opaque registry cache identity and collection time, or repository/ref/response/license-file metadata.
+
+A declared or concluded value is an assertion, not proof that the assertion was independently verified. Likewise, the presence of a BOM signature or a CycloneDX declaration attestation does not by itself attest a particular license candidate. Ol must only report candidate attestation after it can preserve the explicit candidate-to-claim mapping and the verification result; it must never infer `attested` from nearby document metadata.
+
 ### Component license result
 
 Reconciliation produces one of these statuses:
@@ -140,7 +150,7 @@ Versioned purls plan lookups for supported package ecosystems. Registry clients 
 
 The initial ecosystems are npm, NuGet, Cargo, and Go modules. Unsupported ecosystems and successful responses without license text produce explicit non-fatal evidence. Fetches are concurrent, bounded, retry only transient failures, and are cached by the package schema's canonical identity.
 
-### Source repository evidence (planned v3)
+### Source repository evidence (implemented v3)
 
 Source evidence will extend the same model rather than creating a separate result path. Repository identities will come from existing SBOM or package metadata evidence. The initial GitHub integration will use the GitHub License API and will not attempt to outguess an unidentified license by parsing arbitrary license-file text.
 
@@ -266,7 +276,7 @@ Optimizations require representative benchmarks for the affected stage. Performa
 
 - **v1 — implemented:** CycloneDX/SPDX JSON inventory, dependency relationships, SPDX validation, and reports.
 - **v2 — implemented:** package-registry evidence, persistent metadata cache, bounded external-request concurrency, and retries.
-- **v3 — planned:** source-repository evidence, initially through the GitHub License API.
+- **v3 — implemented:** source-repository evidence through the GitHub License API, typed candidate provenance, and source evidence caching.
 - **Later policy phase — planned:** explicit allow-list/deny-list evaluation and CI failure behavior over the canonical report.
 
 The architectural destination is therefore a transitive OSS license resolver and policy input, not an SBOM viewer. SBOM support is one ingestion mechanism for constructing the dependency and evidence model.

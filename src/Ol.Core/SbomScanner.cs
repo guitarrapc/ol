@@ -430,13 +430,13 @@ public static class SbomScanner
             "declared",
             declared,
             spdxLicenseIndex,
-            new LicenseEvidence(LicenseEvidenceKind.Sbom, SbomLicenseField.SpdxLicenseDeclared, LicenseAcknowledgement.Declared));
+            new LicenseEvidence(LicenseEvidenceKind.Sbom, SbomLicenseField.SpdxLicenseDeclared));
         var concludedCandidate = LicenseCandidateFactory.Create(
             "sbom",
             "concluded",
             concluded,
             spdxLicenseIndex,
-            new LicenseEvidence(LicenseEvidenceKind.Sbom, SbomLicenseField.SpdxLicenseConcluded, LicenseAcknowledgement.Concluded));
+            new LicenseEvidence(LicenseEvidenceKind.Sbom, SbomLicenseField.SpdxLicenseConcluded));
         var (license, status) = ReconcileLicenses(declaredCandidate, concludedCandidate);
         var additionalCandidates = new[] { concludedCandidate };
         return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, declaredCandidate, additionalCandidates, repositoryUrl);

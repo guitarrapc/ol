@@ -12,6 +12,7 @@ public static class LicenseCandidateFactory
     /// <param name="kind">The source field or license value kind.</param>
     /// <param name="rawUtf8">The unescaped UTF-8 raw license value.</param>
     /// <param name="spdxLicenseIndex">The active SPDX data index.</param>
+    /// <param name="evidence">Typed provenance that substantiates the candidate.</param>
     /// <returns>The classified candidate.</returns>
     public static LicenseCandidate Create(string source, string kind, ReadOnlySpan<byte> rawUtf8, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
     {
@@ -22,6 +23,12 @@ public static class LicenseCandidateFactory
     /// <summary>
     /// Creates one classified license candidate from a UTF-8 slice owned by the scanned input.
     /// </summary>
+    /// <param name="source">The evidence source.</param>
+    /// <param name="kind">The source field or license value kind.</param>
+    /// <param name="raw">The source-backed raw license value.</param>
+    /// <param name="spdxLicenseIndex">The active SPDX data index.</param>
+    /// <param name="evidence">Typed provenance that substantiates the candidate.</param>
+    /// <returns>The classified candidate.</returns>
     public static LicenseCandidate Create(string source, string kind, Utf8Slice raw, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
     {
         var status = Classify(raw.Span, spdxLicenseIndex, out var normalized, out var deprecated);
@@ -34,6 +41,7 @@ public static class LicenseCandidateFactory
     /// <param name="source">The attempted evidence source.</param>
     /// <param name="kind">The attempted evidence kind.</param>
     /// <param name="warning">The warning retained for the failure.</param>
+    /// <param name="evidence">Typed provenance for the failed collection attempt.</param>
     /// <returns>The error candidate.</returns>
     public static LicenseCandidate CreateError(string source, string kind, string warning, LicenseEvidence evidence = default)
         => new(source, kind, default, default, LicenseStatus.Error, false, [warning], evidence);

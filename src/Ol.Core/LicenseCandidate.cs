@@ -41,8 +41,6 @@ public enum SbomLicenseField : byte
     None,
     /// <summary>CycloneDX component <c>licenses</c>.</summary>
     CycloneDxLicenses,
-    /// <summary>CycloneDX component <c>evidence.licenses</c>.</summary>
-    CycloneDxObservedLicenses,
     /// <summary>SPDX package <c>licenseDeclared</c>.</summary>
     SpdxLicenseDeclared,
     /// <summary>SPDX package <c>licenseConcluded</c>.</summary>
@@ -64,19 +62,20 @@ public enum LicenseAcknowledgement : byte
 /// <param name="Kind">The provenance family.</param>
 /// <param name="SbomField">The exact SBOM license field, when applicable.</param>
 /// <param name="Acknowledgement">The explicit declared or concluded acknowledgement, when supplied.</param>
-/// <param name="CacheKeySha256">The opaque package registry cache identity, when applicable.</param>
-/// <param name="CollectedAt">The package metadata collection time, when known.</param>
-/// <param name="SourceRepository">Structured source-repository provenance, when applicable.</param>
+/// <param name="PackageRegistry">Package-registry provenance, when applicable.</param>
+/// <param name="SourceRepository">Source-repository provenance, when applicable.</param>
 public readonly record struct LicenseEvidence(
     LicenseEvidenceKind Kind,
     SbomLicenseField SbomField = SbomLicenseField.None,
     LicenseAcknowledgement Acknowledgement = LicenseAcknowledgement.None,
-    string? CacheKeySha256 = null,
-    DateTimeOffset CollectedAt = default,
+    PackageRegistryEvidence? PackageRegistry = null,
     SourceRepositoryEvidence? SourceRepository = null);
 
+/// <summary>Contains structured provenance for one package-registry candidate.</summary>
+public sealed record PackageRegistryEvidence(string CacheKeySha256, DateTimeOffset CollectedAt = default);
+
 /// <summary>Contains structured provenance for one source-repository candidate.</summary>
-public readonly record struct SourceRepositoryEvidence(
+public sealed record SourceRepositoryEvidence(
     string Repository,
     string Ref,
     int? HttpStatus,

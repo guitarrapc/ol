@@ -151,7 +151,7 @@ For `conflict`, it displays candidate licenses separated by comma and a final `(
 MIT, Apache-2.0 (?)
 ```
 
-The marker is display-only. JSON output must preserve candidates and evidence separately.
+The marker is display-only. JSON output preserves each claim in `licenseCandidates` and attaches its non-duplicated provenance as that candidate's typed `evidence` object.
 
 <a id="contract-dependency-type"></a>
 ## Dependency Type
@@ -253,6 +253,8 @@ JSON output is the canonical machine-readable report. It includes:
 - summary
 - warnings
 
+Top-level `schemaVersion` identifies the breaking report contract. Schema version 1 removes the duplicate component-level `evidence` array and makes candidate provenance subordinate to each `licenseCandidates` item. Consumers must reject or explicitly migrate unsupported schema versions rather than silently interpreting a newer report as an older shape.
+
 The current v1 report emits `metadata.input` and `metadata.spdx` as separate objects. `metadata.input.sbomRef` is the input basename, rather than an absolute local path. The SPDX object records its logical data reference, License List version, and SHA-256 hashes of the active `licenses.json` and `exceptions.json` files.
 
 SBOM files and SPDX data files encoded with a UTF-8 BOM are accepted.
@@ -276,7 +278,7 @@ SPDX metadata is defined by [spdx.md](spdx.md) and is required in every JSON rep
 
 When v3 source repository enrichment is active, `metadata.sourceRepository` reports target, request, cache, error, and unknown counts. `metadata.network.githubAuth` reports only `ol_github_token` or `none`; it never includes a credential value.
 
-Each GitHub license candidate carries a structured `sourceRepository` object in `licenseCandidates` and `evidence`. It contains logical repository/ref, HTTP status, cache-key hash, and license path/SHA/key/name/URL. These provenance fields are metadata, not warnings, and never contain a cache path or token value.
+Each GitHub license candidate carries a typed `evidence` object in its `licenseCandidates` entry. It contains logical repository/ref, HTTP status, cache-key hash, and license path/SHA/key/name/URL. These provenance fields are metadata, not warnings, and never contain a cache path or token value.
 
 Component entries include original SBOM identifiers when present:
 

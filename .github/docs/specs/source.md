@@ -6,7 +6,7 @@ Source repository evidence is a hint source, not a legal authority. It is used b
 
 ## Design Basis
 
-This planned v3 specification derives from the [Ol design](../DESIGN.md), especially the decisions to [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), [add evidence sources through one reconciliation model](../DESIGN.md#decision-shared-reconciliation), [make component/source failures best-effort](../DESIGN.md#decision-failure-scope), [make evidence freshness explicit](../DESIGN.md#decision-cache-freshness), [version the persistent evidence format](../DESIGN.md#decision-cache-compatibility), [bound external I/O and avoid unnecessary requests](../DESIGN.md#decision-bounded-io), [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy), and [confine credentials to their intended authority](../DESIGN.md#decision-credential-confinement).
+This v3 specification derives from the [Ol design](../DESIGN.md), especially the decisions to [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), [add evidence sources through one reconciliation model](../DESIGN.md#decision-shared-reconciliation), [make component/source failures best-effort](../DESIGN.md#decision-failure-scope), [make evidence freshness explicit](../DESIGN.md#decision-cache-freshness), [version the persistent evidence format](../DESIGN.md#decision-cache-compatibility), [bound external I/O and avoid unnecessary requests](../DESIGN.md#decision-bounded-io), [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy), and [confine credentials to their intended authority](../DESIGN.md#decision-credential-confinement).
 
 Source repository results are therefore additional attributable evidence, not a replacement for SBOM or package metadata. The GitHub API boundary, explicit authentication variable, opaque cache names, and refusal to infer a license from unidentified content follow from the need for explainable results without exposing credentials or converting uncertainty into a guessed conclusion.
 
@@ -55,7 +55,7 @@ Evidence may include:
 - fetch status
 - warnings or errors
 
-JSON reports expose this provenance as a structured `sourceRepository` object on the source candidate. Provenance fields do not inflate warning counts.
+JSON report schema version 1 exposes this provenance once, as the typed `evidence` object nested in the source candidate. It contains only source-specific audit details and does not duplicate the candidate's raw/normalized claim, source, status, or warnings. Provenance fields do not inflate warning counts.
 
 When package metadata supplies a repository commit or ref for the package version, that ref is part of the source target and cache identity. Otherwise GitHub resolves the repository default branch. Package metadata repository URLs take precedence over SBOM repository references.
 
@@ -121,7 +121,7 @@ A source-cache write failure records `source_repository_cache_write_failed` but 
 <a id="contract-source-best-effort"></a>
 ## Best-Effort Execution
 
-Source repository fetch errors are component-level evidence. They must not stop the whole scan.
+Source repository fetch errors are retained as a source candidate and aggregated component warning. They must not stop the whole scan.
 
 If SBOM or package metadata evidence already yields a single valid license, a source repository fetch failure records a warning but does not change the component to `error`.
 

@@ -149,7 +149,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
     {
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
-            CacheKeySha256: PackageMetadataCache.GetCacheKeySha256(request.CacheKey));
+            PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey)));
         var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed", evidence);
         return new PackageMetadataLookupResult(error, true, false, true, false, true, false);
     }
@@ -185,8 +185,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
     {
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
-            CacheKeySha256: record.CacheKeySha256,
-            CollectedAt: record.FetchedAt);
+            PackageRegistry: new PackageRegistryEvidence(record.CacheKeySha256, record.FetchedAt));
         var candidate = LicenseCandidateFactory.Create(record.Source, "license", Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex, evidence);
         if (record.Warnings.Length == 0)
         {

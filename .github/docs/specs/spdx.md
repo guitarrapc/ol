@@ -179,13 +179,26 @@ stderr summary should include deprecated identifier warning counts.
 <a id="contract-candidate-evidence"></a>
 ## Candidate and Evidence Records
 
-Each component JSON record retains the raw SBOM license values in both `licenseCandidates` and `evidence`. Each candidate includes:
+Each component JSON record retains every license claim once in `licenseCandidates`. Each candidate includes:
 
-- `source`, initially `sbom`
+- `source`
 - `kind`, such as `declared`, `concluded`, `expression`, `id`, or `name`
 - `raw` and normalized SPDX expression when valid
 - classification `status`
 - `deprecated` and candidate `warnings`
+- one typed `evidence` object describing the provenance that is not already represented by the candidate
+
+The former component-level `evidence` array duplicated `licenseCandidates` and is removed by JSON report schema version 1. Evidence is now subordinate to the claim it substantiates:
+
+Audit evidence is a traceable observation, not an independent license conclusion. It identifies the input field or collected record from which the candidate was derived closely enough for a reviewer to locate and re-check it. Candidate fields hold the observed claim and Ol's interpretation; nested evidence holds only non-duplicated provenance needed to audit that claim.
+
+- SBOM evidence records the exact source field. CycloneDX license `acknowledgement` is retained only when explicitly present; SPDX `licenseDeclared` and `licenseConcluded` are identified by field and are not relabeled as CycloneDX acknowledgements.
+- Package registry evidence records the opaque cache-key hash and collection timestamp when known.
+- Source repository evidence records the logical repository/ref, collection status, opaque cache-key hash, and detected license-file metadata when known.
+
+`acknowledgement: declared|concluded` records the producer's assertion semantics. It is not a verified attestation. CycloneDX `declarations.attestations`, BOM signatures, SPDX annotations, and package verification codes have broader document, conformance, or identity semantics and must not be projected onto a license candidate without an explicit relationship and a recorded verification result. Ol does not emit an inferred `attested` boolean.
+
+CycloneDX observed license collections under `component.evidence.licenses` are not flattened into independent reconciled candidates yet. A list of observed licenses does not state the AND/OR relationship needed to compare it safely with a concluded expression. Preserving that group relationship is required before Ol can use it without manufacturing false conflicts or conclusions.
 
 The component `warnings` array aggregates candidate warnings. This preserves unknown-like, ambiguous, invalid, and deprecated values for later evidence sources to reconcile in v2 and v3.
 

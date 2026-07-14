@@ -66,6 +66,8 @@ Package metadata evidence may provide:
 - fetch status
 - warnings and errors
 
+In JSON report schema version 1, the package license claim appears once in `licenseCandidates`. Its nested `evidence` has type `package-registry` and carries an opaque cache-key SHA-256 plus the metadata collection timestamp when known. It does not repeat the raw or normalized license, source, status, or warnings already present on the candidate. A cache identity proves which persisted observation was used; it does not make the registry an authority or attest that the license is legally correct.
+
 Package metadata is combined with SBOM evidence:
 
 - If all usable candidates agree, status is `matched`.

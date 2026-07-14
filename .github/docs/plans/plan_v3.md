@@ -199,7 +199,7 @@ Retry policy:
 
 ## JSON Report Additions
 
-Add source repository evidence to component records.
+JSON report schema version 1 adds source repository provenance as the typed `evidence` object nested under the corresponding `licenseCandidates` item. It does not add a second component-level candidate array.
 
 Add network metadata:
 

@@ -506,6 +506,8 @@ internal readonly record struct GroupRow(string[] Values, int Count, ScanCompone
 
 internal static class ReportRenderer
 {
+    private const int JsonSchemaVersion = 1;
+
     public static string RenderText(ReadOnlySpan<ScanComponent> components, bool verbose)
     {
         var builder = new StringBuilder();
@@ -630,6 +632,7 @@ internal static class ReportRenderer
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
         {
             writer.WriteStartObject();
+            writer.WriteNumber("schemaVersion", JsonSchemaVersion);
             writer.WriteStartObject("metadata");
             writer.WriteString("tool", "ol");
             writer.WriteStartObject("input");
@@ -657,7 +660,6 @@ internal static class ReportRenderer
                 writer.WriteString("purl"u8, component.Purl.Span);
                 writer.WriteString("sourceId"u8, component.SourceId.Span);
                 WriteLicenseCandidates(writer, component);
-                WriteEvidence(writer, component);
                 WriteWarnings(writer, component.Warnings);
                 writer.WriteEndObject();
             }
@@ -685,6 +687,7 @@ internal static class ReportRenderer
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
         {
             writer.WriteStartObject();
+            writer.WriteNumber("schemaVersion", JsonSchemaVersion);
             writer.WriteStartObject("metadata");
             writer.WriteString("tool", "ol");
             writer.WriteStartObject("input");
@@ -801,41 +804,71 @@ internal static class ReportRenderer
             writer.WriteString("status", candidate.Status.ToString().ToLowerInvariant());
             writer.WriteBoolean("deprecated", candidate.Deprecated);
             WriteWarnings(writer, candidate.Warnings);
-            WriteSourceRepositoryEvidence(writer, candidate.SourceRepository);
+            WriteLicenseEvidence(writer, candidate.Evidence);
             writer.WriteEndObject();
         }
 
         writer.WriteEndArray();
     }
 
-    private static void WriteEvidence(Utf8JsonWriter writer, ScanComponent component)
+    private static void WriteLicenseEvidence(Utf8JsonWriter writer, LicenseEvidence evidence)
     {
-        writer.WriteStartArray("evidence");
-        for (var i = 0; i < component.CandidateCount; i++)
-        {
-            var item = component.GetCandidate(i);
-            writer.WriteStartObject();
-            writer.WriteString("source", item.Source);
-            writer.WriteString("kind", item.Kind);
-            writer.WriteString("raw"u8, item.Raw.Span);
-            writer.WriteString("normalized"u8, item.Normalized.Span);
-            writer.WriteString("status", item.Status.ToString().ToLowerInvariant());
-            WriteWarnings(writer, item.Warnings);
-            WriteSourceRepositoryEvidence(writer, item.SourceRepository);
-            writer.WriteEndObject();
-        }
-
-        writer.WriteEndArray();
-    }
-
-    private static void WriteSourceRepositoryEvidence(Utf8JsonWriter writer, SourceRepositoryEvidence? evidence)
-    {
-        if (evidence is not { } value)
+        if (evidence.Kind == LicenseEvidenceKind.None)
         {
             return;
         }
 
-        writer.WriteStartObject("sourceRepository");
+        writer.WriteStartObject("evidence");
+        switch (evidence.Kind)
+        {
+            case LicenseEvidenceKind.Sbom:
+                writer.WriteString("type", "sbom");
+                var field = evidence.SbomField switch
+                {
+                    SbomLicenseField.CycloneDxLicenses => "licenses",
+                    SbomLicenseField.SpdxLicenseDeclared => "licenseDeclared",
+                    SbomLicenseField.SpdxLicenseConcluded => "licenseConcluded",
+                    _ => null,
+                };
+                if (field is not null)
+                {
+                    writer.WriteString("field", field);
+                }
+
+                if (evidence.Acknowledgement != LicenseAcknowledgement.None)
+                {
+                    writer.WriteString("acknowledgement", evidence.Acknowledgement == LicenseAcknowledgement.Declared ? "declared" : "concluded");
+                }
+
+                break;
+            case LicenseEvidenceKind.PackageRegistry:
+                writer.WriteString("type", "package-registry");
+                if (evidence.PackageRegistry?.CacheKeySha256 is { Length: > 0 } cacheKeySha256)
+                {
+                    writer.WriteString("cacheKeySha256", cacheKeySha256);
+                }
+
+                if (evidence.PackageRegistry is { } packageDetails && packageDetails.CollectedAt != default)
+                {
+                    writer.WriteString("collectedAt", packageDetails.CollectedAt);
+                }
+
+                break;
+            case LicenseEvidenceKind.SourceRepository:
+                writer.WriteString("type", "source-repository");
+                if (evidence.SourceRepository is { } sourceRepository)
+                {
+                    WriteSourceRepositoryEvidence(writer, sourceRepository);
+                }
+
+                break;
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteSourceRepositoryEvidence(Utf8JsonWriter writer, SourceRepositoryEvidence value)
+    {
         writer.WriteString("repository", value.Repository);
         writer.WriteString("ref", value.Ref);
         if (value.HttpStatus is { } status) writer.WriteNumber("httpStatus", status);
@@ -846,7 +879,6 @@ internal static class ReportRenderer
         writer.WriteString("licenseKey", value.LicenseKey);
         writer.WriteString("licenseName", value.LicenseName);
         writer.WriteString("licenseUrl", value.LicenseUrl);
-        writer.WriteEndObject();
     }
 
     private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<string> warnings)

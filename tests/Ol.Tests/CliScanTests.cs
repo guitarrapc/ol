@@ -209,10 +209,10 @@ public sealed class CliScanTests
             var declaredEvidence = declared.GetProperty("evidence");
             await Assert.That(declaredEvidence.GetProperty("type").GetString()).IsEqualTo("sbom");
             await Assert.That(declaredEvidence.GetProperty("field").GetString()).IsEqualTo("licenseDeclared");
-            await Assert.That(declaredEvidence.GetProperty("acknowledgement").GetString()).IsEqualTo("declared");
+            await Assert.That(declaredEvidence.TryGetProperty("acknowledgement", out _)).IsFalse();
             var concludedEvidence = candidates[1].GetProperty("evidence");
             await Assert.That(concludedEvidence.GetProperty("field").GetString()).IsEqualTo("licenseConcluded");
-            await Assert.That(concludedEvidence.GetProperty("acknowledgement").GetString()).IsEqualTo("concluded");
+            await Assert.That(concludedEvidence.TryGetProperty("acknowledgement", out _)).IsFalse();
             await Assert.That(candidates[2].GetProperty("kind").GetString()).IsEqualTo("unavailable");
             await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
             await Assert.That(stderr).IsEmpty();
@@ -271,9 +271,19 @@ public sealed class CliScanTests
               "specVersion": "1.6",
               "components": [
                 {
-                  "bom-ref": "example",
-                  "name": "example",
+                  "bom-ref": "concluded",
+                  "name": "concluded",
                   "licenses": [ { "license": { "id": "MIT", "acknowledgement": "concluded" } } ]
+                },
+                {
+                  "bom-ref": "declared",
+                  "name": "declared",
+                  "licenses": [ { "license": { "id": "MIT", "acknowledgement": "declared" } } ]
+                },
+                {
+                  "bom-ref": "unspecified",
+                  "name": "unspecified",
+                  "licenses": [ { "license": { "id": "MIT", "acknowledgement": "unsupported-value" } } ]
                 }
               ]
             }
@@ -287,13 +297,16 @@ public sealed class CliScanTests
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
             await Assert.That(report.RootElement.GetProperty("schemaVersion").GetInt32()).IsEqualTo(1);
-            var component = report.RootElement.GetProperty("components")[0];
+            var components = report.RootElement.GetProperty("components");
+            var component = components[0];
             await Assert.That(component.TryGetProperty("evidence", out _)).IsFalse();
             var evidence = component.GetProperty("licenseCandidates")[0].GetProperty("evidence");
             await Assert.That(evidence.GetProperty("type").GetString()).IsEqualTo("sbom");
             await Assert.That(evidence.GetProperty("field").GetString()).IsEqualTo("licenses");
             await Assert.That(evidence.GetProperty("acknowledgement").GetString()).IsEqualTo("concluded");
             await Assert.That(evidence.TryGetProperty("attested", out _)).IsFalse();
+            await Assert.That(components[1].GetProperty("licenseCandidates")[0].GetProperty("evidence").GetProperty("acknowledgement").GetString()).IsEqualTo("declared");
+            await Assert.That(components[2].GetProperty("licenseCandidates")[0].GetProperty("evidence").TryGetProperty("acknowledgement", out _)).IsFalse();
             await Assert.That(stderr).IsEmpty();
         }
         finally

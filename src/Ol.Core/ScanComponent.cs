@@ -15,14 +15,14 @@
 /// <param name="Evidence">The normalized evidence records.</param>
 /// <param name="Warnings">Warnings associated with this component.</param>
 public readonly record struct ScanComponent(
-    string Name,
-    string Version,
+    Utf8Slice Name,
+    Utf8Slice Version,
     string License,
     string Ecosystem,
     DependencyType DependencyType,
     LicenseStatus Status,
-    string Purl,
-    string SourceId,
+    Utf8Slice Purl,
+    Utf8Slice SourceId,
     LicenseCandidate[] LicenseCandidates,
     LicenseEvidence[] Evidence,
     string[] Warnings);

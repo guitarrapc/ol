@@ -50,13 +50,58 @@ public sealed class CycloneDxScanTests
         await Assert.That(report.Components.Length).IsEqualTo(1);
 
         var component = report.Components[0];
-        await Assert.That(component.Name).IsEqualTo("left-pad");
-        await Assert.That(component.Version).IsEqualTo("1.3.0");
-        await Assert.That(component.Purl).IsEqualTo("pkg:npm/left-pad@1.3.0");
+        await Assert.That(component.Name.ToString()).IsEqualTo("left-pad");
+        await Assert.That(component.Version.ToString()).IsEqualTo("1.3.0");
+        await Assert.That(component.Purl.ToString()).IsEqualTo("pkg:npm/left-pad@1.3.0");
         await Assert.That(component.Ecosystem).IsEqualTo("npm");
         await Assert.That(component.DependencyType).IsEqualTo(DependencyType.Unknown);
         await Assert.That(component.Status).IsEqualTo(LicenseStatus.Matched);
         await Assert.That(component.License).IsEqualTo("MIT");
+    }
+
+    [Test]
+    public async Task Scan_UnescapedComponentText_RetainsUtf8SlicesUntilRendered()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                {
+                  "bom-ref": "pkg:npm/example@1.0.0",
+                  "name": "example",
+                  "version": "1.0.0",
+                  "purl": "pkg:npm/example@1.0.0",
+                  "licenses": [ { "license": { "id": "MIT" } } ]
+                }
+              ]
+            }
+            """);
+
+        var component = SbomScanner.Scan(sbom, Spdx).Components[0];
+
+        await Assert.That(component.Name.Span.SequenceEqual("example"u8)).IsTrue();
+        await Assert.That(component.Purl.Span.SequenceEqual("pkg:npm/example@1.0.0"u8)).IsTrue();
+        await Assert.That(component.LicenseCandidates[0].Raw.Span.SequenceEqual("MIT"u8)).IsTrue();
+        await Assert.That(component.Evidence[0].Raw.Span.SequenceEqual("MIT"u8)).IsTrue();
+    }
+
+    [Test]
+    public async Task Scan_PurlWithMixedCaseType_DetectsEcosystemWithoutDecoding()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                { "name": "example", "purl": "pkg:NPM/example@1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] }
+              ]
+            }
+            """);
+
+        var component = SbomScanner.Scan(sbom, Spdx).Components[0];
+
+        await Assert.That(component.Ecosystem).IsEqualTo("npm");
     }
 
     [Test]
@@ -128,10 +173,10 @@ public sealed class CycloneDxScanTests
 
         var component = report.Components[0];
         await Assert.That(component.LicenseCandidates.Length).IsEqualTo(1);
-        await Assert.That(component.LicenseCandidates[0].Raw).IsEqualTo("NOASSERTION");
+        await Assert.That(component.LicenseCandidates[0].Raw.ToString()).IsEqualTo("NOASSERTION");
         await Assert.That(component.LicenseCandidates[0].Status).IsEqualTo(LicenseStatus.Unknown);
         await Assert.That(component.Evidence.Length).IsEqualTo(1);
-        await Assert.That(component.Evidence[0].Raw).IsEqualTo("NOASSERTION");
+        await Assert.That(component.Evidence[0].Raw.ToString()).IsEqualTo("NOASSERTION");
     }
 
     [Test]
@@ -271,11 +316,11 @@ public sealed class CycloneDxScanTests
         var report = SbomScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components.Length).IsEqualTo(3);
-        await Assert.That(report.Components[0].Name).IsEqualTo("app");
+        await Assert.That(report.Components[0].Name.ToString()).IsEqualTo("app");
         await Assert.That(report.Components[0].DependencyType).IsEqualTo(DependencyType.Root);
-        await Assert.That(report.Components[1].Name).IsEqualTo("direct");
+        await Assert.That(report.Components[1].Name.ToString()).IsEqualTo("direct");
         await Assert.That(report.Components[1].DependencyType).IsEqualTo(DependencyType.Direct);
-        await Assert.That(report.Components[2].Name).IsEqualTo("transitive");
+        await Assert.That(report.Components[2].Name.ToString()).IsEqualTo("transitive");
         await Assert.That(report.Components[2].DependencyType).IsEqualTo(DependencyType.Transitive);
     }
 
@@ -332,9 +377,9 @@ public sealed class SpdxScanTests
         await Assert.That(report.Components.Length).IsEqualTo(1);
 
         var component = report.Components[0];
-        await Assert.That(component.Name).IsEqualTo("left-pad");
-        await Assert.That(component.Version).IsEqualTo("1.3.0");
-        await Assert.That(component.Purl).IsEqualTo("pkg:npm/left-pad@1.3.0");
+        await Assert.That(component.Name.ToString()).IsEqualTo("left-pad");
+        await Assert.That(component.Version.ToString()).IsEqualTo("1.3.0");
+        await Assert.That(component.Purl.ToString()).IsEqualTo("pkg:npm/left-pad@1.3.0");
         await Assert.That(component.Ecosystem).IsEqualTo("npm");
         await Assert.That(component.Status).IsEqualTo(LicenseStatus.Matched);
         await Assert.That(component.License).IsEqualTo("MIT");

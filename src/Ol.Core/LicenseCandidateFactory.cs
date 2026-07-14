@@ -1,6 +1,4 @@
-﻿using System.Text;
-
-namespace Ol.Core;
+﻿namespace Ol.Core;
 
 /// <summary>
 /// Classifies raw license evidence into SPDX-aware candidates.
@@ -18,7 +16,7 @@ public static class LicenseCandidateFactory
     public static LicenseCandidate Create(string source, string kind, string raw, SpdxLicenseIndex spdxLicenseIndex)
     {
         var status = Classify(raw, spdxLicenseIndex, out var normalized, out var deprecated);
-        return new LicenseCandidate(source, kind, raw, normalized, status, deprecated, deprecated ? ["deprecated_spdx_identifier"] : []);
+        return new LicenseCandidate(source, kind, Utf8Slice.FromString(raw), normalized, status, deprecated, deprecated ? ["deprecated_spdx_identifier"] : []);
     }
 
     /// <summary>
@@ -31,14 +29,24 @@ public static class LicenseCandidateFactory
     /// <returns>The classified candidate.</returns>
     public static LicenseCandidate Create(string source, string kind, ReadOnlySpan<byte> rawUtf8, SpdxLicenseIndex spdxLicenseIndex)
     {
-        if (spdxLicenseIndex.TryNormalizeLicenseIdUtf8(rawUtf8, out var normalized))
+        var bytes = rawUtf8.ToArray();
+        return Create(source, kind, new Utf8Slice(bytes, 0, bytes.Length), spdxLicenseIndex);
+    }
+
+    /// <summary>
+    /// Creates one classified license candidate from a UTF-8 slice owned by the scanned input.
+    /// </summary>
+    public static LicenseCandidate Create(string source, string kind, Utf8Slice raw, SpdxLicenseIndex spdxLicenseIndex)
+    {
+        if (spdxLicenseIndex.TryNormalizeLicenseIdUtf8(raw.Span, out var normalized))
         {
-            var raw = Encoding.UTF8.GetString(rawUtf8);
             var deprecated = spdxLicenseIndex.IsDeprecatedLicenseId(normalized);
             return new LicenseCandidate(source, kind, raw, normalized, LicenseStatus.Matched, deprecated, deprecated ? ["deprecated_spdx_identifier"] : []);
         }
 
-        return Create(source, kind, Encoding.UTF8.GetString(rawUtf8), spdxLicenseIndex);
+        var rawText = raw.ToString();
+        var status = Classify(rawText, spdxLicenseIndex, out var normalizedExpression, out var deprecatedExpression);
+        return new LicenseCandidate(source, kind, raw, normalizedExpression, status, deprecatedExpression, deprecatedExpression ? ["deprecated_spdx_identifier"] : []);
     }
 
     /// <summary>
@@ -49,7 +57,7 @@ public static class LicenseCandidateFactory
     /// <param name="warning">The warning retained for the failure.</param>
     /// <returns>The error candidate.</returns>
     public static LicenseCandidate CreateError(string source, string kind, string warning)
-        => new(source, kind, string.Empty, string.Empty, LicenseStatus.Error, false, [warning]);
+        => new(source, kind, default, string.Empty, LicenseStatus.Error, false, [warning]);
 
     private static LicenseStatus Classify(string value, SpdxLicenseIndex spdxLicenseIndex, out string normalized, out bool deprecated)
     {

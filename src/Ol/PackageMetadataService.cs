@@ -55,9 +55,10 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
 
     private async Task<PackageMetadataEnrichment> EnrichComponentAsync(ScanComponent component, SemaphoreSlim gate, CancellationToken cancellationToken)
     {
-        if (!PackageMetadataRequest.TryCreate(component.Purl, out var request))
+        var purl = component.Purl.ToString();
+        if (!PackageMetadataRequest.TryCreate(purl, out var request))
         {
-            if (component.Purl.Length == 0)
+            if (component.Purl.IsEmpty)
             {
                 return new PackageMetadataEnrichment(component, false, false, false, false, false, false);
             }

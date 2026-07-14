@@ -6,6 +6,7 @@ using Ol.Core;
 BenchmarkRunner.Run<SbomScannerBenchmark>();
 
 [MemoryDiagnoser]
+[DisassemblyDiagnoser(maxDepth: 1)]
 public class SbomScannerBenchmark
 {
     private readonly byte[] cycloneDx = Encoding.UTF8.GetBytes(

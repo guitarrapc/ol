@@ -97,7 +97,7 @@ internal sealed class ScanCommands
         return 0;
     }
 
-    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, string specVersion, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
+    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, Utf8Slice specVersion, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
     {
         return format switch
         {
@@ -331,13 +331,13 @@ internal static class ScanView
     {
         return key.ToLowerInvariant() switch
         {
-            "name" => string.CompareOrdinal(left.Name, right.Name),
-            "version" => string.CompareOrdinal(left.Version, right.Version),
+            "name" => Utf8Slice.CompareOrdinal(left.Name, right.Name),
+            "version" => Utf8Slice.CompareOrdinal(left.Version, right.Version),
             "license" => string.CompareOrdinal(left.License, right.License),
             "ecosystem" => string.CompareOrdinal(left.Ecosystem, right.Ecosystem),
             "dependency" => left.DependencyType.CompareTo(right.DependencyType),
             "status" => left.Status.CompareTo(right.Status),
-            "purl" => string.CompareOrdinal(left.Purl, right.Purl),
+            "purl" => Utf8Slice.CompareOrdinal(left.Purl, right.Purl),
             _ => throw new ArgumentException($"Unknown sort key: {key}"),
         };
     }
@@ -370,8 +370,8 @@ internal static class ScanView
         {
             values[i] = fields[i] switch
             {
-                GroupField.Name => component.Name,
-                GroupField.Version => component.Version,
+                GroupField.Name => component.Name.ToString(),
+                GroupField.Version => component.Version.ToString(),
                 GroupField.License => component.License,
                 GroupField.Ecosystem => component.Ecosystem,
                 GroupField.Dependency => component.DependencyType.ToString().ToLowerInvariant(),
@@ -537,7 +537,7 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static string RenderJson(SbomFormat format, string specVersion, ScanComponent[] components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
+    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, ScanComponent[] components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -548,7 +548,7 @@ internal static class ReportRenderer
             writer.WriteStartObject("input");
             writer.WriteString("sbomRef", Path.GetFileName(sbomPath));
             writer.WriteString("sbomFormat", GetFormatName(format));
-            writer.WriteString("sbomSpecVersion", specVersion);
+            writer.WriteString("sbomSpecVersion"u8, specVersion.Span);
             writer.WriteString("sbomSha256", Convert.ToHexString(SHA256.HashData(sbomBytes)).ToLowerInvariant());
             writer.WriteEndObject();
             WriteSpdxMetadata(writer, spdx);
@@ -560,14 +560,14 @@ internal static class ReportRenderer
             {
                 var component = components[i];
                 writer.WriteStartObject();
-                writer.WriteString("name", component.Name);
-                writer.WriteString("version", component.Version);
+                writer.WriteString("name"u8, component.Name.Span);
+                writer.WriteString("version"u8, component.Version.Span);
                 writer.WriteString("license", component.License);
                 writer.WriteString("ecosystem", component.Ecosystem);
                 writer.WriteString("dependency", component.DependencyType.ToString().ToLowerInvariant());
                 writer.WriteString("status", component.Status.ToString().ToLowerInvariant());
-                writer.WriteString("purl", component.Purl);
-                writer.WriteString("sourceId", component.SourceId);
+                writer.WriteString("purl"u8, component.Purl.Span);
+                writer.WriteString("sourceId"u8, component.SourceId.Span);
                 WriteLicenseCandidates(writer, component.LicenseCandidates);
                 WriteEvidence(writer, component.Evidence);
                 WriteWarnings(writer, component.Warnings);
@@ -591,7 +591,7 @@ internal static class ReportRenderer
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    public static string RenderJson(SbomFormat format, string specVersion, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
+    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -602,7 +602,7 @@ internal static class ReportRenderer
             writer.WriteStartObject("input");
             writer.WriteString("sbomRef", Path.GetFileName(sbomPath));
             writer.WriteString("sbomFormat", GetFormatName(format));
-            writer.WriteString("sbomSpecVersion", specVersion);
+            writer.WriteString("sbomSpecVersion"u8, specVersion.Span);
             writer.WriteString("sbomSha256", Convert.ToHexString(SHA256.HashData(sbomBytes)).ToLowerInvariant());
             writer.WriteEndObject();
             WriteSpdxMetadata(writer, spdx);
@@ -625,10 +625,10 @@ internal static class ReportRenderer
                 {
                     var component = groups[i].Components[componentIndex];
                     writer.WriteStartObject();
-                    writer.WriteString("name", component.Name);
-                    writer.WriteString("version", component.Version);
+                    writer.WriteString("name"u8, component.Name.Span);
+                    writer.WriteString("version"u8, component.Version.Span);
                     writer.WriteString("ecosystem", component.Ecosystem);
-                    writer.WriteString("purl", component.Purl);
+                    writer.WriteString("purl"u8, component.Purl.Span);
                     writer.WriteEndObject();
                 }
 
@@ -649,7 +649,14 @@ internal static class ReportRenderer
         builder.Append(Display(value).Replace("|", "\\|", StringComparison.Ordinal));
     }
 
+    private static void AppendMarkdownValue(StringBuilder builder, Utf8Slice value)
+    {
+        AppendMarkdownValue(builder, value.ToString());
+    }
+
     private static string Display(string value) => value.Length == 0 ? "-" : value;
+
+    private static string Display(Utf8Slice value) => value.IsEmpty ? "-" : value.ToString();
 
     private static void WriteSpdxMetadata(Utf8JsonWriter writer, SpdxData spdx)
     {
@@ -685,7 +692,7 @@ internal static class ReportRenderer
             writer.WriteStartObject();
             writer.WriteString("source", candidate.Source);
             writer.WriteString("kind", candidate.Kind);
-            writer.WriteString("raw", candidate.Raw);
+            writer.WriteString("raw"u8, candidate.Raw.Span);
             writer.WriteString("normalized", candidate.Normalized);
             writer.WriteString("status", candidate.Status.ToString().ToLowerInvariant());
             writer.WriteBoolean("deprecated", candidate.Deprecated);
@@ -705,7 +712,7 @@ internal static class ReportRenderer
             writer.WriteStartObject();
             writer.WriteString("source", item.Source);
             writer.WriteString("kind", item.Kind);
-            writer.WriteString("raw", item.Raw);
+            writer.WriteString("raw"u8, item.Raw.Span);
             writer.WriteString("normalized", item.Normalized);
             writer.WriteString("status", item.Status.ToString().ToLowerInvariant());
             WriteWarnings(writer, item.Warnings);

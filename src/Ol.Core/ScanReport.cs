@@ -6,4 +6,4 @@
 /// <param name="Format">The detected SBOM format.</param>
 /// <param name="SpecVersion">The SBOM specification version, when present.</param>
 /// <param name="Components">The scanned components.</param>
-public readonly record struct ScanReport(SbomFormat Format, string SpecVersion, ScanComponent[] Components);
+public readonly record struct ScanReport(SbomFormat Format, Utf8Slice SpecVersion, ScanComponent[] Components);

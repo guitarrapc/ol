@@ -17,24 +17,30 @@ public static class SbomScanner
     /// <returns>The scan report.</returns>
     public static ScanReport Scan(ReadOnlySpan<byte> sbomUtf8, SpdxLicenseIndex spdxLicenseIndex)
     {
-        sbomUtf8 = SkipUtf8Bom(sbomUtf8);
-        var reader = new Utf8JsonReader(sbomUtf8, isFinalBlock: true, state: default);
+        return Scan(sbomUtf8.ToArray(), spdxLicenseIndex);
+    }
+
+    /// <summary>
+    /// Scans an owned UTF-8 SBOM buffer without copying component text.
+    /// </summary>
+    public static ScanReport Scan(byte[] sbomUtf8, SpdxLicenseIndex spdxLicenseIndex)
+    {
+        ArgumentNullException.ThrowIfNull(sbomUtf8);
+        var offset = HasUtf8Bom(sbomUtf8) ? 3 : 0;
+        var input = sbomUtf8.AsSpan(offset);
+        var reader = new Utf8JsonReader(input, isFinalBlock: true, state: default);
         var format = DetectFormat(ref reader);
 
         return format switch
         {
-            SbomFormat.CycloneDxJson => ScanCycloneDx(sbomUtf8, spdxLicenseIndex),
-            SbomFormat.SpdxJson => ScanSpdx(sbomUtf8, spdxLicenseIndex),
+            SbomFormat.CycloneDxJson => ScanCycloneDx(sbomUtf8, offset, spdxLicenseIndex),
+            SbomFormat.SpdxJson => ScanSpdx(sbomUtf8, offset, spdxLicenseIndex),
             _ => throw new JsonException("Unsupported SBOM JSON format."),
         };
     }
 
-    private static ReadOnlySpan<byte> SkipUtf8Bom(ReadOnlySpan<byte> sbomUtf8)
-    {
-        return sbomUtf8.Length >= 3 && sbomUtf8[0] == 0xEF && sbomUtf8[1] == 0xBB && sbomUtf8[2] == 0xBF
-            ? sbomUtf8[3..]
-            : sbomUtf8;
-    }
+    private static bool HasUtf8Bom(ReadOnlySpan<byte> sbomUtf8)
+        => sbomUtf8.Length >= 3 && sbomUtf8[0] == 0xEF && sbomUtf8[1] == 0xBB && sbomUtf8[2] == 0xBF;
 
     private static SbomFormat DetectFormat(ref Utf8JsonReader reader)
     {
@@ -80,16 +86,16 @@ public static class SbomScanner
         throw new JsonException("Unsupported SBOM JSON format.");
     }
 
-    private static ScanReport ScanCycloneDx(ReadOnlySpan<byte> sbomUtf8, SpdxLicenseIndex spdxLicenseIndex)
+    private static ScanReport ScanCycloneDx(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex)
     {
-        var reader = new Utf8JsonReader(sbomUtf8, isFinalBlock: true, state: default);
+        var reader = new Utf8JsonReader(sbomUtf8.AsSpan(offset), isFinalBlock: true, state: default);
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
         var dependencyRefs = ArrayPool<DependencyEdge>.Shared.Rent(16);
         var componentCount = 0;
         var dependencyCount = 0;
         var hasRoot = false;
-        var rootRef = string.Empty;
-        var specVersion = string.Empty;
+        var rootRef = default(Utf8Slice);
+        var specVersion = default(Utf8Slice);
 
         try
         {
@@ -102,8 +108,8 @@ public static class SbomScanner
 
                 if (reader.ValueTextEquals("metadata"u8))
                 {
-                    var rootComponent = ReadCycloneDxMetadataComponent(ref reader, spdxLicenseIndex);
-                    if (rootComponent.SourceId.Length != 0)
+                    var rootComponent = ReadCycloneDxMetadataComponent(ref reader, sbomUtf8, offset, spdxLicenseIndex);
+                    if (!rootComponent.SourceId.IsEmpty)
                     {
                         hasRoot = true;
                         rootRef = rootComponent.SourceId;
@@ -117,13 +123,13 @@ public static class SbomScanner
 
                 if (reader.ValueTextEquals("specVersion"u8))
                 {
-                    specVersion = ReadString(ref reader);
+                    specVersion = ReadUtf8Slice(ref reader, sbomUtf8, offset);
                     continue;
                 }
 
                 if (reader.ValueTextEquals("dependencies"u8))
                 {
-                    ReadCycloneDxDependencies(ref reader, ref dependencyRefs, ref dependencyCount);
+                    ReadCycloneDxDependencies(ref reader, sbomUtf8, offset, ref dependencyRefs, ref dependencyCount);
                     continue;
                 }
 
@@ -148,7 +154,7 @@ public static class SbomScanner
                         continue;
                     }
 
-                    var component = ReadCycloneDxComponent(ref reader, spdxLicenseIndex);
+                    var component = ReadCycloneDxComponent(ref reader, sbomUtf8, offset, spdxLicenseIndex);
                     EnsureComponentCapacity(ref components, componentCount);
                     components[componentCount] = component;
                     componentCount++;
@@ -171,15 +177,15 @@ public static class SbomScanner
         }
     }
 
-    private static ScanReport ScanSpdx(ReadOnlySpan<byte> sbomUtf8, SpdxLicenseIndex spdxLicenseIndex)
+    private static ScanReport ScanSpdx(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex)
     {
-        var reader = new Utf8JsonReader(sbomUtf8, isFinalBlock: true, state: default);
+        var reader = new Utf8JsonReader(sbomUtf8.AsSpan(offset), isFinalBlock: true, state: default);
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
         var dependencyRefs = ArrayPool<DependencyEdge>.Shared.Rent(16);
         var componentCount = 0;
         var dependencyCount = 0;
-        var rootRef = string.Empty;
-        var specVersion = string.Empty;
+        var rootRef = default(Utf8Slice);
+        var specVersion = default(Utf8Slice);
 
         try
         {
@@ -192,13 +198,13 @@ public static class SbomScanner
 
                 if (reader.ValueTextEquals("relationships"u8))
                 {
-                    ReadSpdxRelationships(ref reader, ref dependencyRefs, ref dependencyCount, ref rootRef);
+                    ReadSpdxRelationships(ref reader, sbomUtf8, offset, ref dependencyRefs, ref dependencyCount, ref rootRef);
                     continue;
                 }
 
                 if (reader.ValueTextEquals("spdxVersion"u8))
                 {
-                    specVersion = ReadString(ref reader);
+                    specVersion = ReadUtf8Slice(ref reader, sbomUtf8, offset);
                     continue;
                 }
 
@@ -223,7 +229,7 @@ public static class SbomScanner
                         continue;
                     }
 
-                    var component = ReadSpdxPackage(ref reader, spdxLicenseIndex);
+                    var component = ReadSpdxPackage(ref reader, sbomUtf8, offset, spdxLicenseIndex);
                     if (componentCount == components.Length)
                     {
                         var expanded = ArrayPool<ScanComponent>.Shared.Rent(components.Length * 2);
@@ -239,7 +245,7 @@ public static class SbomScanner
 
             var result = new ScanComponent[componentCount];
             components.AsSpan(0, componentCount).CopyTo(result);
-            if (rootRef.Length != 0)
+            if (!rootRef.IsEmpty)
             {
                 ApplyDependencyTypes(result, rootRef, dependencyRefs.AsSpan(0, dependencyCount));
             }
@@ -253,13 +259,13 @@ public static class SbomScanner
         }
     }
 
-    private static ScanComponent ReadCycloneDxComponent(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
+    private static ScanComponent ReadCycloneDxComponent(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
     {
         var depth = reader.CurrentDepth;
-        var sourceId = string.Empty;
-        var name = string.Empty;
-        var version = string.Empty;
-        var purl = string.Empty;
+        var sourceId = default(Utf8Slice);
+        var name = default(Utf8Slice);
+        var version = default(Utf8Slice);
+        var purl = default(Utf8Slice);
         var license = string.Empty;
         var status = LicenseStatus.Unknown;
         var candidates = Array.Empty<LicenseCandidate>();
@@ -278,31 +284,31 @@ public static class SbomScanner
 
             if (reader.ValueTextEquals("bom-ref"u8))
             {
-                sourceId = ReadString(ref reader);
+                sourceId = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
             if (reader.ValueTextEquals("name"u8))
             {
-                name = ReadString(ref reader);
+                name = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
             if (reader.ValueTextEquals("version"u8))
             {
-                version = ReadString(ref reader);
+                version = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
             if (reader.ValueTextEquals("purl"u8))
             {
-                purl = ReadString(ref reader);
+                purl = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
             if (reader.ValueTextEquals("licenses"u8))
             {
-                (license, status, candidates) = ReadCycloneDxLicenses(ref reader, spdxLicenseIndex);
+                (license, status, candidates) = ReadCycloneDxLicenses(ref reader, source, offset, spdxLicenseIndex);
                 continue;
             }
 
@@ -318,7 +324,7 @@ public static class SbomScanner
         return CreateScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, candidates);
     }
 
-    private static ScanComponent ReadCycloneDxMetadataComponent(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
+    private static ScanComponent ReadCycloneDxMetadataComponent(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartObject)
@@ -345,7 +351,7 @@ public static class SbomScanner
                 reader.Read();
                 if (reader.TokenType == JsonTokenType.StartObject)
                 {
-                    return ReadCycloneDxComponent(ref reader, spdxLicenseIndex);
+                    return ReadCycloneDxComponent(ref reader, source, offset, spdxLicenseIndex);
                 }
 
                 reader.Skip();
@@ -359,15 +365,15 @@ public static class SbomScanner
         return default;
     }
 
-    private static ScanComponent ReadSpdxPackage(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
+    private static ScanComponent ReadSpdxPackage(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
     {
         var depth = reader.CurrentDepth;
-        var sourceId = string.Empty;
-        var name = string.Empty;
-        var version = string.Empty;
-        var purl = string.Empty;
-        var declared = string.Empty;
-        var concluded = string.Empty;
+        var sourceId = default(Utf8Slice);
+        var name = default(Utf8Slice);
+        var version = default(Utf8Slice);
+        var purl = default(Utf8Slice);
+        var declared = default(Utf8Slice);
+        var concluded = default(Utf8Slice);
 
         while (reader.Read())
         {
@@ -383,37 +389,37 @@ public static class SbomScanner
 
             if (reader.ValueTextEquals("SPDXID"u8))
             {
-                sourceId = ReadString(ref reader);
+                sourceId = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
             if (reader.ValueTextEquals("name"u8))
             {
-                name = ReadString(ref reader);
+                name = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
             if (reader.ValueTextEquals("versionInfo"u8))
             {
-                version = ReadString(ref reader);
+                version = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
             if (reader.ValueTextEquals("licenseDeclared"u8))
             {
-                declared = ReadString(ref reader);
+                declared = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
             if (reader.ValueTextEquals("licenseConcluded"u8))
             {
-                concluded = ReadString(ref reader);
+                concluded = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
             if (reader.ValueTextEquals("externalRefs"u8))
             {
-                purl = ReadSpdxPurl(ref reader);
+                purl = ReadSpdxPurl(ref reader, source, offset);
                 continue;
             }
 
@@ -424,13 +430,13 @@ public static class SbomScanner
         var (license, status) = ReconcileLicenses(declared, concluded, spdxLicenseIndex);
         var candidates = new[]
         {
-            CreateLicenseCandidate("sbom", "declared", declared, spdxLicenseIndex),
-            CreateLicenseCandidate("sbom", "concluded", concluded, spdxLicenseIndex),
+            LicenseCandidateFactory.Create("sbom", "declared", declared, spdxLicenseIndex),
+            LicenseCandidateFactory.Create("sbom", "concluded", concluded, spdxLicenseIndex),
         };
         return CreateScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, candidates);
     }
 
-    private static void ReadSpdxRelationships(ref Utf8JsonReader reader, ref DependencyEdge[] dependencies, ref int dependencyCount, ref string rootRef)
+    private static void ReadSpdxRelationships(ref Utf8JsonReader reader, byte[] source, int offset, ref DependencyEdge[] dependencies, ref int dependencyCount, ref Utf8Slice rootRef)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartArray)
@@ -448,8 +454,8 @@ public static class SbomScanner
             }
 
             var depth = reader.CurrentDepth;
-            var element = string.Empty;
-            var related = string.Empty;
+            var element = default(Utf8Slice);
+            var related = default(Utf8Slice);
             var relationshipType = SpdxRelationshipType.None;
             while (reader.Read())
             {
@@ -465,7 +471,7 @@ public static class SbomScanner
 
                 if (reader.ValueTextEquals("spdxElementId"u8))
                 {
-                    element = ReadString(ref reader);
+                    element = ReadUtf8Slice(ref reader, source, offset);
                     continue;
                 }
 
@@ -483,7 +489,7 @@ public static class SbomScanner
 
                 if (reader.ValueTextEquals("relatedSpdxElement"u8))
                 {
-                    related = ReadString(ref reader);
+                    related = ReadUtf8Slice(ref reader, source, offset);
                     continue;
                 }
 
@@ -506,16 +512,16 @@ public static class SbomScanner
         }
     }
 
-    private static string ReadSpdxPurl(ref Utf8JsonReader reader)
+    private static Utf8Slice ReadSpdxPurl(ref Utf8JsonReader reader, byte[] source, int offset)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartArray)
         {
             reader.Skip();
-            return string.Empty;
+            return default;
         }
 
-        var purl = string.Empty;
+        var purl = default(Utf8Slice);
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
         {
             if (reader.TokenType != JsonTokenType.StartObject)
@@ -525,7 +531,7 @@ public static class SbomScanner
             }
 
             var depth = reader.CurrentDepth;
-            var referenceLocator = string.Empty;
+            var referenceLocator = default(Utf8Slice);
             var isPurl = false;
 
             while (reader.Read())
@@ -549,7 +555,7 @@ public static class SbomScanner
 
                 if (reader.ValueTextEquals("referenceLocator"u8))
                 {
-                    referenceLocator = ReadString(ref reader);
+                    referenceLocator = ReadUtf8Slice(ref reader, source, offset);
                     continue;
                 }
 
@@ -566,7 +572,7 @@ public static class SbomScanner
         return purl;
     }
 
-    private static (string License, LicenseStatus Status, LicenseCandidate[] Candidates) ReadCycloneDxLicenses(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
+    private static (string License, LicenseStatus Status, LicenseCandidate[] Candidates) ReadCycloneDxLicenses(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartArray)
@@ -593,7 +599,7 @@ public static class SbomScanner
                     continue;
                 }
 
-                var candidate = ReadCycloneDxLicenseCandidate(ref reader, spdxLicenseIndex);
+                var candidate = ReadCycloneDxLicenseCandidate(ref reader, source, offset, spdxLicenseIndex);
                 if (candidateCount == candidateBuffer.Length)
                 {
                     var expanded = ArrayPool<LicenseCandidate>.Shared.Rent(candidateBuffer.Length * 2);
@@ -626,7 +632,7 @@ public static class SbomScanner
                     invalidCount++;
                     if (firstValue.Length == 0)
                     {
-                        firstValue = candidate.Raw;
+                        firstValue = candidate.Raw.ToString();
                     }
                 }
                 else
@@ -634,7 +640,7 @@ public static class SbomScanner
                     ambiguousCount++;
                     if (firstValue.Length == 0)
                     {
-                        firstValue = candidate.Raw;
+                        firstValue = candidate.Raw.ToString();
                     }
                 }
             }
@@ -668,10 +674,14 @@ public static class SbomScanner
         }
     }
 
-    private static (string License, LicenseStatus Status) ReconcileLicenses(string first, string second, SpdxLicenseIndex spdxLicenseIndex)
+    private static (string License, LicenseStatus Status) ReconcileLicenses(Utf8Slice first, Utf8Slice second, SpdxLicenseIndex spdxLicenseIndex)
     {
-        var firstStatus = ClassifyLicense(first, spdxLicenseIndex, out var firstValue);
-        var secondStatus = ClassifyLicense(second, spdxLicenseIndex, out var secondValue);
+        var firstCandidate = LicenseCandidateFactory.Create("sbom", "declared", first, spdxLicenseIndex);
+        var secondCandidate = LicenseCandidateFactory.Create("sbom", "concluded", second, spdxLicenseIndex);
+        var firstStatus = firstCandidate.Status;
+        var secondStatus = secondCandidate.Status;
+        var firstValue = firstCandidate.Normalized;
+        var secondValue = secondCandidate.Normalized;
 
         if (firstStatus == LicenseStatus.Matched && secondStatus == LicenseStatus.Matched)
         {
@@ -695,36 +705,36 @@ public static class SbomScanner
 
         if (firstStatus == LicenseStatus.Invalid)
         {
-            return (string.Concat(firstValue, " (?)"), LicenseStatus.Invalid);
+            return (string.Concat(firstCandidate.Raw.ToString(), " (?)"), LicenseStatus.Invalid);
         }
 
         if (secondStatus == LicenseStatus.Invalid)
         {
-            return (string.Concat(secondValue, " (?)"), LicenseStatus.Invalid);
+            return (string.Concat(secondCandidate.Raw.ToString(), " (?)"), LicenseStatus.Invalid);
         }
 
         if (firstStatus == LicenseStatus.Ambiguous)
         {
-            return (string.Concat(firstValue, " (?)"), LicenseStatus.Ambiguous);
+            return (string.Concat(firstCandidate.Raw.ToString(), " (?)"), LicenseStatus.Ambiguous);
         }
 
         if (secondStatus == LicenseStatus.Ambiguous)
         {
-            return (string.Concat(secondValue, " (?)"), LicenseStatus.Ambiguous);
+            return (string.Concat(secondCandidate.Raw.ToString(), " (?)"), LicenseStatus.Ambiguous);
         }
 
         return ("-", LicenseStatus.Unknown);
     }
 
     private static ScanComponent CreateScanComponent(
-        string name,
-        string version,
+        Utf8Slice name,
+        Utf8Slice version,
         string license,
         string ecosystem,
         DependencyType dependencyType,
         LicenseStatus status,
-        string purl,
-        string sourceId,
+        Utf8Slice purl,
+        Utf8Slice sourceId,
         LicenseCandidate[] candidates)
     {
         var evidence = new LicenseEvidence[candidates.Length];
@@ -806,7 +816,7 @@ public static class SbomScanner
             || value.Contains(')');
     }
 
-    private static LicenseCandidate ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
+    private static LicenseCandidate ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
     {
         var depth = reader.CurrentDepth;
         var kind = "unknown";
@@ -828,7 +838,7 @@ public static class SbomScanner
             {
                 kind = reader.ValueTextEquals("id"u8) ? "id" : reader.ValueTextEquals("expression"u8) ? "expression" : "name";
                 reader.Read();
-                candidate = CreateLicenseCandidate(ref reader, kind, spdxLicenseIndex);
+                candidate = CreateLicenseCandidate(ref reader, source, offset, kind, spdxLicenseIndex);
                 continue;
             }
 
@@ -838,7 +848,7 @@ public static class SbomScanner
         return candidate;
     }
 
-    private static LicenseCandidate CreateLicenseCandidate(ref Utf8JsonReader reader, string kind, SpdxLicenseIndex spdxLicenseIndex)
+    private static LicenseCandidate CreateLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, string kind, SpdxLicenseIndex spdxLicenseIndex)
     {
         if (reader.TokenType != JsonTokenType.String)
         {
@@ -846,14 +856,26 @@ public static class SbomScanner
         }
 
         return !reader.HasValueSequence && !reader.ValueIsEscaped
-            ? LicenseCandidateFactory.Create("sbom", kind, reader.ValueSpan, spdxLicenseIndex)
+            ? LicenseCandidateFactory.Create("sbom", kind, CreateValueSlice(ref reader, source, offset), spdxLicenseIndex)
             : LicenseCandidateFactory.Create("sbom", kind, reader.GetString() ?? string.Empty, spdxLicenseIndex);
     }
 
-    private static string ReadString(ref Utf8JsonReader reader)
+    private static Utf8Slice ReadUtf8Slice(ref Utf8JsonReader reader, byte[] source, int offset)
     {
         reader.Read();
-        return reader.TokenType == JsonTokenType.String ? reader.GetString() ?? string.Empty : string.Empty;
+        return reader.TokenType == JsonTokenType.String
+            ? CreateValueSlice(ref reader, source, offset)
+            : default;
+    }
+
+    private static Utf8Slice CreateValueSlice(ref Utf8JsonReader reader, byte[] source, int offset)
+    {
+        if (reader.HasValueSequence || reader.ValueIsEscaped)
+        {
+            return Utf8Slice.FromString(reader.GetString() ?? string.Empty);
+        }
+
+        return new Utf8Slice(source, checked(offset + (int)reader.TokenStartIndex + 1), reader.ValueSpan.Length);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -895,22 +917,52 @@ public static class SbomScanner
         return true;
     }
 
-    private static string GetEcosystem(string purl)
+    private static string GetEcosystem(Utf8Slice purl)
     {
-        var purlSpan = purl.AsSpan();
-        if (!purlSpan.StartsWith("pkg:", StringComparison.Ordinal))
+        var purlSpan = purl.Span;
+        if (!purlSpan.StartsWith("pkg:"u8))
         {
             return "-";
         }
 
-        var typeStart = "pkg:".Length;
-        var slash = purlSpan[typeStart..].IndexOf('/');
+        const int typeStart = 4;
+        var slash = purlSpan[typeStart..].IndexOf((byte)'/');
         if (slash < 0)
         {
             return "-";
         }
 
-        return purlSpan.Slice(typeStart, slash).ToString().ToLowerInvariant();
+        var type = purlSpan.Slice(typeStart, slash);
+        return AsciiEqualsIgnoreCase(type, "npm"u8) ? "npm"
+            : AsciiEqualsIgnoreCase(type, "nuget"u8) ? "nuget"
+            : AsciiEqualsIgnoreCase(type, "cargo"u8) ? "cargo"
+            : AsciiEqualsIgnoreCase(type, "golang"u8) ? "golang"
+            : "-";
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool AsciiEqualsIgnoreCase(ReadOnlySpan<byte> value, ReadOnlySpan<byte> expectedLowercase)
+    {
+        if (value.Length != expectedLowercase.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            var current = value[i];
+            if (current is >= (byte)'A' and <= (byte)'Z')
+            {
+                current = (byte)(current | 0x20);
+            }
+
+            if (current != expectedLowercase[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static void EnsureComponentCapacity(ref ScanComponent[] components, int componentCount)
@@ -926,7 +978,7 @@ public static class SbomScanner
         components = expanded;
     }
 
-    private static void ReadCycloneDxDependencies(ref Utf8JsonReader reader, ref DependencyEdge[] dependencies, ref int dependencyCount)
+    private static void ReadCycloneDxDependencies(ref Utf8JsonReader reader, byte[] source, int offset, ref DependencyEdge[] dependencies, ref int dependencyCount)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartArray)
@@ -944,7 +996,7 @@ public static class SbomScanner
             }
 
             var depth = reader.CurrentDepth;
-            var parentRef = string.Empty;
+            var parentRef = default(Utf8Slice);
             while (reader.Read())
             {
                 if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == depth)
@@ -959,13 +1011,13 @@ public static class SbomScanner
 
                 if (reader.ValueTextEquals("ref"u8))
                 {
-                    parentRef = ReadString(ref reader);
+                    parentRef = ReadUtf8Slice(ref reader, source, offset);
                     continue;
                 }
 
                 if (reader.ValueTextEquals("dependsOn"u8))
                 {
-                    ReadCycloneDxDependsOn(ref reader, parentRef, ref dependencies, ref dependencyCount);
+                    ReadCycloneDxDependsOn(ref reader, source, offset, parentRef, ref dependencies, ref dependencyCount);
                     continue;
                 }
 
@@ -975,7 +1027,7 @@ public static class SbomScanner
         }
     }
 
-    private static void ReadCycloneDxDependsOn(ref Utf8JsonReader reader, string parentRef, ref DependencyEdge[] dependencies, ref int dependencyCount)
+    private static void ReadCycloneDxDependsOn(ref Utf8JsonReader reader, byte[] source, int offset, Utf8Slice parentRef, ref DependencyEdge[] dependencies, ref int dependencyCount)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartArray)
@@ -1000,14 +1052,14 @@ public static class SbomScanner
                 dependencies = expanded;
             }
 
-            dependencies[dependencyCount] = new DependencyEdge(parentRef, reader.GetString() ?? string.Empty);
+            dependencies[dependencyCount] = new DependencyEdge(parentRef, CreateValueSlice(ref reader, source, offset));
             dependencyCount++;
         }
     }
 
-    private static void AddDependencyEdge(ref DependencyEdge[] dependencies, ref int dependencyCount, string parentRef, string childRef)
+    private static void AddDependencyEdge(ref DependencyEdge[] dependencies, ref int dependencyCount, Utf8Slice parentRef, Utf8Slice childRef)
     {
-        if (parentRef.Length == 0 || childRef.Length == 0)
+        if (parentRef.IsEmpty || childRef.IsEmpty)
         {
             return;
         }
@@ -1024,54 +1076,82 @@ public static class SbomScanner
         dependencyCount++;
     }
 
-    private static void ApplyDependencyTypes(ScanComponent[] components, string rootRef, ReadOnlySpan<DependencyEdge> dependencies)
+    private static void ApplyDependencyTypes(ScanComponent[] components, Utf8Slice rootRef, ReadOnlySpan<DependencyEdge> dependencies)
     {
-        var directRefs = new HashSet<string>(StringComparer.Ordinal);
-        var transitiveRefs = new HashSet<string>(StringComparer.Ordinal);
-        var queue = new Queue<string>();
+        var directRefs = ArrayPool<Utf8Slice>.Shared.Rent(dependencies.Length);
+        var transitiveRefs = ArrayPool<Utf8Slice>.Shared.Rent(dependencies.Length);
+        var queue = ArrayPool<Utf8Slice>.Shared.Rent(dependencies.Length);
+        var directCount = 0;
+        var transitiveCount = 0;
+        var queueHead = 0;
+        var queueTail = 0;
 
-        for (var i = 0; i < dependencies.Length; i++)
+        try
         {
-            if (string.Equals(dependencies[i].ParentRef, rootRef, StringComparison.Ordinal))
-            {
-                directRefs.Add(dependencies[i].ChildRef);
-                queue.Enqueue(dependencies[i].ChildRef);
-            }
-        }
-
-        while (queue.Count != 0)
-        {
-            var current = queue.Dequeue();
             for (var i = 0; i < dependencies.Length; i++)
             {
-                if (!string.Equals(dependencies[i].ParentRef, current, StringComparison.Ordinal) || directRefs.Contains(dependencies[i].ChildRef) || !transitiveRefs.Add(dependencies[i].ChildRef))
+                if (dependencies[i].ParentRef.Equals(rootRef) && !Contains(directRefs, directCount, dependencies[i].ChildRef))
                 {
-                    continue;
+                    directRefs[directCount++] = dependencies[i].ChildRef;
+                    queue[queueTail++] = dependencies[i].ChildRef;
                 }
+            }
 
-                queue.Enqueue(dependencies[i].ChildRef);
+            while (queueHead != queueTail)
+            {
+                var current = queue[queueHead++];
+                for (var i = 0; i < dependencies.Length; i++)
+                {
+                    var child = dependencies[i].ChildRef;
+                    if (!dependencies[i].ParentRef.Equals(current) || Contains(directRefs, directCount, child) || Contains(transitiveRefs, transitiveCount, child))
+                    {
+                        continue;
+                    }
+
+                    transitiveRefs[transitiveCount++] = child;
+                    queue[queueTail++] = child;
+                }
+            }
+
+            for (var i = 0; i < components.Length; i++)
+            {
+                var component = components[i];
+                if (component.SourceId.Equals(rootRef))
+                {
+                    components[i] = component with { DependencyType = DependencyType.Root };
+                }
+                else if (Contains(directRefs, directCount, component.SourceId))
+                {
+                    components[i] = component with { DependencyType = DependencyType.Direct };
+                }
+                else if (Contains(transitiveRefs, transitiveCount, component.SourceId))
+                {
+                    components[i] = component with { DependencyType = DependencyType.Transitive };
+                }
             }
         }
-
-        for (var i = 0; i < components.Length; i++)
+        finally
         {
-            var component = components[i];
-            if (string.Equals(component.SourceId, rootRef, StringComparison.Ordinal))
-            {
-                components[i] = component with { DependencyType = DependencyType.Root };
-            }
-            else if (directRefs.Contains(component.SourceId))
-            {
-                components[i] = component with { DependencyType = DependencyType.Direct };
-            }
-            else if (transitiveRefs.Contains(component.SourceId))
-            {
-                components[i] = component with { DependencyType = DependencyType.Transitive };
-            }
+            ArrayPool<Utf8Slice>.Shared.Return(directRefs);
+            ArrayPool<Utf8Slice>.Shared.Return(transitiveRefs);
+            ArrayPool<Utf8Slice>.Shared.Return(queue);
         }
     }
 
-    private readonly record struct DependencyEdge(string ParentRef, string ChildRef);
+    private static bool Contains(ReadOnlySpan<Utf8Slice> values, int count, Utf8Slice value)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            if (values[i].Equals(value))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private readonly record struct DependencyEdge(Utf8Slice ParentRef, Utf8Slice ChildRef);
 
     private enum SpdxRelationshipType : byte
     {

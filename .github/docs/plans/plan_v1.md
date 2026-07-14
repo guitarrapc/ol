@@ -78,6 +78,8 @@ Fields:
 - evidence records
 - warnings
 
+For UTF-8 JSON SBOM input, dynamic component text (`name`, `version`, `purl`, source identifier, spec version, and raw candidate/evidence values) is retained as UTF-8 byte slices through scanning, dependency resolution, and JSON rendering. Text is decoded only at boundaries that require .NET strings, such as text/Markdown rendering, grouping, package-registry requests, escaped JSON fallback handling, or derived SPDX display expressions. This prevents a per-field string allocation from becoming part of the normal scanner success path.
+
 ### License Candidate
 
 Fields:

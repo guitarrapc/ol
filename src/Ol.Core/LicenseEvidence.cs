@@ -12,7 +12,7 @@
 public readonly record struct LicenseEvidence(
     string Source,
     string Kind,
-    string Raw,
+    Utf8Slice Raw,
     string Normalized,
     LicenseStatus Status,
     string[] Warnings);

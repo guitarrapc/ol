@@ -131,6 +131,8 @@ internal readonly record struct SpdxData(
     string LicensesSha256,
     string ExceptionsSha256)
 {
+    private static readonly SpdxData Bundled = CreateBundled();
+
     public static SpdxData Load(string? directory)
     {
         if (directory is not null and not "")
@@ -144,6 +146,11 @@ internal readonly record struct SpdxData(
             return LoadFromDirectory(activeDirectory, "user", $"ol/spdx/{version}");
         }
 
+        return Bundled;
+    }
+
+    private static SpdxData CreateBundled()
+    {
         return new SpdxData(
             new SpdxLicenseIndex(SpdxGeneratedLicenseData.LicenseIds, SpdxGeneratedLicenseData.ExceptionIds, SpdxGeneratedLicenseData.DeprecatedLicenseIds),
             "bundled",

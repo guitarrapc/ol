@@ -1,40 +1,53 @@
-﻿using System.Text;
+﻿using System.Buffers;
 
 namespace Ol.Core;
 
 internal ref struct SpdxExpression
 {
-    private readonly string value;
+    private readonly ReadOnlySpan<byte> value;
     private readonly SpdxLicenseIndex spdxLicenseIndex;
-    private readonly StringBuilder builder;
+    private Span<char> output;
     private int position;
+    private int outputCount;
     private bool hasDeprecatedLicense;
 
-    private SpdxExpression(string value, SpdxLicenseIndex spdxLicenseIndex, StringBuilder builder)
+    private SpdxExpression(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, Span<char> output)
     {
         this.value = value;
         this.spdxLicenseIndex = spdxLicenseIndex;
-        this.builder = builder;
+        this.output = output;
         position = 0;
+        outputCount = 0;
     }
 
-    public static bool TryNormalize(string value, SpdxLicenseIndex spdxLicenseIndex, out string normalized)
-        => TryNormalize(value, spdxLicenseIndex, out normalized, out _);
-
-    public static bool TryNormalize(string value, SpdxLicenseIndex spdxLicenseIndex, out string normalized, out bool hasDeprecatedLicense)
+    public static bool TryNormalize(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, out string normalized, out bool hasDeprecatedLicense)
     {
-        var builder = new StringBuilder(value.Length);
-        var parser = new SpdxExpression(value, spdxLicenseIndex, builder);
-        if (!parser.TryParseExpression() || !parser.IsAtEnd())
+        const int MaxStackChars = 128;
+        char[]? rented = null;
+        Span<char> output = value.Length <= MaxStackChars
+            ? stackalloc char[MaxStackChars]
+            : (rented = ArrayPool<char>.Shared.Rent(value.Length));
+        try
         {
-            normalized = string.Empty;
-            hasDeprecatedLicense = false;
-            return false;
-        }
+            var parser = new SpdxExpression(value, spdxLicenseIndex, output);
+            if (!parser.TryParseExpression() || !parser.IsAtEnd())
+            {
+                normalized = string.Empty;
+                hasDeprecatedLicense = false;
+                return false;
+            }
 
-        normalized = builder.ToString();
-        hasDeprecatedLicense = parser.hasDeprecatedLicense;
-        return true;
+            normalized = new string(output[..parser.outputCount]);
+            hasDeprecatedLicense = parser.hasDeprecatedLicense;
+            return true;
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<char>.Shared.Return(rented);
+            }
+        }
     }
 
     private bool TryParseExpression()
@@ -49,9 +62,9 @@ internal ref struct SpdxExpression
             return false;
         }
 
-        while (TryConsumeOperator("OR"))
+        while (TryConsumeOperator("or"u8))
         {
-            builder.Append(" OR ");
+            Append(" OR ");
             if (!TryParseAndExpression())
             {
                 return false;
@@ -68,9 +81,9 @@ internal ref struct SpdxExpression
             return false;
         }
 
-        while (TryConsumeOperator("AND"))
+        while (TryConsumeOperator("and"u8))
         {
-            builder.Append(" AND ");
+            Append(" AND ");
             if (!TryParseWithExpression())
             {
                 return false;
@@ -87,18 +100,18 @@ internal ref struct SpdxExpression
             return false;
         }
 
-        if (!TryConsumeOperator("WITH"))
+        if (!TryConsumeOperator("with"u8))
         {
             return true;
         }
 
-        builder.Append(" WITH ");
-        if (!TryReadIdentifier(out var exceptionId) || !spdxLicenseIndex.TryNormalizeExceptionId(exceptionId, out var normalizedException))
+        Append(" WITH ");
+        if (!TryReadIdentifier(out var exceptionId) || !spdxLicenseIndex.TryNormalizeExceptionIdUtf8(exceptionId, out var normalizedException))
         {
             return false;
         }
 
-        builder.Append(normalizedException);
+        Append(normalizedException);
         return true;
     }
 
@@ -110,41 +123,41 @@ internal ref struct SpdxExpression
             return false;
         }
 
-        if (value[position] == '(')
+        if (value[position] == (byte)'(')
         {
             position++;
-            builder.Append('(');
+            Append('(');
             if (!TryParseExpression())
             {
                 return false;
             }
 
             SkipWhitespace();
-            if (position >= value.Length || value[position] != ')')
+            if (position >= value.Length || value[position] != (byte)')')
             {
                 return false;
             }
 
             position++;
-            builder.Append(')');
+            Append(')');
             return true;
         }
 
-        if (!TryReadIdentifier(out var licenseId) || !spdxLicenseIndex.TryNormalizeLicenseId(licenseId, out var normalizedLicense))
+        if (!TryReadIdentifier(out var licenseId) || !spdxLicenseIndex.TryNormalizeLicenseIdUtf8(licenseId, out var normalizedLicense))
         {
             return false;
         }
 
         hasDeprecatedLicense |= spdxLicenseIndex.IsDeprecatedLicenseId(normalizedLicense);
-        builder.Append(normalizedLicense);
+        Append(normalizedLicense);
         return true;
     }
 
-    private bool TryConsumeOperator(string operatorText)
+    private bool TryConsumeOperator(ReadOnlySpan<byte> operatorText)
     {
         SkipWhitespace();
         var start = position;
-        if (!TryReadIdentifier(out var token) || !string.Equals(token, operatorText, StringComparison.OrdinalIgnoreCase))
+        if (!TryReadIdentifier(out var token) || !AsciiEqualsIgnoreCase(token, operatorText))
         {
             position = start;
             return false;
@@ -153,25 +166,18 @@ internal ref struct SpdxExpression
         return true;
     }
 
-    private bool TryReadIdentifier(out string identifier)
+    private bool TryReadIdentifier(out ReadOnlySpan<byte> identifier)
     {
         SkipWhitespace();
         var start = position;
-        while (position < value.Length)
+        while (position < value.Length && IsIdentifierByte(value[position]))
         {
-            var ch = value[position];
-            if (char.IsLetterOrDigit(ch) || ch == '-' || ch == '.' || ch == '+')
-            {
-                position++;
-                continue;
-            }
-
-            break;
+            position++;
         }
 
         if (position == start)
         {
-            identifier = string.Empty;
+            identifier = [];
             return false;
         }
 
@@ -187,9 +193,51 @@ internal ref struct SpdxExpression
 
     private void SkipWhitespace()
     {
-        while (position < value.Length && char.IsWhiteSpace(value[position]))
+        while (position < value.Length && value[position] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n')
         {
             position++;
         }
+    }
+
+    private static bool IsIdentifierByte(byte value)
+        => value is >= (byte)'a' and <= (byte)'z'
+        || value is >= (byte)'A' and <= (byte)'Z'
+        || value is >= (byte)'0' and <= (byte)'9'
+        || value is (byte)'-' or (byte)'.' or (byte)'+';
+
+    private static bool AsciiEqualsIgnoreCase(ReadOnlySpan<byte> value, ReadOnlySpan<byte> expectedLowercase)
+    {
+        if (value.Length != expectedLowercase.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            var current = value[i];
+            if (current is >= (byte)'A' and <= (byte)'Z')
+            {
+                current = (byte)(current | 0x20);
+            }
+
+            if (current != expectedLowercase[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void Append(char value)
+    {
+        output[outputCount] = value;
+        outputCount++;
+    }
+
+    private void Append(string value)
+    {
+        value.CopyTo(output[outputCount..]);
+        outputCount += value.Length;
     }
 }

@@ -755,7 +755,7 @@ public static class SbomScanner
     {
         var depth = reader.CurrentDepth;
         var kind = "unknown";
-        var candidate = LicenseCandidateFactory.Create("sbom", kind, string.Empty, spdxLicenseIndex);
+        var candidate = LicenseCandidateFactory.Create("sbom", kind, default(Utf8Slice), spdxLicenseIndex);
 
         while (reader.Read())
         {
@@ -787,12 +787,12 @@ public static class SbomScanner
     {
         if (reader.TokenType != JsonTokenType.String)
         {
-            return LicenseCandidateFactory.Create("sbom", kind, string.Empty, spdxLicenseIndex);
+            return LicenseCandidateFactory.Create("sbom", kind, default(Utf8Slice), spdxLicenseIndex);
         }
 
         return !reader.HasValueSequence && !reader.ValueIsEscaped
             ? LicenseCandidateFactory.Create("sbom", kind, CreateValueSlice(ref reader, source, offset), spdxLicenseIndex)
-            : LicenseCandidateFactory.Create("sbom", kind, reader.GetString() ?? string.Empty, spdxLicenseIndex);
+            : LicenseCandidateFactory.Create("sbom", kind, Utf8Slice.FromString(reader.GetString() ?? string.Empty), spdxLicenseIndex);
     }
 
     private static Utf8Slice ReadUtf8Slice(ref Utf8JsonReader reader, byte[] source, int offset)

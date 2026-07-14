@@ -128,7 +128,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
 
     private LicenseCandidate CreateMetadataCandidate(PackageMetadataRecord record)
     {
-        var candidate = LicenseCandidateFactory.Create(record.Source, "license", record.RawLicense, spdxLicenseIndex);
+        var candidate = LicenseCandidateFactory.Create(record.Source, "license", Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex);
         if (record.Warnings.Length == 0)
         {
             return candidate;

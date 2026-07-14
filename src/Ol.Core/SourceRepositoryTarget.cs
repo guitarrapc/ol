@@ -11,6 +11,10 @@ public readonly record struct SourceRepositoryTarget(string Owner, string Name, 
 
     /// <summary>Normalizes common GitHub repository URL forms.</summary>
     public static bool TryCreate(string repositoryUrl, out SourceRepositoryTarget target)
+        => TryCreate(repositoryUrl, string.Empty, out target);
+
+    /// <summary>Normalizes a GitHub repository URL and optional package-version ref.</summary>
+    public static bool TryCreate(string repositoryUrl, string? repositoryRef, out SourceRepositoryTarget target)
     {
         target = default;
         if (string.IsNullOrWhiteSpace(repositoryUrl))
@@ -59,7 +63,30 @@ public readonly record struct SourceRepositoryTarget(string Owner, string Name, 
             return false;
         }
 
-        target = new SourceRepositoryTarget(owner.ToString(), name.ToString(), "default");
+        if (!IsValidRef(repositoryRef))
+        {
+            return false;
+        }
+
+        target = new SourceRepositoryTarget(owner.ToString(), name.ToString(), repositoryRef!.Length == 0 ? "default" : repositoryRef);
+        return true;
+    }
+
+    private static bool IsValidRef(string? value)
+    {
+        if (value is null || value.Length > 256)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (char.IsControl(value[i]))
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 }

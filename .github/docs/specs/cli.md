@@ -276,6 +276,8 @@ SPDX metadata is defined by [spdx.md](spdx.md) and is required in every JSON rep
 
 When v3 source repository enrichment is active, `metadata.sourceRepository` reports target, request, cache, error, and unknown counts. `metadata.network.githubAuth` reports only `ol_github_token` or `none`; it never includes a credential value.
 
+Each GitHub license candidate carries a structured `sourceRepository` object in `licenseCandidates` and `evidence`. It contains logical repository/ref, HTTP status, cache-key hash, and license path/SHA/key/name/URL. These provenance fields are metadata, not warnings, and never contain a cache path or token value.
+
 Component entries include original SBOM identifiers when present:
 
 - CycloneDX `bomRef`

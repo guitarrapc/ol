@@ -1,20 +1,24 @@
 ﻿using BenchmarkDotNet.Attributes;
 using Ol.Core;
 
-public class GitHubLicenseApiBenchmark
+public class GitHubLicenseApiBenchmark : IDisposable
 {
     private readonly GitHubLicenseApiClient client;
+    private readonly FixtureResponseHandler handler;
     private readonly SourceRepositoryTarget target = new("owner", "repository", "main");
 
     public GitHubLicenseApiBenchmark()
     {
         var fixture = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "github-license-api-license.json"));
-        client = new GitHubLicenseApiClient(new FixtureResponseHandler(fixture), GitHubAuthentication.Create());
+        handler = new FixtureResponseHandler(fixture);
+        client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
     }
 
     [Benchmark]
     public string FetchFromFixture()
         => client.FetchAsync(target).GetAwaiter().GetResult().License!.Value.SpdxId!;
+
+    public void Dispose() => handler.Dispose();
 
     private sealed class FixtureResponseHandler(string fixture) : HttpMessageHandler
     {

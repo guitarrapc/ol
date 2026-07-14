@@ -407,6 +407,108 @@ public sealed class CliScanTests
         }
     }
 
+    [Test]
+    public async Task Scan_WithPackageAndSourceConflict_ReportsRefBoundSafeSourceEvidence()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-v3-conflict-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var sourceCacheRoot = Path.Combine(temporaryDirectory, "source-repository");
+        const string repositoryRef = "0123456789abcdef";
+        const string token = "must-never-appear";
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [ { "name": "example", "purl": "pkg:npm/example@1.0.0", "licenses": [ { "license": { "id": "NOASSERTION" } } ] } ] }""", Encoding.UTF8);
+        await new PackageMetadataCache(packageCacheRoot).WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", "https://github.com/owner/repository", [], [], RepositoryRef: repositoryRef));
+        var target = new SourceRepositoryTarget("owner", "repository", repositoryRef);
+        await new SourceRepositoryCache(sourceCacheRoot).WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, System.Net.HttpStatusCode.OK, new GitHubLicenseResult("Apache-2.0", "apache-2.0", "Apache License 2.0", "LICENSE", "license-sha", "https://github.com/owner/repository/blob/0123456789abcdef/LICENSE"), [], []));
+
+        try
+        {
+            var environment = new Dictionary<string, string?> { ["OL_GITHUB_TOKEN"] = token };
+            var (exitCode, stdout, _) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).DoesNotContain(token);
+            await Assert.That(stdout).DoesNotContain(temporaryDirectory);
+            await Assert.That(stdout).DoesNotContain(sourceCacheRoot);
+            using var report = JsonDocument.Parse(stdout);
+            var component = report.RootElement.GetProperty("components")[0];
+            await Assert.That(component.GetProperty("status").GetString()).IsEqualTo("conflict");
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("network").GetProperty("githubAuth").GetString()).IsEqualTo("ol_github_token");
+            var sourceCandidate = component.GetProperty("evidence")[2];
+            var source = sourceCandidate.GetProperty("sourceRepository");
+            await Assert.That(sourceCandidate.GetProperty("warnings").GetArrayLength()).IsEqualTo(0);
+            await Assert.That(source.GetProperty("repository").GetString()).IsEqualTo("owner/repository");
+            await Assert.That(source.GetProperty("ref").GetString()).IsEqualTo(repositoryRef);
+            await Assert.That(source.GetProperty("httpStatus").GetInt32()).IsEqualTo(200);
+            await Assert.That(source.GetProperty("licensePath").GetString()).IsEqualTo("LICENSE");
+            await Assert.That(source.GetProperty("licenseSha").GetString()).IsEqualTo("license-sha");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithCachedSourceFailureAndValidSbom_KeepsMatchedStatusAndWarning()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-v3-failure-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var sourceCacheRoot = Path.Combine(temporaryDirectory, "source-repository");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [ { "name": "example", "purl": "pkg:npm/example@1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] } ] }""", Encoding.UTF8);
+        await new PackageMetadataCache(packageCacheRoot).WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
+        var target = new SourceRepositoryTarget("owner", "repository", "default");
+        await new SourceRepositoryCache(sourceCacheRoot).WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, System.Net.HttpStatusCode.Forbidden, null, [], ["source_repository_fetch_failed"]));
+
+        try
+        {
+            const string ignoredGitHubToken = "github-token-must-not-appear";
+            var environment = new Dictionary<string, string?> { ["OL_GITHUB_TOKEN"] = null, ["GITHUB_TOKEN"] = ignoredGitHubToken };
+            var (exitCode, stdout, stderr) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var component = report.RootElement.GetProperty("components")[0];
+            await Assert.That(component.GetProperty("status").GetString()).IsEqualTo("matched");
+            await Assert.That(component.GetProperty("warnings").EnumerateArray().Select(static value => value.GetString())).Contains("source_repository_fetch_failed");
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("network").GetProperty("githubAuth").GetString()).IsEqualTo("none");
+            await Assert.That(stdout).DoesNotContain(ignoredGitHubToken);
+            await Assert.That(stderr).Contains("source-fetch-error: 1");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheClear_SourceRepository_RemovesSourceCache()
+    {
+        var root = FindRepositoryRoot();
+        var sourceCacheRoot = Path.Combine(Path.GetTempPath(), $"ol-v3-clear-{Guid.NewGuid():N}");
+        var target = new SourceRepositoryTarget("owner", "repository", "default");
+        await new SourceRepositoryCache(sourceCacheRoot).WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, System.Net.HttpStatusCode.NotFound, null, ["license_not_detected"], []));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, null, sourceCacheRoot, "cache", "clear", "source-repository");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).Contains("source-repository cache cleared");
+            await Assert.That(stderr).IsEmpty();
+            await Assert.That(Directory.Exists(sourceCacheRoot)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(sourceCacheRoot)) Directory.Delete(sourceCacheRoot, recursive: true);
+        }
+    }
+
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
 
@@ -414,6 +516,9 @@ public sealed class CliScanTests
         => await RunOlWithCachesAsync(root, cacheRoot, sourceCacheRoot: null, args);
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithCachesAsync(string root, string? cacheRoot, string? sourceCacheRoot, params string[] args)
+        => await RunOlWithEnvironmentAsync(root, cacheRoot, sourceCacheRoot, null, args);
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithEnvironmentAsync(string root, string? cacheRoot, string? sourceCacheRoot, IReadOnlyDictionary<string, string?>? environment, params string[] args)
     {
         await CliGate.WaitAsync();
         try
@@ -432,6 +537,14 @@ public sealed class CliScanTests
             if (sourceCacheRoot is not null)
             {
                 startInfo.Environment["OL_SOURCE_REPOSITORY_CACHE_ROOT"] = sourceCacheRoot;
+            }
+
+            if (environment is not null)
+            {
+                foreach (var item in environment)
+                {
+                    startInfo.Environment[item.Key] = item.Value;
+                }
             }
 
             startInfo.ArgumentList.Add(Path.Combine(root, "src", "Ol", "bin", "Debug", "net10.0", "ol.dll"));

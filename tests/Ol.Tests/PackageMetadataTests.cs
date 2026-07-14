@@ -108,6 +108,14 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Cache_InvalidOptionalRepositoryRef_TreatsEntryAsMiss()
+    {
+        var json = CreatePackageCacheJson().Replace("\"Warnings\": []", $"\"RepositoryRef\": \"{new string('a', 257)}\",\n  \"Warnings\": []", StringComparison.Ordinal);
+
+        await AssertCacheEntryIsMiss(json);
+    }
+
+    [Test]
     public async Task Cache_DifferentLogicalKey_TreatsEntryAsMiss()
     {
         var json = CreatePackageCacheJson().Replace("pkg:npm/example@1.0.0", "pkg:npm/other@1.0.0", StringComparison.Ordinal);

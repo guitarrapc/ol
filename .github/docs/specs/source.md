@@ -41,6 +41,7 @@ GitHub License API results are interpreted as source repository evidence:
 - `NOASSERTION` or `null` becomes unknown source-repository evidence.
 - HTTP 404 becomes `license_not_detected` evidence.
 - HTTP 403, 429, and 5xx become error evidence.
+- missing repository URLs become `source_repository_unavailable` evidence, and non-GitHub or invalid repository URLs become `unsupported_source_repository` evidence.
 
 The API response body content is not parsed for custom license detection in initial v3. If GitHub does not identify a license, `ol` does not try to outguess it.
 
@@ -53,6 +54,10 @@ Evidence may include:
 - HTML URL or logical repository URL
 - fetch status
 - warnings or errors
+
+JSON reports expose this provenance as a structured `sourceRepository` object on the source candidate. Provenance fields do not inflate warning counts.
+
+When package metadata supplies a repository commit or ref for the package version, that ref is part of the source target and cache identity. Otherwise GitHub resolves the repository default branch. Package metadata repository URLs take precedence over SBOM repository references.
 
 Report examples must not include token values or absolute local paths.
 
@@ -106,6 +111,10 @@ Cache identity is based on the logical repository and ref. Physical entry names 
 The exact persisted properties, casing, validation rules, and schema-version behavior are defined by the planned [source repository cache schema version 1](cache_format.md#contract-source-cache-v1). Source integration must not define an independent cache shape.
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing source repository cache and overwrites it with newly fetched evidence.
+
+A corrupt entry is distinguished from a normal cache miss. Ol attempts recollection and retains `source_repository_cache_invalid` audit evidence even when recollection also fails. Retry-exhausted and non-retryable fetch failures are cacheable audit records so later reports can explain the collection outcome.
+
+A source-cache write failure records `source_repository_cache_write_failed` but does not discard successfully fetched license evidence or fail the whole scan.
 
 `ol cache clear source-repository` removes source repository evidence cache.
 

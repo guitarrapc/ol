@@ -9,7 +9,8 @@ namespace Ol.Core;
 /// <param name="Source">The evidence-source name.</param>
 /// <param name="RawLicense">The registry license value.</param>
 /// <param name="RepositoryUrl">The repository URL supplied by the registry.</param>
-public readonly record struct PackageMetadataResponse(string Source, string RawLicense, string RepositoryUrl);
+/// <param name="RepositoryRef">The repository commit or ref mapped to the package version, when supplied.</param>
+public readonly record struct PackageMetadataResponse(string Source, string RawLicense, string RepositoryUrl, string RepositoryRef = "");
 
 /// <summary>
 /// Owns purl validation, endpoint construction, and response projection for one package ecosystem.
@@ -146,7 +147,7 @@ public sealed class NpmPackageMetadataProvider : PackageMetadataProvider
         => new(BaseUri, string.Concat(Uri.EscapeDataString(request.Namespace.Length == 0 ? request.Name : string.Concat(request.Namespace, "/", request.Name)), "/", Uri.EscapeDataString(request.Version)));
     /// <inheritdoc />
     public override PackageMetadataResponse ParseResponse(JsonElement root)
-        => new("npm-registry", PackageMetadataJson.ReadString(root, "license"), PackageMetadataJson.ReadRepository(root));
+        => new("npm-registry", PackageMetadataJson.ReadString(root, "license"), PackageMetadataJson.ReadRepository(root), PackageMetadataJson.ReadString(root, "gitHead"));
 }
 
 /// <summary>Provides NuGet registration metadata.</summary>
@@ -162,7 +163,14 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
     public override PackageMetadataResponse ParseResponse(JsonElement root)
     {
         var catalog = root.TryGetProperty("catalogEntry", out var value) ? value : default;
-        return new("nuget-registry", PackageMetadataJson.ReadString(catalog, "licenseExpression"), PackageMetadataJson.ReadString(catalog, "projectUrl"));
+        var repository = catalog.TryGetProperty("repository", out var repositoryValue) ? repositoryValue : default;
+        var repositoryUrl = PackageMetadataJson.ReadString(repository, "url");
+        if (repositoryUrl.Length == 0)
+        {
+            repositoryUrl = PackageMetadataJson.ReadString(catalog, "projectUrl");
+        }
+
+        return new("nuget-registry", PackageMetadataJson.ReadString(catalog, "licenseExpression"), repositoryUrl, PackageMetadataJson.ReadString(repository, "commit"));
     }
 }
 
@@ -179,7 +187,7 @@ public sealed class CargoPackageMetadataProvider : PackageMetadataProvider
     public override PackageMetadataResponse ParseResponse(JsonElement root)
     {
         var version = root.TryGetProperty("version", out var value) ? value : default;
-        return new("cargo-registry", PackageMetadataJson.ReadString(version, "license"), PackageMetadataJson.ReadString(version, "repository"));
+        return new("cargo-registry", PackageMetadataJson.ReadString(version, "license"), PackageMetadataJson.ReadString(version, "repository"), string.Empty);
     }
 }
 
@@ -196,7 +204,7 @@ public sealed class GoPackageMetadataProvider : PackageMetadataProvider
     public override PackageMetadataResponse ParseResponse(JsonElement root)
     {
         var origin = root.TryGetProperty("Origin", out var value) ? value : default;
-        return new("go-module-proxy", string.Empty, PackageMetadataJson.ReadString(origin, "URL"));
+        return new("go-module-proxy", string.Empty, PackageMetadataJson.ReadString(origin, "URL"), PackageMetadataJson.ReadString(origin, "Ref"));
     }
 }
 

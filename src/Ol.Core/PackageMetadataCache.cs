@@ -58,6 +58,7 @@ public sealed class PackageMetadataCache(string root)
         ArgumentException.ThrowIfNullOrEmpty(record.Source);
         ArgumentNullException.ThrowIfNull(record.RawLicense);
         ArgumentNullException.ThrowIfNull(record.RepositoryUrl);
+        ArgumentNullException.ThrowIfNull(record.RepositoryRef);
         ArgumentNullException.ThrowIfNull(record.Warnings);
         ArgumentNullException.ThrowIfNull(record.Errors);
         if (Array.Exists(record.Warnings, static value => value is null)
@@ -69,6 +70,11 @@ public sealed class PackageMetadataCache(string root)
         if (!IsSafeRepositoryReference(record.RepositoryUrl))
         {
             throw new ArgumentException("Repository URL must not contain credentials or reference a local file.", nameof(record));
+        }
+
+        if (!IsSafeRepositoryRef(record.RepositoryRef))
+        {
+            throw new ArgumentException("Repository ref is invalid.", nameof(record));
         }
 
         var persistedRecord = record with
@@ -120,6 +126,8 @@ public sealed class PackageMetadataCache(string root)
             || !TryGetString(root, "RawLicense", out _)
             || !TryGetString(root, "RepositoryUrl", out var repositoryUrl)
             || !IsSafeRepositoryReference(repositoryUrl)
+            || root.TryGetProperty("RepositoryRef", out var repositoryRef)
+                && (repositoryRef.ValueKind != JsonValueKind.String || !IsSafeRepositoryRef(repositoryRef.GetString()!))
             || !TryGetString(root, "FetchedAt", out var fetchedAtText)
             || !HasExplicitUtcOffset(fetchedAtText)
             || !root.GetProperty("FetchedAt").TryGetDateTimeOffset(out var fetchedAt)
@@ -158,6 +166,24 @@ public sealed class PackageMetadataCache(string root)
             && uri.UserInfo.Length == 0
             && uri.Query.Length == 0
             && uri.Fragment.Length == 0;
+    }
+
+    private static bool IsSafeRepositoryRef(string value)
+    {
+        if (value.Length > 256)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (char.IsControl(value[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool LooksLikeScpReference(string value)
@@ -207,6 +233,7 @@ public sealed class PackageMetadataCache(string root)
 /// <param name="Warnings">Non-fatal metadata warnings.</param>
 /// <param name="Errors">Metadata errors retained for audit.</param>
 /// <param name="FetchedAt">The metadata fetch timestamp.</param>
+/// <param name="RepositoryRef">The repository commit or ref mapped to this package version.</param>
 public readonly record struct PackageMetadataRecord(
     string CacheKey,
     string Source,
@@ -214,7 +241,8 @@ public readonly record struct PackageMetadataRecord(
     string RepositoryUrl,
     string[] Warnings,
     string[] Errors,
-    DateTimeOffset FetchedAt = default)
+    DateTimeOffset FetchedAt = default,
+    string RepositoryRef = "")
 {
     /// <summary>
     /// Gets the package metadata cache schema version.

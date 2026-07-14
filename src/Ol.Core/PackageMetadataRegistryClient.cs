@@ -56,7 +56,7 @@ public sealed class PackageMetadataRegistryClient
             var payload = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(payload);
             var metadata = provider.ParseResponse(document.RootElement);
-            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), [], [], DateTimeOffset.UtcNow);
+            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), [], [], DateTimeOffset.UtcNow, metadata.RepositoryRef);
         }
         catch (JsonException exception)
         {

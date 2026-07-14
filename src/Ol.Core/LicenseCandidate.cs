@@ -10,6 +10,7 @@
 /// <param name="Status">The classification of this candidate.</param>
 /// <param name="Deprecated">Whether the candidate uses a deprecated SPDX identifier.</param>
 /// <param name="Warnings">Warnings associated with this candidate.</param>
+/// <param name="SourceRepository">Structured source-repository provenance, when applicable.</param>
 public readonly record struct LicenseCandidate(
     string Source,
     string Kind,
@@ -17,4 +18,17 @@ public readonly record struct LicenseCandidate(
     Utf8Slice Normalized,
     LicenseStatus Status,
     bool Deprecated,
-    string[] Warnings);
+    string[] Warnings,
+    SourceRepositoryEvidence? SourceRepository = null);
+
+/// <summary>Contains structured provenance for one source-repository candidate.</summary>
+public readonly record struct SourceRepositoryEvidence(
+    string Repository,
+    string Ref,
+    int? HttpStatus,
+    string CacheKeySha256,
+    string LicensePath,
+    string LicenseSha,
+    string LicenseKey,
+    string LicenseName,
+    string LicenseUrl);

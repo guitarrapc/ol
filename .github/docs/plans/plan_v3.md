@@ -2,9 +2,9 @@
 
 This plan describes a language-agnostic implementation path for v3. v3 builds on v1 and v2 by adding source repository license hints, initially through the GitHub License API.
 
-> **Implementation status (2026-07-14): Partially implemented — not release-complete.**
+> **Implementation status (2026-07-15): Release-complete.**
 >
-> The source cache, GitHub URL normalization, dedicated authentication mode, GitHub License API client, cache-backed source reconciliation, JSON/stderr metadata, cache clearing, and fixture-backed benchmark are implemented. The remaining items listed in [Implementation Status](#implementation-status) must be completed before declaring v3 complete.
+> All planned v3 source evidence, cache, authentication, retry, reconciliation, report provenance, privacy, integration-test, and benchmark work is implemented.
 
 ## Goals
 
@@ -313,12 +313,19 @@ Extend v2 JSON golden files with source evidence. Keep text and markdown columns
 - [x] GitHub client tests and benchmarks use the JSON fixture at `data/mock/github-license-api-license.json`; no benchmark request reaches GitHub or a local HTTP server.
 - [x] Full test suite and Release benchmark runner were executed after the fixture change.
 
-### Remaining before v3 completion
+### Completed for v3 release
 
-- [ ] Record explicit `unsupported_source_repository` and `source_repository_unavailable` evidence for non-GitHub and missing repository URLs rather than silently skipping them.
-- [ ] Preserve source fetch failures as cacheable audit records where appropriate, and distinguish corrupt-cache evidence from a normal cache miss.
-- [ ] Add a package-metadata version-to-repository-ref mapping and use it when available; the current target normalizer always uses `default`.
-- [ ] Add fixture coverage for `license: null`, HTTP 403, HTTP 429 retry-then-success, exhausted 5xx retry, and timeout retry exhaustion.
-- [ ] Add end-to-end coverage for source-vs-package conflict, source failure with a valid SBOM candidate, `OL_GITHUB_TOKEN` report privacy, `GITHUB_TOKEN`-only report mode, source `--refresh`, and `ol cache clear source-repository`.
-- [ ] Add golden JSON coverage for source cache/report evidence and verify that it contains no absolute paths, cache paths, or token values.
-- [ ] Project GitHub source metadata (logical repository/ref, path, SHA, key/name, and HTTP status) into report evidence instead of retaining it only in the cache record.
+- [x] Record explicit `unsupported_source_repository` and `source_repository_unavailable` evidence for non-GitHub and missing repository URLs.
+- [x] Preserve source fetch failures as cacheable audit records and distinguish corrupt-cache evidence from a normal cache miss.
+- [x] Map package metadata repository commits/refs when registries provide them, falling back to `default` otherwise.
+- [x] Cover `license: null`, HTTP 403, HTTP 429 retry-then-success, exhausted 5xx retry, and timeout retry exhaustion.
+- [x] Cover source-vs-package conflict, source failure with valid SBOM evidence, token privacy/auth modes, source refresh, and source cache clearing.
+- [x] Verify JSON source evidence contains logical provenance without absolute paths, cache paths, or token values.
+- [x] Project logical repository/ref, path, SHA, key/name, URL, cache-key hash, and HTTP status into report evidence.
+
+### Lessons learned
+
+- Registry responses sometimes expose an exact package-version commit (`gitHead`, repository commit, or origin ref). Using it avoids querying a moving default branch, while absence must remain an explicit default-branch lookup rather than a guessed tag.
+- A corrupt cache entry and a missing entry are operationally different audit events. Recollection may be identical, but the report must retain the corrupt-cache fact even when the network request also fails.
+- Indexed target/result arrays keep bounded concurrent completion independent from deterministic component projection and avoid concurrent result-map overhead.
+- Source provenance is report metadata, not a warning. Modeling it as typed data prevents warning-count inflation and avoids repeated formatted strings for shared results.

@@ -787,6 +787,7 @@ internal static class ReportRenderer
             writer.WriteString("status", candidate.Status.ToString().ToLowerInvariant());
             writer.WriteBoolean("deprecated", candidate.Deprecated);
             WriteWarnings(writer, candidate.Warnings);
+            WriteSourceRepositoryEvidence(writer, candidate.SourceRepository);
             writer.WriteEndObject();
         }
 
@@ -806,10 +807,32 @@ internal static class ReportRenderer
             writer.WriteString("normalized"u8, item.Normalized.Span);
             writer.WriteString("status", item.Status.ToString().ToLowerInvariant());
             WriteWarnings(writer, item.Warnings);
+            WriteSourceRepositoryEvidence(writer, item.SourceRepository);
             writer.WriteEndObject();
         }
 
         writer.WriteEndArray();
+    }
+
+    private static void WriteSourceRepositoryEvidence(Utf8JsonWriter writer, SourceRepositoryEvidence? evidence)
+    {
+        if (evidence is not { } value)
+        {
+            return;
+        }
+
+        writer.WriteStartObject("sourceRepository");
+        writer.WriteString("repository", value.Repository);
+        writer.WriteString("ref", value.Ref);
+        if (value.HttpStatus is { } status) writer.WriteNumber("httpStatus", status);
+        else writer.WriteNull("httpStatus");
+        writer.WriteString("cacheKeySha256", value.CacheKeySha256);
+        writer.WriteString("licensePath", value.LicensePath);
+        writer.WriteString("licenseSha", value.LicenseSha);
+        writer.WriteString("licenseKey", value.LicenseKey);
+        writer.WriteString("licenseName", value.LicenseName);
+        writer.WriteString("licenseUrl", value.LicenseUrl);
+        writer.WriteEndObject();
     }
 
     private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<string> warnings)

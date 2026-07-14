@@ -20,16 +20,24 @@ public sealed class SourceRepositoryCache(string root)
 
     /// <summary>Reads a compatible source evidence entry, or null when absent or corrupt.</summary>
     public async Task<SourceRepositoryRecord?> TryReadAsync(string cacheKey, CancellationToken cancellationToken = default)
+        => (await ReadAsync(cacheKey, cancellationToken).ConfigureAwait(false)).Record;
+
+    /// <summary>Reads an entry and distinguishes a cache miss from an invalid entry.</summary>
+    public async Task<SourceRepositoryCacheReadResult> ReadAsync(string cacheKey, CancellationToken cancellationToken = default)
     {
         var path = GetPath(cacheKey);
-        if (!File.Exists(path)) return null;
         try
         {
             await using var stream = File.OpenRead(path);
             var record = await JsonSerializer.DeserializeAsync(stream, SourceRepositoryJsonContext.Default.SourceRepositoryRecord, cancellationToken).ConfigureAwait(false);
-            return record is { } value && IsValid(value, cacheKey) ? value : null;
+            return record is { } value && IsValid(value, cacheKey)
+                ? new(SourceRepositoryCacheReadStatus.Hit, value)
+                : new(SourceRepositoryCacheReadStatus.Invalid, null);
         }
-        catch (JsonException) { return null; }
+        catch (FileNotFoundException) { return new(SourceRepositoryCacheReadStatus.Missing, null); }
+        catch (DirectoryNotFoundException) { return new(SourceRepositoryCacheReadStatus.Missing, null); }
+        catch (JsonException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
+        catch (IOException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
     }
 
     /// <summary>Writes a normalized source evidence entry.</summary>
@@ -63,6 +71,20 @@ public sealed class SourceRepositoryCache(string root)
             && record.Warnings is not null && record.Errors is not null
             && record.FetchedAt.Offset == TimeSpan.Zero;
 }
+
+/// <summary>Classifies the outcome of a source repository cache read.</summary>
+public enum SourceRepositoryCacheReadStatus : byte
+{
+    /// <summary>No entry exists for the requested key.</summary>
+    Missing,
+    /// <summary>A compatible entry was read.</summary>
+    Hit,
+    /// <summary>An entry exists but cannot be safely consumed.</summary>
+    Invalid,
+}
+
+/// <summary>Contains a classified source repository cache read.</summary>
+public readonly record struct SourceRepositoryCacheReadResult(SourceRepositoryCacheReadStatus Status, SourceRepositoryRecord? Record);
 
 /// <summary>Represents normalized GitHub license metadata.</summary>
 public readonly record struct GitHubLicenseResult(string? SpdxId, string Key, string Name, string Path, string Sha, string HtmlUrl);

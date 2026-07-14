@@ -59,6 +59,7 @@ Package metadata evidence may provide:
 - raw license value
 - normalized SPDX expression, if valid
 - package registry URL or logical source reference
+- repository commit or ref mapped to the requested package version, when the registry supplies one
 - fetch timestamp
 - fetch status
 - warnings and errors

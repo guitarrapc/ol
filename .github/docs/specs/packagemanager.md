@@ -47,6 +47,8 @@ Initial v2 package metadata support targets:
 
 Maven and other ecosystems may be added later.
 
+Each ecosystem is an independently registered metadata provider. A provider owns the versioned-purl acceptance rules, registry endpoint, and normalized response evidence for that ecosystem. This keeps ecosystem-specific changes local: adding or removing a provider does not change central request parsing, registry dispatch, or SBOM ecosystem detection. Provider registration is immutable for a scan so repeated component processing performs only data lookup, not runtime configuration work.
+
 Unsupported ecosystems do not introduce a new component status. They are recorded as evidence with unsupported reason metadata. The component's final status remains based on available license evidence.
 
 <a id="contract-package-evidence"></a>
@@ -94,6 +96,8 @@ Cache entries are persistent. There is no automatic TTL. `--refresh` ignores exi
 ## Concurrency
 
 v2 external fetches run concurrently by default.
+
+Before external work starts, enrichment plans versioned component purls into indexed lookup data and deduplicates matching cache keys. A shared cache or registry result is then projected to every matching component in original report order. The number of active workers is bounded by `--concurrency`; the implementation must not create one pending task per component.
 
 Default concurrency is:
 

@@ -1,13 +1,17 @@
 ﻿namespace Ol.Core;
 
 /// <summary>
-/// Identifies the parsed SBOM format.
+/// Identifies a parsed SBOM format.
 /// </summary>
-public enum SbomFormat
+/// <param name="Name">The stable format identifier.</param>
+public readonly record struct SbomFormat(string Name)
 {
     /// <summary>CycloneDX JSON.</summary>
-    CycloneDxJson,
+    public static SbomFormat CycloneDxJson { get; } = new("CycloneDxJson");
 
     /// <summary>SPDX JSON.</summary>
-    SpdxJson,
+    public static SbomFormat SpdxJson { get; } = new("SpdxJson");
+
+    /// <inheritdoc />
+    public override string ToString() => Name;
 }

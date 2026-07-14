@@ -8,27 +8,25 @@ namespace Ol.Core;
 /// </summary>
 public sealed class PackageMetadataRegistryClient
 {
-    private static readonly Uri NpmBaseUri = new("https://registry.npmjs.org/");
-    private static readonly Uri NuGetBaseUri = new("https://api.nuget.org/v3/registration5-semver1/");
-    private static readonly Uri CargoBaseUri = new("https://crates.io/api/v1/crates/");
-    private static readonly Uri GoBaseUri = new("https://proxy.golang.org/");
     private readonly HttpClient httpClient;
+    private readonly PackageMetadataProviders providers;
 
     /// <summary>
     /// Initializes a registry client using the supplied HTTP client.
     /// </summary>
     /// <param name="httpClient">HTTP client used for registry requests.</param>
-    public PackageMetadataRegistryClient(HttpClient httpClient)
+    public PackageMetadataRegistryClient(HttpClient httpClient, PackageMetadataProviders? providers = null)
     {
         this.httpClient = httpClient;
+        this.providers = providers ?? PackageMetadataProviders.Default;
     }
 
     /// <summary>
     /// Initializes a registry client using a test or custom HTTP message handler.
     /// </summary>
     /// <param name="handler">HTTP handler used for registry requests.</param>
-    public PackageMetadataRegistryClient(HttpMessageHandler handler)
-        : this(new HttpClient(handler, disposeHandler: true))
+    public PackageMetadataRegistryClient(HttpMessageHandler handler, PackageMetadataProviders? providers = null)
+        : this(new HttpClient(handler, disposeHandler: true), providers)
     {
     }
 
@@ -41,7 +39,12 @@ public sealed class PackageMetadataRegistryClient
     /// <exception cref="PackageMetadataFetchException">The registry did not return usable metadata.</exception>
     public async Task<PackageMetadataRecord> FetchAsync(PackageMetadataRequest request, CancellationToken cancellationToken = default)
     {
-        var endpoint = CreateEndpoint(request);
+        if (!providers.TryGet(request.Ecosystem, out var provider))
+        {
+            throw new PackageMetadataFetchException(null);
+        }
+
+        var endpoint = provider.CreateEndpoint(request);
         using var response = await httpClient.GetAsync(endpoint, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
@@ -52,15 +55,8 @@ public sealed class PackageMetadataRegistryClient
         {
             var payload = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(payload);
-            var (source, rawLicense, repositoryUrl) = request.Ecosystem switch
-            {
-                "npm" => ("npm-registry", ReadString(document.RootElement, "license"), ReadRepository(document.RootElement)),
-                "nuget" => ReadNuGet(document.RootElement),
-                "cargo" => ReadCargo(document.RootElement),
-                "golang" => ("go-module-proxy", string.Empty, ReadGoRepository(document.RootElement)),
-                _ => throw new PackageMetadataFetchException(null),
-            };
-            return new PackageMetadataRecord(request.CacheKey, source, rawLicense, SanitizeRepositoryUrl(repositoryUrl), [], [], DateTimeOffset.UtcNow);
+            var metadata = provider.ParseResponse(document.RootElement);
+            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), [], [], DateTimeOffset.UtcNow);
         }
         catch (JsonException exception)
         {
@@ -75,52 +71,6 @@ public sealed class PackageMetadataRegistryClient
     /// <returns><see langword="true"/> for HTTP 429 and 5xx responses.</returns>
     public static bool IsTransient(HttpStatusCode statusCode)
         => statusCode == HttpStatusCode.TooManyRequests || (int)statusCode >= 500;
-
-    private static Uri CreateEndpoint(PackageMetadataRequest request)
-    {
-        return request.Ecosystem switch
-        {
-            "npm" => new Uri(NpmBaseUri, string.Concat(Uri.EscapeDataString(request.Namespace.Length == 0 ? request.Name : string.Concat(request.Namespace, "/", request.Name)), "/", Uri.EscapeDataString(request.Version))),
-            "nuget" => new Uri(NuGetBaseUri, string.Concat(Uri.EscapeDataString(request.Name.ToLowerInvariant()), "/", Uri.EscapeDataString(request.Version.ToLowerInvariant()), ".json")),
-            "cargo" => new Uri(CargoBaseUri, string.Concat(Uri.EscapeDataString(request.Name), "/", Uri.EscapeDataString(request.Version))),
-            "golang" => new Uri(GoBaseUri, string.Concat(EscapePath(string.Concat(request.Namespace.Length == 0 ? string.Empty : string.Concat(request.Namespace, "/"), request.Name)), "/@v/", Uri.EscapeDataString(request.Version), ".info")),
-            _ => throw new PackageMetadataFetchException(null),
-        };
-    }
-
-    private static string EscapePath(string value) => Uri.EscapeDataString(value).Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
-
-    private static (string Source, string RawLicense, string RepositoryUrl) ReadNuGet(JsonElement root)
-    {
-        var catalog = root.TryGetProperty("catalogEntry", out var value) ? value : default;
-        return ("nuget-registry", ReadString(catalog, "licenseExpression"), ReadString(catalog, "projectUrl"));
-    }
-
-    private static (string Source, string RawLicense, string RepositoryUrl) ReadCargo(JsonElement root)
-    {
-        var version = root.TryGetProperty("version", out var value) ? value : default;
-        return ("cargo-registry", ReadString(version, "license"), ReadString(version, "repository"));
-    }
-
-    private static string ReadGoRepository(JsonElement root)
-    {
-        if (!root.TryGetProperty("Origin", out var origin))
-        {
-            return string.Empty;
-        }
-
-        return ReadString(origin, "URL");
-    }
-
-    private static string ReadRepository(JsonElement root)
-    {
-        if (!root.TryGetProperty("repository", out var repository))
-        {
-            return string.Empty;
-        }
-
-        return repository.ValueKind == JsonValueKind.String ? repository.GetString() ?? string.Empty : ReadString(repository, "url");
-    }
 
     private static string SanitizeRepositoryUrl(string value)
     {
@@ -146,8 +96,6 @@ public sealed class PackageMetadataRegistryClient
         return uri.IsFile || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 ? string.Empty : value;
     }
 
-    private static string ReadString(JsonElement element, string property)
-        => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
 }
 
 /// <summary>

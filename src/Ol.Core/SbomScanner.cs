@@ -15,37 +15,31 @@ public static class SbomScanner
     /// <param name="sbomUtf8">The SBOM JSON bytes.</param>
     /// <param name="spdxLicenseIndex">The SPDX license lookup index.</param>
     /// <returns>The scan report.</returns>
-    public static ScanReport Scan(ReadOnlySpan<byte> sbomUtf8, SpdxLicenseIndex spdxLicenseIndex)
+    public static ScanReport Scan(ReadOnlySpan<byte> sbomUtf8, SpdxLicenseIndex spdxLicenseIndex, SbomFormatRegistry? formats = null)
     {
-        return Scan(sbomUtf8.ToArray(), spdxLicenseIndex);
+        return Scan(sbomUtf8.ToArray(), spdxLicenseIndex, formats);
     }
 
     /// <summary>
     /// Scans an owned UTF-8 SBOM buffer without copying component text.
     /// </summary>
-    public static ScanReport Scan(byte[] sbomUtf8, SpdxLicenseIndex spdxLicenseIndex)
+    public static ScanReport Scan(byte[] sbomUtf8, SpdxLicenseIndex spdxLicenseIndex, SbomFormatRegistry? formats = null)
     {
         ArgumentNullException.ThrowIfNull(sbomUtf8);
         var offset = HasUtf8Bom(sbomUtf8) ? 3 : 0;
         var input = sbomUtf8.AsSpan(offset);
         var reader = new Utf8JsonReader(input, isFinalBlock: true, state: default);
-        var format = DetectFormat(ref reader);
-
-        return format switch
-        {
-            SbomFormat.CycloneDxJson => ScanCycloneDx(sbomUtf8, offset, spdxLicenseIndex),
-            SbomFormat.SpdxJson => ScanSpdx(sbomUtf8, offset, spdxLicenseIndex),
-            _ => throw new JsonException("Unsupported SBOM JSON format."),
-        };
+        var handler = DetectFormat(ref reader, formats ?? SbomFormatRegistry.Default);
+        return handler.Parser(sbomUtf8, offset, spdxLicenseIndex);
     }
 
     private static bool HasUtf8Bom(ReadOnlySpan<byte> sbomUtf8)
         => sbomUtf8.Length >= 3 && sbomUtf8[0] == 0xEF && sbomUtf8[1] == 0xBB && sbomUtf8[2] == 0xBF;
 
-    private static SbomFormat DetectFormat(ref Utf8JsonReader reader)
+    private static SbomFormatHandler DetectFormat(ref Utf8JsonReader reader, SbomFormatRegistry formats)
     {
-        var isCycloneDx = false;
-        var isSpdx = false;
+        var handlers = formats.Handlers;
+        var selected = -1;
         while (reader.Read())
         {
             if (reader.TokenType != JsonTokenType.PropertyName)
@@ -53,40 +47,41 @@ public static class SbomScanner
                 continue;
             }
 
-            if (reader.ValueTextEquals("bomFormat"u8))
+            for (var i = 0; i < handlers.Length; i++)
             {
-                reader.Read();
-                if (reader.TokenType == JsonTokenType.String && reader.ValueTextEquals("CycloneDX"u8))
+                var handler = handlers[i];
+                if (!reader.ValueTextEquals(handler.MarkerName.Span))
                 {
-                    isCycloneDx = true;
+                    continue;
                 }
-            }
 
-            if (reader.ValueTextEquals("spdxVersion"u8))
-            {
-                isSpdx = true;
+                if (handler.MarkerValue.Length != 0)
+                {
+                    reader.Read();
+                    if (reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(handler.MarkerValue.Span))
+                    {
+                        continue;
+                    }
+                }
+
+                if (selected >= 0 && selected != i)
+                {
+                    throw new JsonException("Unsupported or ambiguous SBOM JSON format.");
+                }
+
+                selected = i;
             }
         }
 
-        if (isCycloneDx == isSpdx)
+        if (selected < 0)
         {
             throw new JsonException("Unsupported or ambiguous SBOM JSON format.");
         }
 
-        if (isCycloneDx)
-        {
-            return SbomFormat.CycloneDxJson;
-        }
-
-        if (isSpdx)
-        {
-            return SbomFormat.SpdxJson;
-        }
-
-        throw new JsonException("Unsupported SBOM JSON format.");
+        return handlers[selected];
     }
 
-    private static ScanReport ScanCycloneDx(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex)
+    internal static ScanReport ScanCycloneDx(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex)
     {
         var reader = new Utf8JsonReader(sbomUtf8.AsSpan(offset), isFinalBlock: true, state: default);
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
@@ -177,7 +172,7 @@ public static class SbomScanner
         }
     }
 
-    private static ScanReport ScanSpdx(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex)
+    internal static ScanReport ScanSpdx(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex)
     {
         var reader = new Utf8JsonReader(sbomUtf8.AsSpan(offset), isFinalBlock: true, state: default);
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
@@ -321,7 +316,7 @@ public static class SbomScanner
             license = "-";
         }
 
-        return CreateScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, candidates);
+        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, candidates);
     }
 
     private static ScanComponent ReadCycloneDxMetadataComponent(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
@@ -433,7 +428,7 @@ public static class SbomScanner
             LicenseCandidateFactory.Create("sbom", "declared", declared, spdxLicenseIndex),
             LicenseCandidateFactory.Create("sbom", "concluded", concluded, spdxLicenseIndex),
         };
-        return CreateScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, candidates);
+        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, candidates);
     }
 
     private static void ReadSpdxRelationships(ref Utf8JsonReader reader, byte[] source, int offset, ref DependencyEdge[] dependencies, ref int dependencyCount, ref Utf8Slice rootRef)
@@ -895,54 +890,6 @@ public static class SbomScanner
         }
 
         var value = reader.ValueSpan;
-        if (value.Length != expectedLowercase.Length)
-        {
-            return false;
-        }
-
-        for (var i = 0; i < value.Length; i++)
-        {
-            var current = value[i];
-            if (current is >= (byte)'A' and <= (byte)'Z')
-            {
-                current = (byte)(current | 0x20);
-            }
-
-            if (current != expectedLowercase[i])
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static string GetEcosystem(Utf8Slice purl)
-    {
-        var purlSpan = purl.Span;
-        if (!purlSpan.StartsWith("pkg:"u8))
-        {
-            return "-";
-        }
-
-        const int typeStart = 4;
-        var slash = purlSpan[typeStart..].IndexOf((byte)'/');
-        if (slash < 0)
-        {
-            return "-";
-        }
-
-        var type = purlSpan.Slice(typeStart, slash);
-        return AsciiEqualsIgnoreCase(type, "npm"u8) ? "npm"
-            : AsciiEqualsIgnoreCase(type, "nuget"u8) ? "nuget"
-            : AsciiEqualsIgnoreCase(type, "cargo"u8) ? "cargo"
-            : AsciiEqualsIgnoreCase(type, "golang"u8) ? "golang"
-            : "-";
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool AsciiEqualsIgnoreCase(ReadOnlySpan<byte> value, ReadOnlySpan<byte> expectedLowercase)
-    {
         if (value.Length != expectedLowercase.Length)
         {
             return false;

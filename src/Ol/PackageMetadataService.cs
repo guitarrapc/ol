@@ -23,14 +23,45 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
 
     public async Task<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(ScanComponent[] components, int concurrency, CancellationToken cancellationToken = default)
     {
-        using var gate = new SemaphoreSlim(concurrency, concurrency);
-        var tasks = new Task<PackageMetadataEnrichment>[components.Length];
+        var lookupByCacheKey = new Dictionary<string, int>(components.Length, StringComparer.Ordinal);
+        var lookups = new PackageMetadataLookup[components.Length];
+        var componentLookupIndexes = new int[components.Length];
+        var immediateResults = new PackageMetadataLookupResult[components.Length];
+        var lookupCount = 0;
         for (var i = 0; i < components.Length; i++)
         {
-            tasks[i] = EnrichComponentAsync(components[i], gate, cancellationToken);
+            var component = components[i];
+            var purl = component.Purl.ToString();
+            if (!PackageMetadataRequest.TryCreate(purl, out var request))
+            {
+                componentLookupIndexes[i] = -1;
+                if (!component.Purl.IsEmpty)
+                {
+                    var unsupportedCandidate = new LicenseCandidate("package-metadata", "unsupported", component.Purl, string.Empty, LicenseStatus.Unknown, false, ["unsupported_package_metadata"]);
+                    immediateResults[i] = new PackageMetadataLookupResult(unsupportedCandidate, true, false, false, false, false, true);
+                }
+
+                continue;
+            }
+
+            if (!lookupByCacheKey.TryGetValue(request.CacheKey, out var lookupIndex))
+            {
+                lookupIndex = lookupCount;
+                lookupByCacheKey.Add(request.CacheKey, lookupIndex);
+                lookups[lookupCount] = new PackageMetadataLookup(lookupIndex, request);
+                lookupCount++;
+            }
+
+            componentLookupIndexes[i] = lookupIndex;
         }
 
-        var enrichments = await Task.WhenAll(tasks).ConfigureAwait(false);
+        var lookupResults = new PackageMetadataLookupResult[lookupCount];
+        var options = new ParallelOptions { MaxDegreeOfParallelism = concurrency, CancellationToken = cancellationToken };
+        await Parallel.ForEachAsync<PackageMetadataLookup>(new ArraySegment<PackageMetadataLookup>(lookups, 0, lookupCount), options, async (lookup, token) =>
+        {
+            lookupResults[lookup.Index] = await EnrichLookupAsync(lookup.Request, token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
+
         var enrichedComponents = new ScanComponent[components.Length];
         var supported = 0;
         var hits = 0;
@@ -38,77 +69,61 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         var refreshed = 0;
         var errors = 0;
         var unsupported = 0;
-        for (var i = 0; i < enrichments.Length; i++)
+        for (var i = 0; i < components.Length; i++)
         {
-            var enrichment = enrichments[i];
-            enrichedComponents[i] = enrichment.Component;
-            supported += enrichment.Supported ? 1 : 0;
-            hits += enrichment.CacheHit ? 1 : 0;
-            misses += enrichment.CacheMiss ? 1 : 0;
-            refreshed += enrichment.Refreshed ? 1 : 0;
-            errors += enrichment.FetchError ? 1 : 0;
-            unsupported += enrichment.Unsupported ? 1 : 0;
+            var lookupIndex = componentLookupIndexes[i];
+            var result = lookupIndex >= 0 ? lookupResults[lookupIndex] : immediateResults[i];
+            enrichedComponents[i] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];
+            supported += result.Supported ? 1 : 0;
+            hits += result.CacheHit ? 1 : 0;
+            misses += result.CacheMiss ? 1 : 0;
+            refreshed += result.Refreshed ? 1 : 0;
+            errors += result.FetchError ? 1 : 0;
+            unsupported += result.Unsupported ? 1 : 0;
         }
 
         return (enrichedComponents, new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount));
     }
 
-    private async Task<PackageMetadataEnrichment> EnrichComponentAsync(ScanComponent component, SemaphoreSlim gate, CancellationToken cancellationToken)
+    private async Task<PackageMetadataLookupResult> EnrichLookupAsync(PackageMetadataRequest request, CancellationToken cancellationToken)
     {
-        var purl = component.Purl.ToString();
-        if (!PackageMetadataRequest.TryCreate(purl, out var request))
-        {
-            if (component.Purl.IsEmpty)
-            {
-                return new PackageMetadataEnrichment(component, false, false, false, false, false, false);
-            }
-
-            var unsupported = new LicenseCandidate("package-metadata", "unsupported", component.Purl, string.Empty, LicenseStatus.Unknown, false, ["unsupported_package_metadata"]);
-            return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, unsupported), false, false, false, false, false, true);
-        }
-
         if (!refresh)
         {
             var cached = await cache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false);
             if (cached is { } record)
             {
-                return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, CreateMetadataCandidate(record)), true, true, false, false, false, false);
+                return new PackageMetadataLookupResult(CreateMetadataCandidate(record), true, true, false, false, false, false);
             }
         }
 
-        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            try
-            {
-                var record = await PackageMetadataFetchScheduler.FetchAsync(registryClient, request, retryCount, cancellationToken).ConfigureAwait(false);
-                await cache.WriteAsync(record, cancellationToken).ConfigureAwait(false);
-                return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, CreateMetadataCandidate(record)), true, false, true, refresh, false, false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (PackageMetadataFetchException)
-            {
-                var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
-                return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, error), true, false, true, false, true, false);
-            }
-            catch (HttpRequestException)
-            {
-                var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
-                return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, error), true, false, true, false, true, false);
-            }
-            catch (IOException)
-            {
-                var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
-                return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, error), true, false, true, false, true, false);
-            }
+            var record = await PackageMetadataFetchScheduler.FetchAsync(registryClient, request, retryCount, cancellationToken).ConfigureAwait(false);
+            await cache.WriteAsync(record, cancellationToken).ConfigureAwait(false);
+            return new PackageMetadataLookupResult(CreateMetadataCandidate(record), true, false, true, refresh, false, false);
         }
-        finally
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            gate.Release();
+            throw;
         }
+        catch (PackageMetadataFetchException)
+        {
+            return CreateFetchError(request);
+        }
+        catch (HttpRequestException)
+        {
+            return CreateFetchError(request);
+        }
+        catch (IOException)
+        {
+            return CreateFetchError(request);
+        }
+    }
+
+    private static PackageMetadataLookupResult CreateFetchError(PackageMetadataRequest request)
+    {
+        var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
+        return new PackageMetadataLookupResult(error, true, false, true, false, true, false);
     }
 
     private LicenseCandidate CreateMetadataCandidate(PackageMetadataRecord record)
@@ -125,5 +140,13 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         return candidate with { Warnings = warnings };
     }
 
-    private readonly record struct PackageMetadataEnrichment(ScanComponent Component, bool Supported, bool CacheHit, bool CacheMiss, bool Refreshed, bool FetchError, bool Unsupported);
+    private readonly record struct PackageMetadataLookup(int Index, PackageMetadataRequest Request);
+
+    private readonly record struct PackageMetadataLookupResult(LicenseCandidate Candidate, bool HasCandidate, bool Supported, bool CacheHit, bool CacheMiss, bool Refreshed, bool FetchError, bool Unsupported)
+    {
+        public PackageMetadataLookupResult(LicenseCandidate candidate, bool supported, bool cacheHit, bool cacheMiss, bool refreshed, bool fetchError, bool unsupported)
+            : this(candidate, true, supported, cacheHit, cacheMiss, refreshed, fetchError, unsupported)
+        {
+        }
+    }
 }

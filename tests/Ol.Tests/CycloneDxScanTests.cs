@@ -9,6 +9,19 @@ public sealed class CycloneDxScanTests
     private static readonly SpdxLicenseIndex Spdx = new(["Apache-2.0", "GPL-2.0-only", "MIT"], ["Classpath-exception-2.0"]);
 
   [Test]
+  public async Task Scan_RegisteredFormat_UsesItsOwnMarkerAndParser()
+  {
+    var format = new SbomFormat("test-json");
+    var registry = new SbomFormatRegistry([
+      new SbomFormatHandler(format, "testFormat"u8.ToArray(), "test"u8.ToArray(), static (source, _, _) => new ScanReport(new SbomFormat("test-json"), default, [])),
+    ]);
+
+    var report = SbomScanner.Scan(Encoding.UTF8.GetBytes("""{ "testFormat": "test" }"""), Spdx, registry);
+
+    await Assert.That(report.Format).IsEqualTo(format);
+  }
+
+  [Test]
   public async Task TryNormalizeLicenseIdUtf8_KnownIdentifier_NormalizesWithoutInputString()
   {
     var normalized = Spdx.TryNormalizeLicenseIdUtf8("mit"u8, out var identifier);

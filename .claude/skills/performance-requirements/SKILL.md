@@ -7,6 +7,19 @@ description: Guidelines for high-performance and memory-efficient transitive OSS
 
 All hot paths in Ol's transitive OSS license-resolution pipeline must be implemented with **maximum attention to performance and memory efficiency**. This includes dependency inventory and graph ingestion, evidence collection, SPDX lookup and expression validation, license reconciliation, package/source enrichment, report projection, and future policy evaluation. SBOM parsing is one input stage, not the product boundary.
 
+## Data-Oriented Architecture Is a Performance Requirement
+
+Data-oriented design is mandatory, not an optional refactoring preference. Allocation rate, cache locality, bounded work, and extension locality are correctness properties of this repository.
+
+- Model pipeline state as explicit `record struct`/`struct` data and deterministic transforms. Keep side effects at I/O, cache, and network boundaries.
+- Keep per-item hot paths free of virtual/interface dispatch, closures, LINQ, transient strings, and growable collections. Registration-time polymorphism is permitted only at narrow format/provider boundaries; resolve it once before repeated work.
+- An added SBOM format must be representable by one registered format handler containing its marker and parser. Its registration must not require a central format `switch`, parser-dispatch edit, or output-format edit.
+- An added package ecosystem must be representable by one registered provider owning purl validation, endpoint construction, and response projection. It must not require central ecosystem switches in request parsing, registry retrieval, or scan ecosystem detection.
+- Registries are immutable per operation. Construct lookup tables, delegates, and encoded marker data once at startup/registration time; never construct them per component, dependency, candidate, or request.
+- Plan enrichment into indexed arrays with capacities derived from component count. Deduplicate normalized targets before cache/network work, execute only bounded workers, and project each shared result back in deterministic component order.
+- Do not introduce behavior-heavy service layers, inheritance hierarchies, or broad dependency injection into parsing/reconciliation loops. A provider/parser boundary is acceptable only when it confines an independently changing concern.
+- Treat a change that spreads one format or ecosystem across multiple unrelated files as a design failure. Add a registration test proving the new concern is consumed through its own registered handler/provider.
+
 ## Core Requirements
 
 ### 1. Verification

@@ -23,8 +23,32 @@ public readonly record struct PackageMetadataRequest(
     /// <returns><see langword="true"/> when a supported request was created.</returns>
     public static bool TryCreate(string purl, out PackageMetadataRequest request)
     {
+        return TryCreate(purl, PackageMetadataProviders.Default, out request);
+    }
+
+    /// <summary>
+    /// Parses a supported package URL using a provider registry.
+    /// </summary>
+    /// <param name="purl">The package URL.</param>
+    /// <param name="providers">The ecosystem providers available for this operation.</param>
+    /// <param name="request">The parsed request when the purl is supported and versioned.</param>
+    /// <returns><see langword="true"/> when a supported request was created.</returns>
+    public static bool TryCreate(string purl, PackageMetadataProviders providers, out PackageMetadataRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(providers);
         request = default;
-        if (!purl.StartsWith("pkg:", StringComparison.OrdinalIgnoreCase))
+        if (!TryGetEcosystem(purl, out var ecosystem) || !providers.TryGet(ecosystem, out var provider))
+        {
+            return false;
+        }
+
+        return provider.TryCreate(purl, out request);
+    }
+
+    internal static bool TryParse(string purl, string expectedEcosystem, out PackageMetadataRequest request)
+    {
+        request = default;
+        if (!TryGetEcosystem(purl, out var ecosystem) || !string.Equals(ecosystem, expectedEcosystem, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -32,17 +56,6 @@ public readonly record struct PackageMetadataRequest(
         var qualifierIndex = purl.AsSpan().IndexOfAny('?', '#');
         var identity = qualifierIndex < 0 ? purl : purl[..qualifierIndex];
         var typeEnd = identity.IndexOf('/');
-        if (typeEnd <= "pkg:".Length)
-        {
-            return false;
-        }
-
-        var ecosystem = identity["pkg:".Length..typeEnd].ToLowerInvariant();
-        if (ecosystem is not ("npm" or "nuget" or "cargo" or "golang"))
-        {
-            return false;
-        }
-
         var versionSeparator = identity.LastIndexOf('@');
         if (versionSeparator <= typeEnd + 1 || versionSeparator == identity.Length - 1)
         {
@@ -59,7 +72,25 @@ public readonly record struct PackageMetadataRequest(
             return false;
         }
 
-        request = new PackageMetadataRequest(ecosystem, namespaceValue, name, version, identity);
+        request = new PackageMetadataRequest(expectedEcosystem, namespaceValue, name, version, identity);
+        return true;
+    }
+
+    private static bool TryGetEcosystem(string purl, out string ecosystem)
+    {
+        ecosystem = string.Empty;
+        if (!purl.StartsWith("pkg:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var typeEnd = purl.IndexOf('/');
+        if (typeEnd <= "pkg:".Length)
+        {
+            return false;
+        }
+
+        ecosystem = purl["pkg:".Length..typeEnd];
         return true;
     }
 }

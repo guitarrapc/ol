@@ -12,7 +12,7 @@ public sealed class PackageMetadataTests
     {
         var provider = new TestPackageMetadataProvider();
         var providers = new PackageMetadataProviders([provider]);
-        var client = new PackageMetadataRegistryClient(CreateClient("""{ \"license\": \"MIT\" }"""), providers);
+        var client = new PackageMetadataRegistryClient(new StaticResponseHandler("""{ "license": "MIT" }"""), providers);
 
         var parsed = PackageMetadataRequest.TryCreate("pkg:test/example@1.0.0", providers, out var request);
         var record = await client.FetchAsync(request);

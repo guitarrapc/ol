@@ -772,12 +772,10 @@ internal static class ReportRenderer
         return false;
     }
 
-    private static string GetFormatName(SbomFormat format) => format switch
-    {
-        SbomFormat.CycloneDxJson => "CycloneDX",
-        SbomFormat.SpdxJson => "SPDX",
-        _ => format.ToString(),
-    };
+    private static string GetFormatName(SbomFormat format)
+        => format == SbomFormat.CycloneDxJson ? "CycloneDX"
+        : format == SbomFormat.SpdxJson ? "SPDX"
+        : format.Name;
 }
 
 internal readonly record struct ScanSummary(int Matched, int Conflict, int Unknown, int Ambiguous, int Invalid, int WarningCount, int DeprecatedSpdxCount)

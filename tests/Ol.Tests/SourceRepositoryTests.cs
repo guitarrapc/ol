@@ -94,14 +94,37 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task FetchScheduler_RateLimitThenSuccess_RetriesAndReturnsLicense()
+    {
+        var handler = new SequenceResponseHandler(HttpStatusCode.TooManyRequests, HttpStatusCode.OK);
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
+
+        var record = await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
+
+        await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
+        await Assert.That(handler.CallCount).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task FetchScheduler_ExhaustedServerFailure_ThrowsAfterConfiguredAttempts()
+    {
+        var handler = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.ServiceUnavailable);
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
+
+        await Assert.That(async () => await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<SourceRepositoryFetchException>();
+        await Assert.That(handler.CallCount).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Client_Fetch_CustomApiBaseUri_SendsRequestToConfiguredMockHost()
     {
         var handler = new GitHubResponseHandler(HttpStatusCode.OK, """{ "license": { "spdx_id": "MIT" } }""");
-        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create(), new Uri("http://127.0.0.1:19080/"));
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create("secret-token"), new Uri("http://127.0.0.1:19080/"));
 
         await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "main"));
 
         await Assert.That(handler.RequestUri).IsEqualTo("http://127.0.0.1:19080/repos/owner/repository/license?ref=main");
+        await Assert.That(handler.Authorization).IsEmpty();
     }
 
     private sealed class GitHubResponseHandler(HttpStatusCode statusCode, string body) : HttpMessageHandler
@@ -114,6 +137,21 @@ public sealed class SourceRepositoryTests
             Authorization = request.Headers.Authorization?.ToString() ?? string.Empty;
             RequestUri = request.RequestUri!.ToString();
             return Task.FromResult(new HttpResponseMessage(statusCode) { Content = new StringContent(body) });
+        }
+    }
+
+    private sealed class SequenceResponseHandler(params HttpStatusCode[] statuses) : HttpMessageHandler
+    {
+        public int CallCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var status = statuses[Math.Min(CallCount, statuses.Length - 1)];
+            CallCount++;
+            return Task.FromResult(new HttpResponseMessage(status)
+            {
+                Content = new StringContent(status == HttpStatusCode.OK ? ReadGitHubLicenseFixture() : string.Empty),
+            });
         }
     }
 

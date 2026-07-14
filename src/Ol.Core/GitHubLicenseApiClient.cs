@@ -33,7 +33,7 @@ public sealed class GitHubLicenseApiClient
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("ol", "1.0"));
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
-        if (authentication.Token.Length != 0)
+        if (authentication.Token.Length != 0 && string.Equals(endpoint.Host, "api.github.com", StringComparison.OrdinalIgnoreCase))
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authentication.Token);
         }

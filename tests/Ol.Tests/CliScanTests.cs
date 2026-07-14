@@ -182,7 +182,7 @@ public sealed class CliScanTests
             using var report = JsonDocument.Parse(stdout);
             var component = report.RootElement.GetProperty("components")[0];
             var candidates = component.GetProperty("licenseCandidates");
-            await Assert.That(candidates.GetArrayLength()).IsEqualTo(2);
+            await Assert.That(candidates.GetArrayLength()).IsEqualTo(3);
             var declared = candidates[0];
             await Assert.That(declared.GetProperty("source").GetString()).IsEqualTo("sbom");
             await Assert.That(declared.GetProperty("kind").GetString()).IsEqualTo("declared");
@@ -191,9 +191,10 @@ public sealed class CliScanTests
             await Assert.That(declared.GetProperty("status").GetString()).IsEqualTo("matched");
             await Assert.That(declared.GetProperty("deprecated").GetBoolean()).IsTrue();
             await Assert.That(declared.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
-            await Assert.That(component.GetProperty("evidence").GetArrayLength()).IsEqualTo(2);
+            await Assert.That(component.GetProperty("evidence").GetArrayLength()).IsEqualTo(3);
+            await Assert.That(candidates[2].GetProperty("kind").GetString()).IsEqualTo("unavailable");
             await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
-            await Assert.That(stderr).Contains("warnings: 1");
+            await Assert.That(stderr).Contains("warnings: 2");
             await Assert.That(stderr).Contains("deprecated-spdx: 1");
         }
         finally

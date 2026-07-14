@@ -22,6 +22,8 @@ The implemented v2 behavior plans supported versioned purls, consumes persistent
 
 Successful fetches overwrite the relevant cache entry. A cache miss or refresh failure records component-scoped `package_metadata_fetch_failed` evidence; existing valid SBOM evidence remains authoritative for the component's final status. Go module proxy metadata provides source references but no license field, so a successful Go lookup without license text contributes unknown evidence rather than a fetch error.
 
+Registry responses that are valid JSON but do not embed the expected metadata object contribute unknown metadata rather than terminating the scan. In particular, a direct NuGet registration leaf normally exposes `catalogEntry` as a NuGet-hosted catalog URL. Ol follows that trusted URL to recover the package-version metadata; malformed or untrusted references remain unknown and must not erase usable SBOM evidence or fail the whole scan.
+
 v3 keeps this behavior and adds source repository hints described in [source.md](source.md).
 
 ## User Experience

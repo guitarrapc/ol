@@ -45,7 +45,7 @@ public sealed class PackageMetadataRegistryClient
         }
 
         var endpoint = provider.CreateEndpoint(request);
-        using var response = await httpClient.GetAsync(endpoint, cancellationToken).ConfigureAwait(false);
+        using var response = await httpClient.GetAsync(endpoint, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             throw new PackageMetadataFetchException(response.StatusCode);
@@ -55,7 +55,25 @@ public sealed class PackageMetadataRegistryClient
         {
             var payload = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(payload);
-            var metadata = provider.ParseResponse(document.RootElement);
+            var followUpEndpoint = provider.CreateFollowUpEndpoint(document.RootElement);
+            PackageMetadataResponse metadata;
+            if (followUpEndpoint is not null)
+            {
+                using var followUpResponse = await httpClient.GetAsync(followUpEndpoint, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                if (!followUpResponse.IsSuccessStatusCode)
+                {
+                    throw new PackageMetadataFetchException(followUpResponse.StatusCode);
+                }
+
+                var followUpPayload = await followUpResponse.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+                using var followUpDocument = JsonDocument.Parse(followUpPayload);
+                metadata = provider.ParseResponse(followUpDocument.RootElement);
+            }
+            else
+            {
+                metadata = provider.ParseResponse(document.RootElement);
+            }
+
             return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), [], [], DateTimeOffset.UtcNow, metadata.RepositoryRef);
         }
         catch (JsonException exception)

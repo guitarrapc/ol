@@ -204,6 +204,54 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithOfficialCatalogEntryUrl_FetchesCatalogMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            """{ "catalogEntry": "https://api.nuget.org/v3/catalog0/data/example.1.0.0.json" }""",
+            """{ "licenseExpression": "MIT", "projectUrl": "https://github.com/example/project", "repository": { "commit": "abcdef" } }""");
+        var client = new PackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.Source).IsEqualTo("nuget-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/project");
+        await Assert.That(record.RepositoryRef).IsEqualTo("abcdef");
+        await Assert.That(handler.RequestUris).IsEquivalentTo([
+            "https://api.nuget.org/v3/registration5-semver1/example/1.0.0.json",
+            "https://api.nuget.org/v3/catalog0/data/example.1.0.0.json",
+        ]);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithUntrustedCatalogEntryUrl_DoesNotFollowIt()
+    {
+        var handler = new SequenceJsonResponseHandler("""{ "catalogEntry": "https://example.test/private.json" }""");
+        var client = new PackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(handler.RequestUris.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Providers_ParseResponse_WithNonObjectRoot_ReturnUnknownMetadataWithoutThrowing()
+    {
+        using var document = JsonDocument.Parse("\"unexpected\"");
+        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider()];
+
+        for (var i = 0; i < providers.Length; i++)
+        {
+            var response = providers[i].ParseResponse(document.RootElement);
+
+            await Assert.That(response.RawLicense).IsEmpty();
+            await Assert.That(response.RepositoryUrl).IsEmpty();
+            await Assert.That(response.RepositoryRef).IsEmpty();
+        }
+    }
+
+    [Test]
     public async Task Fetch_CargoAndGoResponses_ProduceTheirAvailableEvidence()
     {
         var cargo = CreateClient("""{ "version": { "license": "MIT OR Apache-2.0", "repository": "https://github.com/example/crate" } }""");
@@ -343,6 +391,20 @@ public sealed class PackageMetadataTests
             }
 
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class SequenceJsonResponseHandler(params string[] bodies) : HttpMessageHandler
+    {
+        private readonly string[] bodies = bodies;
+
+        public List<string> RequestUris { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestUris.Add(request.RequestUri!.AbsoluteUri);
+            var body = bodies[Math.Min(RequestUris.Count - 1, bodies.Length - 1)];
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
         }
     }
 }

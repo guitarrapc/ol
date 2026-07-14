@@ -39,6 +39,13 @@ public abstract class PackageMetadataProvider
     public abstract Uri CreateEndpoint(PackageMetadataRequest request);
 
     /// <summary>
+    /// Creates an optional provider-owned endpoint referenced by a registry response.
+    /// </summary>
+    /// <param name="root">The root JSON response element.</param>
+    /// <returns>A trusted follow-up endpoint, or <see langword="null"/>.</returns>
+    public virtual Uri? CreateFollowUpEndpoint(JsonElement root) => null;
+
+    /// <summary>
     /// Projects a registry response into normalized metadata evidence.
     /// </summary>
     /// <param name="root">The root JSON response element.</param>
@@ -160,10 +167,33 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
     public override Uri CreateEndpoint(PackageMetadataRequest request)
         => new(BaseUri, string.Concat(Uri.EscapeDataString(request.Name.ToLowerInvariant()), "/", Uri.EscapeDataString(request.Version.ToLowerInvariant()), ".json"));
     /// <inheritdoc />
+    public override Uri? CreateFollowUpEndpoint(JsonElement root)
+    {
+        var catalog = PackageMetadataJson.ReadElement(root, "catalogEntry");
+        if (catalog.ValueKind != JsonValueKind.String
+            || !Uri.TryCreate(catalog.GetString(), UriKind.Absolute, out var endpoint)
+            || endpoint.Scheme != Uri.UriSchemeHttps
+            || !endpoint.IsDefaultPort
+            || !endpoint.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase)
+            || endpoint.UserInfo.Length != 0
+            || endpoint.Query.Length != 0
+            || endpoint.Fragment.Length != 0)
+        {
+            return null;
+        }
+
+        return endpoint;
+    }
+    /// <inheritdoc />
     public override PackageMetadataResponse ParseResponse(JsonElement root)
     {
-        var catalog = root.TryGetProperty("catalogEntry", out var value) ? value : default;
-        var repository = catalog.TryGetProperty("repository", out var repositoryValue) ? repositoryValue : default;
+        var catalog = PackageMetadataJson.ReadElement(root, "catalogEntry");
+        if (catalog.ValueKind != JsonValueKind.Object)
+        {
+            catalog = root;
+        }
+
+        var repository = PackageMetadataJson.ReadElement(catalog, "repository");
         var repositoryUrl = PackageMetadataJson.ReadString(repository, "url");
         if (repositoryUrl.Length == 0)
         {
@@ -186,7 +216,7 @@ public sealed class CargoPackageMetadataProvider : PackageMetadataProvider
     /// <inheritdoc />
     public override PackageMetadataResponse ParseResponse(JsonElement root)
     {
-        var version = root.TryGetProperty("version", out var value) ? value : default;
+        var version = PackageMetadataJson.ReadElement(root, "version");
         return new("cargo-registry", PackageMetadataJson.ReadString(version, "license"), PackageMetadataJson.ReadString(version, "repository"), string.Empty);
     }
 }
@@ -203,19 +233,23 @@ public sealed class GoPackageMetadataProvider : PackageMetadataProvider
     /// <inheritdoc />
     public override PackageMetadataResponse ParseResponse(JsonElement root)
     {
-        var origin = root.TryGetProperty("Origin", out var value) ? value : default;
+        var origin = PackageMetadataJson.ReadElement(root, "Origin");
         return new("go-module-proxy", string.Empty, PackageMetadataJson.ReadString(origin, "URL"), PackageMetadataJson.ReadString(origin, "Ref"));
     }
 }
 
 internal static class PackageMetadataJson
 {
+    public static JsonElement ReadElement(JsonElement element, string property)
+        => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) ? value : default;
+
     public static string ReadString(JsonElement element, string property)
         => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
 
     public static string ReadRepository(JsonElement root)
     {
-        if (!root.TryGetProperty("repository", out var repository))
+        var repository = ReadElement(root, "repository");
+        if (repository.ValueKind == JsonValueKind.Undefined)
         {
             return string.Empty;
         }

@@ -18,6 +18,9 @@ internal static class PackageMetadataPaths
 
 internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, PackageMetadataCache cache, bool refresh, int retryCount)
 {
+    private static readonly HttpClient HttpClient = new();
+    private readonly PackageMetadataRegistryClient registryClient = new(HttpClient);
+
     public async Task<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(ScanComponent[] components, int concurrency, CancellationToken cancellationToken = default)
     {
         using var gate = new SemaphoreSlim(concurrency, concurrency);
@@ -75,8 +78,31 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
-            return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, error), true, false, true, false, true, false);
+            try
+            {
+                var record = await PackageMetadataFetchScheduler.FetchAsync(registryClient, request, retryCount, cancellationToken).ConfigureAwait(false);
+                await cache.WriteAsync(record, cancellationToken).ConfigureAwait(false);
+                return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, CreateMetadataCandidate(record)), true, false, true, refresh, false, false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (PackageMetadataFetchException)
+            {
+                var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
+                return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, error), true, false, true, false, true, false);
+            }
+            catch (HttpRequestException)
+            {
+                var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
+                return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, error), true, false, true, false, true, false);
+            }
+            catch (IOException)
+            {
+                var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
+                return new PackageMetadataEnrichment(LicenseReconciler.AddCandidate(component, error), true, false, true, false, true, false);
+            }
         }
         finally
         {

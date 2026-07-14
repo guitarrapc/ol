@@ -39,7 +39,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, stderr) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -48,6 +48,7 @@ public sealed class CliScanTests
             await Assert.That(component.GetProperty("license").GetString()).IsEqualTo("MIT");
             await Assert.That(component.GetProperty("licenseCandidates")[1].GetProperty("source").GetString()).IsEqualTo("npm-registry");
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("packageMetadata").GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(stderr).Contains("package-metadata-supported: 1; cache-hit: 1; cache-miss: 0; refreshed: 0; fetch-error: 0; unsupported-ecosystem: 0; concurrency: 1; retry: 0");
         }
         finally
         {

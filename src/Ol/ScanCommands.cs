@@ -91,7 +91,8 @@ internal sealed class ScanCommands
             var summary = ScanSummary.Create(components);
             var filterSummary = dependency is null or "" ? string.Empty : $"; dependency-filtered: {dependencyFilteredCount}; excluded-unknown: {excludedUnknownCount}";
             var outputSummary = outFile is { Length: > 0 } ? $"; output: {Path.GetFileName(outFile)}" : string.Empty;
-            Console.Error.WriteLine($"components: {components.Length}; matched: {summary.Matched}; conflict: {summary.Conflict}; unknown: {summary.Unknown}; ambiguous: {summary.Ambiguous}; invalid: {summary.Invalid}; warnings: {summary.WarningCount}; deprecated-spdx: {summary.DeprecatedSpdxCount}; sbom: {Path.GetFileName(sbom)}; format: {report.Format}; spdx: {spdx.LicenseListVersion} ({spdx.Source}){filterSummary}{outputSummary}");
+            var packageMetadata = enrichment.Summary;
+            Console.Error.WriteLine($"components: {components.Length}; matched: {summary.Matched}; conflict: {summary.Conflict}; unknown: {summary.Unknown}; ambiguous: {summary.Ambiguous}; invalid: {summary.Invalid}; warnings: {summary.WarningCount}; deprecated-spdx: {summary.DeprecatedSpdxCount}; package-metadata-supported: {packageMetadata.SupportedComponentCount}; cache-hit: {packageMetadata.CacheHitCount}; cache-miss: {packageMetadata.CacheMissCount}; refreshed: {packageMetadata.RefreshedCount}; fetch-error: {packageMetadata.FetchErrorCount}; unsupported-ecosystem: {packageMetadata.UnsupportedEcosystemCount}; concurrency: {packageMetadata.Concurrency}; retry: {packageMetadata.RetryCount}; sbom: {Path.GetFileName(sbom)}; format: {report.Format}; spdx: {spdx.LicenseListVersion} ({spdx.Source}){filterSummary}{outputSummary}");
         }
 
         return 0;

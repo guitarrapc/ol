@@ -12,9 +12,9 @@ v2 adds automatic package metadata hints.
 
 ## Current Implementation Status
 
-The implemented v2 slice consumes persistent package-metadata cache entries for supported versioned purls and reconciles them with SBOM evidence. It supports npm, NuGet, Cargo, and Go purl planning, cache metrics in JSON reports, `--refresh`, `--concurrency`, `--retry`, and `ol cache clear` categories.
+The implemented v2 behavior plans supported versioned purls, consumes persistent package-metadata cache entries, and fetches registry metadata for cache misses and `--refresh`. It supports npm, NuGet, Cargo, and Go, cache metrics in JSON and stderr summaries, `--refresh`, `--concurrency`, `--retry`, and `ol cache clear` categories.
 
-Registry fetchers are not active yet. Consequently, a cache miss or refresh attempt records a component-scoped `package_metadata_fetch_failed` warning rather than making a network request. Existing valid SBOM evidence remains authoritative for the component's final status.
+Successful fetches overwrite the relevant cache entry. A cache miss or refresh failure records component-scoped `package_metadata_fetch_failed` evidence; existing valid SBOM evidence remains authoritative for the component's final status. Go module proxy metadata provides source references but no license field, so a successful Go lookup without license text contributes unknown evidence rather than a fetch error.
 
 v3 keeps this behavior and adds source repository hints described in [spec_source.md](spec_source.md).
 

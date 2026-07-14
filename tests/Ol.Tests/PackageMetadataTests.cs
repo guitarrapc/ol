@@ -1,4 +1,6 @@
-﻿using Ol.Core;
+﻿using System.Net;
+using System.Net.Http;
+using Ol.Core;
 
 namespace Ol.Tests;
 
@@ -68,5 +70,120 @@ public sealed class PackageMetadataTests
         await Assert.That(result.License).IsEqualTo("MIT");
         await Assert.That(result.LicenseCandidates.Length).IsEqualTo(2);
         await Assert.That(result.Evidence[1].Source).IsEqualTo("npm-registry");
+    }
+
+    [Test]
+    public async Task Fetch_NpmVersionResponse_ProducesNormalizedRecord()
+    {
+        var client = CreateClient("""{ "license": "MIT", "repository": { "url": "https://github.com/example/package" } }""");
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("npm", "@scope", "package", "1.2.3", "pkg:npm/%40scope/package@1.2.3"));
+
+        await Assert.That(record.Source).IsEqualTo("npm-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/package");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_ProducesLicenseExpression()
+    {
+        var client = CreateClient("""{ "catalogEntry": { "licenseExpression": "Apache-2.0", "projectUrl": "https://example.test/project" } }""");
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.Source).IsEqualTo("nuget-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("Apache-2.0");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://example.test/project");
+    }
+
+    [Test]
+    public async Task Fetch_CargoAndGoResponses_ProduceTheirAvailableEvidence()
+    {
+        var cargo = CreateClient("""{ "version": { "license": "MIT OR Apache-2.0", "repository": "https://github.com/example/crate" } }""");
+        var go = CreateClient("""{ "Origin": { "URL": "https://github.com/example/module" } }""");
+
+        var cargoRecord = await cargo.FetchAsync(new PackageMetadataRequest("cargo", "", "example", "1.0.0", "pkg:cargo/example@1.0.0"));
+        var goRecord = await go.FetchAsync(new PackageMetadataRequest("golang", "github.com/example", "module", "v1.0.0", "pkg:golang/github.com/example/module@v1.0.0"));
+
+        await Assert.That(cargoRecord.RawLicense).IsEqualTo("MIT OR Apache-2.0");
+        await Assert.That(cargoRecord.RepositoryUrl).IsEqualTo("https://github.com/example/crate");
+        await Assert.That(goRecord.Source).IsEqualTo("go-module-proxy");
+        await Assert.That(goRecord.RawLicense).IsEmpty();
+        await Assert.That(goRecord.RepositoryUrl).IsEqualTo("https://github.com/example/module");
+    }
+
+    [Test]
+    public async Task RetryClassifier_TransientAndPermanentResponses_AreClassifiedCorrectly()
+    {
+        await Assert.That(PackageMetadataRegistryClient.IsTransient(HttpStatusCode.TooManyRequests)).IsTrue();
+        await Assert.That(PackageMetadataRegistryClient.IsTransient(HttpStatusCode.ServiceUnavailable)).IsTrue();
+        await Assert.That(PackageMetadataRegistryClient.IsTransient(HttpStatusCode.NotFound)).IsFalse();
+        await Assert.That(PackageMetadataRegistryClient.IsTransient(HttpStatusCode.BadRequest)).IsFalse();
+    }
+
+    [Test]
+    public async Task FetchScheduler_TransientFailureThenSuccess_RetriesAndReturnsRecord()
+    {
+        var handler = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.OK);
+        var client = new PackageMetadataRegistryClient(handler);
+        var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
+
+        var record = await PackageMetadataFetchScheduler.FetchAsync(client, request, retryCount: 1);
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(handler.CallCount).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task FetchScheduler_PermanentAndExhaustedFailures_DoNotOverRetry()
+    {
+        var notFound = new SequenceResponseHandler(HttpStatusCode.NotFound);
+        var unavailable = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.ServiceUnavailable);
+        var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
+
+        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(new PackageMetadataRegistryClient(notFound), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
+        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(new PackageMetadataRegistryClient(unavailable), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
+        await Assert.That(notFound.CallCount).IsEqualTo(1);
+        await Assert.That(unavailable.CallCount).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Fetch_NpmResponseWithoutLicense_ProducesUnknownEvidenceRecord()
+    {
+        var client = CreateClient("""{ "repository": "https://example.test/repository" }""");
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://example.test/repository");
+    }
+
+    private static PackageMetadataRegistryClient CreateClient(string body)
+        => new(new StaticResponseHandler(body));
+
+    private sealed class StaticResponseHandler(string body) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+    }
+
+    private sealed class SequenceResponseHandler(params HttpStatusCode[] statuses) : HttpMessageHandler
+    {
+        private readonly HttpStatusCode[] statuses = statuses;
+
+        public int CallCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var status = statuses[Math.Min(CallCount, statuses.Length - 1)];
+            CallCount++;
+            var response = new HttpResponseMessage(status);
+            if (status == HttpStatusCode.OK)
+            {
+                response.Content = new StringContent("""{ "license": "MIT" }""");
+            }
+
+            return Task.FromResult(response);
+        }
     }
 }

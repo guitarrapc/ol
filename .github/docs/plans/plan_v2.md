@@ -339,12 +339,14 @@ Extend v1 golden outputs with package evidence in JSON while keeping text/markdo
 
 ## Implementation Status
 
-**In progress (2026-07-14).** The v2 foundation is implemented: supported, versioned npm, NuGet, Cargo, and Go purls are planned into stable cache keys; package metadata records use hash-named persistent cache files; cache entries reconcile through the common candidate/evidence contract; and JSON reports expose package-metadata cache metrics. `ol scan` accepts `--refresh`, `--concurrency`, and `--retry`, validates their documented ranges, and `ol cache clear [package-metadata|source-repository|all]` is available.
+**Functional status: complete (2026-07-14).** v2 plans supported, versioned npm, NuGet, Cargo, and Go purls into stable cache keys; reads and writes hash-named persistent package metadata records; reconciles package evidence through the common candidate/evidence contract; and reports package-metadata metrics in JSON and stderr. Cache misses and `--refresh` fetch current metadata and overwrite cache entries. `ol scan` validates `--refresh`, `--concurrency`, and `--retry`, and `ol cache clear [package-metadata|source-repository|all]` is available.
 
-The first vertical slice is deliberately cache-first. It consumes existing cache entries without network access. A cache miss or `--refresh` records `package_metadata_fetch_failed` as component evidence and leaves a valid SBOM result `matched`. npm, NuGet, Cargo, and Go HTTP fetchers, retry classification, cache writes from fetch results, and their fixture contract tests remain outstanding.
+The registry client handles npm version metadata, NuGet registration entries, Cargo version metadata, and Go module proxy information. It retries HTTP 429, HTTP 5xx, transport errors, and non-user-cancelled timeouts according to `--retry`; 4xx responses and malformed responses are component-scoped failures. Fixture tests cover valid values, missing values, retry success, retry exhaustion, permanent failure, and cache-backed integration. Checked-in golden reports and an end-to-end local HTTP-server fixture remain verification improvements rather than functional blockers.
 
 ## Lessons Learned
 
 - The CLI is AOT-enabled, so persistent cache serialization must use a source-generated `JsonSerializerContext`; reflection-based `JsonSerializer` APIs fail at runtime even though Debug unit tests can pass.
 - ConsoleAppFramework binds method parameters as named options. The documented positional cache category is translated before command dispatch so `ol cache clear package-metadata` remains supported.
 - Adding an overload whose second argument is an optional string can capture `scan` in existing `params string[]` CLI test helpers. Use a distinct helper name for cache-aware invocations.
+- Go module proxy metadata exposes repository references as `Origin.URL`, not a registry-specific `RepoURL` field. Go metadata has no package license field, so a successful lookup contributes unknown license evidence and a source reference.
+- Registry metadata parsing and scanning necessarily allocate response buffers and persistent output records; reconciliation avoids additional per-component `List` and `HashSet` allocations by renting temporary storage from `ArrayPool`.

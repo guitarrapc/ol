@@ -85,10 +85,10 @@ The current runner invokes `SbomScannerBenchmark` directly. Add a focused method
 
 If the implementation changes observable behavior or adds new functionality, update the relevant specification:
 
-- CLI commands, options, output, and exit behavior: `.github/docs/specs/spec_olcli.md`
-- SPDX data, validation, expression, or generation behavior: `.github/docs/specs/spec_spdx.md`
-- package-manager metadata and registry behavior: `.github/docs/specs/spec_packagemanager.md`
-- license evidence/source and reconciliation behavior: `.github/docs/specs/spec_source.md`
+- CLI commands, options, output, and exit behavior: `.github/docs/specs/cli.md`
+- SPDX data, validation, expression, or generation behavior: `.github/docs/specs/spdx.md`
+- package-manager metadata and registry behavior: `.github/docs/specs/packagemanager.md`
+- license evidence/source and reconciliation behavior: `.github/docs/specs/source.md`
 
 ## Test Conventions
 

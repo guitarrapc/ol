@@ -270,7 +270,7 @@ SBOM input metadata includes a SHA-256 hash:
 }
 ```
 
-SPDX metadata is defined by [spec_spdx.md](spec_spdx.md) and is required in every JSON report.
+SPDX metadata is defined by [spdx.md](spdx.md) and is required in every JSON report.
 
 Component entries include original SBOM identifiers when present:
 

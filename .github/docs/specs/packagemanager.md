@@ -22,7 +22,7 @@ The implemented v2 behavior plans supported versioned purls, consumes persistent
 
 Successful fetches overwrite the relevant cache entry. A cache miss or refresh failure records component-scoped `package_metadata_fetch_failed` evidence; existing valid SBOM evidence remains authoritative for the component's final status. Go module proxy metadata provides source references but no license field, so a successful Go lookup without license text contributes unknown evidence rather than a fetch error.
 
-v3 keeps this behavior and adds source repository hints described in [spec_source.md](spec_source.md).
+v3 keeps this behavior and adds source repository hints described in [source.md](source.md).
 
 ## User Experience
 

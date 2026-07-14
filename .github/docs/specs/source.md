@@ -14,7 +14,7 @@ Source repository results are therefore additional attributable evidence, not a 
 
 v1 uses SBOM evidence only.
 
-v2 adds package metadata hints described in [spec_packagemanager.md](spec_packagemanager.md).
+v2 adds package metadata hints described in [packagemanager.md](packagemanager.md).
 
 v3 adds source repository hints.
 

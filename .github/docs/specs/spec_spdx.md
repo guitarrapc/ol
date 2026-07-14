@@ -4,6 +4,16 @@ This document defines how `ol` uses SPDX License List data and how it interprets
 
 SPDX data is foundational for all versions because license matching must be explainable and versioned. The tool should not silently depend on whatever SPDX list is current on the network at scan time.
 
+## Development-Time Bundled Data Generation
+
+`Ol.Update` is a development-time external generator, not an `ol` runtime dependency. Running `ol-update generate` downloads the upstream SPDX JSON documents and writes generated lookup data to:
+
+```text
+src/Ol.Core/Generated/SpdxGeneratedLicenseData.g.cs
+```
+
+`Ol` references only `Ol.Core`, which compiles this generated data into the bundled fallback. This keeps the AOT-published CLI independent from the generator executable while retaining a versioned, reproducible bundled SPDX snapshot.
+
 ## Data Sources
 
 SPDX data is resolved in this order:
@@ -49,7 +59,7 @@ The exact platform-specific user data root is not part of this spec. Reports mus
 
 Downloads the latest `licenses.json` and `exceptions.json` into the user-managed SPDX data store and makes that version current.
 
-This is a user-facing command. It is distinct from any development-time tooling that refreshes CLI-bundled SPDX data.
+This is a user-facing command. It is distinct from `ol-update generate`, the development-time tool that refreshes generated bundled SPDX data.
 
 ### `ol spdx version`
 

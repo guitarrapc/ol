@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using ConsoleAppFramework;
 using Ol.Core;
-using Ol.Update;
 
 /// <summary>
 /// Scan SBOM license evidence.
@@ -144,15 +143,13 @@ internal readonly record struct SpdxData(
             return LoadFromDirectory(activeDirectory, "user", $"ol/spdx/{version}");
         }
 
-        var licenses = "Apache-2.0\nBSD-2-Clause\nBSD-3-Clause\nISC\nMIT"u8;
-        var exceptions = "Classpath-exception-2.0"u8;
         return new SpdxData(
-            new SpdxLicenseIndex(["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT"], ["Classpath-exception-2.0"]),
+            new SpdxLicenseIndex(SpdxGeneratedLicenseData.LicenseIds, SpdxGeneratedLicenseData.ExceptionIds, SpdxGeneratedLicenseData.DeprecatedLicenseIds),
             "bundled",
-            "builtin",
+            SpdxGeneratedLicenseData.LicenseListVersion,
             "bundled/spdx/builtin",
-            Convert.ToHexString(SHA256.HashData(licenses)).ToLowerInvariant(),
-            Convert.ToHexString(SHA256.HashData(exceptions)).ToLowerInvariant());
+            ComputeGeneratedDataHash(SpdxGeneratedLicenseData.LicenseIds),
+            ComputeGeneratedDataHash(SpdxGeneratedLicenseData.ExceptionIds));
     }
 
     private static SpdxData LoadFromDirectory(string directory, string source, string dataRef)
@@ -199,6 +196,8 @@ internal readonly record struct SpdxData(
     }
 
     private static string HashFile(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
+    private static string ComputeGeneratedDataHash(string[] identifiers) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', identifiers)))).ToLowerInvariant();
 
     private static ReadOnlyMemory<byte> SkipUtf8Bom(byte[] bytes)
         => bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? bytes.AsMemory(3) : bytes;

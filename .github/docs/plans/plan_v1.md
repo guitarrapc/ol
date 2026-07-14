@@ -450,3 +450,4 @@ The following verification debt remains outside the functional v1 implementation
 - SBOM format detection must scan the complete document. Selecting the first marker silently misclassifies documents that contain both CycloneDX and SPDX markers.
 - Raw unknown-like values and deprecated identifiers must be retained as evidence even when they do not determine the rendered license. This stable candidate/evidence boundary is required for v2 metadata and v3 source evidence.
 - CLI integration tests must execute the already-built CLI DLL. Parallel `dotnet run` invocations race while regenerating the shared apphost executable.
+- `Ol.Update` must remain a development-time generator rather than an executable dependency of the AOT CLI. Generated SPDX lookup data belongs under `Ol.Core/Generated`, while runtime user-managed SPDX storage belongs in `Ol.Core`.

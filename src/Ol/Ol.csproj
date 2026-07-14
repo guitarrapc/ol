@@ -17,7 +17,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Ol.Core\Ol.Core.csproj" />
-    <ProjectReference Include="..\Ol.Update\Ol.Update.csproj" />
   </ItemGroup>
 
 </Project>

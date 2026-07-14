@@ -1,5 +1,5 @@
 ﻿using ConsoleAppFramework;
-using Ol.Update;
+using Ol.Core;
 
 /// <summary>
 /// Manage SPDX data.

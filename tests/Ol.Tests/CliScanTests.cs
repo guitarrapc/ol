@@ -34,7 +34,11 @@ public sealed class CliScanTests
             await Assert.That(component.GetProperty("license").GetString()).IsEqualTo("MIT");
             await Assert.That(component.GetProperty("licenseCandidates")[2].GetProperty("source").GetString()).IsEqualTo("github-license-api");
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("network").GetProperty("githubAuth").GetString()).IsEqualTo("none");
-            await Assert.That(stderr).Contains("source-repository-target: 1; github-license-request: 0; source-cache-hit: 1");
+            var sourceMetadata = report.RootElement.GetProperty("metadata").GetProperty("sourceRepository");
+            await Assert.That(sourceMetadata.GetProperty("targetCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(sourceMetadata.GetProperty("githubLicenseRequestCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(sourceMetadata.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(stderr).IsEmpty();
         }
         finally
         {
@@ -81,7 +85,7 @@ public sealed class CliScanTests
             await Assert.That(component.GetProperty("license").GetString()).IsEqualTo("MIT");
             await Assert.That(component.GetProperty("licenseCandidates")[1].GetProperty("source").GetString()).IsEqualTo("npm-registry");
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("packageMetadata").GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
-            await Assert.That(stderr).Contains("package-metadata-supported: 1; cache-hit: 1; cache-miss: 0; refreshed: 0; fetch-error: 0; unsupported-ecosystem: 0; concurrency: 1; retry: 0");
+            await Assert.That(stderr).IsEmpty();
         }
         finally
         {
@@ -194,8 +198,7 @@ public sealed class CliScanTests
             await Assert.That(component.GetProperty("evidence").GetArrayLength()).IsEqualTo(3);
             await Assert.That(candidates[2].GetProperty("kind").GetString()).IsEqualTo("unavailable");
             await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
-            await Assert.That(stderr).Contains("warnings: 2");
-            await Assert.That(stderr).Contains("deprecated-spdx: 1");
+            await Assert.That(stderr).IsEmpty();
         }
         finally
         {
@@ -230,8 +233,38 @@ public sealed class CliScanTests
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).Contains("direct");
             await Assert.That(stdout).DoesNotContain("unknown");
-            await Assert.That(stderr).Contains("dependency-filtered: 2");
-            await Assert.That(stderr).Contains("excluded-unknown: 1");
+            await Assert.That(stderr).Contains("Filter: 2 components excluded; 1 with unknown dependency type");
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithHumanReadableFormat_SeparatesAndLabelsSummary()
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-summary-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [ { "name": "example", "licenses": [ { "license": { "id": "MIT" } } ] } ] }""", Encoding.UTF8);
+
+        try
+        {
+            foreach (var format in new[] { "text", "markdown" })
+            {
+                var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", format);
+
+                await Assert.That(exitCode).IsEqualTo(0);
+                await Assert.That(stderr).StartsWith($"{Environment.NewLine}Scan summary{Environment.NewLine}");
+                await Assert.That(stderr).Contains("  License results: 1 displayed component; 1 matched; 0 conflict; 0 unknown; 0 ambiguous; 0 invalid");
+                await Assert.That(stderr).Contains("  Package metadata (full scan):");
+                await Assert.That(stderr).Contains("  Source repositories (full scan):");
+                await Assert.That(stderr).Contains("  Input:");
+            }
+
+            var (quietExitCode, _, quietStderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "text", "--quiet");
+            await Assert.That(quietExitCode).IsEqualTo(0);
+            await Assert.That(quietStderr).IsEmpty();
         }
         finally
         {
@@ -282,6 +315,7 @@ public sealed class CliScanTests
             await Assert.That(metadata.GetProperty("spdx").GetProperty("licensesSha256").GetString()!.Length).IsEqualTo(64);
             await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("sourceId").GetString()).IsEqualTo("pkg:nuget/example@1.0.0");
             await Assert.That(report.RootElement.GetProperty("warnings").GetArrayLength()).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
         }
         finally
         {
@@ -355,7 +389,7 @@ public sealed class CliScanTests
             await Assert.That(stdout).Contains("LICENSE COUNT");
             await Assert.That(stdout).Contains("Apache-2.0 1");
             await Assert.That(stdout).Contains("MIT 2");
-            await Assert.That(stderr).Contains("components: 3");
+            await Assert.That(stderr).Contains("License results: 3 displayed components");
         }
         finally
         {
@@ -478,7 +512,8 @@ public sealed class CliScanTests
             await Assert.That(component.GetProperty("warnings").EnumerateArray().Select(static value => value.GetString())).Contains("source_repository_fetch_failed");
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("network").GetProperty("githubAuth").GetString()).IsEqualTo("none");
             await Assert.That(stdout).DoesNotContain(ignoredGitHubToken);
-            await Assert.That(stderr).Contains("source-fetch-error: 1");
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("sourceRepository").GetProperty("fetchErrorCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(stderr).IsEmpty();
         }
         finally
         {

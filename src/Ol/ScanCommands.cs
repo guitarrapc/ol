@@ -88,14 +88,28 @@ internal sealed class ScanCommands
 
         Console.Write(text);
 
-        if (!quiet)
+        if (!quiet && format != ReportFormat.Json)
         {
             var summary = ScanSummary.Create(components);
-            var filterSummary = dependency is null or "" ? string.Empty : $"; dependency-filtered: {dependencyFilteredCount}; excluded-unknown: {excludedUnknownCount}";
-            var outputSummary = outFile is { Length: > 0 } ? $"; output: {Path.GetFileName(outFile)}" : string.Empty;
             var packageMetadata = enrichment.Summary;
             var source = sourceEnrichment.Summary;
-            Console.Error.WriteLine($"components: {components.Length}; matched: {summary.Matched}; conflict: {summary.Conflict}; unknown: {summary.Unknown}; ambiguous: {summary.Ambiguous}; invalid: {summary.Invalid}; warnings: {summary.WarningCount}; deprecated-spdx: {summary.DeprecatedSpdxCount}; package-metadata-supported: {packageMetadata.SupportedComponentCount}; cache-hit: {packageMetadata.CacheHitCount}; cache-miss: {packageMetadata.CacheMissCount}; refreshed: {packageMetadata.RefreshedCount}; fetch-error: {packageMetadata.FetchErrorCount}; unsupported-ecosystem: {packageMetadata.UnsupportedEcosystemCount}; concurrency: {packageMetadata.Concurrency}; retry: {packageMetadata.RetryCount}; source-repository-target: {source.TargetCount}; github-license-request: {source.GitHubRequestCount}; source-cache-hit: {source.CacheHitCount}; source-cache-miss: {source.CacheMissCount}; source-fetch-error: {source.FetchErrorCount}; source-unknown: {source.UnknownCount}; github-auth: {source.AuthMode}; sbom: {Path.GetFileName(sbom)}; format: {report.Format}; spdx: {spdx.LicenseListVersion} ({spdx.Source}){filterSummary}{outputSummary}");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Scan summary");
+            Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid");
+            Console.Error.WriteLine($"  Findings: {summary.WarningCount} warning{(summary.WarningCount == 1 ? string.Empty : "s")}; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
+            Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems");
+            Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
+            Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
+            Console.Error.WriteLine($"  Input: {Path.GetFileName(sbom)}; SBOM format {report.Format}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
+            if (dependency is not null and not "")
+            {
+                Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} components excluded; {excludedUnknownCount} with unknown dependency type");
+            }
+
+            if (outFile is { Length: > 0 })
+            {
+                Console.Error.WriteLine($"  Output file: {Path.GetFileName(outFile)}");
+            }
         }
 
         return 0;

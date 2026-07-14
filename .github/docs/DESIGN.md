@@ -42,6 +42,7 @@ The specifications define observable behavior. The following decisions explain w
 | <a id="decision-failure-scope"></a>Make component/source failures best-effort but command failures explicit. | One unavailable registry or repository must not hide all other OSS dependencies, but a report cannot be trusted when the inventory or output itself cannot be produced. | [Scan failure behavior](specs/cli.md#contract-scan-failures), [package best-effort execution](specs/packagemanager.md#contract-package-best-effort), and [source best-effort execution](specs/source.md#contract-source-best-effort) distinguish recoverable evidence failures from unusable commands. |
 | <a id="decision-report-views"></a>Use canonical JSON plus human-oriented projections. | CI and policy engines need stable structured evidence, while reviewers need compact, readable output. A single canonical model prevents the two views from reaching different conclusions. | [Output formats](specs/cli.md#contract-output-formats) are projections of the same result, while the [JSON report](specs/cli.md#contract-json-report) retains complete machine-readable evidence. |
 | <a id="decision-cache-freshness"></a>Make evidence freshness explicit rather than time-dependent. | An implicit TTL makes identical inputs produce different network and evidence behavior depending on wall-clock time. Users need deliberate control over reproducibility versus refresh. | [Package caches](specs/packagemanager.md#contract-package-cache) and [source caches](specs/source.md#contract-source-cache) persist until explicitly refreshed or cleared. |
+| <a id="decision-cache-compatibility"></a>Version the persistent evidence format. | Cache entries survive process and Ol version boundaries. Without an explicit schema, an upgrade could silently reinterpret stale data and produce an incorrect license conclusion. | The [compatibility contract](specs/cache_format.md#compatibility-contract), [package schema](specs/cache_format.md#contract-package-cache-v1), and [source schema](specs/cache_format.md#contract-source-cache-v1) define validation and evolution independently of serializer implementation. |
 | <a id="decision-bounded-io"></a>Bound external I/O and retry only plausibly transient failures. | License resolution must remain responsive and respectful of shared services; retrying permanent failures wastes time and rate limits without improving evidence. | [Package concurrency](specs/packagemanager.md#contract-package-concurrency), [package retries](specs/packagemanager.md#contract-package-retries), and the [source request strategy](specs/source.md#contract-source-request-strategy) bound work and avoid unnecessary requests. |
 | <a id="decision-provenance-privacy"></a>Persist evidence with explicit provenance and privacy boundaries. | Repeated network access is slow and unreliable, while package names, private repositories, local paths, and tokens can be sensitive. | [Report privacy](specs/cli.md#contract-report-privacy), [package-cache privacy](specs/packagemanager.md#contract-package-privacy), and [source authentication](specs/source.md#contract-source-authentication) retain auditability without exposing secrets or private paths. |
 | <a id="decision-credential-confinement"></a>Make credential use explicit and confine it to its intended authority. | Implicitly discovering credentials or forwarding them across hosts can leak secrets and makes execution difficult to audit. | [Source authentication](specs/source.md#contract-source-authentication) accepts only the Ol-specific token input, sends it only to the GitHub API boundary, and reports authentication mode rather than values. |
@@ -137,7 +138,7 @@ The scanner resolves the full graph before any output filter is applied. SPDX `l
 
 Versioned purls plan lookups for supported package ecosystems. Registry clients normalize transport-specific responses into a common metadata record, after which license values pass through the same SPDX candidate factory and reconciler as SBOM evidence.
 
-The initial ecosystems are npm, NuGet, Cargo, and Go modules. Unsupported ecosystems and successful responses without license text produce explicit non-fatal evidence. Fetches are concurrent, bounded, retry only transient failures, and are cached by normalized package identity.
+The initial ecosystems are npm, NuGet, Cargo, and Go modules. Unsupported ecosystems and successful responses without license text produce explicit non-fatal evidence. Fetches are concurrent, bounded, retry only transient failures, and are cached by the package schema's canonical identity.
 
 ### Source repository evidence (planned v3)
 
@@ -213,7 +214,9 @@ This distinction prevents a transient registry problem from being confused with 
 
 ## Caching and Network Design
 
-Evidence caches are persistent and keyed by normalized logical identity. Their physical representation is opaque so package or private repository names are not exposed by directory listings, while logical provenance remains available for auditability.
+Evidence caches are persistent and keyed by a category-defined canonical identity. Their physical representation is opaque so package or private repository names are not exposed by directory listings, while logical provenance remains available for auditability.
+
+The persistent JSON schema is versioned separately from report JSON. Cache compatibility is an upgrade contract: unsupported or malformed entries are migrated or recollected, never silently reinterpreted. Exact entry fields and category-specific schemas are defined by the [evidence cache format specification](specs/cache_format.md).
 
 There is no implicit TTL. `--refresh` makes freshness an explicit user decision rather than a wall-clock side effect. Cache failures should remain component-scoped whenever a trustworthy report can still be produced.
 
@@ -274,3 +277,4 @@ The architectural destination is therefore a transitive OSS license resolver and
 - [SPDX data and license semantics](specs/spdx.md)
 - [Package metadata evidence](specs/packagemanager.md)
 - [Source repository evidence](specs/source.md)
+- [Persistent evidence cache format](specs/cache_format.md)

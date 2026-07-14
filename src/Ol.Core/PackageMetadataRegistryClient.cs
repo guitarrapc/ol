@@ -60,7 +60,7 @@ public sealed class PackageMetadataRegistryClient
                 "golang" => ("go-module-proxy", string.Empty, ReadGoRepository(document.RootElement)),
                 _ => throw new PackageMetadataFetchException(null),
             };
-            return new PackageMetadataRecord(request.CacheKey, source, rawLicense, repositoryUrl, [], [], DateTimeOffset.UtcNow);
+            return new PackageMetadataRecord(request.CacheKey, source, rawLicense, SanitizeRepositoryUrl(repositoryUrl), [], [], DateTimeOffset.UtcNow);
         }
         catch (JsonException exception)
         {
@@ -120,6 +120,30 @@ public sealed class PackageMetadataRegistryClient
         }
 
         return repository.ValueKind == JsonValueKind.String ? repository.GetString() ?? string.Empty : ReadString(repository, "url");
+    }
+
+    private static string SanitizeRepositoryUrl(string value)
+    {
+        if (value.Length == 0)
+        {
+            return value;
+        }
+
+        var at = value.IndexOf('@');
+        if (Path.IsPathRooted(value)
+            || value.StartsWith("//", StringComparison.Ordinal)
+            || value.StartsWith("\\\\", StringComparison.Ordinal)
+            || (at > 0 && value.AsSpan(at + 1).Contains(':')))
+        {
+            return string.Empty;
+        }
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            return string.Empty;
+        }
+
+        return uri.IsFile || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 ? string.Empty : value;
     }
 
     private static string ReadString(JsonElement element, string property)

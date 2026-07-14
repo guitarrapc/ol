@@ -1,11 +1,28 @@
 ﻿using System.Net;
 using System.Net.Http;
+using System.Text.Json;
 using Ol.Core;
 
 namespace Ol.Tests;
 
 public sealed class PackageMetadataTests
 {
+    [Test]
+    public async Task Fetch_RegisteredProvider_ParsesItsPurlAndOwnResponseWithoutCentralSwitches()
+    {
+        var provider = new TestPackageMetadataProvider();
+        var providers = new PackageMetadataProviders([provider]);
+        var client = new PackageMetadataRegistryClient(CreateClient("""{ \"license\": \"MIT\" }"""), providers);
+
+        var parsed = PackageMetadataRequest.TryCreate("pkg:test/example@1.0.0", providers, out var request);
+        var record = await client.FetchAsync(request);
+
+        await Assert.That(parsed).IsTrue();
+        await Assert.That(request.Ecosystem).IsEqualTo("test");
+        await Assert.That(record.Source).IsEqualTo("test-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+    }
+
     [Test]
     public async Task TryParse_ScopedNpmPurl_ProducesNormalizedPackageMetadataRequest()
     {
@@ -24,7 +41,7 @@ public sealed class PackageMetadataTests
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
         var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
-        var record = new PackageMetadataRecord(request.CacheKey, "npm-registry", "MIT", "https://example.test/repository", [], []);
+        var record = new PackageMetadataRecord(request.CacheKey, "npm-registry", "MIT", "https://example.test/repository", [], [], DateTimeOffset.UtcNow);
 
         try
         {
@@ -37,6 +54,89 @@ public sealed class PackageMetadataTests
             await Assert.That(read!.Value.CacheKey).IsEqualTo(request.CacheKey);
             await Assert.That(read.Value.RawLicense).IsEqualTo("MIT");
             await Assert.That(Directory.GetFiles(root, "*.json")[0]).DoesNotContain("example");
+
+            using var document = JsonDocument.Parse(await File.ReadAllBytesAsync(cache.GetPath(request.CacheKey)));
+            await Assert.That(document.RootElement.GetProperty("SchemaVersion").GetInt32()).IsEqualTo(1);
+            await Assert.That(document.RootElement.GetProperty("CacheKeySha256").GetString()).IsEqualTo(PackageMetadataCache.GetCacheKeySha256(request.CacheKey));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Cache_UnknownSchemaVersion_TreatsEntryAsMiss()
+    {
+        var json = CreatePackageCacheJson(schemaVersion: 2);
+
+        await AssertCacheEntryIsMiss(json);
+    }
+
+    [Test]
+    public async Task Cache_MissingRequiredWarnings_TreatsEntryAsMiss()
+    {
+        var json = CreatePackageCacheJson().Replace("\n  \"Warnings\": [],", string.Empty, StringComparison.Ordinal);
+
+        await AssertCacheEntryIsMiss(json);
+    }
+
+    [Test]
+    public async Task Cache_MismatchedKeyHash_TreatsEntryAsMiss()
+    {
+        var json = CreatePackageCacheJson().Replace(PackageMetadataCache.GetCacheKeySha256("pkg:npm/example@1.0.0"), new string('0', 64), StringComparison.Ordinal);
+
+        await AssertCacheEntryIsMiss(json);
+    }
+
+    [Test]
+    public async Task Cache_TimestampWithoutExplicitUtcOffset_TreatsEntryAsMiss()
+    {
+        var json = CreatePackageCacheJson().Replace("2026-07-08T00:00:00+00:00", "2026-07-08T00:00:00", StringComparison.Ordinal);
+
+        await AssertCacheEntryIsMiss(json);
+    }
+
+    [Test]
+    public async Task Cache_NonStringWarning_TreatsEntryAsMiss()
+    {
+        var json = CreatePackageCacheJson().Replace("\"Warnings\": []", "\"Warnings\": [null]", StringComparison.Ordinal);
+
+        await AssertCacheEntryIsMiss(json);
+    }
+
+    [Test]
+    public async Task Cache_DifferentLogicalKey_TreatsEntryAsMiss()
+    {
+        var json = CreatePackageCacheJson().Replace("pkg:npm/example@1.0.0", "pkg:npm/other@1.0.0", StringComparison.Ordinal);
+
+        await AssertCacheEntryIsMiss(json);
+    }
+
+    [Test]
+    public async Task Cache_WriterNormalizesTimestampAndRejectsSensitiveRepositoryReferences()
+    {
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+            using var document = JsonDocument.Parse(await File.ReadAllBytesAsync(cache.GetPath(cacheKey)));
+
+            await Assert.That(document.RootElement.GetProperty("FetchedAt").GetDateTimeOffset().Offset).IsEqualTo(TimeSpan.Zero);
+            await Assert.That(async () => await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "https://token@example.test/repository", [], []))).Throws<ArgumentException>();
+            await Assert.That(async () => await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "https://example.test/repository?access_token=secret", [], []))).Throws<ArgumentException>();
+            await Assert.That(async () => await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "file:///C:/private/repository", [], []))).Throws<ArgumentException>();
+            await Assert.That(async () => await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "/home/user/private/repository", [], []))).Throws<ArgumentException>();
+            await Assert.That(async () => await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "//token@example.test/repository", [], []))).Throws<ArgumentException>();
+            await Assert.That(async () => await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "git@github.com:owner/repository.git", [], []))).Throws<ArgumentException>();
+            await Assert.That(async () => await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "repository?access_token=secret", [], []))).Throws<ArgumentException>();
+            await Assert.That(async () => await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "token@example/repository", [], []))).Throws<ArgumentException>();
+            await Assert.That(async () => await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [null!], []))).Throws<ArgumentException>();
         }
         finally
         {
@@ -160,6 +260,58 @@ public sealed class PackageMetadataTests
 
     private static PackageMetadataRegistryClient CreateClient(string body)
         => new(new StaticResponseHandler(body));
+
+    private static string CreatePackageCacheJson(int schemaVersion = 1)
+    {
+        var keyHash = PackageMetadataCache.GetCacheKeySha256("pkg:npm/example@1.0.0");
+        return $$"""
+            {
+              "CacheKey": "pkg:npm/example@1.0.0",
+              "Source": "npm-registry",
+              "RawLicense": "MIT",
+              "RepositoryUrl": "https://example.test/repository",
+              "Warnings": [],
+              "Errors": [],
+              "FetchedAt": "2026-07-08T00:00:00+00:00",
+              "SchemaVersion": {{schemaVersion}},
+              "CacheKeySha256": "{{keyHash}}"
+            }
+            """;
+    }
+
+    private static async Task AssertCacheEntryIsMiss(string json)
+    {
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
+
+            var read = await cache.TryReadAsync(cacheKey);
+
+            await Assert.That(read.HasValue).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private sealed class TestPackageMetadataProvider : PackageMetadataProvider
+    {
+        public override string Ecosystem => "test";
+
+        public override Uri CreateEndpoint(PackageMetadataRequest request)
+            => new("https://registry.test/");
+
+        public override PackageMetadataResponse ParseResponse(JsonElement root)
+            => new("test-registry", root.GetProperty("license").GetString() ?? string.Empty, string.Empty);
+    }
 
     private sealed class StaticResponseHandler(string body) : HttpMessageHandler
     {

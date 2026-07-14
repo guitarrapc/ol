@@ -42,6 +42,8 @@ ol cache clear all
 
 `package-metadata` and `all` clear the persistent package metadata cache. `source-repository` is accepted as a reserved no-op until v3 activates that cache.
 
+Cache entry compatibility and category-specific JSON schemas are defined by [cache_format.md](cache_format.md). Cache JSON is an Ol-managed persistence contract and is distinct from the canonical scan report JSON.
+
 <a id="contract-scan-failures"></a>
 ### `ol scan`
 

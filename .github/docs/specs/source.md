@@ -6,7 +6,7 @@ Source repository evidence is a hint source, not a legal authority. It is used b
 
 ## Design Basis
 
-This planned v3 specification derives from the [Ol design](../DESIGN.md), especially the decisions to [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), [add evidence sources through one reconciliation model](../DESIGN.md#decision-shared-reconciliation), [make component/source failures best-effort](../DESIGN.md#decision-failure-scope), [make evidence freshness explicit](../DESIGN.md#decision-cache-freshness), [bound external I/O and avoid unnecessary requests](../DESIGN.md#decision-bounded-io), [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy), and [confine credentials to their intended authority](../DESIGN.md#decision-credential-confinement).
+This planned v3 specification derives from the [Ol design](../DESIGN.md), especially the decisions to [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), [add evidence sources through one reconciliation model](../DESIGN.md#decision-shared-reconciliation), [make component/source failures best-effort](../DESIGN.md#decision-failure-scope), [make evidence freshness explicit](../DESIGN.md#decision-cache-freshness), [version the persistent evidence format](../DESIGN.md#decision-cache-compatibility), [bound external I/O and avoid unnecessary requests](../DESIGN.md#decision-bounded-io), [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy), and [confine credentials to their intended authority](../DESIGN.md#decision-credential-confinement).
 
 Source repository results are therefore additional attributable evidence, not a replacement for SBOM or package metadata. The GitHub API boundary, explicit authentication variable, opaque cache names, and refusal to infer a license from unidentified content follow from the need for explainable results without exposing credentials or converting uncertainty into a guessed conclusion.
 
@@ -102,6 +102,8 @@ Source repository fetches use the same bounded concurrency and retry controls as
 v3 introduces source repository evidence cache.
 
 Cache identity is based on the logical repository and ref. Physical entry names are opaque so private repository names are not exposed in directory listings, while entries retain enough logical identity and provenance for auditability.
+
+The exact persisted properties, casing, validation rules, and schema-version behavior are defined by the planned [source repository cache schema version 1](cache_format.md#contract-source-cache-v1). Source integration must not define an independent cache shape.
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing source repository cache and overwrites it with newly fetched evidence.
 

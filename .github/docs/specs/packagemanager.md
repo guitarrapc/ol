@@ -6,7 +6,7 @@ Package metadata is a hint source, not an authority. It complements SBOM license
 
 ## Design Basis
 
-This specification derives from the [Ol design](../DESIGN.md), especially the decisions to [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), [add evidence sources through one reconciliation model](../DESIGN.md#decision-shared-reconciliation), [make component/source failures best-effort](../DESIGN.md#decision-failure-scope), [make evidence freshness explicit](../DESIGN.md#decision-cache-freshness), [bound external I/O and retry only transient failures](../DESIGN.md#decision-bounded-io), and [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy).
+This specification derives from the [Ol design](../DESIGN.md), especially the decisions to [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), [add evidence sources through one reconciliation model](../DESIGN.md#decision-shared-reconciliation), [make component/source failures best-effort](../DESIGN.md#decision-failure-scope), [make evidence freshness explicit](../DESIGN.md#decision-cache-freshness), [version the persistent evidence format](../DESIGN.md#decision-cache-compatibility), [bound external I/O and retry only transient failures](../DESIGN.md#decision-bounded-io), and [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy).
 
 Package metadata is consequently additive evidence: it never silently replaces the SBOM claim, uses the shared SPDX and reconciliation semantics, and records disagreement as `conflict`. Cache, concurrency, and retry behavior exist to make enrichment practical and repeatable without turning a registry outage into the loss of the complete dependency report.
 
@@ -82,7 +82,9 @@ Whole-command failure is reserved for cases where scanning cannot proceed at all
 
 v2 introduces persistent package metadata cache.
 
-Cache identity is based on normalized package identity, preferably a versioned purl. Physical entry names are opaque so package names are not exposed in directory listings, while entries retain enough logical identity and provenance for auditability.
+Cache identity is the package schema's canonical versioned-purl key. Schema version 1 preserves the accepted input purl spelling after removing qualifiers and subpath, as defined by the shared cache-format contract. Physical entry names are opaque so package names are not exposed in directory listings, while entries retain enough logical identity and provenance for auditability.
+
+The exact persisted properties, casing, validation rules, and schema-version behavior are defined by [package metadata cache schema version 1](cache_format.md#contract-package-cache-v1). Package metadata code must not define an independent cache shape.
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing package metadata cache and overwrites it with newly fetched evidence.
 

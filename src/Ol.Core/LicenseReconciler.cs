@@ -15,29 +15,33 @@ public static class LicenseReconciler
     /// <returns>The reconciled component.</returns>
     public static ScanComponent AddCandidate(ScanComponent component, LicenseCandidate candidate)
     {
-        var candidates = new LicenseCandidate[component.LicenseCandidates.Length + 1];
-        component.LicenseCandidates.CopyTo(candidates, 0);
-        candidates[^1] = candidate;
-        return Reconcile(component, candidates);
+        if (component.PrimaryCandidate.Source is null)
+        {
+            return Reconcile(component with { PrimaryCandidate = candidate });
+        }
+
+        var additional = new LicenseCandidate[component.AdditionalCandidates.Length + 1];
+        component.AdditionalCandidates.CopyTo(additional, 0);
+        additional[^1] = candidate;
+        return Reconcile(component with { AdditionalCandidates = additional });
     }
 
     /// <summary>
     /// Reconciles all candidates for a component.
     /// </summary>
     /// <param name="component">The component to reconcile.</param>
-    /// <param name="candidates">The complete candidate set.</param>
     /// <returns>The reconciled component.</returns>
-    public static ScanComponent Reconcile(ScanComponent component, LicenseCandidate[] candidates)
+    public static ScanComponent Reconcile(ScanComponent component)
     {
-        var matched = ArrayPool<string>.Shared.Rent(candidates.Length);
+        var matched = ArrayPool<Utf8Slice>.Shared.Rent(component.CandidateCount);
         LicenseCandidate? invalid = null;
         LicenseCandidate? ambiguous = null;
         var hasError = false;
         var matchedCount = 0;
         var warningCapacity = 0;
-        for (var i = 0; i < candidates.Length; i++)
+        for (var i = 0; i < component.CandidateCount; i++)
         {
-            var candidate = candidates[i];
+            var candidate = component.GetCandidate(i);
             warningCapacity += candidate.Warnings.Length;
             switch (candidate.Status)
             {
@@ -45,7 +49,7 @@ public static class LicenseReconciler
                     var duplicate = false;
                     for (var matchedIndex = 0; matchedIndex < matchedCount; matchedIndex++)
                     {
-                        if (string.Equals(matched[matchedIndex], candidate.Normalized, StringComparison.Ordinal))
+                        if (matched[matchedIndex].Equals(candidate.Normalized))
                         {
                             duplicate = true;
                             break;
@@ -77,17 +81,17 @@ public static class LicenseReconciler
             var (license, status) = matchedCount switch
             {
                 1 => (matched[0], LicenseStatus.Matched),
-                > 1 => (string.Concat(string.Join(", ", matched, 0, matchedCount), " (?)"), LicenseStatus.Conflict),
-                _ when invalid is { } value => (string.Concat(value.Raw, " (?)"), LicenseStatus.Invalid),
-                _ when ambiguous is { } value => (string.Concat(value.Raw, " (?)"), LicenseStatus.Ambiguous),
-                _ when hasError => ("-", LicenseStatus.Error),
-                _ => ("-", LicenseStatus.Unknown),
+                > 1 => (LicenseText.Conflict(matched[0], matched[1]), LicenseStatus.Conflict),
+                _ when invalid is { } value => (LicenseText.WithUncertainty(value.Raw), LicenseStatus.Invalid),
+                _ when ambiguous is { } value => (LicenseText.WithUncertainty(value.Raw), LicenseStatus.Ambiguous),
+                _ when hasError => (default(Utf8Slice), LicenseStatus.Error),
+                _ => (default(Utf8Slice), LicenseStatus.Unknown),
             };
 
             var warningCount = 0;
-            for (var i = 0; i < candidates.Length; i++)
+            for (var i = 0; i < component.CandidateCount; i++)
             {
-                var candidate = candidates[i];
+                var candidate = component.GetCandidate(i);
                 for (var warningIndex = 0; warningIndex < candidate.Warnings.Length; warningIndex++)
                 {
                     var warning = candidate.Warnings[warningIndex];
@@ -111,12 +115,12 @@ public static class LicenseReconciler
 
             var warnings = warningCount == 0 ? [] : warningValues!.AsSpan(0, warningCount).ToArray();
             Array.Sort(warnings, StringComparer.Ordinal);
-            return component with { License = license, Status = status, LicenseCandidates = candidates, Warnings = warnings };
+            return component with { License = license, Status = status, Warnings = warnings };
         }
         finally
         {
             Array.Clear(matched, 0, matchedCount);
-            ArrayPool<string>.Shared.Return(matched);
+            ArrayPool<Utf8Slice>.Shared.Return(matched);
             if (warningValues is not null)
             {
                 Array.Clear(warningValues, 0, warningCapacity);

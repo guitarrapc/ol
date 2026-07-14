@@ -69,7 +69,10 @@ public sealed class CycloneDxScanTests
         await Assert.That(component.Ecosystem).IsEqualTo("npm");
         await Assert.That(component.DependencyType).IsEqualTo(DependencyType.Unknown);
         await Assert.That(component.Status).IsEqualTo(LicenseStatus.Matched);
-        await Assert.That(component.License).IsEqualTo("MIT");
+        await Assert.That(component.License.ToString()).IsEqualTo("MIT");
+        await Assert.That(component.CandidateCount).IsEqualTo(1);
+        await Assert.That(component.AdditionalCandidates.Length).IsEqualTo(0);
+        await Assert.That(component.GetCandidate(0).Normalized.ToString()).IsEqualTo("MIT");
     }
 
     [Test]
@@ -95,7 +98,7 @@ public sealed class CycloneDxScanTests
 
         await Assert.That(component.Name.Span.SequenceEqual("example"u8)).IsTrue();
         await Assert.That(component.Purl.Span.SequenceEqual("pkg:npm/example@1.0.0"u8)).IsTrue();
-        await Assert.That(component.LicenseCandidates[0].Raw.Span.SequenceEqual("MIT"u8)).IsTrue();
+        await Assert.That(component.GetCandidate(0).Raw.Span.SequenceEqual("MIT"u8)).IsTrue();
     }
 
     [Test]
@@ -138,7 +141,10 @@ public sealed class CycloneDxScanTests
         var report = SbomScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Ambiguous);
-        await Assert.That(report.Components[0].License).IsEqualTo("MIT, Apache-2.0 (?)");
+        await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT, Apache-2.0 (?)");
+        await Assert.That(report.Components[0].CandidateCount).IsEqualTo(2);
+        await Assert.That(report.Components[0].GetCandidate(0).Raw.ToString()).IsEqualTo("MIT");
+        await Assert.That(report.Components[0].GetCandidate(1).Raw.ToString()).IsEqualTo("Apache-2.0");
     }
 
     [Test]
@@ -162,7 +168,7 @@ public sealed class CycloneDxScanTests
         var report = SbomScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Unknown);
-        await Assert.That(report.Components[0].License).IsEqualTo("-");
+        await Assert.That(report.Components[0].License.ToString()).IsEqualTo("-");
     }
 
     [Test]
@@ -184,9 +190,9 @@ public sealed class CycloneDxScanTests
         var report = SbomScanner.Scan(sbom, Spdx);
 
         var component = report.Components[0];
-        await Assert.That(component.LicenseCandidates.Length).IsEqualTo(1);
-        await Assert.That(component.LicenseCandidates[0].Raw.ToString()).IsEqualTo("NOASSERTION");
-        await Assert.That(component.LicenseCandidates[0].Status).IsEqualTo(LicenseStatus.Unknown);
+        await Assert.That(component.CandidateCount).IsEqualTo(1);
+        await Assert.That(component.GetCandidate(0).Raw.ToString()).IsEqualTo("NOASSERTION");
+        await Assert.That(component.GetCandidate(0).Status).IsEqualTo(LicenseStatus.Unknown);
     }
 
     [Test]
@@ -208,7 +214,7 @@ public sealed class CycloneDxScanTests
 
         var report = SbomScanner.Scan(sbom, deprecatedSpdx);
 
-        await Assert.That(report.Components[0].LicenseCandidates[0].Deprecated).IsTrue();
+        await Assert.That(report.Components[0].GetCandidate(0).Deprecated).IsTrue();
         await Assert.That(report.Components[0].Warnings[0]).IsEqualTo("deprecated_spdx_identifier");
     }
 
@@ -233,7 +239,7 @@ public sealed class CycloneDxScanTests
         var report = SbomScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
-        await Assert.That(report.Components[0].License).IsEqualTo("MIT OR (Apache-2.0 WITH Classpath-exception-2.0)");
+        await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT OR (Apache-2.0 WITH Classpath-exception-2.0)");
     }
 
     [Test]
@@ -257,7 +263,7 @@ public sealed class CycloneDxScanTests
         var report = SbomScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Invalid);
-        await Assert.That(report.Components[0].License).IsEqualTo("MIT OR Not-A-License (?)");
+        await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT OR Not-A-License (?)");
     }
 
     [Test]
@@ -281,7 +287,7 @@ public sealed class CycloneDxScanTests
         var report = SbomScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Ambiguous);
-        await Assert.That(report.Components[0].License).IsEqualTo("Apache License (?)");
+        await Assert.That(report.Components[0].License.ToString()).IsEqualTo("Apache License (?)");
     }
 
     [Test]
@@ -392,7 +398,7 @@ public sealed class SpdxScanTests
         await Assert.That(component.Purl.ToString()).IsEqualTo("pkg:npm/left-pad@1.3.0");
         await Assert.That(component.Ecosystem).IsEqualTo("npm");
         await Assert.That(component.Status).IsEqualTo(LicenseStatus.Matched);
-        await Assert.That(component.License).IsEqualTo("MIT");
+        await Assert.That(component.License.ToString()).IsEqualTo("MIT");
     }
 
     [Test]
@@ -415,7 +421,7 @@ public sealed class SpdxScanTests
         var report = SbomScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Conflict);
-        await Assert.That(report.Components[0].License).IsEqualTo("MIT, Apache-2.0 (?)");
+        await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT, Apache-2.0 (?)");
     }
 
     [Test]
@@ -439,7 +445,7 @@ public sealed class SpdxScanTests
         var report = SbomScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Invalid);
-        await Assert.That(report.Components[0].License).IsEqualTo("MIT OR Not-A-License (?)");
+        await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT OR Not-A-License (?)");
     }
 
     [Test]

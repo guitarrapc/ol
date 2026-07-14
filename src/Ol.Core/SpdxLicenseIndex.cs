@@ -10,6 +10,7 @@ namespace Ol.Core;
 public sealed class SpdxLicenseIndex
 {
     private readonly FrozenDictionary<string, string> licenses;
+    private readonly FrozenDictionary<string, Utf8Slice> licenseUtf8;
     private readonly FrozenDictionary<string, string> exceptions;
     private readonly FrozenSet<string> deprecatedLicenses;
     private readonly FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> licenseSpanLookup;
@@ -23,6 +24,7 @@ public sealed class SpdxLicenseIndex
     public SpdxLicenseIndex(string[] licenses, string[] exceptions, string[]? deprecatedLicenses = null)
     {
         this.licenses = CreateLookup(licenses);
+        licenseUtf8 = CreateUtf8Lookup(licenses);
         this.exceptions = CreateLookup(exceptions);
         this.deprecatedLicenses = (deprecatedLicenses ?? []).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         licenseSpanLookup = this.licenses.GetAlternateLookup<ReadOnlySpan<char>>();
@@ -54,6 +56,25 @@ public sealed class SpdxLicenseIndex
         {
             ArrayPool<char>.Shared.Return(rented);
         }
+    }
+
+    /// <summary>Attempts to normalize a UTF-8 license identifier to a shared canonical UTF-8 slice.</summary>
+    public bool TryNormalizeLicenseIdUtf8Slice(ReadOnlySpan<byte> licenseIdUtf8, out Utf8Slice normalized)
+        => TryNormalizeLicenseIdUtf8Slice(licenseIdUtf8, out normalized, out _);
+
+    /// <summary>Attempts to normalize a UTF-8 license identifier and retrieve its deprecation state.</summary>
+    public bool TryNormalizeLicenseIdUtf8Slice(ReadOnlySpan<byte> licenseIdUtf8, out Utf8Slice normalized, out bool deprecated)
+    {
+        if (TryNormalizeLicenseIdUtf8(licenseIdUtf8, out var identifier))
+        {
+            normalized = licenseUtf8[identifier];
+            deprecated = deprecatedLicenses.Contains(identifier);
+            return true;
+        }
+
+        normalized = default;
+        deprecated = false;
+        return false;
     }
 
     /// <summary>
@@ -97,6 +118,18 @@ public sealed class SpdxLicenseIndex
         {
             var identifier = identifiers[i];
             dictionary[identifier] = identifier;
+        }
+
+        return dictionary.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static FrozenDictionary<string, Utf8Slice> CreateUtf8Lookup(string[] identifiers)
+    {
+        var dictionary = new Dictionary<string, Utf8Slice>(identifiers.Length, StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < identifiers.Length; i++)
+        {
+            var identifier = identifiers[i];
+            dictionary[identifier] = Utf8Slice.FromString(identifier);
         }
 
         return dictionary.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);

@@ -20,7 +20,7 @@ internal ref struct SpdxExpression
         outputCount = 0;
     }
 
-    public static bool TryNormalize(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, out string normalized, out bool hasDeprecatedLicense)
+    public static bool TryNormalize(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, out Utf8Slice normalized, out bool hasDeprecatedLicense)
     {
         const int MaxStackChars = 128;
         char[]? rented = null;
@@ -32,12 +32,15 @@ internal ref struct SpdxExpression
             var parser = new SpdxExpression(value, spdxLicenseIndex, output);
             if (!parser.TryParseExpression() || !parser.IsAtEnd())
             {
-                normalized = string.Empty;
+                normalized = default;
                 hasDeprecatedLicense = false;
                 return false;
             }
 
-            normalized = new string(output[..parser.outputCount]);
+            var byteCount = System.Text.Encoding.UTF8.GetByteCount(output[..parser.outputCount]);
+            var bytes = new byte[byteCount];
+            System.Text.Encoding.UTF8.GetBytes(output[..parser.outputCount], bytes);
+            normalized = Utf8Slice.FromOwnedBytes(bytes);
             hasDeprecatedLicense = parser.hasDeprecatedLicense;
             return true;
         }

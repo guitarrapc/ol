@@ -14,7 +14,7 @@ public readonly record struct LicenseCandidate(
     string Source,
     string Kind,
     Utf8Slice Raw,
-    string Normalized,
+    Utf8Slice Normalized,
     LicenseStatus Status,
     bool Deprecated,
     string[] Warnings);

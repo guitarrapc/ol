@@ -333,7 +333,7 @@ internal static class ScanView
         {
             "name" => Utf8Slice.CompareOrdinal(left.Name, right.Name),
             "version" => Utf8Slice.CompareOrdinal(left.Version, right.Version),
-            "license" => string.CompareOrdinal(left.License, right.License),
+            "license" => Utf8Slice.CompareOrdinal(left.License, right.License),
             "ecosystem" => string.CompareOrdinal(left.Ecosystem, right.Ecosystem),
             "dependency" => left.DependencyType.CompareTo(right.DependencyType),
             "status" => left.Status.CompareTo(right.Status),
@@ -372,7 +372,7 @@ internal static class ScanView
             {
                 GroupField.Name => component.Name.ToString(),
                 GroupField.Version => component.Version.ToString(),
-                GroupField.License => component.License,
+                GroupField.License => component.License.ToString(),
                 GroupField.Ecosystem => component.Ecosystem,
                 GroupField.Dependency => component.DependencyType.ToString().ToLowerInvariant(),
                 GroupField.Status => component.Status.ToString().ToLowerInvariant(),
@@ -430,7 +430,7 @@ internal static class ReportRenderer
             builder.Append(' ');
             builder.Append(Display(component.Version));
             builder.Append(' ');
-            builder.Append(component.License);
+            builder.Append(Display(component.License));
             builder.Append(' ');
             builder.Append(Display(component.Ecosystem));
             builder.Append(' ');
@@ -562,14 +562,14 @@ internal static class ReportRenderer
                 writer.WriteStartObject();
                 writer.WriteString("name"u8, component.Name.Span);
                 writer.WriteString("version"u8, component.Version.Span);
-                writer.WriteString("license", component.License);
+                writer.WriteString("license"u8, component.License.IsEmpty ? "-"u8 : component.License.Span);
                 writer.WriteString("ecosystem", component.Ecosystem);
                 writer.WriteString("dependency", component.DependencyType.ToString().ToLowerInvariant());
                 writer.WriteString("status", component.Status.ToString().ToLowerInvariant());
                 writer.WriteString("purl"u8, component.Purl.Span);
                 writer.WriteString("sourceId"u8, component.SourceId.Span);
-                WriteLicenseCandidates(writer, component.LicenseCandidates);
-                WriteEvidence(writer, component.LicenseCandidates);
+                WriteLicenseCandidates(writer, component);
+                WriteEvidence(writer, component);
                 WriteWarnings(writer, component.Warnings);
                 writer.WriteEndObject();
             }
@@ -683,17 +683,17 @@ internal static class ReportRenderer
         writer.WriteEndObject();
     }
 
-    private static void WriteLicenseCandidates(Utf8JsonWriter writer, ReadOnlySpan<LicenseCandidate> candidates)
+    private static void WriteLicenseCandidates(Utf8JsonWriter writer, ScanComponent component)
     {
         writer.WriteStartArray("licenseCandidates");
-        for (var i = 0; i < candidates.Length; i++)
+        for (var i = 0; i < component.CandidateCount; i++)
         {
-            var candidate = candidates[i];
+            var candidate = component.GetCandidate(i);
             writer.WriteStartObject();
             writer.WriteString("source", candidate.Source);
             writer.WriteString("kind", candidate.Kind);
             writer.WriteString("raw"u8, candidate.Raw.Span);
-            writer.WriteString("normalized", candidate.Normalized);
+            writer.WriteString("normalized"u8, candidate.Normalized.Span);
             writer.WriteString("status", candidate.Status.ToString().ToLowerInvariant());
             writer.WriteBoolean("deprecated", candidate.Deprecated);
             WriteWarnings(writer, candidate.Warnings);
@@ -703,17 +703,17 @@ internal static class ReportRenderer
         writer.WriteEndArray();
     }
 
-    private static void WriteEvidence(Utf8JsonWriter writer, ReadOnlySpan<LicenseCandidate> evidence)
+    private static void WriteEvidence(Utf8JsonWriter writer, ScanComponent component)
     {
         writer.WriteStartArray("evidence");
-        for (var i = 0; i < evidence.Length; i++)
+        for (var i = 0; i < component.CandidateCount; i++)
         {
-            var item = evidence[i];
+            var item = component.GetCandidate(i);
             writer.WriteStartObject();
             writer.WriteString("source", item.Source);
             writer.WriteString("kind", item.Kind);
             writer.WriteString("raw"u8, item.Raw.Span);
-            writer.WriteString("normalized", item.Normalized);
+            writer.WriteString("normalized"u8, item.Normalized.Span);
             writer.WriteString("status", item.Status.ToString().ToLowerInvariant());
             WriteWarnings(writer, item.Warnings);
             writer.WriteEndObject();
@@ -812,9 +812,9 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
             }
 
             warningCount += components[i].Warnings.Length;
-            for (var candidateIndex = 0; candidateIndex < components[i].LicenseCandidates.Length; candidateIndex++)
+            for (var candidateIndex = 0; candidateIndex < components[i].CandidateCount; candidateIndex++)
             {
-                if (components[i].LicenseCandidates[candidateIndex].Deprecated)
+                if (components[i].GetCandidate(candidateIndex).Deprecated)
                 {
                     deprecatedSpdxCount++;
                 }

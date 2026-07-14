@@ -36,26 +36,25 @@ public static class LicenseCandidateFactory
     /// <param name="warning">The warning retained for the failure.</param>
     /// <returns>The error candidate.</returns>
     public static LicenseCandidate CreateError(string source, string kind, string warning)
-        => new(source, kind, default, string.Empty, LicenseStatus.Error, false, [warning]);
+        => new(source, kind, default, default, LicenseStatus.Error, false, [warning]);
 
-    private static LicenseStatus Classify(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, out string normalized, out bool deprecated)
+    private static LicenseStatus Classify(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, out Utf8Slice normalized, out bool deprecated)
     {
-        normalized = string.Empty;
+        normalized = default;
         deprecated = false;
         if (IsUnknown(value))
         {
             return LicenseStatus.Unknown;
         }
 
-        if (spdxLicenseIndex.TryNormalizeLicenseIdUtf8(value, out normalized))
+        if (spdxLicenseIndex.TryNormalizeLicenseIdUtf8Slice(value, out normalized, out deprecated))
         {
-            deprecated = spdxLicenseIndex.IsDeprecatedLicenseId(normalized);
             return LicenseStatus.Matched;
         }
 
         if (!LooksLikeSpdxExpression(value))
         {
-            normalized = System.Text.Encoding.UTF8.GetString(value);
+            normalized = Utf8Slice.FromOwnedBytes(value.ToArray());
             return LicenseStatus.Ambiguous;
         }
 
@@ -64,7 +63,7 @@ public static class LicenseCandidateFactory
             return LicenseStatus.Matched;
         }
 
-        normalized = System.Text.Encoding.UTF8.GetString(value);
+        normalized = Utf8Slice.FromOwnedBytes(value.ToArray());
         return LicenseStatus.Invalid;
     }
 

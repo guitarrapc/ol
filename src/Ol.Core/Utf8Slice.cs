@@ -56,6 +56,15 @@ public readonly struct Utf8Slice : IEquatable<Utf8Slice>
         return new Utf8Slice(bytes, 0, bytes.Length);
     }
 
+    /// <summary>Wraps an owned UTF-8 buffer without copying it.</summary>
+    /// <param name="value">The exclusively owned UTF-8 buffer.</param>
+    /// <returns>A slice over the complete buffer.</returns>
+    public static Utf8Slice FromOwnedBytes(byte[] value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return value.Length == 0 ? default : new Utf8Slice(value, 0, value.Length);
+    }
+
     /// <summary>
     /// Decodes this UTF-8 value for an output boundary.
     /// </summary>

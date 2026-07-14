@@ -1,4 +1,6 @@
-﻿using System.Collections.Frozen;
+﻿using System.Buffers;
+using System.Collections.Frozen;
+using System.Text;
 
 namespace Ol.Core;
 
@@ -10,6 +12,7 @@ public sealed class SpdxLicenseIndex
     private readonly FrozenDictionary<string, string> licenses;
     private readonly FrozenDictionary<string, string> exceptions;
     private readonly FrozenSet<string> deprecatedLicenses;
+    private readonly FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> licenseSpanLookup;
 
     /// <summary>
     /// Initializes a new SPDX lookup index.
@@ -21,6 +24,7 @@ public sealed class SpdxLicenseIndex
         this.licenses = CreateLookup(licenses);
         this.exceptions = CreateLookup(exceptions);
         this.deprecatedLicenses = (deprecatedLicenses ?? []).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        licenseSpanLookup = this.licenses.GetAlternateLookup<ReadOnlySpan<char>>();
     }
 
     /// <summary>
@@ -32,6 +36,33 @@ public sealed class SpdxLicenseIndex
     public bool TryNormalizeLicenseId(string licenseId, out string normalized)
     {
         return licenses.TryGetValue(licenseId, out normalized!);
+    }
+
+    /// <summary>
+    /// Attempts to normalize an UTF-8 SPDX license identifier without materializing an input string.
+    /// </summary>
+    /// <param name="licenseIdUtf8">The UTF-8 license identifier.</param>
+    /// <param name="normalized">The normalized identifier when the lookup succeeds.</param>
+    /// <returns><see langword="true" /> when the license identifier is known.</returns>
+    public bool TryNormalizeLicenseIdUtf8(ReadOnlySpan<byte> licenseIdUtf8, out string normalized)
+    {
+        if (licenseIdUtf8.Length <= 128)
+        {
+            Span<char> characters = stackalloc char[128];
+            var characterCount = Encoding.UTF8.GetChars(licenseIdUtf8, characters);
+            return licenseSpanLookup.TryGetValue(characters[..characterCount], out normalized!);
+        }
+
+        var rented = ArrayPool<char>.Shared.Rent(licenseIdUtf8.Length);
+        try
+        {
+            var characterCount = Encoding.UTF8.GetChars(licenseIdUtf8, rented);
+            return licenseSpanLookup.TryGetValue(rented.AsSpan(0, characterCount), out normalized!);
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(rented);
+        }
     }
 
     /// <summary>

@@ -8,6 +8,15 @@ public sealed class CycloneDxScanTests
 {
     private static readonly SpdxLicenseIndex Spdx = new(["Apache-2.0", "GPL-2.0-only", "MIT"], ["Classpath-exception-2.0"]);
 
+  [Test]
+  public async Task TryNormalizeLicenseIdUtf8_KnownIdentifier_NormalizesWithoutInputString()
+  {
+    var normalized = Spdx.TryNormalizeLicenseIdUtf8("mit"u8, out var identifier);
+
+    await Assert.That(normalized).IsTrue();
+    await Assert.That(identifier).IsEqualTo("MIT");
+  }
+
     [Test]
     public async Task ScanCycloneDxComponentWithSpdxLicenseIdReturnsMatchedComponent()
     {

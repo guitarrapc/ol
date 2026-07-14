@@ -449,8 +449,8 @@ public static class SbomScanner
 
             var depth = reader.CurrentDepth;
             var element = string.Empty;
-            var type = string.Empty;
             var related = string.Empty;
+            var relationshipType = SpdxRelationshipType.None;
             while (reader.Read())
             {
                 if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == depth)
@@ -471,7 +471,13 @@ public static class SbomScanner
 
                 if (reader.ValueTextEquals("relationshipType"u8))
                 {
-                    type = ReadString(ref reader);
+                    reader.Read();
+                    relationshipType = reader.TokenType == JsonTokenType.String
+                        ? ValueTextEqualsAsciiIgnoreCase(ref reader, "describes") ? SpdxRelationshipType.Describes
+                        : ValueTextEqualsAsciiIgnoreCase(ref reader, "depends_on") ? SpdxRelationshipType.DependsOn
+                        : ValueTextEqualsAsciiIgnoreCase(ref reader, "dependency_of") ? SpdxRelationshipType.DependencyOf
+                        : SpdxRelationshipType.None
+                        : SpdxRelationshipType.None;
                     continue;
                 }
 
@@ -485,15 +491,15 @@ public static class SbomScanner
                 reader.Skip();
             }
 
-            if (string.Equals(type, "DESCRIBES", StringComparison.OrdinalIgnoreCase))
+            if (relationshipType == SpdxRelationshipType.Describes)
             {
                 rootRef = related;
             }
-            else if (string.Equals(type, "DEPENDS_ON", StringComparison.OrdinalIgnoreCase))
+            else if (relationshipType == SpdxRelationshipType.DependsOn)
             {
                 AddDependencyEdge(ref dependencies, ref dependencyCount, element, related);
             }
-            else if (string.Equals(type, "DEPENDENCY_OF", StringComparison.OrdinalIgnoreCase))
+            else if (relationshipType == SpdxRelationshipType.DependencyOf)
             {
                 AddDependencyEdge(ref dependencies, ref dependencyCount, related, element);
             }
@@ -519,8 +525,8 @@ public static class SbomScanner
             }
 
             var depth = reader.CurrentDepth;
-            var referenceType = string.Empty;
             var referenceLocator = string.Empty;
+            var isPurl = false;
 
             while (reader.Read())
             {
@@ -536,7 +542,8 @@ public static class SbomScanner
 
                 if (reader.ValueTextEquals("referenceType"u8))
                 {
-                    referenceType = ReadString(ref reader);
+                    reader.Read();
+                    isPurl = reader.TokenType == JsonTokenType.String && ValueTextEqualsAsciiIgnoreCase(ref reader, "purl");
                     continue;
                 }
 
@@ -550,7 +557,7 @@ public static class SbomScanner
                 reader.Skip();
             }
 
-            if (string.Equals(referenceType, "purl", StringComparison.OrdinalIgnoreCase))
+            if (isPurl)
             {
                 purl = referenceLocator;
             }
@@ -586,7 +593,7 @@ public static class SbomScanner
                     continue;
                 }
 
-                var (kind, raw) = ReadCycloneDxLicenseCandidate(ref reader);
+                var candidate = ReadCycloneDxLicenseCandidate(ref reader, spdxLicenseIndex);
                 if (candidateCount == candidateBuffer.Length)
                 {
                     var expanded = ArrayPool<LicenseCandidate>.Shared.Rent(candidateBuffer.Length * 2);
@@ -595,7 +602,6 @@ public static class SbomScanner
                     candidateBuffer = expanded;
                 }
 
-                var candidate = CreateLicenseCandidate("sbom", kind, raw, spdxLicenseIndex);
                 candidateBuffer[candidateCount] = candidate;
                 candidateCount++;
                 if (candidate.Status == LicenseStatus.Unknown)
@@ -771,6 +777,12 @@ public static class SbomScanner
             return LicenseStatus.Unknown;
         }
 
+        if (spdxLicenseIndex.TryNormalizeLicenseId(value, out normalized))
+        {
+            deprecated = spdxLicenseIndex.IsDeprecatedLicenseId(normalized);
+            return LicenseStatus.Matched;
+        }
+
         if (SpdxExpression.TryNormalize(value, spdxLicenseIndex, out normalized, out deprecated))
         {
             return LicenseStatus.Matched;
@@ -794,11 +806,11 @@ public static class SbomScanner
             || value.Contains(')');
     }
 
-    private static (string Kind, string Raw) ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader)
+    private static LicenseCandidate ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
     {
         var depth = reader.CurrentDepth;
         var kind = "unknown";
-        var candidate = string.Empty;
+        var candidate = LicenseCandidateFactory.Create("sbom", kind, string.Empty, spdxLicenseIndex);
 
         while (reader.Read())
         {
@@ -815,14 +827,27 @@ public static class SbomScanner
             if (reader.ValueTextEquals("id"u8) || reader.ValueTextEquals("expression"u8) || reader.ValueTextEquals("name"u8))
             {
                 kind = reader.ValueTextEquals("id"u8) ? "id" : reader.ValueTextEquals("expression"u8) ? "expression" : "name";
-                candidate = ReadString(ref reader);
+                reader.Read();
+                candidate = CreateLicenseCandidate(ref reader, kind, spdxLicenseIndex);
                 continue;
             }
 
             reader.Read();
         }
 
-        return (kind, candidate);
+        return candidate;
+    }
+
+    private static LicenseCandidate CreateLicenseCandidate(ref Utf8JsonReader reader, string kind, SpdxLicenseIndex spdxLicenseIndex)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            return LicenseCandidateFactory.Create("sbom", kind, string.Empty, spdxLicenseIndex);
+        }
+
+        return !reader.HasValueSequence && !reader.ValueIsEscaped
+            ? LicenseCandidateFactory.Create("sbom", kind, reader.ValueSpan, spdxLicenseIndex)
+            : LicenseCandidateFactory.Create("sbom", kind, reader.GetString() ?? string.Empty, spdxLicenseIndex);
     }
 
     private static string ReadString(ref Utf8JsonReader reader)
@@ -838,6 +863,36 @@ public static class SbomScanner
             || string.Equals(value, "NOASSERTION", StringComparison.OrdinalIgnoreCase)
             || string.Equals(value, "NONE", StringComparison.OrdinalIgnoreCase)
             || string.Equals(value, "UNKNOWN", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ValueTextEqualsAsciiIgnoreCase(ref Utf8JsonReader reader, string expectedLowercase)
+    {
+        if (reader.HasValueSequence || reader.ValueIsEscaped)
+        {
+            return string.Equals(reader.GetString(), expectedLowercase, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var value = reader.ValueSpan;
+        if (value.Length != expectedLowercase.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            var current = value[i];
+            if (current is >= (byte)'A' and <= (byte)'Z')
+            {
+                current = (byte)(current | 0x20);
+            }
+
+            if (current != expectedLowercase[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static string GetEcosystem(string purl)
@@ -1017,4 +1072,12 @@ public static class SbomScanner
     }
 
     private readonly record struct DependencyEdge(string ParentRef, string ChildRef);
+
+    private enum SpdxRelationshipType : byte
+    {
+        None,
+        Describes,
+        DependsOn,
+        DependencyOf,
+    }
 }

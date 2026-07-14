@@ -274,7 +274,7 @@ internal static class ScanView
     {
         if (dependency is null or "")
         {
-            return components.ToArray();
+            return components;
         }
 
         Span<bool> allowed = stackalloc bool[4];

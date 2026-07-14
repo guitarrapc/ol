@@ -102,6 +102,55 @@ public sealed class CycloneDxScanTests
     }
 
     [Test]
+    public async Task Scan_WithUnknownLikeLicense_RetainsRawCandidateAndEvidence()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                {
+                  "name": "mystery",
+                  "licenses": [ { "license": { "id": "NOASSERTION" } } ]
+                }
+              ]
+            }
+            """);
+
+        var report = SbomScanner.Scan(sbom, Spdx);
+
+        var component = report.Components[0];
+        await Assert.That(component.LicenseCandidates.Length).IsEqualTo(1);
+        await Assert.That(component.LicenseCandidates[0].Raw).IsEqualTo("NOASSERTION");
+        await Assert.That(component.LicenseCandidates[0].Status).IsEqualTo(LicenseStatus.Unknown);
+        await Assert.That(component.Evidence.Length).IsEqualTo(1);
+        await Assert.That(component.Evidence[0].Raw).IsEqualTo("NOASSERTION");
+    }
+
+    [Test]
+    public async Task Scan_WithDeprecatedIdentifierInsideExpression_AddsCandidateWarning()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                {
+                  "name": "deprecated-expression",
+                  "licenses": [ { "license": { "expression": "gpl-2.0-only OR MIT" } } ]
+                }
+              ]
+            }
+            """);
+        var deprecatedSpdx = new SpdxLicenseIndex(["GPL-2.0-only", "MIT"], [], ["GPL-2.0-only"]);
+
+        var report = SbomScanner.Scan(sbom, deprecatedSpdx);
+
+        await Assert.That(report.Components[0].LicenseCandidates[0].Deprecated).IsTrue();
+        await Assert.That(report.Components[0].Warnings[0]).IsEqualTo("deprecated_spdx_identifier");
+    }
+
+    [Test]
     public async Task Scan_WithCycloneDxExpression_NormalizesSpdxExpression()
     {
         var sbom = Encoding.UTF8.GetBytes(

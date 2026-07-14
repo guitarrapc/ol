@@ -70,7 +70,7 @@ internal sealed class ScanCommands
             var summary = ScanSummary.Create(components);
             var filterSummary = dependency is null or "" ? string.Empty : $"; dependency-filtered: {dependencyFilteredCount}; excluded-unknown: {excludedUnknownCount}";
             var outputSummary = outFile is { Length: > 0 } ? $"; output: {Path.GetFileName(outFile)}" : string.Empty;
-            Console.Error.WriteLine($"components: {components.Length}; matched: {summary.Matched}; conflict: {summary.Conflict}; unknown: {summary.Unknown}; ambiguous: {summary.Ambiguous}; invalid: {summary.Invalid}; warnings: 0; deprecated-spdx: 0; sbom: {Path.GetFileName(sbom)}; format: {report.Format}; spdx: {spdx.LicenseListVersion} ({spdx.Source}){filterSummary}{outputSummary}");
+            Console.Error.WriteLine($"components: {components.Length}; matched: {summary.Matched}; conflict: {summary.Conflict}; unknown: {summary.Unknown}; ambiguous: {summary.Ambiguous}; invalid: {summary.Invalid}; warnings: {summary.WarningCount}; deprecated-spdx: {summary.DeprecatedSpdxCount}; sbom: {Path.GetFileName(sbom)}; format: {report.Format}; spdx: {spdx.LicenseListVersion} ({spdx.Source}){filterSummary}{outputSummary}");
         }
 
         return 0;
@@ -145,7 +145,7 @@ internal readonly record struct SpdxData(
         var licenses = ReadSpdxData(licensesPath, "licenses", "licenseId");
         var exceptions = ReadSpdxData(exceptionsPath, "exceptions", "licenseExceptionId");
         return new SpdxData(
-            new SpdxLicenseIndex(licenses.Ids, exceptions.Ids),
+            new SpdxLicenseIndex(licenses.Ids, exceptions.Ids, licenses.DeprecatedIds),
             source,
             licenses.Version,
             dataRef,
@@ -153,20 +153,27 @@ internal readonly record struct SpdxData(
             HashFile(exceptionsPath));
     }
 
-    private static (string Version, string[] Ids) ReadSpdxData(string path, string arrayName, string propertyName)
+    private static (string Version, string[] Ids, string[] DeprecatedIds) ReadSpdxData(string path, string arrayName, string propertyName)
     {
         var bytes = File.ReadAllBytes(path);
         using var document = JsonDocument.Parse(SkipUtf8Bom(bytes));
         var values = document.RootElement.GetProperty(arrayName);
         var ids = new string[values.GetArrayLength()];
+        var deprecatedIds = new List<string>();
         var index = 0;
         foreach (var item in values.EnumerateArray())
         {
-            ids[index] = item.GetProperty(propertyName).GetString() ?? string.Empty;
+            var id = item.GetProperty(propertyName).GetString() ?? string.Empty;
+            ids[index] = id;
+            if (item.TryGetProperty("isDeprecatedLicenseId", out var deprecated) && deprecated.ValueKind == JsonValueKind.True)
+            {
+                deprecatedIds.Add(id);
+            }
+
             index++;
         }
 
-        return (document.RootElement.TryGetProperty("licenseListVersion", out var version) ? version.GetString() ?? "unknown" : "unknown", ids);
+        return (document.RootElement.TryGetProperty("licenseListVersion", out var version) ? version.GetString() ?? "unknown" : "unknown", ids, deprecatedIds.ToArray());
     }
 
     private static string HashFile(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
@@ -539,6 +546,9 @@ internal static class ReportRenderer
                 writer.WriteString("status", component.Status.ToString().ToLowerInvariant());
                 writer.WriteString("purl", component.Purl);
                 writer.WriteString("sourceId", component.SourceId);
+                WriteLicenseCandidates(writer, component.LicenseCandidates);
+                WriteEvidence(writer, component.Evidence);
+                WriteWarnings(writer, component.Warnings);
                 writer.WriteEndObject();
             }
 
@@ -552,8 +562,7 @@ internal static class ReportRenderer
             writer.WriteNumber("ambiguous", summary.Ambiguous);
             writer.WriteNumber("invalid", summary.Invalid);
             writer.WriteEndObject();
-            writer.WriteStartArray("warnings");
-            writer.WriteEndArray();
+            WriteWarnings(writer, components);
             writer.WriteEndObject();
         }
 
@@ -605,8 +614,7 @@ internal static class ReportRenderer
             }
 
             writer.WriteEndArray();
-            writer.WriteStartArray("warnings");
-            writer.WriteEndArray();
+            WriteWarnings(writer, groups);
             writer.WriteEndObject();
         }
 
@@ -631,6 +639,95 @@ internal static class ReportRenderer
         writer.WriteEndObject();
     }
 
+    private static void WriteLicenseCandidates(Utf8JsonWriter writer, ReadOnlySpan<LicenseCandidate> candidates)
+    {
+        writer.WriteStartArray("licenseCandidates");
+        for (var i = 0; i < candidates.Length; i++)
+        {
+            var candidate = candidates[i];
+            writer.WriteStartObject();
+            writer.WriteString("source", candidate.Source);
+            writer.WriteString("kind", candidate.Kind);
+            writer.WriteString("raw", candidate.Raw);
+            writer.WriteString("normalized", candidate.Normalized);
+            writer.WriteString("status", candidate.Status.ToString().ToLowerInvariant());
+            writer.WriteBoolean("deprecated", candidate.Deprecated);
+            WriteWarnings(writer, candidate.Warnings);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteEvidence(Utf8JsonWriter writer, ReadOnlySpan<LicenseEvidence> evidence)
+    {
+        writer.WriteStartArray("evidence");
+        for (var i = 0; i < evidence.Length; i++)
+        {
+            var item = evidence[i];
+            writer.WriteStartObject();
+            writer.WriteString("source", item.Source);
+            writer.WriteString("kind", item.Kind);
+            writer.WriteString("raw", item.Raw);
+            writer.WriteString("normalized", item.Normalized);
+            writer.WriteString("status", item.Status.ToString().ToLowerInvariant());
+            WriteWarnings(writer, item.Warnings);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<string> warnings)
+    {
+        writer.WriteStartArray("warnings");
+        for (var i = 0; i < warnings.Length; i++)
+        {
+            writer.WriteStringValue(warnings[i]);
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<ScanComponent> components)
+    {
+        writer.WriteStartArray("warnings");
+        if (HasDeprecatedWarning(components))
+        {
+            writer.WriteStringValue("deprecated_spdx_identifier");
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<GroupRow> groups)
+    {
+        writer.WriteStartArray("warnings");
+        for (var i = 0; i < groups.Length; i++)
+        {
+            if (HasDeprecatedWarning(groups[i].Components))
+            {
+                writer.WriteStringValue("deprecated_spdx_identifier");
+                break;
+            }
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static bool HasDeprecatedWarning(ReadOnlySpan<ScanComponent> components)
+    {
+        for (var i = 0; i < components.Length; i++)
+        {
+            if (Array.IndexOf(components[i].Warnings, "deprecated_spdx_identifier") >= 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static string GetFormatName(SbomFormat format) => format switch
     {
         SbomFormat.CycloneDxJson => "CycloneDX",
@@ -639,7 +736,7 @@ internal static class ReportRenderer
     };
 }
 
-internal readonly record struct ScanSummary(int Matched, int Conflict, int Unknown, int Ambiguous, int Invalid)
+internal readonly record struct ScanSummary(int Matched, int Conflict, int Unknown, int Ambiguous, int Invalid, int WarningCount, int DeprecatedSpdxCount)
 {
     public static ScanSummary Create(ReadOnlySpan<ScanComponent> components)
     {
@@ -648,6 +745,8 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
         var unknown = 0;
         var ambiguous = 0;
         var invalid = 0;
+        var warningCount = 0;
+        var deprecatedSpdxCount = 0;
 
         for (var i = 0; i < components.Length; i++)
         {
@@ -669,8 +768,17 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
                     invalid++;
                     break;
             }
+
+            warningCount += components[i].Warnings.Length;
+            for (var candidateIndex = 0; candidateIndex < components[i].LicenseCandidates.Length; candidateIndex++)
+            {
+                if (components[i].LicenseCandidates[candidateIndex].Deprecated)
+                {
+                    deprecatedSpdxCount++;
+                }
+            }
         }
 
-        return new ScanSummary(matched, conflict, unknown, ambiguous, invalid);
+        return new ScanSummary(matched, conflict, unknown, ambiguous, invalid, warningCount, deprecatedSpdxCount);
     }
 }

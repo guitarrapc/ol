@@ -8,6 +8,7 @@ internal ref struct SpdxExpression
     private readonly SpdxLicenseIndex spdxLicenseIndex;
     private readonly StringBuilder builder;
     private int position;
+    private bool hasDeprecatedLicense;
 
     private SpdxExpression(string value, SpdxLicenseIndex spdxLicenseIndex, StringBuilder builder)
     {
@@ -18,16 +19,21 @@ internal ref struct SpdxExpression
     }
 
     public static bool TryNormalize(string value, SpdxLicenseIndex spdxLicenseIndex, out string normalized)
+        => TryNormalize(value, spdxLicenseIndex, out normalized, out _);
+
+    public static bool TryNormalize(string value, SpdxLicenseIndex spdxLicenseIndex, out string normalized, out bool hasDeprecatedLicense)
     {
         var builder = new StringBuilder(value.Length);
         var parser = new SpdxExpression(value, spdxLicenseIndex, builder);
         if (!parser.TryParseExpression() || !parser.IsAtEnd())
         {
             normalized = string.Empty;
+            hasDeprecatedLicense = false;
             return false;
         }
 
         normalized = builder.ToString();
+        hasDeprecatedLicense = parser.hasDeprecatedLicense;
         return true;
     }
 
@@ -129,6 +135,7 @@ internal ref struct SpdxExpression
             return false;
         }
 
+        hasDeprecatedLicense |= spdxLicenseIndex.IsDeprecatedLicenseId(normalizedLicense);
         builder.Append(normalizedLicense);
         return true;
     }

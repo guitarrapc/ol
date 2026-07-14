@@ -262,6 +262,7 @@ public static class SbomScanner
         var purl = string.Empty;
         var license = string.Empty;
         var status = LicenseStatus.Unknown;
+        var candidates = Array.Empty<LicenseCandidate>();
 
         while (reader.Read())
         {
@@ -301,7 +302,7 @@ public static class SbomScanner
 
             if (reader.ValueTextEquals("licenses"u8))
             {
-                (license, status) = ReadCycloneDxLicenses(ref reader, spdxLicenseIndex);
+                (license, status, candidates) = ReadCycloneDxLicenses(ref reader, spdxLicenseIndex);
                 continue;
             }
 
@@ -314,7 +315,7 @@ public static class SbomScanner
             license = "-";
         }
 
-        return new ScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId);
+        return CreateScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, candidates);
     }
 
     private static ScanComponent ReadCycloneDxMetadataComponent(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
@@ -421,7 +422,12 @@ public static class SbomScanner
         }
 
         var (license, status) = ReconcileLicenses(declared, concluded, spdxLicenseIndex);
-        return new ScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId);
+        var candidates = new[]
+        {
+            CreateLicenseCandidate("sbom", "declared", declared, spdxLicenseIndex),
+            CreateLicenseCandidate("sbom", "concluded", concluded, spdxLicenseIndex),
+        };
+        return CreateScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, candidates);
     }
 
     private static void ReadSpdxRelationships(ref Utf8JsonReader reader, ref DependencyEdge[] dependencies, ref int dependencyCount, ref string rootRef)
@@ -553,87 +559,107 @@ public static class SbomScanner
         return purl;
     }
 
-    private static (string License, LicenseStatus Status) ReadCycloneDxLicenses(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
+    private static (string License, LicenseStatus Status, LicenseCandidate[] Candidates) ReadCycloneDxLicenses(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartArray)
         {
             reader.Skip();
-            return ("-", LicenseStatus.Unknown);
+            return ("-", LicenseStatus.Unknown, []);
         }
 
+        var candidateBuffer = ArrayPool<LicenseCandidate>.Shared.Rent(4);
+        var candidateCount = 0;
         var validCount = 0;
         var ambiguousCount = 0;
         var invalidCount = 0;
         var firstValue = string.Empty;
         var secondValue = string.Empty;
 
-        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        try
         {
-            if (reader.TokenType != JsonTokenType.StartObject)
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
             {
-                reader.Skip();
-                continue;
-            }
-
-            var candidate = ReadCycloneDxLicenseCandidate(ref reader);
-            if (IsUnknown(candidate))
-            {
-                continue;
-            }
-
-            var status = ClassifyLicense(candidate, spdxLicenseIndex, out var normalized);
-            if (status == LicenseStatus.Matched)
-            {
-                validCount++;
-                if (validCount == 1)
+                if (reader.TokenType != JsonTokenType.StartObject)
                 {
-                    firstValue = normalized;
+                    reader.Skip();
+                    continue;
                 }
-                else if (!string.Equals(firstValue, normalized, StringComparison.Ordinal))
+
+                var (kind, raw) = ReadCycloneDxLicenseCandidate(ref reader);
+                if (candidateCount == candidateBuffer.Length)
                 {
-                    secondValue = normalized;
+                    var expanded = ArrayPool<LicenseCandidate>.Shared.Rent(candidateBuffer.Length * 2);
+                    candidateBuffer.AsSpan(0, candidateCount).CopyTo(expanded);
+                    ArrayPool<LicenseCandidate>.Shared.Return(candidateBuffer, clearArray: true);
+                    candidateBuffer = expanded;
+                }
+
+                var candidate = CreateLicenseCandidate("sbom", kind, raw, spdxLicenseIndex);
+                candidateBuffer[candidateCount] = candidate;
+                candidateCount++;
+                if (candidate.Status == LicenseStatus.Unknown)
+                {
+                    continue;
+                }
+
+                if (candidate.Status == LicenseStatus.Matched)
+                {
+                    validCount++;
+                    if (validCount == 1)
+                    {
+                        firstValue = candidate.Normalized;
+                    }
+                    else if (!string.Equals(firstValue, candidate.Normalized, StringComparison.Ordinal))
+                    {
+                        secondValue = candidate.Normalized;
+                    }
+                }
+                else if (candidate.Status == LicenseStatus.Invalid)
+                {
+                    invalidCount++;
+                    if (firstValue.Length == 0)
+                    {
+                        firstValue = candidate.Raw;
+                    }
+                }
+                else
+                {
+                    ambiguousCount++;
+                    if (firstValue.Length == 0)
+                    {
+                        firstValue = candidate.Raw;
+                    }
                 }
             }
-            else if (status == LicenseStatus.Invalid)
+
+            var candidates = candidateBuffer.AsSpan(0, candidateCount).ToArray();
+            if (validCount == 1)
             {
-                invalidCount++;
-                if (firstValue.Length == 0)
-                {
-                    firstValue = normalized;
-                }
+                return (firstValue, LicenseStatus.Matched, candidates);
             }
-            else
+
+            if (validCount > 1)
             {
-                ambiguousCount++;
-                if (firstValue.Length == 0)
-                {
-                    firstValue = candidate;
-                }
+                return (secondValue.Length == 0 ? firstValue : string.Concat(firstValue, ", ", secondValue, " (?)"), LicenseStatus.Ambiguous, candidates);
             }
-        }
 
-        if (validCount == 1)
+            if (invalidCount > 0)
+            {
+                return (string.Concat(firstValue, " (?)"), LicenseStatus.Invalid, candidates);
+            }
+
+            if (ambiguousCount > 0)
+            {
+                return (string.Concat(firstValue, " (?)"), LicenseStatus.Ambiguous, candidates);
+            }
+
+            return ("-", LicenseStatus.Unknown, candidates);
+        }
+        finally
         {
-            return (firstValue, LicenseStatus.Matched);
+            ArrayPool<LicenseCandidate>.Shared.Return(candidateBuffer, clearArray: true);
         }
-
-        if (validCount > 1)
-        {
-            return (secondValue.Length == 0 ? firstValue : string.Concat(firstValue, ", ", secondValue, " (?)"), LicenseStatus.Ambiguous);
-        }
-
-        if (invalidCount > 0)
-        {
-            return (string.Concat(firstValue, " (?)"), LicenseStatus.Invalid);
-        }
-
-        if (ambiguousCount > 0)
-        {
-            return (string.Concat(firstValue, " (?)"), LicenseStatus.Ambiguous);
-        }
-
-        return ("-", LicenseStatus.Unknown);
     }
 
     private static (string License, LicenseStatus Status) ReconcileLicenses(string first, string second, SpdxLicenseIndex spdxLicenseIndex)
@@ -684,15 +710,68 @@ public static class SbomScanner
         return ("-", LicenseStatus.Unknown);
     }
 
+    private static ScanComponent CreateScanComponent(
+        string name,
+        string version,
+        string license,
+        string ecosystem,
+        DependencyType dependencyType,
+        LicenseStatus status,
+        string purl,
+        string sourceId,
+        LicenseCandidate[] candidates)
+    {
+        var evidence = new LicenseEvidence[candidates.Length];
+        var hasDeprecatedWarning = false;
+        for (var i = 0; i < candidates.Length; i++)
+        {
+            var candidate = candidates[i];
+            evidence[i] = new LicenseEvidence(candidate.Source, candidate.Kind, candidate.Raw, candidate.Normalized, candidate.Status, candidate.Warnings);
+            hasDeprecatedWarning |= candidate.Deprecated;
+        }
+
+        return new ScanComponent(
+            name,
+            version,
+            license,
+            ecosystem,
+            dependencyType,
+            status,
+            purl,
+            sourceId,
+            candidates,
+            evidence,
+            hasDeprecatedWarning ? ["deprecated_spdx_identifier"] : []);
+    }
+
+    private static LicenseCandidate CreateLicenseCandidate(string source, string kind, string raw, SpdxLicenseIndex spdxLicenseIndex)
+    {
+        var status = ClassifyLicense(raw, spdxLicenseIndex, out var normalized, out var deprecated);
+        return new LicenseCandidate(
+            source,
+            kind,
+            raw,
+            normalized,
+            status,
+            deprecated,
+            deprecated ? ["deprecated_spdx_identifier"] : []);
+    }
+
     private static LicenseStatus ClassifyLicense(string value, SpdxLicenseIndex spdxLicenseIndex, out string normalized)
     {
+        return ClassifyLicense(value, spdxLicenseIndex, out normalized, out _);
+    }
+
+    private static LicenseStatus ClassifyLicense(string value, SpdxLicenseIndex spdxLicenseIndex, out string normalized, out bool deprecated)
+    {
         normalized = string.Empty;
+        deprecated = false;
         if (IsUnknown(value))
         {
             return LicenseStatus.Unknown;
         }
 
-        if (SpdxExpression.TryNormalize(value, spdxLicenseIndex, out normalized))
+        if (SpdxExpression.TryNormalize(value, spdxLicenseIndex, out normalized, out deprecated))
         {
             return LicenseStatus.Matched;
         }
@@ -715,9 +794,10 @@ public static class SbomScanner
             || value.Contains(')');
     }
 
-    private static string ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader)
+    private static (string Kind, string Raw) ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader)
     {
         var depth = reader.CurrentDepth;
+        var kind = "unknown";
         var candidate = string.Empty;
 
         while (reader.Read())
@@ -734,6 +814,7 @@ public static class SbomScanner
 
             if (reader.ValueTextEquals("id"u8) || reader.ValueTextEquals("expression"u8) || reader.ValueTextEquals("name"u8))
             {
+                kind = reader.ValueTextEquals("id"u8) ? "id" : reader.ValueTextEquals("expression"u8) ? "expression" : "name";
                 candidate = ReadString(ref reader);
                 continue;
             }
@@ -741,7 +822,7 @@ public static class SbomScanner
             reader.Read();
         }
 
-        return candidate;
+        return (kind, candidate);
     }
 
     private static string ReadString(ref Utf8JsonReader reader)

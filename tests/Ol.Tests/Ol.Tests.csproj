@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ol.Core\Ol.Core.csproj" />
+    <ProjectReference Include="..\..\src\Ol\Ol.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

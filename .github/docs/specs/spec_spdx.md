@@ -176,6 +176,18 @@ Example candidate warning:
 
 stderr summary should include deprecated identifier warning counts.
 
+## Candidate and Evidence Records
+
+Each component JSON record retains the raw SBOM license values in both `licenseCandidates` and `evidence`. Each candidate includes:
+
+- `source`, initially `sbom`
+- `kind`, such as `declared`, `concluded`, `expression`, `id`, or `name`
+- `raw` and normalized SPDX expression when valid
+- classification `status`
+- `deprecated` and candidate `warnings`
+
+The component `warnings` array aggregates candidate warnings. This preserves unknown-like, ambiguous, invalid, and deprecated values for later evidence sources to reconcile in v2 and v3.
+
 ## SBOM Field Reconciliation
 
 SPDX SBOMs can contain both `licenseDeclared` and `licenseConcluded`. Both are evidence.

@@ -9,16 +9,18 @@ public sealed class SpdxLicenseIndex
 {
     private readonly FrozenDictionary<string, string> licenses;
     private readonly FrozenDictionary<string, string> exceptions;
+    private readonly FrozenSet<string> deprecatedLicenses;
 
     /// <summary>
     /// Initializes a new SPDX lookup index.
     /// </summary>
     /// <param name="licenses">Known SPDX license identifiers.</param>
     /// <param name="exceptions">Known SPDX exception identifiers.</param>
-    public SpdxLicenseIndex(string[] licenses, string[] exceptions)
+    public SpdxLicenseIndex(string[] licenses, string[] exceptions, string[]? deprecatedLicenses = null)
     {
         this.licenses = CreateLookup(licenses);
         this.exceptions = CreateLookup(exceptions);
+        this.deprecatedLicenses = (deprecatedLicenses ?? []).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -42,6 +44,13 @@ public sealed class SpdxLicenseIndex
     {
         return exceptions.TryGetValue(exceptionId, out normalized!);
     }
+
+    /// <summary>
+    /// Determines whether a known SPDX license identifier is deprecated.
+    /// </summary>
+    /// <param name="licenseId">The SPDX license identifier.</param>
+    /// <returns><see langword="true"/> when the identifier is deprecated.</returns>
+    public bool IsDeprecatedLicenseId(string licenseId) => deprecatedLicenses.Contains(licenseId);
 
     private static FrozenDictionary<string, string> CreateLookup(string[] identifiers)
     {

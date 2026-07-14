@@ -11,6 +11,9 @@
 /// <param name="Status">The license status.</param>
 /// <param name="Purl">The package URL, when present.</param>
 /// <param name="SourceId">The source SBOM component identifier, when present.</param>
+/// <param name="LicenseCandidates">The extracted license candidates.</param>
+/// <param name="Evidence">The normalized evidence records.</param>
+/// <param name="Warnings">Warnings associated with this component.</param>
 public readonly record struct ScanComponent(
     string Name,
     string Version,
@@ -19,4 +22,7 @@ public readonly record struct ScanComponent(
     DependencyType DependencyType,
     LicenseStatus Status,
     string Purl,
-    string SourceId);
+    string SourceId,
+    LicenseCandidate[] LicenseCandidates,
+    LicenseEvidence[] Evidence,
+    string[] Warnings);

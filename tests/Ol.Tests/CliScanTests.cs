@@ -8,6 +8,61 @@ namespace Ol.Tests;
 
 public sealed class CliScanTests
 {
+        [Test]
+        public async Task Scan_WithDeprecatedSpdxCandidate_RetainsCandidatesEvidenceAndWarningsInJson()
+        {
+                var root = FindRepositoryRoot();
+                var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-evidence-{Guid.NewGuid():N}");
+                var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+                var spdxDirectory = Path.Combine(temporaryDirectory, "spdx");
+                Directory.CreateDirectory(spdxDirectory);
+                await File.WriteAllTextAsync(
+                        sbomPath,
+                        """
+                        {
+                            "spdxVersion": "SPDX-2.3",
+                            "packages": [
+                                {
+                                    "SPDXID": "SPDXRef-Package",
+                                    "name": "example",
+                                    "licenseDeclared": "gpl-2.0",
+                                    "licenseConcluded": "MIT"
+                                }
+                            ]
+                        }
+                        """,
+                        Encoding.UTF8);
+                await File.WriteAllTextAsync(spdxDirectory + "\\licenses.json", """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "GPL-2.0", "isDeprecatedLicenseId": true }, { "licenseId": "MIT", "isDeprecatedLicenseId": false } ] }""", Encoding.UTF8);
+                await File.WriteAllTextAsync(spdxDirectory + "\\exceptions.json", """{ "licenseListVersion": "3.27.0", "exceptions": [] }""", Encoding.UTF8);
+
+                try
+                {
+                        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--spdx-data", spdxDirectory);
+
+                        await Assert.That(exitCode).IsEqualTo(0);
+                        using var report = JsonDocument.Parse(stdout);
+                        var component = report.RootElement.GetProperty("components")[0];
+                        var candidates = component.GetProperty("licenseCandidates");
+                        await Assert.That(candidates.GetArrayLength()).IsEqualTo(2);
+                        var declared = candidates[0];
+                        await Assert.That(declared.GetProperty("source").GetString()).IsEqualTo("sbom");
+                        await Assert.That(declared.GetProperty("kind").GetString()).IsEqualTo("declared");
+                        await Assert.That(declared.GetProperty("raw").GetString()).IsEqualTo("gpl-2.0");
+                        await Assert.That(declared.GetProperty("normalized").GetString()).IsEqualTo("GPL-2.0");
+                        await Assert.That(declared.GetProperty("status").GetString()).IsEqualTo("matched");
+                        await Assert.That(declared.GetProperty("deprecated").GetBoolean()).IsTrue();
+                        await Assert.That(declared.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
+                        await Assert.That(component.GetProperty("evidence").GetArrayLength()).IsEqualTo(2);
+                        await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
+                        await Assert.That(stderr).Contains("warnings: 1");
+                        await Assert.That(stderr).Contains("deprecated-spdx: 1");
+                }
+                finally
+                {
+                        Directory.Delete(temporaryDirectory, recursive: true);
+                }
+        }
+
     [Test]
     public async Task Scan_WithDependencyFilter_ReportsExcludedUnknownComponents()
     {
@@ -176,10 +231,7 @@ public sealed class CliScanTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        startInfo.ArgumentList.Add("run");
-        startInfo.ArgumentList.Add("--project");
-        startInfo.ArgumentList.Add("src/Ol");
-        startInfo.ArgumentList.Add("--");
+        startInfo.ArgumentList.Add(Path.Combine(root, "src", "Ol", "bin", "Debug", "net10.0", "ol.dll"));
         for (var i = 0; i < args.Length; i++)
         {
             startInfo.ArgumentList.Add(args[i]);

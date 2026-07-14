@@ -569,7 +569,7 @@ internal static class ReportRenderer
                 writer.WriteString("purl"u8, component.Purl.Span);
                 writer.WriteString("sourceId"u8, component.SourceId.Span);
                 WriteLicenseCandidates(writer, component.LicenseCandidates);
-                WriteEvidence(writer, component.Evidence);
+                WriteEvidence(writer, component.LicenseCandidates);
                 WriteWarnings(writer, component.Warnings);
                 writer.WriteEndObject();
             }
@@ -703,7 +703,7 @@ internal static class ReportRenderer
         writer.WriteEndArray();
     }
 
-    private static void WriteEvidence(Utf8JsonWriter writer, ReadOnlySpan<LicenseEvidence> evidence)
+    private static void WriteEvidence(Utf8JsonWriter writer, ReadOnlySpan<LicenseCandidate> evidence)
     {
         writer.WriteStartArray("evidence");
         for (var i = 0; i < evidence.Length; i++)

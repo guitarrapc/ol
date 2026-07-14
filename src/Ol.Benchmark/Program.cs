@@ -1,36 +1,15 @@
-﻿using System.Text;
-using BenchmarkDotNet.Attributes;
+﻿using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Diagnosers;
+using BenchmarkDotNet.Exporters;
+using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
-using Ol.Core;
+using System.Reflection;
 
-BenchmarkRunner.Run<SbomScannerBenchmark>();
+var config = ManualConfig.CreateMinimumViable()
+    .AddDiagnoser(MemoryDiagnoser.Default)
+    //.AddExporter(DefaultExporters.Plain)
+    .AddExporter(MarkdownExporter.Default)
+    .AddJob(Job.Default.WithWarmupCount(1).WithIterationCount(1)); // .AddJob(Job.ShortRun);
 
-[MemoryDiagnoser]
-[DisassemblyDiagnoser(maxDepth: 1)]
-public class SbomScannerBenchmark
-{
-    private readonly byte[] cycloneDx = Encoding.UTF8.GetBytes(
-            """
-				{
-					"bomFormat": "CycloneDX",
-					"components": [
-						{
-							"name": "left-pad",
-							"version": "1.3.0",
-							"purl": "pkg:npm/left-pad@1.3.0",
-							"licenses": [
-								{ "license": { "id": "MIT" } }
-							]
-						}
-					]
-				}
-				""");
-
-    private readonly SpdxLicenseIndex spdx = new(["MIT"], []);
-
-    [Benchmark]
-    public ScanReport ScanCycloneDx()
-    {
-        return SbomScanner.Scan(cycloneDx, spdx);
-    }
-}
+//BenchmarkRunner.Run<Silesia_GZip>(config, args);
+BenchmarkSwitcher.FromAssembly(Assembly.GetEntryAssembly()!).Run(args, config);

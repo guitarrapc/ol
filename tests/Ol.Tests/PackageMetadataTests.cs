@@ -1,5 +1,4 @@
 ﻿using System.Net;
-using System.Net.Http;
 using System.Text.Json;
 using Ol.Core;
 
@@ -161,7 +160,6 @@ public sealed class PackageMetadataTests
             "pkg:npm/example@1.0.0",
             "pkg:npm/example@1.0.0",
             [LicenseCandidateFactory.Create("sbom", "id", "NOASSERTION", index)],
-            [],
             []);
 
         var result = LicenseReconciler.AddCandidate(component, LicenseCandidateFactory.Create("npm-registry", "license", "MIT", index));
@@ -169,7 +167,7 @@ public sealed class PackageMetadataTests
         await Assert.That(result.Status).IsEqualTo(LicenseStatus.Matched);
         await Assert.That(result.License).IsEqualTo("MIT");
         await Assert.That(result.LicenseCandidates.Length).IsEqualTo(2);
-        await Assert.That(result.Evidence[1].Source).IsEqualTo("npm-registry");
+        await Assert.That(result.LicenseCandidates[1].Source).IsEqualTo("npm-registry");
     }
 
     [Test]

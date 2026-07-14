@@ -8,27 +8,27 @@ public sealed class CycloneDxScanTests
 {
     private static readonly SpdxLicenseIndex Spdx = new(["Apache-2.0", "GPL-2.0-only", "MIT"], ["Classpath-exception-2.0"]);
 
-  [Test]
-  public async Task Scan_RegisteredFormat_UsesItsOwnMarkerAndParser()
-  {
-    var format = new SbomFormat("test-json");
-    var registry = new SbomFormatRegistry([
-      new SbomFormatHandler(format, "testFormat"u8.ToArray(), "test"u8.ToArray(), static (source, _, _) => new ScanReport(new SbomFormat("test-json"), default, [])),
+    [Test]
+    public async Task Scan_RegisteredFormat_UsesItsOwnMarkerAndParser()
+    {
+        var format = new SbomFormat("test-json");
+        var registry = new SbomFormatRegistry([
+          new SbomFormatHandler(format, "testFormat"u8.ToArray(), "test"u8.ToArray(), static (source, _, _) => new ScanReport(new SbomFormat("test-json"), default, [])),
     ]);
 
-    var report = SbomScanner.Scan(Encoding.UTF8.GetBytes("""{ "testFormat": "test" }"""), Spdx, registry);
+        var report = SbomScanner.Scan(Encoding.UTF8.GetBytes("""{ "testFormat": "test" }"""), Spdx, registry);
 
-    await Assert.That(report.Format).IsEqualTo(format);
-  }
+        await Assert.That(report.Format).IsEqualTo(format);
+    }
 
-  [Test]
-  public async Task TryNormalizeLicenseIdUtf8_KnownIdentifier_NormalizesWithoutInputString()
-  {
-    var normalized = Spdx.TryNormalizeLicenseIdUtf8("mit"u8, out var identifier);
+    [Test]
+    public async Task TryNormalizeLicenseIdUtf8_KnownIdentifier_NormalizesWithoutInputString()
+    {
+        var normalized = Spdx.TryNormalizeLicenseIdUtf8("mit"u8, out var identifier);
 
-    await Assert.That(normalized).IsTrue();
-    await Assert.That(identifier).IsEqualTo("MIT");
-  }
+        await Assert.That(normalized).IsTrue();
+        await Assert.That(identifier).IsEqualTo("MIT");
+    }
 
     [Test]
     public async Task ScanCycloneDxComponentWithSpdxLicenseIdReturnsMatchedComponent()
@@ -96,7 +96,6 @@ public sealed class CycloneDxScanTests
         await Assert.That(component.Name.Span.SequenceEqual("example"u8)).IsTrue();
         await Assert.That(component.Purl.Span.SequenceEqual("pkg:npm/example@1.0.0"u8)).IsTrue();
         await Assert.That(component.LicenseCandidates[0].Raw.Span.SequenceEqual("MIT"u8)).IsTrue();
-        await Assert.That(component.Evidence[0].Raw.Span.SequenceEqual("MIT"u8)).IsTrue();
     }
 
     [Test]
@@ -188,8 +187,6 @@ public sealed class CycloneDxScanTests
         await Assert.That(component.LicenseCandidates.Length).IsEqualTo(1);
         await Assert.That(component.LicenseCandidates[0].Raw.ToString()).IsEqualTo("NOASSERTION");
         await Assert.That(component.LicenseCandidates[0].Status).IsEqualTo(LicenseStatus.Unknown);
-        await Assert.That(component.Evidence.Length).IsEqualTo(1);
-        await Assert.That(component.Evidence[0].Raw.ToString()).IsEqualTo("NOASSERTION");
     }
 
     [Test]

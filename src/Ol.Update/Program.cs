@@ -5,8 +5,8 @@ const string exceptionsUrl = "https://raw.githubusercontent.com/spdx/license-lis
 
 if (args is not ["generate"])
 {
-	Console.Error.WriteLine("Usage: ol-update generate");
-	return 1;
+    Console.Error.WriteLine("Usage: ol-update generate");
+    return 1;
 }
 
 var outputPath = Path.Combine(Environment.CurrentDirectory, "src", "Ol.Core", "Generated", "SpdxGeneratedLicenseData.g.cs");

@@ -12,7 +12,6 @@
 /// <param name="Purl">The package URL, when present.</param>
 /// <param name="SourceId">The source SBOM component identifier, when present.</param>
 /// <param name="LicenseCandidates">The extracted license candidates.</param>
-/// <param name="Evidence">The normalized evidence records.</param>
 /// <param name="Warnings">Warnings associated with this component.</param>
 public readonly record struct ScanComponent(
     Utf8Slice Name,
@@ -24,5 +23,4 @@ public readonly record struct ScanComponent(
     Utf8Slice Purl,
     Utf8Slice SourceId,
     LicenseCandidate[] LicenseCandidates,
-    LicenseEvidence[] Evidence,
     string[] Warnings);

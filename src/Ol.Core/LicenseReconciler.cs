@@ -8,7 +8,7 @@ namespace Ol.Core;
 public static class LicenseReconciler
 {
     /// <summary>
-    /// Adds a candidate and recalculates the component's display license, status, evidence, and warnings.
+    /// Adds a candidate and recalculates the component's display license, status, and warnings.
     /// </summary>
     /// <param name="component">The component to enrich.</param>
     /// <param name="candidate">The additional candidate.</param>
@@ -84,12 +84,10 @@ public static class LicenseReconciler
                 _ => ("-", LicenseStatus.Unknown),
             };
 
-            var evidence = new LicenseEvidence[candidates.Length];
             var warningCount = 0;
             for (var i = 0; i < candidates.Length; i++)
             {
                 var candidate = candidates[i];
-                evidence[i] = new LicenseEvidence(candidate.Source, candidate.Kind, candidate.Raw, candidate.Normalized, candidate.Status, candidate.Warnings);
                 for (var warningIndex = 0; warningIndex < candidate.Warnings.Length; warningIndex++)
                 {
                     var warning = candidate.Warnings[warningIndex];
@@ -113,7 +111,7 @@ public static class LicenseReconciler
 
             var warnings = warningCount == 0 ? [] : warningValues!.AsSpan(0, warningCount).ToArray();
             Array.Sort(warnings, StringComparer.Ordinal);
-            return component with { License = license, Status = status, LicenseCandidates = candidates, Evidence = evidence, Warnings = warnings };
+            return component with { License = license, Status = status, LicenseCandidates = candidates, Warnings = warnings };
         }
         finally
         {

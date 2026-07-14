@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 namespace Ol.Core;
@@ -732,12 +731,10 @@ public static class SbomScanner
         Utf8Slice sourceId,
         LicenseCandidate[] candidates)
     {
-        var evidence = new LicenseEvidence[candidates.Length];
         var hasDeprecatedWarning = false;
         for (var i = 0; i < candidates.Length; i++)
         {
             var candidate = candidates[i];
-            evidence[i] = new LicenseEvidence(candidate.Source, candidate.Kind, candidate.Raw, candidate.Normalized, candidate.Status, candidate.Warnings);
             hasDeprecatedWarning |= candidate.Deprecated;
         }
 
@@ -751,64 +748,7 @@ public static class SbomScanner
             purl,
             sourceId,
             candidates,
-            evidence,
             hasDeprecatedWarning ? ["deprecated_spdx_identifier"] : []);
-    }
-
-    private static LicenseCandidate CreateLicenseCandidate(string source, string kind, string raw, SpdxLicenseIndex spdxLicenseIndex)
-    {
-        var status = ClassifyLicense(raw, spdxLicenseIndex, out var normalized, out var deprecated);
-        return new LicenseCandidate(
-            source,
-            kind,
-            raw,
-            normalized,
-            status,
-            deprecated,
-            deprecated ? ["deprecated_spdx_identifier"] : []);
-    }
-
-    private static LicenseStatus ClassifyLicense(string value, SpdxLicenseIndex spdxLicenseIndex, out string normalized)
-    {
-        return ClassifyLicense(value, spdxLicenseIndex, out normalized, out _);
-    }
-
-    private static LicenseStatus ClassifyLicense(string value, SpdxLicenseIndex spdxLicenseIndex, out string normalized, out bool deprecated)
-    {
-        normalized = string.Empty;
-        deprecated = false;
-        if (IsUnknown(value))
-        {
-            return LicenseStatus.Unknown;
-        }
-
-        if (spdxLicenseIndex.TryNormalizeLicenseId(value, out normalized))
-        {
-            deprecated = spdxLicenseIndex.IsDeprecatedLicenseId(normalized);
-            return LicenseStatus.Matched;
-        }
-
-        if (SpdxExpression.TryNormalize(value, spdxLicenseIndex, out normalized, out deprecated))
-        {
-            return LicenseStatus.Matched;
-        }
-
-        normalized = value;
-        if (LooksLikeSpdxExpression(value))
-        {
-            return LicenseStatus.Invalid;
-        }
-
-        return LicenseStatus.Ambiguous;
-    }
-
-    private static bool LooksLikeSpdxExpression(string value)
-    {
-        return value.Contains(" AND ", StringComparison.OrdinalIgnoreCase)
-            || value.Contains(" OR ", StringComparison.OrdinalIgnoreCase)
-            || value.Contains(" WITH ", StringComparison.OrdinalIgnoreCase)
-            || value.Contains('(')
-            || value.Contains(')');
     }
 
     private static LicenseCandidate ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
@@ -871,15 +811,6 @@ public static class SbomScanner
         }
 
         return new Utf8Slice(source, checked(offset + (int)reader.TokenStartIndex + 1), reader.ValueSpan.Length);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsUnknown(string value)
-    {
-        return value.Length == 0
-            || string.Equals(value, "NOASSERTION", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(value, "NONE", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(value, "UNKNOWN", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ValueTextEqualsAsciiIgnoreCase(ref Utf8JsonReader reader, string expectedLowercase)

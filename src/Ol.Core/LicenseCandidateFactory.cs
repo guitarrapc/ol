@@ -38,6 +38,11 @@ public static class LicenseCandidateFactory
     /// </summary>
     public static LicenseCandidate Create(string source, string kind, Utf8Slice raw, SpdxLicenseIndex spdxLicenseIndex)
     {
+        if (IsUnknown(raw.Span))
+        {
+            return new LicenseCandidate(source, kind, raw, string.Empty, LicenseStatus.Unknown, false, []);
+        }
+
         if (spdxLicenseIndex.TryNormalizeLicenseIdUtf8(raw.Span, out var normalized))
         {
             var deprecated = spdxLicenseIndex.IsDeprecatedLicenseId(normalized);
@@ -90,5 +95,35 @@ public static class LicenseCandidateFactory
             || value.Contains(')')
             ? LicenseStatus.Invalid
             : LicenseStatus.Ambiguous;
+    }
+
+    private static bool IsUnknown(ReadOnlySpan<byte> value)
+        => value.IsEmpty
+        || AsciiEqualsIgnoreCase(value, "noassertion"u8)
+        || AsciiEqualsIgnoreCase(value, "none"u8)
+        || AsciiEqualsIgnoreCase(value, "unknown"u8);
+
+    private static bool AsciiEqualsIgnoreCase(ReadOnlySpan<byte> value, ReadOnlySpan<byte> expectedLowercase)
+    {
+        if (value.Length != expectedLowercase.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            var current = value[i];
+            if (current is >= (byte)'A' and <= (byte)'Z')
+            {
+                current = (byte)(current | 0x20);
+            }
+
+            if (current != expectedLowercase[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

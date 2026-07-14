@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Text.Json;
 using Ol.Core;
 using TUnit.Assertions;
 using TUnit.Core;
@@ -221,6 +222,22 @@ public sealed class CycloneDxScanTests
         await Assert.That(report.Components[2].Name).IsEqualTo("transitive");
         await Assert.That(report.Components[2].DependencyType).IsEqualTo(DependencyType.Transitive);
     }
+
+      [Test]
+      public async Task Scan_WithAmbiguousFormatMarkers_ThrowsUnsupportedFormatError()
+      {
+        var sbom = Encoding.UTF8.GetBytes(
+          """
+          {
+            "bomFormat": "CycloneDX",
+            "spdxVersion": "SPDX-2.3",
+            "components": [],
+            "packages": []
+          }
+          """);
+
+        await Assert.That(() => SbomScanner.Scan(sbom, Spdx)).Throws<JsonException>();
+      }
 }
 
 public sealed class SpdxScanTests

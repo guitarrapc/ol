@@ -46,15 +46,17 @@ internal sealed class ScanCommands
         var sbomBytes = File.ReadAllBytes(sbom);
         var report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
         var components = ScanView.Apply(report.Components, dependency, sort, sortOrder);
+        var dependencyFilteredCount = dependency is null or "" ? 0 : report.Components.Length - components.Length;
+        var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(report.Components, dependency);
         var text = groupBy is null or ""
             ? format switch
             {
                 ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
                 ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
-                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, components, sbom, sbomBytes, spdx),
+                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, report.SpecVersion, components, sbom, sbomBytes, spdx),
                 _ => throw new ArgumentOutOfRangeException(nameof(format)),
             }
-            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, sbom, sbomBytes, spdx);
+            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, report.SpecVersion, sbom, sbomBytes, spdx);
 
         if (outFile is { Length: > 0 })
         {
@@ -66,19 +68,21 @@ internal sealed class ScanCommands
         if (!quiet)
         {
             var summary = ScanSummary.Create(components);
-            Console.Error.WriteLine($"components: {components.Length}; matched: {summary.Matched}; conflict: {summary.Conflict}; unknown: {summary.Unknown}; ambiguous: {summary.Ambiguous}; invalid: {summary.Invalid}; format: {report.Format}; spdx: {spdx.Source}");
+            var filterSummary = dependency is null or "" ? string.Empty : $"; dependency-filtered: {dependencyFilteredCount}; excluded-unknown: {excludedUnknownCount}";
+            var outputSummary = outFile is { Length: > 0 } ? $"; output: {Path.GetFileName(outFile)}" : string.Empty;
+            Console.Error.WriteLine($"components: {components.Length}; matched: {summary.Matched}; conflict: {summary.Conflict}; unknown: {summary.Unknown}; ambiguous: {summary.Ambiguous}; invalid: {summary.Invalid}; warnings: 0; deprecated-spdx: 0; sbom: {Path.GetFileName(sbom)}; format: {report.Format}; spdx: {spdx.LicenseListVersion} ({spdx.Source}){filterSummary}{outputSummary}");
         }
 
         return 0;
     }
 
-    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
+    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, string specVersion, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
     {
         return format switch
         {
             ReportFormat.Text => ReportRenderer.RenderText(groups, groupBy),
             ReportFormat.Markdown => ReportRenderer.RenderMarkdown(groups, groupBy),
-            ReportFormat.Json => ReportRenderer.RenderJson(sbomFormat, groups, groupBy, sbom, sbomBytes, spdx),
+            ReportFormat.Json => ReportRenderer.RenderJson(sbomFormat, specVersion, groups, groupBy, sbom, sbomBytes, spdx),
             _ => throw new ArgumentOutOfRangeException(nameof(format)),
         };
     }
@@ -97,24 +101,39 @@ internal enum SortOrder
     Desc,
 }
 
-internal readonly record struct SpdxData(SpdxLicenseIndex Index, string Source)
+internal readonly record struct SpdxData(
+    SpdxLicenseIndex Index,
+    string Source,
+    string LicenseListVersion,
+    string DataRef,
+    string LicensesSha256,
+    string ExceptionsSha256)
 {
     public static SpdxData Load(string? directory)
     {
         if (directory is not null and not "")
         {
-            return LoadFromDirectory(directory, directory);
+            return LoadFromDirectory(directory, "cli-argument", "cli-argument");
         }
 
         if (SpdxStore.TryGetActiveDirectory(out var activeDirectory))
         {
-            return LoadFromDirectory(activeDirectory, SpdxStore.GetActiveVersion());
+            var version = SpdxStore.GetActiveVersion();
+            return LoadFromDirectory(activeDirectory, "user", $"ol/spdx/{version}");
         }
 
-        return new SpdxData(new SpdxLicenseIndex(["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT"], ["Classpath-exception-2.0"]), "bundled");
+        var licenses = "Apache-2.0\nBSD-2-Clause\nBSD-3-Clause\nISC\nMIT"u8;
+        var exceptions = "Classpath-exception-2.0"u8;
+        return new SpdxData(
+            new SpdxLicenseIndex(["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT"], ["Classpath-exception-2.0"]),
+            "bundled",
+            "builtin",
+            "bundled/spdx/builtin",
+            Convert.ToHexString(SHA256.HashData(licenses)).ToLowerInvariant(),
+            Convert.ToHexString(SHA256.HashData(exceptions)).ToLowerInvariant());
     }
 
-    private static SpdxData LoadFromDirectory(string directory, string source)
+    private static SpdxData LoadFromDirectory(string directory, string source, string dataRef)
     {
         var licensesPath = Path.Combine(directory, "licenses.json");
         var exceptionsPath = Path.Combine(directory, "exceptions.json");
@@ -123,12 +142,21 @@ internal readonly record struct SpdxData(SpdxLicenseIndex Index, string Source)
             throw new DirectoryNotFoundException("SPDX data directory must contain licenses.json and exceptions.json.");
         }
 
-        return new SpdxData(new SpdxLicenseIndex(ReadSpdxIds(licensesPath, "licenses", "licenseId"), ReadSpdxIds(exceptionsPath, "exceptions", "licenseExceptionId")), source);
+        var licenses = ReadSpdxData(licensesPath, "licenses", "licenseId");
+        var exceptions = ReadSpdxData(exceptionsPath, "exceptions", "licenseExceptionId");
+        return new SpdxData(
+            new SpdxLicenseIndex(licenses.Ids, exceptions.Ids),
+            source,
+            licenses.Version,
+            dataRef,
+            HashFile(licensesPath),
+            HashFile(exceptionsPath));
     }
 
-    private static string[] ReadSpdxIds(string path, string arrayName, string propertyName)
+    private static (string Version, string[] Ids) ReadSpdxData(string path, string arrayName, string propertyName)
     {
-        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        var bytes = File.ReadAllBytes(path);
+        using var document = JsonDocument.Parse(SkipUtf8Bom(bytes));
         var values = document.RootElement.GetProperty(arrayName);
         var ids = new string[values.GetArrayLength()];
         var index = 0;
@@ -138,8 +166,13 @@ internal readonly record struct SpdxData(SpdxLicenseIndex Index, string Source)
             index++;
         }
 
-        return ids;
+        return (document.RootElement.TryGetProperty("licenseListVersion", out var version) ? version.GetString() ?? "unknown" : "unknown", ids);
     }
+
+    private static string HashFile(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
+    private static ReadOnlyMemory<byte> SkipUtf8Bom(byte[] bytes)
+        => bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? bytes.AsMemory(3) : bytes;
 }
 
 internal static class ScanView
@@ -178,6 +211,35 @@ internal static class ScanView
 
         Array.Sort(result, CompareGroupRows);
         return result;
+    }
+
+    public static int CountExcludedUnknown(ReadOnlySpan<ScanComponent> components, string dependency)
+    {
+        var includesUnknown = false;
+        foreach (var token in dependency.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (ParseDependency(token) == DependencyType.Unknown)
+            {
+                includesUnknown = true;
+                break;
+            }
+        }
+
+        if (includesUnknown)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        for (var i = 0; i < components.Length; i++)
+        {
+            if (components[i].DependencyType == DependencyType.Unknown)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private static ScanComponent[] FilterByDependency(ScanComponent[] components, string? dependency)
@@ -447,7 +509,7 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static string RenderJson(SbomFormat format, ScanComponent[] components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
+    public static string RenderJson(SbomFormat format, string specVersion, ScanComponent[] components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -455,10 +517,13 @@ internal static class ReportRenderer
             writer.WriteStartObject();
             writer.WriteStartObject("metadata");
             writer.WriteString("tool", "ol");
-            writer.WriteString("sbom", Path.GetFileName(sbomPath));
+            writer.WriteStartObject("input");
+            writer.WriteString("sbomRef", Path.GetFileName(sbomPath));
+            writer.WriteString("sbomFormat", GetFormatName(format));
+            writer.WriteString("sbomSpecVersion", specVersion);
             writer.WriteString("sbomSha256", Convert.ToHexString(SHA256.HashData(sbomBytes)).ToLowerInvariant());
-            writer.WriteString("format", format.ToString());
-            writer.WriteString("spdxSource", spdx.Source);
+            writer.WriteEndObject();
+            WriteSpdxMetadata(writer, spdx);
             writer.WriteEndObject();
 
             writer.WriteStartArray("components");
@@ -487,13 +552,15 @@ internal static class ReportRenderer
             writer.WriteNumber("ambiguous", summary.Ambiguous);
             writer.WriteNumber("invalid", summary.Invalid);
             writer.WriteEndObject();
+            writer.WriteStartArray("warnings");
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
 
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    public static string RenderJson(SbomFormat format, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
+    public static string RenderJson(SbomFormat format, string specVersion, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -501,10 +568,13 @@ internal static class ReportRenderer
             writer.WriteStartObject();
             writer.WriteStartObject("metadata");
             writer.WriteString("tool", "ol");
-            writer.WriteString("sbom", Path.GetFileName(sbomPath));
+            writer.WriteStartObject("input");
+            writer.WriteString("sbomRef", Path.GetFileName(sbomPath));
+            writer.WriteString("sbomFormat", GetFormatName(format));
+            writer.WriteString("sbomSpecVersion", specVersion);
             writer.WriteString("sbomSha256", Convert.ToHexString(SHA256.HashData(sbomBytes)).ToLowerInvariant());
-            writer.WriteString("format", format.ToString());
-            writer.WriteString("spdxSource", spdx.Source);
+            writer.WriteEndObject();
+            WriteSpdxMetadata(writer, spdx);
             writer.WriteEndObject();
 
             var headers = groupBy.ToLowerInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -535,6 +605,8 @@ internal static class ReportRenderer
             }
 
             writer.WriteEndArray();
+            writer.WriteStartArray("warnings");
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
 
@@ -547,6 +619,24 @@ internal static class ReportRenderer
     }
 
     private static string Display(string value) => value.Length == 0 ? "-" : value;
+
+    private static void WriteSpdxMetadata(Utf8JsonWriter writer, SpdxData spdx)
+    {
+        writer.WriteStartObject("spdx");
+        writer.WriteString("source", spdx.Source);
+        writer.WriteString("licenseListVersion", spdx.LicenseListVersion);
+        writer.WriteString("dataRef", spdx.DataRef);
+        writer.WriteString("licensesSha256", spdx.LicensesSha256);
+        writer.WriteString("exceptionsSha256", spdx.ExceptionsSha256);
+        writer.WriteEndObject();
+    }
+
+    private static string GetFormatName(SbomFormat format) => format switch
+    {
+        SbomFormat.CycloneDxJson => "CycloneDX",
+        SbomFormat.SpdxJson => "SPDX",
+        _ => format.ToString(),
+    };
 }
 
 internal readonly record struct ScanSummary(int Matched, int Conflict, int Unknown, int Ambiguous, int Invalid)

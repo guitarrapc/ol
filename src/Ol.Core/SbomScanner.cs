@@ -38,6 +38,8 @@ public static class SbomScanner
 
     private static SbomFormat DetectFormat(ref Utf8JsonReader reader)
     {
+        var isCycloneDx = false;
+        var isSpdx = false;
         while (reader.Read())
         {
             if (reader.TokenType != JsonTokenType.PropertyName)
@@ -50,14 +52,29 @@ public static class SbomScanner
                 reader.Read();
                 if (reader.TokenType == JsonTokenType.String && reader.ValueTextEquals("CycloneDX"u8))
                 {
-                    return SbomFormat.CycloneDxJson;
+                    isCycloneDx = true;
                 }
             }
 
             if (reader.ValueTextEquals("spdxVersion"u8))
             {
-                return SbomFormat.SpdxJson;
+                isSpdx = true;
             }
+        }
+
+        if (isCycloneDx == isSpdx)
+        {
+            throw new JsonException("Unsupported or ambiguous SBOM JSON format.");
+        }
+
+        if (isCycloneDx)
+        {
+            return SbomFormat.CycloneDxJson;
+        }
+
+        if (isSpdx)
+        {
+            return SbomFormat.SpdxJson;
         }
 
         throw new JsonException("Unsupported SBOM JSON format.");
@@ -72,6 +89,7 @@ public static class SbomScanner
         var dependencyCount = 0;
         var hasRoot = false;
         var rootRef = string.Empty;
+        var specVersion = string.Empty;
 
         try
         {
@@ -94,6 +112,12 @@ public static class SbomScanner
                         componentCount++;
                     }
 
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("specVersion"u8))
+                {
+                    specVersion = ReadString(ref reader);
                     continue;
                 }
 
@@ -138,7 +162,7 @@ public static class SbomScanner
                 ApplyDependencyTypes(result, rootRef, dependencyRefs.AsSpan(0, dependencyCount));
             }
 
-            return new ScanReport(SbomFormat.CycloneDxJson, result);
+            return new ScanReport(SbomFormat.CycloneDxJson, specVersion, result);
         }
         finally
         {
@@ -155,6 +179,7 @@ public static class SbomScanner
         var componentCount = 0;
         var dependencyCount = 0;
         var rootRef = string.Empty;
+        var specVersion = string.Empty;
 
         try
         {
@@ -168,6 +193,12 @@ public static class SbomScanner
                 if (reader.ValueTextEquals("relationships"u8))
                 {
                     ReadSpdxRelationships(ref reader, ref dependencyRefs, ref dependencyCount, ref rootRef);
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("spdxVersion"u8))
+                {
+                    specVersion = ReadString(ref reader);
                     continue;
                 }
 
@@ -213,7 +244,7 @@ public static class SbomScanner
                 ApplyDependencyTypes(result, rootRef, dependencyRefs.AsSpan(0, dependencyCount));
             }
 
-            return new ScanReport(SbomFormat.SpdxJson, result);
+            return new ScanReport(SbomFormat.SpdxJson, specVersion, result);
         }
         finally
         {

@@ -220,6 +220,10 @@ JSON output is the canonical machine-readable report. It includes:
 - summary
 - warnings
 
+The current v1 report emits `metadata.input` and `metadata.spdx` as separate objects. `metadata.input.sbomRef` is the input basename, rather than an absolute local path. The SPDX object records its logical data reference, License List version, and SHA-256 hashes of the active `licenses.json` and `exceptions.json` files.
+
+SBOM files and SPDX data files encoded with a UTF-8 BOM are accepted.
+
 File references in reports must not use absolute local paths. Use logical references or paths relative to the current working directory where possible. If a path cannot be safely relativized, use a basename or logical label.
 
 SBOM input metadata includes a SHA-256 hash:
@@ -241,6 +245,8 @@ Component entries include original SBOM identifiers when present:
 
 - CycloneDX `bomRef`
 - SPDX `spdxId`
+
+v1 rejects a document that simultaneously presents CycloneDX and SPDX format markers rather than choosing a format by marker order.
 
 Line numbers and JSON Pointers are not required in v1.
 

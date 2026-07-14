@@ -29,19 +29,16 @@ User-managed SPDX data is stored by version:
 
 ```text
 <user-data-dir>/ol/spdx/
-  current.json
+  current.txt
   <version>/
     licenses.json
     exceptions.json
 ```
 
-`current.json` identifies the active user-managed version:
+`current.txt` identifies the active user-managed version:
 
-```json
-{
-  "version": "3.27.0",
-  "updatedAt": "2026-07-08T00:00:00Z"
-}
+```text
+3.27.0
 ```
 
 The exact platform-specific user data root is not part of this spec. Reports must not emit absolute paths to it.

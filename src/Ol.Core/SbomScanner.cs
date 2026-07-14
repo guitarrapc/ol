@@ -260,6 +260,7 @@ public static class SbomScanner
         var name = default(Utf8Slice);
         var version = default(Utf8Slice);
         var purl = default(Utf8Slice);
+        var repositoryUrl = default(Utf8Slice);
         var license = LicenseText.Unknown;
         var status = LicenseStatus.Unknown;
         var primaryCandidate = default(LicenseCandidate);
@@ -301,6 +302,12 @@ public static class SbomScanner
                 continue;
             }
 
+            if (reader.ValueTextEquals("externalReferences"u8))
+            {
+                repositoryUrl = ReadCycloneDxRepositoryUrl(ref reader, source, offset);
+                continue;
+            }
+
             if (reader.ValueTextEquals("licenses"u8))
             {
                 (license, status, primaryCandidate, additionalCandidates) = ReadCycloneDxLicenses(ref reader, source, offset, spdxLicenseIndex);
@@ -311,6 +318,7 @@ public static class SbomScanner
             reader.Skip();
         }
 
+        AddRepositoryReference(ref primaryCandidate, ref additionalCandidates, repositoryUrl);
         return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, primaryCandidate, additionalCandidates);
     }
 
@@ -362,6 +370,7 @@ public static class SbomScanner
         var name = default(Utf8Slice);
         var version = default(Utf8Slice);
         var purl = default(Utf8Slice);
+        var repositoryUrl = default(Utf8Slice);
         var declared = default(Utf8Slice);
         var concluded = default(Utf8Slice);
 
@@ -409,7 +418,7 @@ public static class SbomScanner
 
             if (reader.ValueTextEquals("externalRefs"u8))
             {
-                purl = ReadSpdxPurl(ref reader, source, offset);
+                (purl, repositoryUrl) = ReadSpdxExternalReferences(ref reader, source, offset);
                 continue;
             }
 
@@ -420,7 +429,9 @@ public static class SbomScanner
         var declaredCandidate = LicenseCandidateFactory.Create("sbom", "declared", declared, spdxLicenseIndex);
         var concludedCandidate = LicenseCandidateFactory.Create("sbom", "concluded", concluded, spdxLicenseIndex);
         var (license, status) = ReconcileLicenses(declaredCandidate, concludedCandidate);
-        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, declaredCandidate, [concludedCandidate]);
+        var additionalCandidates = new[] { concludedCandidate };
+        AddRepositoryReference(ref declaredCandidate, ref additionalCandidates, repositoryUrl);
+        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, declaredCandidate, additionalCandidates);
     }
 
     private static void ReadSpdxRelationships(ref Utf8JsonReader reader, byte[] source, int offset, ref DependencyEdge[] dependencies, ref int dependencyCount, ref Utf8Slice rootRef)
@@ -499,7 +510,7 @@ public static class SbomScanner
         }
     }
 
-    private static Utf8Slice ReadSpdxPurl(ref Utf8JsonReader reader, byte[] source, int offset)
+    private static (Utf8Slice Purl, Utf8Slice RepositoryUrl) ReadSpdxExternalReferences(ref Utf8JsonReader reader, byte[] source, int offset)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartArray)
@@ -509,6 +520,7 @@ public static class SbomScanner
         }
 
         var purl = default(Utf8Slice);
+        var repositoryUrl = default(Utf8Slice);
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
         {
             if (reader.TokenType != JsonTokenType.StartObject)
@@ -520,6 +532,7 @@ public static class SbomScanner
             var depth = reader.CurrentDepth;
             var referenceLocator = default(Utf8Slice);
             var isPurl = false;
+            var isVcs = false;
 
             while (reader.Read())
             {
@@ -537,6 +550,7 @@ public static class SbomScanner
                 {
                     reader.Read();
                     isPurl = reader.TokenType == JsonTokenType.String && ValueTextEqualsAsciiIgnoreCase(ref reader, "purl");
+                    isVcs = reader.TokenType == JsonTokenType.String && ValueTextEqualsAsciiIgnoreCase(ref reader, "vcs");
                     continue;
                 }
 
@@ -554,9 +568,14 @@ public static class SbomScanner
             {
                 purl = referenceLocator;
             }
+
+            if (isVcs)
+            {
+                repositoryUrl = referenceLocator;
+            }
         }
 
-        return purl;
+        return (purl, repositoryUrl);
     }
 
     private static (Utf8Slice License, LicenseStatus Status, LicenseCandidate PrimaryCandidate, LicenseCandidate[] AdditionalCandidates) ReadCycloneDxLicenses(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
@@ -747,6 +766,74 @@ public static class SbomScanner
             primaryCandidate,
             additionalCandidates,
             hasDeprecatedWarning ? ["deprecated_spdx_identifier"] : []);
+    }
+
+    private static void AddRepositoryReference(ref LicenseCandidate primaryCandidate, ref LicenseCandidate[] additionalCandidates, Utf8Slice repositoryUrl)
+    {
+        if (repositoryUrl.IsEmpty)
+        {
+            return;
+        }
+
+        var candidate = new LicenseCandidate("sbom", "repository-url", repositoryUrl, default, LicenseStatus.Unknown, false, []);
+        if (primaryCandidate.Source is null)
+        {
+            primaryCandidate = candidate;
+            return;
+        }
+
+        var expanded = new LicenseCandidate[additionalCandidates.Length + 1];
+        additionalCandidates.CopyTo(expanded, 0);
+        expanded[^1] = candidate;
+        additionalCandidates = expanded;
+    }
+
+    private static Utf8Slice ReadCycloneDxRepositoryUrl(ref Utf8JsonReader reader, byte[] source, int offset)
+    {
+        reader.Read();
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            reader.Skip();
+            return default;
+        }
+
+        var repositoryUrl = default(Utf8Slice);
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                reader.Skip();
+                continue;
+            }
+
+            var depth = reader.CurrentDepth;
+            var url = default(Utf8Slice);
+            var isVcs = false;
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == depth) break;
+                if (reader.TokenType != JsonTokenType.PropertyName) continue;
+                if (reader.ValueTextEquals("type"u8))
+                {
+                    reader.Read();
+                    isVcs = reader.TokenType == JsonTokenType.String && ValueTextEqualsAsciiIgnoreCase(ref reader, "vcs");
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("url"u8))
+                {
+                    url = ReadUtf8Slice(ref reader, source, offset);
+                    continue;
+                }
+
+                reader.Read();
+                reader.Skip();
+            }
+
+            if (isVcs && !url.IsEmpty) repositoryUrl = url;
+        }
+
+        return repositoryUrl;
     }
 
     private static LicenseCandidate ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)

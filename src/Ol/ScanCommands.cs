@@ -65,19 +65,21 @@ internal sealed class ScanCommands
         var report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
         var metadataService = new PackageMetadataService(spdx.Index, new PackageMetadataCache(PackageMetadataPaths.DefaultRoot), refresh, retry);
         var enrichment = metadataService.EnrichAsync(report.Components, concurrency).GetAwaiter().GetResult();
+        var sourceService = new SourceRepositoryService(spdx.Index, new PackageMetadataCache(PackageMetadataPaths.DefaultRoot), new SourceRepositoryCache(SourceRepositoryPaths.DefaultRoot), refresh, retry);
+        var sourceEnrichment = sourceService.EnrichAsync(enrichment.Components, concurrency).GetAwaiter().GetResult();
         var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(report.Components, dependency);
-        var componentCount = ScanView.Apply(enrichment.Components, dependency, sort, sortOrder);
-        var components = enrichment.Components.AsSpan(0, componentCount);
+        var componentCount = ScanView.Apply(sourceEnrichment.Components, dependency, sort, sortOrder);
+        var components = sourceEnrichment.Components.AsSpan(0, componentCount);
         var dependencyFilteredCount = dependency is null or "" ? 0 : report.Components.Length - components.Length;
         var text = groupBy is null or ""
             ? format switch
             {
                 ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
                 ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
-                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, report.SpecVersion, components, sbom, sbomBytes, spdx, enrichment.Summary),
+                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, report.SpecVersion, components, sbom, sbomBytes, spdx, enrichment.Summary, sourceEnrichment.Summary),
                 _ => throw new ArgumentOutOfRangeException(nameof(format)),
             }
-            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, report.SpecVersion, sbom, sbomBytes, spdx, enrichment.Summary);
+            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, report.SpecVersion, sbom, sbomBytes, spdx, enrichment.Summary, sourceEnrichment.Summary);
 
         if (outFile is { Length: > 0 })
         {
@@ -92,19 +94,20 @@ internal sealed class ScanCommands
             var filterSummary = dependency is null or "" ? string.Empty : $"; dependency-filtered: {dependencyFilteredCount}; excluded-unknown: {excludedUnknownCount}";
             var outputSummary = outFile is { Length: > 0 } ? $"; output: {Path.GetFileName(outFile)}" : string.Empty;
             var packageMetadata = enrichment.Summary;
-            Console.Error.WriteLine($"components: {components.Length}; matched: {summary.Matched}; conflict: {summary.Conflict}; unknown: {summary.Unknown}; ambiguous: {summary.Ambiguous}; invalid: {summary.Invalid}; warnings: {summary.WarningCount}; deprecated-spdx: {summary.DeprecatedSpdxCount}; package-metadata-supported: {packageMetadata.SupportedComponentCount}; cache-hit: {packageMetadata.CacheHitCount}; cache-miss: {packageMetadata.CacheMissCount}; refreshed: {packageMetadata.RefreshedCount}; fetch-error: {packageMetadata.FetchErrorCount}; unsupported-ecosystem: {packageMetadata.UnsupportedEcosystemCount}; concurrency: {packageMetadata.Concurrency}; retry: {packageMetadata.RetryCount}; sbom: {Path.GetFileName(sbom)}; format: {report.Format}; spdx: {spdx.LicenseListVersion} ({spdx.Source}){filterSummary}{outputSummary}");
+            var source = sourceEnrichment.Summary;
+            Console.Error.WriteLine($"components: {components.Length}; matched: {summary.Matched}; conflict: {summary.Conflict}; unknown: {summary.Unknown}; ambiguous: {summary.Ambiguous}; invalid: {summary.Invalid}; warnings: {summary.WarningCount}; deprecated-spdx: {summary.DeprecatedSpdxCount}; package-metadata-supported: {packageMetadata.SupportedComponentCount}; cache-hit: {packageMetadata.CacheHitCount}; cache-miss: {packageMetadata.CacheMissCount}; refreshed: {packageMetadata.RefreshedCount}; fetch-error: {packageMetadata.FetchErrorCount}; unsupported-ecosystem: {packageMetadata.UnsupportedEcosystemCount}; concurrency: {packageMetadata.Concurrency}; retry: {packageMetadata.RetryCount}; source-repository-target: {source.TargetCount}; github-license-request: {source.GitHubRequestCount}; source-cache-hit: {source.CacheHitCount}; source-cache-miss: {source.CacheMissCount}; source-fetch-error: {source.FetchErrorCount}; source-unknown: {source.UnknownCount}; github-auth: {source.AuthMode}; sbom: {Path.GetFileName(sbom)}; format: {report.Format}; spdx: {spdx.LicenseListVersion} ({spdx.Source}){filterSummary}{outputSummary}");
         }
 
         return 0;
     }
 
-    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, Utf8Slice specVersion, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
+    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, Utf8Slice specVersion, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         return format switch
         {
             ReportFormat.Text => ReportRenderer.RenderText(groups, groupBy),
             ReportFormat.Markdown => ReportRenderer.RenderMarkdown(groups, groupBy),
-            ReportFormat.Json => ReportRenderer.RenderJson(sbomFormat, specVersion, groups, groupBy, sbom, sbomBytes, spdx, metadataSummary),
+            ReportFormat.Json => ReportRenderer.RenderJson(sbomFormat, specVersion, groups, groupBy, sbom, sbomBytes, spdx, metadataSummary, sourceSummary),
             _ => throw new ArgumentOutOfRangeException(nameof(format)),
         };
     }
@@ -607,7 +610,7 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, ReadOnlySpan<ScanComponent> components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
+    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, ReadOnlySpan<ScanComponent> components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -623,6 +626,7 @@ internal static class ReportRenderer
             writer.WriteEndObject();
             WriteSpdxMetadata(writer, spdx);
             WritePackageMetadata(writer, metadataSummary);
+            WriteSourceRepositoryMetadata(writer, sourceSummary);
             writer.WriteEndObject();
 
             writer.WriteStartArray("components");
@@ -661,7 +665,7 @@ internal static class ReportRenderer
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
+    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -677,6 +681,7 @@ internal static class ReportRenderer
             writer.WriteEndObject();
             WriteSpdxMetadata(writer, spdx);
             WritePackageMetadata(writer, metadataSummary);
+            WriteSourceRepositoryMetadata(writer, sourceSummary);
             writer.WriteEndObject();
 
             var headers = groupBy.ToLowerInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -750,6 +755,21 @@ internal static class ReportRenderer
         writer.WriteNumber("unsupportedEcosystemCount", summary.UnsupportedEcosystemCount);
         writer.WriteNumber("concurrency", summary.Concurrency);
         writer.WriteNumber("retryCount", summary.RetryCount);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteSourceRepositoryMetadata(Utf8JsonWriter writer, SourceRepositorySummary summary)
+    {
+        writer.WriteStartObject("sourceRepository");
+        writer.WriteNumber("targetCount", summary.TargetCount);
+        writer.WriteNumber("githubLicenseRequestCount", summary.GitHubRequestCount);
+        writer.WriteNumber("cacheHitCount", summary.CacheHitCount);
+        writer.WriteNumber("cacheMissCount", summary.CacheMissCount);
+        writer.WriteNumber("fetchErrorCount", summary.FetchErrorCount);
+        writer.WriteNumber("unknownCount", summary.UnknownCount);
+        writer.WriteEndObject();
+        writer.WriteStartObject("network");
+        writer.WriteString("githubAuth", summary.AuthMode);
         writer.WriteEndObject();
     }
 

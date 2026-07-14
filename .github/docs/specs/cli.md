@@ -40,7 +40,7 @@ ol cache clear source-repository
 ol cache clear all
 ```
 
-`package-metadata` and `all` clear the persistent package metadata cache. `source-repository` is accepted as a reserved no-op until v3 activates that cache.
+`package-metadata` clears the persistent package metadata cache. `source-repository` clears the persistent source repository evidence cache. `all` clears both persistent evidence caches.
 
 Cache entry compatibility and category-specific JSON schemas are defined by [cache_format.md](cache_format.md). Cache JSON is an Ol-managed persistence contract and is distinct from the canonical scan report JSON.
 
@@ -273,6 +273,8 @@ SBOM input metadata includes a SHA-256 hash:
 ```
 
 SPDX metadata is defined by [spdx.md](spdx.md) and is required in every JSON report.
+
+When v3 source repository enrichment is active, `metadata.sourceRepository` reports target, request, cache, error, and unknown counts. `metadata.network.githubAuth` reports only `ol_github_token` or `none`; it never includes a credential value.
 
 Component entries include original SBOM identifiers when present:
 

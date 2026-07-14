@@ -16,11 +16,17 @@ internal sealed class CacheCommands
         switch (category.ToLowerInvariant())
         {
             case "package-metadata":
-            case "all":
                 new PackageMetadataCache(PackageMetadataPaths.DefaultRoot).Clear();
                 Console.WriteLine("package-metadata cache cleared");
                 return 0;
             case "source-repository":
+                new SourceRepositoryCache(SourceRepositoryPaths.DefaultRoot).Clear();
+                Console.WriteLine("source-repository cache cleared");
+                return 0;
+            case "all":
+                new PackageMetadataCache(PackageMetadataPaths.DefaultRoot).Clear();
+                new SourceRepositoryCache(SourceRepositoryPaths.DefaultRoot).Clear();
+                Console.WriteLine("package-metadata cache cleared");
                 Console.WriteLine("source-repository cache cleared");
                 return 0;
             default:

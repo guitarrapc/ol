@@ -10,6 +10,39 @@ public sealed class CliScanTests
     private static readonly SemaphoreSlim CliGate = new(1, 1);
 
     [Test]
+    public async Task Scan_WithCachedGitHubSourceEvidence_FillsUnknownLicenseAndReportsSafeAuthMode()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-v3-cache-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var sourceCacheRoot = Path.Combine(temporaryDirectory, "source-repository");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [ { "name": "example", "purl": "pkg:npm/example@1.0.0", "licenses": [ { "license": { "id": "NOASSERTION" } } ] } ] }""", Encoding.UTF8);
+        await new PackageMetadataCache(packageCacheRoot).WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
+        var target = new SourceRepositoryTarget("owner", "repository", "default");
+        await new SourceRepositoryCache(sourceCacheRoot).WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, System.Net.HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", "https://github.com/owner/repository/blob/main/LICENSE"), [], []));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var component = report.RootElement.GetProperty("components")[0];
+            await Assert.That(component.GetProperty("status").GetString()).IsEqualTo("matched");
+            await Assert.That(component.GetProperty("license").GetString()).IsEqualTo("MIT");
+            await Assert.That(component.GetProperty("licenseCandidates")[2].GetProperty("source").GetString()).IsEqualTo("github-license-api");
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("network").GetProperty("githubAuth").GetString()).IsEqualTo("none");
+            await Assert.That(stderr).Contains("source-repository-target: 1; github-license-request: 0; source-cache-hit: 1");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithCachedNpmMetadata_ReconcilesPackageEvidenceAndReportsCacheHit()
     {
         var root = FindRepositoryRoot();
@@ -377,6 +410,9 @@ public sealed class CliScanTests
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithCacheAsync(string root, string? cacheRoot, params string[] args)
+        => await RunOlWithCachesAsync(root, cacheRoot, sourceCacheRoot: null, args);
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithCachesAsync(string root, string? cacheRoot, string? sourceCacheRoot, params string[] args)
     {
         await CliGate.WaitAsync();
         try
@@ -390,6 +426,11 @@ public sealed class CliScanTests
             if (cacheRoot is not null)
             {
                 startInfo.Environment["OL_PACKAGE_METADATA_CACHE_ROOT"] = cacheRoot;
+            }
+
+            if (sourceCacheRoot is not null)
+            {
+                startInfo.Environment["OL_SOURCE_REPOSITORY_CACHE_ROOT"] = sourceCacheRoot;
             }
 
             startInfo.ArgumentList.Add(Path.Combine(root, "src", "Ol", "bin", "Debug", "net10.0", "ol.dll"));

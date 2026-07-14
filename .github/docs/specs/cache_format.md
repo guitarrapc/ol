@@ -94,9 +94,9 @@ Example:
 The cache stores the raw source license rather than a final reconciled status. On use, Ol validates the raw value with the active SPDX data and passes the resulting candidate through common reconciliation. This prevents a cached conclusion produced with one SPDX snapshot from silently becoming authoritative under another snapshot.
 
 <a id="contract-source-cache-v1"></a>
-## Source Repository Entry — Schema Version 1 (Planned v3)
+## Source Repository Entry — Schema Version 1
 
-Source repository schema version `1` is planned for v3. Its `CacheKey` is:
+Source repository schema version `1` is used by v3. Its `CacheKey` is:
 
 - `github:<owner>/<repo>@<ref>` when an explicit ref is used;
 - `github:<owner>/<repo>@default` when GitHub resolves the default branch.

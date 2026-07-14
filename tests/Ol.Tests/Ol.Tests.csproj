@@ -13,4 +13,8 @@
     <ProjectReference Include="..\..\src\Ol\Ol.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\data\mock\github-license-api-license.json" Link="Fixtures\github-license-api-license.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -2,6 +2,10 @@
 
 This plan describes a language-agnostic implementation path for v3. v3 builds on v1 and v2 by adding source repository license hints, initially through the GitHub License API.
 
+> **Implementation status (2026-07-14): Partially implemented — not release-complete.**
+>
+> The source cache, GitHub URL normalization, dedicated authentication mode, GitHub License API client, cache-backed source reconciliation, JSON/stderr metadata, cache clearing, and fixture-backed benchmark are implemented. The remaining items listed in [Implementation Status](#implementation-status) must be completed before declaring v3 complete.
+
 ## Goals
 
 - Preserve all v1 and v2 CLI behavior and report fields.
@@ -294,3 +298,27 @@ Extend v2 JSON golden files with source evidence. Keep text and markdown columns
 8. Add cache clear support for source repository cache.
 9. Add integration tests and golden outputs.
 10. Add privacy/security regression tests.
+
+## Implementation Status
+
+### Completed
+
+- [x] Opaque source-repository cache entries with schema version, logical cache key, SHA-256 file name, source, authentication mode, repository/ref, HTTP status, license metadata, warnings, errors, and fetch timestamp.
+- [x] GitHub target normalization for HTTPS, `git+https`, `git`, SSH URI, and SCP-style GitHub URLs.
+- [x] Authentication reads `OL_GITHUB_TOKEN` only; `GITHUB_TOKEN` alone selects `none`.
+- [x] GitHub License API client sends a single GET and does not inspect license bodies.
+- [x] CycloneDX VCS external references and SPDX VCS external references are retained as source-planning evidence. Package metadata repository URLs take precedence.
+- [x] Source targets are deduplicated, fetched with bounded `--concurrency`, and reconciled through the existing shared reconciler.
+- [x] `--refresh`, source cache reads/writes, `ol cache clear source-repository`, source JSON metadata, network authentication metadata, and stderr source summary fields are wired into `scan`.
+- [x] GitHub client tests and benchmarks use the JSON fixture at `data/mock/github-license-api-license.json`; no benchmark request reaches GitHub or a local HTTP server.
+- [x] Full test suite and Release benchmark runner were executed after the fixture change.
+
+### Remaining before v3 completion
+
+- [ ] Record explicit `unsupported_source_repository` and `source_repository_unavailable` evidence for non-GitHub and missing repository URLs rather than silently skipping them.
+- [ ] Preserve source fetch failures as cacheable audit records where appropriate, and distinguish corrupt-cache evidence from a normal cache miss.
+- [ ] Add a package-metadata version-to-repository-ref mapping and use it when available; the current target normalizer always uses `default`.
+- [ ] Add fixture coverage for `license: null`, HTTP 403, HTTP 429 retry-then-success, exhausted 5xx retry, and timeout retry exhaustion.
+- [ ] Add end-to-end coverage for source-vs-package conflict, source failure with a valid SBOM candidate, `OL_GITHUB_TOKEN` report privacy, `GITHUB_TOKEN`-only report mode, source `--refresh`, and `ol cache clear source-repository`.
+- [ ] Add golden JSON coverage for source cache/report evidence and verify that it contains no absolute paths, cache paths, or token values.
+- [ ] Project GitHub source metadata (logical repository/ref, path, SHA, key/name, and HTTP status) into report evidence instead of retaining it only in the cache record.

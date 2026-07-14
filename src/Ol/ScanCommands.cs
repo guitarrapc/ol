@@ -311,7 +311,7 @@ internal static class ScanView
 
     private static Comparison<ScanComponent> CreateComparison(string sort, SortOrder sortOrder)
     {
-        var keys = sort.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var keys = ParseSortFields(sort);
         return (left, right) =>
         {
             for (var i = 0; i < keys.Length; i++)
@@ -327,18 +327,70 @@ internal static class ScanView
         };
     }
 
-    private static int CompareByKey(ScanComponent left, ScanComponent right, string key)
+    private static SortField[] ParseSortFields(string sort)
     {
-        return key.ToLowerInvariant() switch
+        var tokens = sort.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var fields = new SortField[tokens.Length];
+        for (var i = 0; i < tokens.Length; i++)
         {
-            "name" => Utf8Slice.CompareOrdinal(left.Name, right.Name),
-            "version" => Utf8Slice.CompareOrdinal(left.Version, right.Version),
-            "license" => Utf8Slice.CompareOrdinal(left.License, right.License),
-            "ecosystem" => string.CompareOrdinal(left.Ecosystem, right.Ecosystem),
-            "dependency" => left.DependencyType.CompareTo(right.DependencyType),
-            "status" => left.Status.CompareTo(right.Status),
-            "purl" => Utf8Slice.CompareOrdinal(left.Purl, right.Purl),
-            _ => throw new ArgumentException($"Unknown sort key: {key}"),
+            fields[i] = ParseSortField(tokens[i]);
+        }
+
+        return fields;
+    }
+
+    private static SortField ParseSortField(string value)
+    {
+        if (value.Equals("name", StringComparison.OrdinalIgnoreCase))
+        {
+            return SortField.Name;
+        }
+
+        if (value.Equals("version", StringComparison.OrdinalIgnoreCase))
+        {
+            return SortField.Version;
+        }
+
+        if (value.Equals("license", StringComparison.OrdinalIgnoreCase))
+        {
+            return SortField.License;
+        }
+
+        if (value.Equals("ecosystem", StringComparison.OrdinalIgnoreCase))
+        {
+            return SortField.Ecosystem;
+        }
+
+        if (value.Equals("dependency", StringComparison.OrdinalIgnoreCase))
+        {
+            return SortField.Dependency;
+        }
+
+        if (value.Equals("status", StringComparison.OrdinalIgnoreCase))
+        {
+            return SortField.Status;
+        }
+
+        if (value.Equals("purl", StringComparison.OrdinalIgnoreCase))
+        {
+            return SortField.Purl;
+        }
+
+        throw new ArgumentException($"Unknown sort key: {value}");
+    }
+
+    private static int CompareByKey(ScanComponent left, ScanComponent right, SortField key)
+    {
+        return key switch
+        {
+            SortField.Name => Utf8Slice.CompareOrdinal(left.Name, right.Name),
+            SortField.Version => Utf8Slice.CompareOrdinal(left.Version, right.Version),
+            SortField.License => Utf8Slice.CompareOrdinal(left.License, right.License),
+            SortField.Ecosystem => string.CompareOrdinal(left.Ecosystem, right.Ecosystem),
+            SortField.Dependency => left.DependencyType.CompareTo(right.DependencyType),
+            SortField.Status => left.Status.CompareTo(right.Status),
+            SortField.Purl => Utf8Slice.CompareOrdinal(left.Purl, right.Purl),
+            _ => throw new ArgumentOutOfRangeException(nameof(key)),
         };
     }
 
@@ -406,6 +458,17 @@ internal enum GroupField
     Ecosystem,
     Dependency,
     Status,
+}
+
+internal enum SortField
+{
+    Name,
+    Version,
+    License,
+    Ecosystem,
+    Dependency,
+    Status,
+    Purl,
 }
 
 internal sealed class GroupRowBuilder(string[] values)

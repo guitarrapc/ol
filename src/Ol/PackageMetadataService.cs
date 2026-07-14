@@ -24,6 +24,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
     public async Task<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(ScanComponent[] components, int concurrency, CancellationToken cancellationToken = default)
     {
         var lookupByCacheKey = new Dictionary<string, int>(components.Length, StringComparer.Ordinal);
+        var lookupByPurl = new Dictionary<Utf8Slice, int>(components.Length);
         var lookups = new PackageMetadataLookup[components.Length];
         var componentLookupIndexes = new int[components.Length];
         var immediateResults = new PackageMetadataLookupResult[components.Length];
@@ -31,20 +32,33 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
-            var purl = component.Purl.ToString();
-            if (!PackageMetadataRequest.TryCreate(purl, out var request))
+            var purl = component.Purl;
+            if (purl.IsEmpty)
             {
                 componentLookupIndexes[i] = -1;
-                if (!component.Purl.IsEmpty)
+                continue;
+            }
+
+            if (lookupByPurl.TryGetValue(purl, out var lookupIndex))
+            {
+                componentLookupIndexes[i] = lookupIndex;
+                if (lookupIndex < 0)
                 {
-                    var unsupportedCandidate = new LicenseCandidate("package-metadata", "unsupported", component.Purl, string.Empty, LicenseStatus.Unknown, false, ["unsupported_package_metadata"]);
-                    immediateResults[i] = new PackageMetadataLookupResult(unsupportedCandidate, true, false, false, false, false, true);
+                    immediateResults[i] = CreateUnsupportedPurlResult(purl);
                 }
 
                 continue;
             }
 
-            if (!lookupByCacheKey.TryGetValue(request.CacheKey, out var lookupIndex))
+            if (!PackageMetadataRequest.TryCreate(purl.ToString(), out var request))
+            {
+                lookupByPurl.Add(purl, -1);
+                componentLookupIndexes[i] = -1;
+                immediateResults[i] = CreateUnsupportedPurlResult(purl);
+                continue;
+            }
+
+            if (!lookupByCacheKey.TryGetValue(request.CacheKey, out lookupIndex))
             {
                 lookupIndex = lookupCount;
                 lookupByCacheKey.Add(request.CacheKey, lookupIndex);
@@ -52,6 +66,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                 lookupCount++;
             }
 
+            lookupByPurl.Add(purl, lookupIndex);
             componentLookupIndexes[i] = lookupIndex;
         }
 
@@ -124,6 +139,12 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
     {
         var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
         return new PackageMetadataLookupResult(error, true, false, true, false, true, false);
+    }
+
+    private static PackageMetadataLookupResult CreateUnsupportedPurlResult(Utf8Slice purl)
+    {
+        var candidate = new LicenseCandidate("package-metadata", "unsupported", purl, default, LicenseStatus.Unknown, false, ["unsupported_package_metadata"]);
+        return new PackageMetadataLookupResult(candidate, true, false, false, false, false, true);
     }
 
     private LicenseCandidate CreateMetadataCandidate(PackageMetadataRecord record)

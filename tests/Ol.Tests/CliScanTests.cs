@@ -329,6 +329,50 @@ public sealed class CliScanTests
         }
     }
 
+    [Test]
+    public async Task Scan_WithCaseInsensitiveSortAndDuplicatePurls_SortsAndEnrichesEveryComponent()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-sort-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var cacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(
+            sbomPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                { "name": "zebra", "purl": "pkg:npm/example@1.0.0", "licenses": [ { "license": { "id": "NOASSERTION" } } ] },
+                { "name": "alpha", "purl": "pkg:cargo/example@1.0.0", "licenses": [ { "license": { "id": "NOASSERTION" } } ] },
+                { "name": "zebra-copy", "purl": "pkg:npm/example@1.0.0", "licenses": [ { "license": { "id": "NOASSERTION" } } ] }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+        var cache = new PackageMetadataCache(cacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:cargo/example@1.0.0", "cargo-registry", "Apache-2.0", string.Empty, [], []));
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--sort", "ECOSYSTEM,NAME", "--concurrency", "1", "--retry", "0");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var components = report.RootElement.GetProperty("components");
+            await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("alpha");
+            await Assert.That(components[1].GetProperty("name").GetString()).IsEqualTo("zebra");
+            await Assert.That(components[2].GetProperty("name").GetString()).IsEqualTo("zebra-copy");
+            await Assert.That(components[1].GetProperty("license").GetString()).IsEqualTo("MIT");
+            await Assert.That(components[2].GetProperty("license").GetString()).IsEqualTo("MIT");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
 

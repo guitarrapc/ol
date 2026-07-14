@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Ol.Core\Ol.Core.csproj" />
+    <ProjectReference Include="..\Ol\Ol.csproj" />
   </ItemGroup>
 
 </Project>

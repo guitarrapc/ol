@@ -4,6 +4,18 @@ This document defines the user-facing behavior of the `ol` CLI. It is the umbrel
 
 The CLI exists to make license information from SBOMs and related evidence visible, comparable, and machine-readable. It does not claim legal certainty. It reports candidates, conflicts, unknowns, and evidence so that later policy decisions can be made explicitly.
 
+## Design Basis
+
+This specification derives from the [Ol design](../DESIGN.md), especially these decisions:
+
+- [resolve the complete dependency inventory before filtering](../DESIGN.md#decision-complete-inventory), because transitive OSS use and unknown relationships must not disappear from analysis merely because a view is filtered;
+- [separate factual resolution from organizational policy](../DESIGN.md#decision-policy-separation), which is why `scan` reports license facts and a later policy phase decides whether they are allowed;
+- [make component/source failures best-effort but command failures explicit](../DESIGN.md#decision-failure-scope), which determines exit behavior and the distinction between component evidence and whole-command failure; and
+- [use canonical JSON plus human-oriented projections](../DESIGN.md#decision-report-views), which determines the stdout contract and why text, Markdown, and JSON represent the same resolved report; and
+- [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy), which requires logical report references and prohibits secrets and private local paths.
+
+The command and output rules below are user-facing consequences of those design decisions. They must not introduce an alternate status model or perform policy decisions implicitly.
+
 ## Version Roadmap
 
 `ol` evolves by widening the evidence sources used by `scan`.
@@ -30,6 +42,7 @@ ol cache clear all
 
 `package-metadata` and `all` clear the persistent package metadata cache. `source-repository` is accepted as a reserved no-op until v3 activates that cache.
 
+<a id="contract-scan-failures"></a>
 ### `ol scan`
 
 `scan` is the primary command. It lists components and their license status from the available evidence sources for the current version.
@@ -63,6 +76,7 @@ Examples of component-level problems:
 - Later versions cannot fetch package metadata for one component.
 - Later versions cannot fetch source repository evidence for one component.
 
+<a id="contract-output-formats"></a>
 ## Output Formats
 
 `scan` supports these formats from v1:
@@ -105,6 +119,7 @@ NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS PURL
 
 `NAME`, `VERSION`, and `LICENSE` are intentionally placed first because they are the primary review fields. `PURL` is omitted from default output because it can make rows too wide.
 
+<a id="contract-component-status"></a>
 ## Component Status
 
 All versions use the same status vocabulary:
@@ -136,6 +151,7 @@ MIT, Apache-2.0 (?)
 
 The marker is display-only. JSON output must preserve candidates and evidence separately.
 
+<a id="contract-dependency-type"></a>
 ## Dependency Type
 
 Reports distinguish component relationship when the SBOM contains enough information:
@@ -147,6 +163,7 @@ Reports distinguish component relationship when the SBOM contains enough informa
 
 The field is required in JSON and displayed in default `text` and `markdown` output. If the SBOM does not contain enough dependency graph information, the value is `unknown`.
 
+<a id="contract-dependency-filtering"></a>
 ## Dependency Filtering
 
 `--dependency` filters scan output by dependency type:
@@ -221,6 +238,7 @@ Groupable fields:
 
 Grouped output includes `COUNT`. Grouped JSON output includes minimal component references for traceability. Group sort keys are the group-by fields plus `count`.
 
+<a id="contract-json-report"></a>
 ## JSON Report
 
 JSON output is the canonical machine-readable report. It includes:
@@ -263,6 +281,7 @@ v1 rejects a document that simultaneously presents CycloneDX and SPDX format mar
 
 Line numbers and JSON Pointers are not required in v1.
 
+<a id="contract-report-privacy"></a>
 ## Privacy and Security
 
 Reports must not contain:
@@ -273,6 +292,7 @@ Reports must not contain:
 
 Logical identifiers and hashes should be used where possible. Token presence may be reported as an auth mode, never as a value.
 
+<a id="contract-policy-checks"></a>
 ## Future Policy Checks
 
 Allow-list enforcement is outside v1-v3 scan scope. A later phase may add `check` or equivalent policy behavior. That phase should consume scan evidence and fail closed for allow-list misses, unknowns, conflicts, ambiguous values, and invalid license expressions.

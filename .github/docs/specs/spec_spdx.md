@@ -4,16 +4,17 @@ This document defines how `ol` uses SPDX License List data and how it interprets
 
 SPDX data is foundational for all versions because license matching must be explainable and versioned. The tool should not silently depend on whatever SPDX list is current on the network at scan time.
 
+## Design Basis
+
+This specification derives from the [Ol design](../DESIGN.md), especially the decisions to [normalize only against versioned SPDX data](../DESIGN.md#decision-versioned-spdx), [prefer explicit SPDX selection while retaining an offline fallback](../DESIGN.md#decision-spdx-resolution), [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), and [separate factual resolution from organizational policy](../DESIGN.md#decision-policy-separation).
+
+Those decisions require normalization to be reproducible and explainable rather than heuristic. Therefore Ol records the active SPDX source and hashes, restores official casing, retains raw claims, and distinguishes `unknown`, `ambiguous`, `invalid`, `conflict`, and deprecated-but-valid identifiers. A normalized `matched` result establishes what the evidence says; it does not establish that organizational policy permits the license.
+
 ## Development-Time Bundled Data Generation
 
-`Ol.Update` is a development-time external generator, not an `ol` runtime dependency. Running `ol-update generate` downloads the upstream SPDX JSON documents and writes generated lookup data to:
+`Ol.Update` is a development-time external generator, not an `ol` runtime dependency. Running `ol-update generate` refreshes the bundled SPDX snapshot used as the offline fallback. This keeps the published CLI independent from the generator and network while retaining versioned, reproducible data.
 
-```text
-src/Ol.Core/Generated/SpdxGeneratedLicenseData.g.cs
-```
-
-`Ol` references only `Ol.Core`, which compiles this generated data into the bundled fallback. This keeps the AOT-published CLI independent from the generator executable while retaining a versioned, reproducible bundled SPDX snapshot.
-
+<a id="contract-spdx-data-resolution"></a>
 ## Data Sources
 
 SPDX data is resolved in this order:
@@ -33,26 +34,13 @@ exceptions.json
 
 These match the JSON files published by SPDX License List data. The `details/` and per-license JSON directories are not required for v1 validation.
 
-## User Data Layout
+## User-Managed Data
 
-User-managed SPDX data is stored by version:
-
-```text
-<user-data-dir>/ol/spdx/
-  current.txt
-  <version>/
-    licenses.json
-    exceptions.json
-```
-
-`current.txt` identifies the active user-managed version:
-
-```text
-3.27.0
-```
+User-managed SPDX data is stored by version, with one installed version selected as active. The active selection persists across commands until it is changed or cleared.
 
 The exact platform-specific user data root is not part of this spec. Reports must not emit absolute paths to it.
 
+<a id="contract-spdx-commands"></a>
 ## Commands
 
 ### `ol spdx update`
@@ -107,6 +95,7 @@ Every JSON scan report includes active SPDX data metadata:
 - `bundled/spdx/<version>` for bundled data
 - `cli-argument` for `--spdx-data`
 
+<a id="contract-spdx-normalization"></a>
 ## License Identifiers and Expressions
 
 `ol` validates SPDX License Identifiers, SPDX License Exception Identifiers, and SPDX License Expressions using the active SPDX data.
@@ -133,6 +122,7 @@ classpath-exception-2.0 -> Classpath-exception-2.0
 
 This is not alias guessing. Natural language names and loose aliases are not normalized automatically.
 
+<a id="contract-strict-normalization"></a>
 ## Strict Normalization
 
 v1 normalization is intentionally strict.
@@ -186,6 +176,7 @@ Example candidate warning:
 
 stderr summary should include deprecated identifier warning counts.
 
+<a id="contract-candidate-evidence"></a>
 ## Candidate and Evidence Records
 
 Each component JSON record retains the raw SBOM license values in both `licenseCandidates` and `evidence`. Each candidate includes:

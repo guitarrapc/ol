@@ -4,6 +4,12 @@ This document defines the v2 behavior for using package manager and package regi
 
 Package metadata is a hint source, not an authority. It complements SBOM license information because SBOM license fields can be missing, stale, inferred, or inconsistent with package registry metadata.
 
+## Design Basis
+
+This specification derives from the [Ol design](../DESIGN.md), especially the decisions to [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), [add evidence sources through one reconciliation model](../DESIGN.md#decision-shared-reconciliation), [make component/source failures best-effort](../DESIGN.md#decision-failure-scope), [make evidence freshness explicit](../DESIGN.md#decision-cache-freshness), [bound external I/O and retry only transient failures](../DESIGN.md#decision-bounded-io), and [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy).
+
+Package metadata is consequently additive evidence: it never silently replaces the SBOM claim, uses the shared SPDX and reconciliation semantics, and records disagreement as `conflict`. Cache, concurrency, and retry behavior exist to make enrichment practical and repeatable without turning a registry outage into the loss of the complete dependency report.
+
 ## Version Scope
 
 v1 does not fetch package metadata and does not maintain package/source evidence cache.
@@ -43,6 +49,7 @@ Maven and other ecosystems may be added later.
 
 Unsupported ecosystems do not introduce a new component status. They are recorded as evidence with unsupported reason metadata. The component's final status remains based on available license evidence.
 
+<a id="contract-package-evidence"></a>
 ## Evidence Model
 
 Package metadata evidence may provide:
@@ -63,45 +70,25 @@ Package metadata is combined with SBOM evidence:
 
 External fetch failure does not automatically make a component `error`. If SBOM evidence yields a single valid license, the component remains `matched` and the fetch failure is recorded as warning evidence.
 
+<a id="contract-package-best-effort"></a>
 ## Best-Effort Execution
 
 v2 scan remains best-effort. A metadata fetch failure for one component must not stop the scan. The final summary reports fetch failures and warnings.
 
 Whole-command failure is reserved for cases where scanning cannot proceed at all or output cannot be written.
 
+<a id="contract-package-cache"></a>
 ## Cache
 
 v2 introduces persistent package metadata cache.
 
-Cache files are stored under the user data area using hash-based file names:
-
-```text
-<user-data-dir>/ol/cache/package-metadata/<sha256(cache-key)>.json
-```
-
-The cache key is based on the normalized package identity, preferably purl including version.
-
-The cache file name is hashed to avoid exposing package names in directory listings. The cache entry body stores the plain logical key for debuggability, along with its hash.
-
-Example shape:
-
-```json
-{
-  "cacheKey": "pkg:npm/react@19.0.0",
-  "cacheKeySha256": "...",
-  "fetchedAt": "2026-07-08T00:00:00Z",
-  "source": "npm-registry",
-  "license": {
-    "raw": "MIT",
-    "normalized": "MIT"
-  }
-}
-```
+Cache identity is based on normalized package identity, preferably a versioned purl. Physical entry names are opaque so package names are not exposed in directory listings, while entries retain enough logical identity and provenance for auditability.
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing package metadata cache and overwrites it with newly fetched evidence.
 
 `ol cache clear` removes evidence caches. It may accept cache categories such as `package-metadata`, `source-repository`, or `all`.
 
+<a id="contract-package-concurrency"></a>
 ## Concurrency
 
 v2 external fetches run concurrently by default.
@@ -114,6 +101,7 @@ max(4, min(Environment.ProcessorCount, 8))
 
 `--concurrency 1` means sequential execution. Values must be at least 1.
 
+<a id="contract-package-retries"></a>
 ## Retries
 
 v2 external fetches retry transient failures once by default, for two total attempts.
@@ -135,6 +123,7 @@ Non-retryable conditions include:
 
 Rate-limit responses should be recorded in evidence. The scan should continue where possible.
 
+<a id="contract-package-privacy"></a>
 ## Report Privacy
 
 Reports must not include token values or absolute cache paths. Package cache paths should be represented by logical labels and hashes when needed.

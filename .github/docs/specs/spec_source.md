@@ -4,6 +4,12 @@ This document defines the v3 behavior for using source repository license eviden
 
 Source repository evidence is a hint source, not a legal authority. It is used because SBOM and package registry metadata can be absent, stale, inferred, or inconsistent with a repository's license file.
 
+## Design Basis
+
+This planned v3 specification derives from the [Ol design](../DESIGN.md), especially the decisions to [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), [add evidence sources through one reconciliation model](../DESIGN.md#decision-shared-reconciliation), [make component/source failures best-effort](../DESIGN.md#decision-failure-scope), [make evidence freshness explicit](../DESIGN.md#decision-cache-freshness), [bound external I/O and avoid unnecessary requests](../DESIGN.md#decision-bounded-io), [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy), and [confine credentials to their intended authority](../DESIGN.md#decision-credential-confinement).
+
+Source repository results are therefore additional attributable evidence, not a replacement for SBOM or package metadata. The GitHub API boundary, explicit authentication variable, opaque cache names, and refusal to infer a license from unidentified content follow from the need for explainable results without exposing credentials or converting uncertainty into a guessed conclusion.
+
 ## Version Scope
 
 v1 uses SBOM evidence only.
@@ -26,6 +32,7 @@ This endpoint is preferred over manually probing `LICENSE`, `COPYING`, and `NOTI
 
 Initial v3 does not perform recursive repository search and does not use the Contents API as a fallback for license file discovery.
 
+<a id="contract-source-evidence"></a>
 ## Evidence Semantics
 
 GitHub License API results are interpreted as source repository evidence:
@@ -49,6 +56,7 @@ Evidence may include:
 
 Report examples must not include token values or absolute local paths.
 
+<a id="contract-source-authentication"></a>
 ## Authentication
 
 `ol` uses only `OL_GITHUB_TOKEN` for GitHub authentication.
@@ -79,42 +87,27 @@ Reports may include auth mode but never token values:
 }
 ```
 
+<a id="contract-source-request-strategy"></a>
 ## Request Strategy
 
 `ol` does not perform HEAD preflight requests for GitHub existence checks. Most GitHub REST `GET` and `HEAD` requests consume comparable rate-limit points, so preflight checks can waste requests.
 
 `ol` should issue the needed GET request directly and record the resulting status as evidence.
 
+Source repository fetches use the same bounded concurrency and retry controls as package metadata fetches. The default is one retry after the initial attempt. Timeout, HTTP 429, HTTP 5xx, and transient network failures are retryable; HTTP 400, 401, 403, 404, invalid repository identity, and unsupported hosts are not. Completion order must not change report ordering.
+
+<a id="contract-source-cache"></a>
 ## Cache
 
 v3 introduces source repository evidence cache.
 
-Cache files are stored under the user data area using hash-based file names:
-
-```text
-<user-data-dir>/ol/cache/source-repository/<sha256(cache-key)>.json
-```
-
-Source cache file names are hashed so private repository names are not visible in directory listings. The cache entry body stores the plain logical key for debugging and auditability, along with its hash.
-
-Example shape:
-
-```json
-{
-  "cacheKey": "github:owner/repo@ref",
-  "cacheKeySha256": "...",
-  "fetchedAt": "2026-07-08T00:00:00Z",
-  "source": "github-license-api",
-  "license": {
-    "spdxId": "MIT"
-  }
-}
-```
+Cache identity is based on the logical repository and ref. Physical entry names are opaque so private repository names are not exposed in directory listings, while entries retain enough logical identity and provenance for auditability.
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing source repository cache and overwrites it with newly fetched evidence.
 
 `ol cache clear source-repository` removes source repository evidence cache.
 
+<a id="contract-source-best-effort"></a>
 ## Best-Effort Execution
 
 Source repository fetch errors are component-level evidence. They must not stop the whole scan.

@@ -28,6 +28,27 @@ Ol does not provide legal advice or claim legal certainty. It preserves uncertai
 - Hiding unknown, ambiguous, invalid, conflicting, deprecated, or unavailable evidence.
 - Performing policy enforcement inside evidence collection and reconciliation.
 
+## Design Decisions and Rationale
+
+The specifications define observable behavior. The following decisions explain why those behaviors fit together as one system rather than as independent command features.
+
+| Design decision | Why Ol needs it | Consequences for specifications |
+|---|---|---|
+| <a id="decision-complete-inventory"></a>Resolve the complete dependency inventory before filtering. | The licenses of transitive dependencies matter even when a user initially asks to view only direct dependencies. Early filtering could erase graph context and incorrectly classify or hide OSS use. | [Dependency type](specs/spec_olcli.md#contract-dependency-type) remains explicit, and [dependency filtering](specs/spec_olcli.md#contract-dependency-filtering) is a view over the complete analysis. |
+| <a id="decision-evidence-preservation"></a>Preserve evidence instead of selecting a single authoritative source. | SBOMs, registries, and repositories can each be absent, stale, inferred, or wrong. Disagreement is itself compliance-relevant information. | The shared [component statuses](specs/spec_olcli.md#contract-component-status), [SPDX candidate records](specs/spec_spdx.md#contract-candidate-evidence), [package evidence](specs/spec_packagemanager.md#contract-package-evidence), and [source evidence](specs/spec_source.md#contract-source-evidence) preserve agreement, uncertainty, and conflict. |
+| <a id="decision-versioned-spdx"></a>Normalize only against versioned SPDX data. | Reproducible policy decisions require stable identifiers and semantics. Guessing aliases would turn uncertain evidence into false certainty, while using an implicit live list would make identical inputs change over time. | [SPDX identifiers and expressions](specs/spec_spdx.md#contract-spdx-normalization) use official data and casing, while [strict normalization](specs/spec_spdx.md#contract-strict-normalization) preserves ambiguity. |
+| <a id="decision-spdx-resolution"></a>Prefer explicit SPDX selection while retaining an offline fallback. | Users need to reproduce a specific environment or test new SPDX data, but ordinary scans must not require network availability or prior setup. | [SPDX data resolution](specs/spec_spdx.md#contract-spdx-data-resolution) prioritizes an explicit source, then user-managed data, then the bundled snapshot; [SPDX commands](specs/spec_spdx.md#contract-spdx-commands) manage the user-selected version. |
+| <a id="decision-policy-separation"></a>Separate factual resolution from organizational policy. | Whether a valid license is permitted depends on the user's organization and context, not on evidence collection. The same facts may be evaluated under different policies. | `matched` means resolved, not allowed; [future policy checks](specs/spec_olcli.md#contract-policy-checks) consume scan evidence and can reject forbidden or unresolved results without rescanning. |
+| <a id="decision-failure-scope"></a>Make component/source failures best-effort but command failures explicit. | One unavailable registry or repository must not hide all other OSS dependencies, but a report cannot be trusted when the inventory or output itself cannot be produced. | [Scan failure behavior](specs/spec_olcli.md#contract-scan-failures), [package best-effort execution](specs/spec_packagemanager.md#contract-package-best-effort), and [source best-effort execution](specs/spec_source.md#contract-source-best-effort) distinguish recoverable evidence failures from unusable commands. |
+| <a id="decision-report-views"></a>Use canonical JSON plus human-oriented projections. | CI and policy engines need stable structured evidence, while reviewers need compact, readable output. A single canonical model prevents the two views from reaching different conclusions. | [Output formats](specs/spec_olcli.md#contract-output-formats) are projections of the same result, while the [JSON report](specs/spec_olcli.md#contract-json-report) retains complete machine-readable evidence. |
+| <a id="decision-cache-freshness"></a>Make evidence freshness explicit rather than time-dependent. | An implicit TTL makes identical inputs produce different network and evidence behavior depending on wall-clock time. Users need deliberate control over reproducibility versus refresh. | [Package caches](specs/spec_packagemanager.md#contract-package-cache) and [source caches](specs/spec_source.md#contract-source-cache) persist until explicitly refreshed or cleared. |
+| <a id="decision-bounded-io"></a>Bound external I/O and retry only plausibly transient failures. | License resolution must remain responsive and respectful of shared services; retrying permanent failures wastes time and rate limits without improving evidence. | [Package concurrency](specs/spec_packagemanager.md#contract-package-concurrency), [package retries](specs/spec_packagemanager.md#contract-package-retries), and the [source request strategy](specs/spec_source.md#contract-source-request-strategy) bound work and avoid unnecessary requests. |
+| <a id="decision-provenance-privacy"></a>Persist evidence with explicit provenance and privacy boundaries. | Repeated network access is slow and unreliable, while package names, private repositories, local paths, and tokens can be sensitive. | [Report privacy](specs/spec_olcli.md#contract-report-privacy), [package-cache privacy](specs/spec_packagemanager.md#contract-package-privacy), and [source authentication](specs/spec_source.md#contract-source-authentication) retain auditability without exposing secrets or private paths. |
+| <a id="decision-credential-confinement"></a>Make credential use explicit and confine it to its intended authority. | Implicitly discovering credentials or forwarding them across hosts can leak secrets and makes execution difficult to audit. | [Source authentication](specs/spec_source.md#contract-source-authentication) accepts only the Ol-specific token input, sends it only to the GitHub API boundary, and reports authentication mode rather than values. |
+| <a id="decision-shared-reconciliation"></a>Add evidence sources through one reconciliation model. | Source-specific final-result logic would make status semantics depend on which integration happened to run and would become impossible to reason about as sources grow. | [Package evidence](specs/spec_packagemanager.md#contract-package-evidence) and [source evidence](specs/spec_source.md#contract-source-evidence) become common candidates governed by the same statuses and SPDX semantics. |
+
+These decisions are normative design constraints. A feature specification may specialize them, but should link to the relevant decision and state any intentional exception.
+
 ## System Model
 
 Ol is designed as the following target pipeline. Inventory, SBOM evidence, SPDX normalization, package metadata, reconciliation, and reporting are implemented; source-repository evidence and policy evaluation are planned stages.
@@ -158,7 +179,7 @@ The chosen source, License List version, logical reference, and hashes are repor
 - candidate creation and license reconciliation
 - package metadata request planning, registry access, retry scheduling, and cache records
 - user-managed SPDX storage
-- source-backed UTF-8 domain values and report models
+- component, evidence, and report models
 
 Pure transformations should remain separate from filesystem, clock, environment, and network boundaries where practical.
 
@@ -192,11 +213,11 @@ This distinction prevents a transient registry problem from being confused with 
 
 ## Caching and Network Design
 
-Evidence caches are persistent and keyed by normalized logical identity. File names use SHA-256 hashes so package or private repository names are not exposed by directory listings. Cache bodies retain the logical key and schema version for auditability.
+Evidence caches are persistent and keyed by normalized logical identity. Their physical representation is opaque so package or private repository names are not exposed by directory listings, while logical provenance remains available for auditability.
 
-There is no implicit TTL. `--refresh` bypasses existing entries and replaces successful results. The current package cache treats malformed JSON and mismatched logical keys as cache misses. Making other cache read/write failures component-scoped rather than whole-command failures is a planned resilience requirement.
+There is no implicit TTL. `--refresh` makes freshness an explicit user decision rather than a wall-clock side effect. Cache failures should remain component-scoped whenever a trustworthy report can still be produced.
 
-External-request concurrency is bounded and output ordering is deterministic regardless of request completion order. The current v2 scheduler still creates one enrichment task per component and does not coalesce duplicate targets; bounded work-item scheduling and target deduplication are planned optimizations. Retry policy applies only to transient failures such as timeouts, HTTP 429, HTTP 5xx, and transient transport errors.
+External I/O is bounded so dependency count cannot create uncontrolled pressure on the process or shared services. Output ordering remains deterministic regardless of request completion order. Retry policy applies only when another attempt can plausibly succeed, such as timeouts, rate limits, server failures, and transient transport errors.
 
 ## Report and View Design
 
@@ -220,16 +241,13 @@ Sorting, grouping, and dependency filtering operate after complete analysis. If 
 
 Performance work follows pipeline boundaries rather than focusing only on SBOM parsing:
 
-- inventory ingestion avoids copying source-backed UTF-8 text
-- dependency graph resolution uses bounded temporary storage
-- SPDX lookup and expression normalization avoid repeated decoding and lookup
-- reconciliation avoids avoidable per-candidate allocations
-- registry enrichment bounds external-request concurrency; target deduplication and bounded work-item scheduling are planned optimizations
-- planned source enrichment follows the same bounded-I/O model
-- rendering allocates owned output intentionally but avoids repeated domain conversion
-- policy evaluation should operate on the existing report without recollecting evidence
+- inventory ingestion and dependency graph resolution scale with input size without unnecessary duplication
+- SPDX normalization and reconciliation avoid repeating equivalent work for each candidate
+- registry and planned source enrichment keep external work bounded and reusable
+- reporting derives all views from the resolved model rather than repeating analysis
+- policy evaluation operates on the existing report without recollecting evidence
 
-Optimizations require representative benchmarks for the affected stage. Required result ownership is not treated as an allocation defect; transient allocations inside repeated component and candidate loops are.
+Optimizations require representative benchmarks for the affected stage. Performance techniques belong in implementation guidance; this design requires predictable resource use without changing evidence or policy semantics.
 
 ## Evolution Rules
 
@@ -252,7 +270,7 @@ The architectural destination is therefore a transitive OSS license resolver and
 
 ## Related Specifications
 
-- [CLI behavior and report contract](.github/docs/specs/spec_olcli.md)
-- [SPDX data and license semantics](.github/docs/specs/spec_spdx.md)
-- [Package metadata evidence](.github/docs/specs/spec_packagemanager.md)
-- [Source repository evidence](.github/docs/specs/spec_source.md)
+- [CLI behavior and report contract](specs/spec_olcli.md)
+- [SPDX data and license semantics](specs/spec_spdx.md)
+- [Package metadata evidence](specs/spec_packagemanager.md)
+- [Source repository evidence](specs/spec_source.md)

@@ -30,7 +30,7 @@ Ol does not provide legal advice or claim legal certainty. It preserves uncertai
 
 ## System Model
 
-Ol is designed as a staged pipeline:
+Ol is designed as the following target pipeline. Inventory, SBOM evidence, SPDX normalization, package metadata, reconciliation, and reporting are implemented; source-repository evidence and policy evaluation are planned stages.
 
 ```mermaid
 flowchart LR
@@ -118,11 +118,11 @@ Versioned purls plan lookups for supported package ecosystems. Registry clients 
 
 The initial ecosystems are npm, NuGet, Cargo, and Go modules. Unsupported ecosystems and successful responses without license text produce explicit non-fatal evidence. Fetches are concurrent, bounded, retry only transient failures, and are cached by normalized package identity.
 
-### Source repository evidence
+### Source repository evidence (planned v3)
 
-Source evidence extends the same model rather than creating a separate result path. Repository identities come from existing SBOM or package metadata evidence. The initial GitHub integration uses the GitHub License API and does not attempt to outguess an unidentified license by parsing arbitrary license-file text.
+Source evidence will extend the same model rather than creating a separate result path. Repository identities will come from existing SBOM or package metadata evidence. The initial GitHub integration will use the GitHub License API and will not attempt to outguess an unidentified license by parsing arbitrary license-file text.
 
-Only `OL_GITHUB_TOKEN` is an authentication input. Authentication is restricted to the intended GitHub API host, and reports retain only the authentication mode.
+Only `OL_GITHUB_TOKEN` will be an authentication input. Authentication will be restricted to the intended GitHub API host, and reports will retain only the authentication mode.
 
 ### Adding an evidence source
 
@@ -194,9 +194,9 @@ This distinction prevents a transient registry problem from being confused with 
 
 Evidence caches are persistent and keyed by normalized logical identity. File names use SHA-256 hashes so package or private repository names are not exposed by directory listings. Cache bodies retain the logical key and schema version for auditability.
 
-There is no implicit TTL. `--refresh` bypasses existing entries and replaces successful results. Corrupt or failed entries are component-scoped problems and should not terminate the full analysis.
+There is no implicit TTL. `--refresh` bypasses existing entries and replaces successful results. The current package cache treats malformed JSON and mismatched logical keys as cache misses. Making other cache read/write failures component-scoped rather than whole-command failures is a planned resilience requirement.
 
-Concurrency is bounded and output ordering is deterministic regardless of request completion order. Retry policy applies only to transient failures such as timeouts, HTTP 429, HTTP 5xx, and transient transport errors.
+External-request concurrency is bounded and output ordering is deterministic regardless of request completion order. The current v2 scheduler still creates one enrichment task per component and does not coalesce duplicate targets; bounded work-item scheduling and target deduplication are planned optimizations. Retry policy applies only to transient failures such as timeouts, HTTP 429, HTTP 5xx, and transient transport errors.
 
 ## Report and View Design
 
@@ -224,7 +224,8 @@ Performance work follows pipeline boundaries rather than focusing only on SBOM p
 - dependency graph resolution uses bounded temporary storage
 - SPDX lookup and expression normalization avoid repeated decoding and lookup
 - reconciliation avoids avoidable per-candidate allocations
-- registry and source enrichment bound concurrency and deduplicate cache/network work
+- registry enrichment bounds external-request concurrency; target deduplication and bounded work-item scheduling are planned optimizations
+- planned source enrichment follows the same bounded-I/O model
 - rendering allocates owned output intentionally but avoids repeated domain conversion
 - policy evaluation should operate on the existing report without recollecting evidence
 
@@ -242,10 +243,10 @@ Optimizations require representative benchmarks for the affected stage. Required
 
 ## Current and Planned Scope
 
-- **v1:** CycloneDX/SPDX JSON inventory, dependency relationships, SPDX validation, and reports.
-- **v2:** package-registry evidence, persistent metadata cache, bounded concurrency, and retries.
-- **v3:** source-repository evidence, initially through the GitHub License API.
-- **Later policy phase:** explicit allow-list/deny-list evaluation and CI failure behavior over the canonical report.
+- **v1 — implemented:** CycloneDX/SPDX JSON inventory, dependency relationships, SPDX validation, and reports.
+- **v2 — implemented:** package-registry evidence, persistent metadata cache, bounded external-request concurrency, and retries.
+- **v3 — planned:** source-repository evidence, initially through the GitHub License API.
+- **Later policy phase — planned:** explicit allow-list/deny-list evaluation and CI failure behavior over the canonical report.
 
 The architectural destination is therefore a transitive OSS license resolver and policy input, not an SBOM viewer. SBOM support is one ingestion mechanism for constructing the dependency and evidence model.
 

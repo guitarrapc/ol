@@ -65,9 +65,10 @@ internal sealed class ScanCommands
         var report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
         var metadataService = new PackageMetadataService(spdx.Index, new PackageMetadataCache(PackageMetadataPaths.DefaultRoot), refresh, retry);
         var enrichment = metadataService.EnrichAsync(report.Components, concurrency).GetAwaiter().GetResult();
-        var components = ScanView.Apply(enrichment.Components, dependency, sort, sortOrder);
-        var dependencyFilteredCount = dependency is null or "" ? 0 : report.Components.Length - components.Length;
         var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(report.Components, dependency);
+        var componentCount = ScanView.Apply(enrichment.Components, dependency, sort, sortOrder);
+        var components = enrichment.Components.AsSpan(0, componentCount);
+        var dependencyFilteredCount = dependency is null or "" ? 0 : report.Components.Length - components.Length;
         var text = groupBy is null or ""
             ? format switch
             {
@@ -205,14 +206,14 @@ internal readonly record struct SpdxData(
 
 internal static class ScanView
 {
-    public static ScanComponent[] Apply(ScanComponent[] components, string? dependency, string sort, SortOrder sortOrder)
+    public static int Apply(ScanComponent[] components, string? dependency, string sort, SortOrder sortOrder)
     {
-        var filtered = FilterByDependency(components, dependency);
-        Array.Sort(filtered, CreateComparison(sort, sortOrder));
-        return filtered;
+        var count = FilterByDependency(components, dependency);
+        components.AsSpan(0, count).Sort(CreateComparison(sort, sortOrder));
+        return count;
     }
 
-    public static GroupRow[] Group(ScanComponent[] components, string groupBy)
+    public static GroupRow[] Group(ReadOnlySpan<ScanComponent> components, string groupBy)
     {
         var fields = ParseGroupFields(groupBy);
         var groups = new Dictionary<string, GroupRowBuilder>(StringComparer.Ordinal);
@@ -270,11 +271,11 @@ internal static class ScanView
         return count;
     }
 
-    private static ScanComponent[] FilterByDependency(ScanComponent[] components, string? dependency)
+    private static int FilterByDependency(Span<ScanComponent> components, string? dependency)
     {
         if (dependency is null or "")
         {
-            return components;
+            return components.Length;
         }
 
         Span<bool> allowed = stackalloc bool[4];
@@ -283,18 +284,17 @@ internal static class ScanView
             allowed[(int)ParseDependency(token)] = true;
         }
 
-        var filtered = new ScanComponent[components.Length];
         var count = 0;
         for (var i = 0; i < components.Length; i++)
         {
             if (allowed[(int)components[i].DependencyType])
             {
-                filtered[count] = components[i];
+                components[count] = components[i];
                 count++;
             }
         }
 
-        return filtered.AsSpan(0, count).ToArray();
+        return count;
     }
 
     private static DependencyType ParseDependency(string value)
@@ -600,7 +600,7 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, ScanComponent[] components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
+    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, ReadOnlySpan<ScanComponent> components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))

@@ -40,7 +40,7 @@ public class ScanViewBenchmark : IDisposable
     }
 
     [Benchmark]
-    public ScanComponent[] SortWithCaseInsensitiveFields()
+    public int SortWithCaseInsensitiveFields()
     {
         ResetInputs();
         return ScanView.Apply(sortComponents, dependency: null, "ECOSYSTEM,NAME,VERSION,LICENSE,PURL", SortOrder.Asc);

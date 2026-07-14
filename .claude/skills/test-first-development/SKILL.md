@@ -1,6 +1,6 @@
 ---
 name: test-first-development
-description: Mandatory test-first workflow for all implementation, modification, and bug fix tasks in this project. Covers red-green test cycle, regression tests, benchmark verification, spec updates, equivalence-class coverage, and Playground (WASM/UI) test constraints. Applies whenever code under src/ is added or changed.
+description: Mandatory test-first workflow for changes under `src/` in Ol, the license-compliance CLI. Covers red-green testing for SBOM scanning, SPDX validation, license reconciliation, package metadata, CLI behavior, and SPDX code generation, plus regression coverage, benchmarks, and specification updates.
 ---
 
 # Test-First Development
@@ -8,6 +8,8 @@ description: Mandatory test-first workflow for all implementation, modification,
 **This skill is mandatory for every task that adds or modifies code under `src/`.**
 
 Skip this skill only when the change is limited to documentation, configuration, or generated files.
+
+Also follow the performance-requirements skill when changing hot paths in `Ol.Core` or generated SPDX lookup code.
 
 ## Workflow
 
@@ -22,8 +24,10 @@ Before writing any production code, create tests that demonstrate the current be
 Run the failing test to confirm:
 
 ```shell
-dotnet test --project tests/Ol.Core.Tests --treenode-filter /*/*/YourTestClass/YourTestMethod*
+dotnet test --project tests/Ol.Tests/Ol.Tests.csproj --treenode-filter /*/*/YourTestClass/YourTestMethod*
 ```
+
+For a behavior-preserving performance refactor, a correctness test may not have a meaningful failing state. First confirm the relevant correctness tests pass, then capture a benchmark or allocation baseline as the red measurement. After the change, require behavioral parity and compare the same measurement.
 
 ### 2. Implement (Green)
 
@@ -43,27 +47,26 @@ All tests must pass before proceeding.
 
 For bug fixes, the test written in Step 1 often doubles as the regression test. If Step 1 already covers the fix scenario, you do not need a separate test — but verify it matches the pattern below. For new features, add edge-case tests beyond the initial happy-path test from Step 1.
 
-**When fixing classification logic bugs**: Step 1 writes the single failing test that reproduces the bug. After the fix passes (Step 2), add the remaining equivalence-class tests HERE in Step 4 — not in Step 1. This keeps the red-green cycle tight while still achieving full class coverage.
+**When fixing domain decision logic bugs** (for example, SBOM format detection, dependency type assignment, SPDX expression handling, license reconciliation, or metadata scheduling): Step 1 writes the single failing test that reproduces the bug. After the fix passes, add the remaining equivalence-class tests here rather than widening the initial red step.
 
 Regression test patterns by change type:
 
 | Change type | Test pattern | Assertion |
 |---|---|---|
-| False positive fixed (was erroring on valid input) | `ok-*` case or valid-input test | Zero diagnostics |
-| False negative fixed (was missing an error) | `ng-*` case or invalid-input test | Expected diagnostic message appears |
-| Parser fix | `ParserTests` method | AST structure is correct |
-| Linter rule fix | `RuleInterfaceTests` case or dedicated test | Correct diagnostics emitted |
+| Valid SBOM/SPDX input was rejected | Valid-input scan or lookup test | Expected report/value is returned without exception |
+| Invalid or ambiguous input was accepted | Invalid-input test | Expected exception or non-success status is produced |
+| License evidence was reconciled incorrectly | Candidate/evidence combination test | Expected `LicenseStatus` and selected license |
+| Package metadata behavior regressed | Cache/registry/scheduler test | Expected request count, cached value, or fallback result |
 
 ### 5. Benchmark Verification
 
-When changing parser or linter code, run benchmarks:
+When changing SBOM scanning, SPDX lookup, license reconciliation, or another measured hot path, run benchmarks from the repository root:
 
 ```shell
-cd src/Ol.Benchmark
-dotnet run -c Release
+dotnet run --project src/Ol.Benchmark/Ol.Benchmark.csproj -c Release
 ```
 
-Compare results against the previous baseline in `BenchmarkDotNet.Artifacts/results/` (committed report files). If no prior report exists, run the benchmark on `main` branch first to establish a baseline.
+Compare results against the local previous run or a baseline produced from a clean `main` checkout. `BenchmarkDotNet.Artifacts/` is ignored and is not a committed source of truth.
 
 - **Mean**: must not increase by more than +10%
 - **Allocated**: must not increase by more than +10%
@@ -72,19 +75,27 @@ Relevant benchmarks by change area:
 
 | Changed area | Benchmark to check |
 |---|---|
-| `src/Ol.Core/Parsing/` | `CoreParsingBenchmark` (Small/Medium/Large) |
-| `src/Ol.Core/Linting/` | `CoreLintBenchmark` (parse+lint Mean and Allocated) |
+| `src/Ol.Core/SbomScanner.cs` and scan-domain models | `SbomScannerBenchmark.ScanCycloneDx` |
+| SPDX lookup, reconciliation, or metadata hot paths | Add a focused case to the active benchmark runner before applying a numeric regression threshold if no representative benchmark exists |
+| `src/Ol.Update/SpdxCodeGenerator.cs` | Regenerate output, test generated behavior, and benchmark the affected `SpdxLicenseIndex` consumption path when performance-sensitive |
+
+The current runner invokes `SbomScannerBenchmark` directly. Add a focused method to that class, or update the runner so a new benchmark class is actually selected; merely declaring an unreferenced benchmark class is insufficient.
 
 ### 6. Update Specs
 
 If the implementation changes observable behavior or adds new functionality, update the relevant specification:
 
+- CLI commands, options, output, and exit behavior: `.github/docs/specs/spec_olcli.md`
+- SPDX data, validation, expression, or generation behavior: `.github/docs/specs/spec_spdx.md`
+- package-manager metadata and registry behavior: `.github/docs/specs/spec_packagemanager.md`
+- license evidence/source and reconciliation behavior: `.github/docs/specs/spec_source.md`
+
 ## Test Conventions
 
 ### Naming
 
-- Class: `{Feature}Tests` (e.g., `ParserTests`, `ExpressionTests`)
-- Method: `{Action}_{Context}_{ExpectedOutcome}` (e.g., `Parse_MinimalWorkflow_NoDiagnostics`)
+- Class: `{Feature}Tests` (for example, `CycloneDxScanTests`, `SpdxStoreTests`, or `PackageMetadataTests`)
+- Method: `{Action}_{Context}_{ExpectedOutcome}` (for example, `Scan_WithUtf8Bom_DetectsCycloneDx`)
 
 ### Framework
 
@@ -92,20 +103,20 @@ If the implementation changes observable behavior or adds new functionality, upd
 
 ```shell
 # Run all tests in a class
-dotnet test --project tests/Ol.Core.Tests --treenode-filter /*/*/FooTests/*
+dotnet test --project tests/Ol.Tests/Ol.Tests.csproj --treenode-filter /*/*/FooTests/*
 
 # Run a single test
-dotnet test --project tests/Ol.Core.Tests --treenode-filter /*/*/FooTests/Foo_Bar_Hoge*
+dotnet test --project tests/Ol.Tests/Ol.Tests.csproj --treenode-filter /*/*/FooTests/Foo_Bar_Hoge*
 ```
 
 More examples:
 
 ```shell
 # Run all tests in FooTests
-dotnet test --project tests/Ol.Core.Tests --treenode-filter /*/*/FooTests/*
+dotnet test --project tests/Ol.Tests/Ol.Tests.csproj --treenode-filter /*/*/FooTests/*
 
 # Run a single method by prefix match
-dotnet test --project tests/Ol.Core.Tests --treenode-filter /*/*/FooTests/Foo_Bar_Hoge*
+dotnet test --project tests/Ol.Tests/Ol.Tests.csproj --treenode-filter /*/*/FooTests/Foo_Bar_Hoge*
 ```
 
 ### Assertions
@@ -113,8 +124,8 @@ dotnet test --project tests/Ol.Core.Tests --treenode-filter /*/*/FooTests/Foo_Ba
 Use TUnit async assertions:
 
 ```csharp
-await Assert.That(result.IsFatal).IsEqualTo(false);
-await Assert.That(result.Diagnostics).HasCount().EqualTo(0);
+await Assert.That(report.Format).IsEqualTo(SbomFormat.CycloneDxJson);
+await Assert.That(report.Components).HasCount().EqualTo(1);
 ```
 
 ## Test Design Guardrails
@@ -127,36 +138,35 @@ await Assert.That(result.Diagnostics).HasCount().EqualTo(0);
 
 ## Classification Logic: Equivalence Class Coverage
 
-When implementing or modifying **classification/decision logic** (e.g., path danger classification, version detection, expression type inference), apply equivalence class partitioning to ensure both positive AND negative cases are covered.
+When implementing or modifying Ol's **domain decision logic** (for example, SBOM format detection, dependency classification, SPDX validity, license reconciliation, cache freshness, or registry fallback), apply equivalence-class partitioning so accepted and rejected cases are both covered.
 
 ### Mandatory Steps
 
-1. **Enumerate input variables** that affect the decision (e.g., `dotDotSegments`, `namedSegments`, `isRunnerTemp`).
+1. **Enumerate input variables** that affect the decision (for example, presence of `bomFormat`, `spdxVersion`, and the expected format value).
 2. **Build a truth table** of variable combinations that make each branch true/false. Each combination is an equivalence class.
 3. **Write at least one test per class**, with priority on:
    - Cases where the condition is true AND should be true (true positive)
    - Cases where the condition is true BUT should be false (false positive — **these are the most commonly missed**)
    - Cases where the condition is false AND should be false (true negative)
    - Cases where the condition is false BUT should be true (false negative)
-4. **For security rules**: negative tests (inputs that should NOT produce a diagnostic) must be **equal or greater in count** to positive tests (inputs that should produce a diagnostic). Security rules with high false-positive rates erode user trust.
+4. **For license-status and format decisions**: include nearby valid cases as well as invalid cases. False `Unknown`, `Conflict`, or unsupported-format results erode trust in compliance reports.
 
 ### Example: Multi-Variable Condition
 
-For a condition like `reachesRunnerTemp = (A >= 2 && B == 0) || (A >= 2 && C == 1 && D)`:
+For SBOM format detection, let `C` mean a valid CycloneDX marker (`bomFormat: CycloneDX`) and `S` mean the presence of `spdxVersion`:
 
-| A | B | C | D | Expected | Test case |
-|---|---|---|---|---|---|
-| 2 | 0 | - | - | true | `../..` (sweeps level) |
-| 2 | 1 | 1 | true | true | `../../_temp` (targets temp) |
-| 2 | 1 | 1 | false | **false** | `../../some-dir` (specific non-temp) |
-| 1 | 0 | - | - | **false** | `..` (wrong depth) |
-| 1 | 1 | 1 | true | **false** | `../_temp` (wrong depth for real temp) |
+| C | S | Expected | Test case |
+|---|---|---|---|
+| true | false | CycloneDX | Valid CycloneDX document |
+| false | true | SPDX | Valid SPDX JSON document |
+| true | true | Reject as ambiguous | Document containing both markers |
+| false | false | Reject as unsupported | JSON containing neither marker |
 
-The bolded **false** rows are the ones most likely to be missed — they represent inputs where a naive/broad condition would fire but shouldn't.
+The ambiguous and unsupported rows prevent a broad marker check from silently selecting the wrong scan path.
 
 ### When to Apply
 
 - Any `if`/`switch` with 3+ input variables affecting the decision
-- Any heuristic that models real-world constraints (filesystem layout, version semantics)
-- Any security rule that can produce false positives
+- Any heuristic that reconciles multiple license evidence sources or infers dependency type
+- Any cache, retry, or registry-fallback decision with externally observable behavior
 - **Bug fixes on classification logic**: even when fixing a single false positive/negative, build the full truth table first. This prevents the fix from introducing new false positives in adjacent equivalence classes.

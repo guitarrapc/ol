@@ -1,158 +1,146 @@
 ---
 name: performance-requirements
-description: Guidelines for writing high-performance and memory-efficient code in `src/Ol.Core/` (Parsing and Linting) and generated code emitted by `src/Ol.Update/Generators/`. Covers zero allocations, per-run caching, zero-copy string design, bounded stackalloc in generated code, error-path CPU budget, and verification practices.
+description: Guidelines for high-performance and memory-efficient SBOM scanning, SPDX lookup and validation, license reconciliation, and package metadata processing in `src/Ol.Core/`, plus SPDX code generation in `src/Ol.Update/`. Covers allocation control, zero-copy UTF-8 data, pooled buffers, bounded stackalloc, caching, and benchmark verification.
 ---
 
 # Performance Requirements
 
-All parser and linting code must be implemented with **maximum attention to performance and memory efficiency**.
+All hot-path SBOM scanning, SPDX lookup and validation, license reconciliation, and package metadata processing code must be implemented with **maximum attention to performance and memory efficiency**.
 
 ## Core Requirements
 
 ### 1. Verification
 
-- Test with BenchmarkDotNet to measure performance
-- Verify zero allocations in Release builds
+- Use BenchmarkDotNet to measure performance and allocations in Release builds.
+- Compare against the existing baseline before accepting hot-path changes.
 
-Parser verification:
+Hot-path verification:
 
 1. Run tests after each implementation refactor.
-3. For meaningful parser changes, run allocation benchmarks (or a focused micro benchmark) with disassembly attribute and compare to previous baseline.
-4. Reject changes that regress allocation behavior without explicit justification in PR description.
+2. For meaningful changes to `SbomScanner`, SPDX lookup, or license reconciliation, run the relevant allocation benchmark (or a focused microbenchmark) with disassembly diagnostics and compare it to the previous baseline.
+3. Distinguish required result allocations (for example, the returned `ScanReport` and its components) from avoidable temporary allocations inside scan loops.
+4. Reject unexplained regressions in mean execution time or allocated bytes.
 
-Disassembly verification is super important to check CPU-level behaviour. Branchless makes a huge difference in performance for hot paths. Not only SIMD but also branchless code is important for performance. However without disassembly verification, it is super hard to identify is your code really branchless or not. So please always check disassembly for hot paths, and microbenchmarks for performance ready code.
+Use disassembly diagnostics when benchmark results indicate that code generation, inlining, vectorization, bounds checks, or branch behavior may materially affect a measured hot path. Treat branch reduction and SIMD as hypotheses to measure, not unconditional goals.
 
 ### 2. Zero Allocations
 
-- Never allocate arrays or collections during parser execution/ast processing.
-- Use `Span<T>` for all array operations
-- Use `stackalloc` for small temporary buffers (≤ 128 elements)
-- Use `ArrayPool<T>.Shared` for large temporary buffers (> 128 elements)
-- **NEVER** use `new T[]` or `new List<T>` for internal buffers
+- Avoid temporary arrays and collections while scanning an SBOM or iterating SPDX data.
+- Use `Span<T>`/`ReadOnlySpan<T>` for contiguous temporary data where ownership does not escape.
+- Use `stackalloc` only for small buffers with a compile-time or explicitly guarded maximum. Set the limit by total byte size and element type, not by a universal element count; the current SPDX UTF-8 normalization path uses at most 128 `char` values on the stack.
+- Use `ArrayPool<T>.Shared` for larger or dynamically growing temporary buffers, and always return rented arrays in a `finally` block.
+- Allocate owned arrays when they are part of the returned domain result; do not expose pooled arrays from `ScanReport`, `ScanComponent`, or license-candidate results.
 
-Parser-specific additions:
+SBOM/SPDX-specific additions:
 
-- For parser key checks, use `ReadOnlySpan<byte>` + `SequenceEqual("..."u8)`.
-- In normal parse success paths, do not materialize strings.
-- `GetScalarString()` is allowed only for diagnostics or exceptional fallback handling.
-- Keep dynamic text as `Utf8Slice` and decode only when reporting diagnostics.
-- Repeated lookups must be avoided by carrying resolved metadata through parse steps.
+- For JSON property and known-value checks, use `Utf8JsonReader.ValueTextEquals("..."u8)` or span-based UTF-8 comparison.
+- In normal scan success paths, do not materialize strings for source-backed SBOM text.
+- Keep source-backed component identifiers, names, versions, PURLs, and specification versions as `Utf8Slice` while their source buffer remains owned by the report.
+- Decode to `string` only at an API boundary that requires ownership, for output, registry/network requests, cache keys, or exceptional error handling.
+- Avoid repeated SPDX and metadata lookups by carrying resolved domain values through the scan/reconciliation flow.
 
-**Example:**
+**Example with an explicit stack byte budget:**
 
 ```csharp
-// ✅ For small buffers - use stackalloc (no heap allocation)
-if (span.Length <= 128)
+const int MaxStackBytes = 256;
+if (byteCount <= MaxStackBytes)
 {
-    Span<T> tempBuffer = stackalloc T[span.Length];
-    // ... parser logic using tempBuffer ...
+    Span<byte> tempBuffer = stackalloc byte[MaxStackBytes];
+    tempBuffer = tempBuffer[..byteCount];
+    // ... SBOM scan logic using tempBuffer ...
 }
-// ✅ For large buffers - use ArrayPool (reusable, no GC pressure)
 else
 {
-    var rentedArray = ArrayPool<T>.Shared.Rent(span.Length);
+    var rentedArray = ArrayPool<byte>.Shared.Rent(byteCount);
     try
     {
-        var tempBuffer = rentedArray.AsSpan(0, span.Length);
-        // ... parser logic using tempBuffer ...
+        var tempBuffer = rentedArray.AsSpan(0, byteCount);
+        // ... SBOM scan logic using tempBuffer ...
     }
     finally
     {
-        ArrayPool<T>.Shared.Return(rentedArray);
+        ArrayPool<byte>.Shared.Return(rentedArray);
     }
 }
 ```
 
 ### 3. Aggressive Inlining
 
-- Mark hot-path methods with `[MethodImpl(MethodImplOptions.AggressiveInlining)]`
-- Especially for methods called frequently in loops (comparisons, swaps, etc.)
+- Consider `[MethodImpl(MethodImplOptions.AggressiveInlining)]` only for small methods on a measured hot path.
+- Keep the attribute only when benchmarks and, where useful, disassembly show a benefit; forced inlining can increase code size or inhibit better JIT decisions.
 
 ### 4. Loop Optimization
 
-- Cache frequently accessed values outside loops
-- Use `for` loops with indices instead of `foreach`
-- Minimize redundant comparisons
-- Avoid repeated property access or method calls
+- Cache frequently accessed values outside loops when measurement or inspection shows repeated work.
+- Select `for`, `foreach`, or span iteration based on generated code and clarity; `foreach` over spans and concrete collection types can be allocation-free.
+- Minimize redundant comparisons and repeated property or method calls on measured hot paths.
 
 ### 5. Hot Path Prohibitions
 
-- No LINQ in parsing loops.
-- No regex in parser implementation.
-- No dictionary/collection growth in per-node parse paths.
+- No LINQ in SBOM token loops, SPDX candidate loops, or reconciliation hot paths.
+- No regex for JSON property matching, SPDX identifier lookup, or package URL field extraction in hot paths.
+- Do not grow dictionaries or collections once per JSON token or component when capacity can be estimated or pooled storage can be reused.
 
 ### 6. Avoid string
 
-Avoid `string` in hot paths. Use `ReadOnlySpan<byte>` or `Utf8Slice` for all internal text handling. Only convert to `string` for diagnostics or exceptional cases. Keep in mind that `string` always allocates and MUST avoid in internal.
+Avoid creating transient `string` values in hot paths. Use `ReadOnlySpan<byte>` or `Utf8Slice` for source-backed SBOM text, and span-based lookup where available. A `string` is appropriate when an owned value is required by the public model, SPDX data store, package metadata cache/registry client, CLI output, or an exception message; avoid repeated decoding of the same value.
 
-### 7. HereDoc / Temporary State Zero-Alloc
+### 7. SBOM Temporary State
 
-For small temporary state arrays (e.g. heredoc tracking during script analysis), use `stackalloc` with a counter instead of `new List<T>()`. Store offsets into the source array instead of copying byte slices.
+For component and dependency-edge accumulation during SBOM scanning, rent buffers from `ArrayPool<T>.Shared`, grow geometrically, and return replaced and final buffers. Store `Utf8Slice` offsets into the owned SBOM byte array instead of copying each JSON string. Clear returned arrays when elements contain references.
 
-### 8. Bounded stackalloc in Generated Code
+### 8. Bounded UTF-8 Normalization Buffers
 
-If generated code uses `stackalloc` with a size derived from input (e.g. UTF-8 span length), the generator **must** emit a compile-time max-length constant and guard before the stackalloc. User-controlled input can be arbitrarily long — unbounded stackalloc causes stack overflow (process-terminating).
+`SpdxLicenseIndex.TryNormalizeLicenseIdUtf8()` must keep its stack buffer bounded and use `ArrayPool<char>.Shared` for longer UTF-8 input. SBOM and CLI input is user-controlled and can be arbitrarily long; never size a stack allocation directly from that input. If generated lookup code is introduced later, it must follow the same bounded-stack rule.
 
 ```csharp
 // ❌ Unbounded stackalloc — stack overflow on long input
 Span<char> chars = stackalloc char[utf8Id.Length];
 
-// ✅ Generator computes max from data, emits constant + early-return guard
-private const int MaxIdByteLength = 32; // computed by generator
-
-internal static bool IsKnown(ReadOnlySpan<byte> utf8Id)
+// ✅ Fixed stack budget with a pool fallback for larger input
+const int MaxStackChars = 128;
+char[]? rented = null;
+Span<char> chars = utf8Id.Length <= MaxStackChars
+    ? stackalloc char[MaxStackChars]
+    : (rented = ArrayPool<char>.Shared.Rent(utf8Id.Length));
+try
 {
-    if (utf8Id.Length > MaxIdByteLength)
-        return false;
-
-    Span<char> chars = stackalloc char[MaxIdByteLength];
     var charCount = Encoding.UTF8.GetChars(utf8Id, chars);
-    // AlternateLookup = KnownIds.GetAlternateLookup<ReadOnlySpan<char>>()
-    // Allows span-based lookup into FrozenSet without allocating a string
-    return AlternateLookup.Contains(chars[..charCount]);
+    // Perform the span-based SPDX lookup.
+}
+finally
+{
+    if (rented is not null)
+        ArrayPool<char>.Shared.Return(rented);
 }
 ```
 
-### 9. FrozenSet as Primary, No Redundant Arrays
+### 9. Immutable SPDX Lookup Structures
 
-`FrozenSet<string>` is the correct primary store for immutable lookup sets. Do **not** keep a parallel `string[]` field:
+Choose an immutable lookup structure that matches the domain operation:
 
-- `FrozenSet` already provides O(1) `Contains` and struct-enumerator `foreach` (zero-allocation iteration when called directly).
-- If suggestion logic needs to iterate candidates, accept `IReadOnlyCollection<string>` (which `FrozenSet` implements) rather than materializing an array. Note: interface dispatch via `IReadOnlyCollection` boxes the enumerator (one small allocation), but this is acceptable since suggestion runs only on error paths.
-- Suggestion tie-break order (when multiple candidates have equal Levenshtein distance) is non-deterministic from `FrozenSet` enumeration. This is acceptable — exact tie-break order is not a correctness concern.
-
-```csharp
-// ❌ Redundant static array alongside FrozenSet
-private static readonly string[] IdsArray = [.. KnownIds]; // extra alloc at type-init
-
-// ✅ FrozenSet is primary; iterate directly via IReadOnlyCollection
-internal static string? FindSuggestion(string input)
-    => SuggestionHelper.FindClosest(input, KnownIds); // FrozenSet implements IReadOnlyCollection
-```
+- Use `FrozenDictionary<string, string>` for case-insensitive SPDX normalization because lookup must return the canonical identifier casing.
+- Use `FrozenSet<string>` for membership-only checks such as deprecated-license detection.
+- Generated SPDX arrays are valid construction input for `SpdxLicenseIndex`; after construction, do not retain an additional copy solely for the same runtime lookup.
+- Do not materialize another collection merely to iterate candidates on an exceptional path.
 
 ### 10. Error-Path CPU Budget
 
-Error paths are allowed to allocate, but must still be bounded for pathological inputs:
+Invalid SBOM/SPDX input paths may allocate for exception or CLI output text, but work must remain bounded for pathological input. Before adding suggestions or other approximate matching:
 
-- **Skip expensive computation for long inputs**: If input length exceeds the max valid value length (`MaxIdByteLength`), there is no plausible match — skip Levenshtein search entirely.
-- **Decode only what you display**: If displaying a truncated prefix, decode only that prefix from UTF-8 — don't decode the full multi-KB string. Use a separate display-cap constant (`MaxDisplayLength`, e.g. 40 bytes) distinct from the validation constant (`MaxIdByteLength`, e.g. 32 bytes).
-- **Short-circuit pattern**: Check `span.Length` (bytes) before decode, decode before suggestion.
-
-Two constants serve different purposes:
-- `MaxIdByteLength`: Maximum UTF-8 byte length of any known valid value (computed by generator from data). Used to guard `stackalloc` and `IsKnown`.
-- `MaxDisplayLength`: Maximum bytes to decode for diagnostic display (e.g. 40 bytes). Defined in the rule class. Applied to `span[..MaxDisplayLength]` then decoded to string with "..." appended.
+- Bound input length and candidate count before expensive work.
+- Decode only the UTF-8 prefix that will be displayed rather than an entire pathological value.
+- Keep display limits separate from SPDX validity rules.
+- Short-circuit on byte length before decoding or searching candidates.
 
 ```csharp
-// ✅ Bounded error path — skip expensive work for pathological inputs
+// ✅ Pattern for bounded display of pathological UTF-8 input
 if (span.Length > MaxDisplayLength)
 {
-    // Too long to be valid — decode prefix only, skip suggestion
     display = string.Concat(Encoding.UTF8.GetString(span[..MaxDisplayLength]), "...");
 }
 else
 {
-    var decoded = Decode(slice);
-    display = decoded;
-    suggestion = FindSuggestion(decoded); // Levenshtein over ~600 candidates
+    display = Encoding.UTF8.GetString(span);
 }
 ```

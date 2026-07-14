@@ -7,7 +7,7 @@ namespace Ol.Tests;
 
 public sealed class CycloneDxScanTests
 {
-  private static readonly SpdxLicenseIndex Spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
+    private static readonly SpdxLicenseIndex Spdx = new(["Apache-2.0", "GPL-2.0-only", "MIT"], ["Classpath-exception-2.0"]);
 
     [Test]
     public async Task ScanCycloneDxComponentWithSpdxLicenseIdReturnsMatchedComponent()
@@ -99,11 +99,133 @@ public sealed class CycloneDxScanTests
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Unknown);
         await Assert.That(report.Components[0].License).IsEqualTo("-");
     }
+
+    [Test]
+    public async Task Scan_WithCycloneDxExpression_NormalizesSpdxExpression()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                {
+                  "name": "licensed",
+                  "licenses": [
+                    { "license": { "expression": "mit OR (apache-2.0 WITH classpath-exception-2.0)" } }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var report = SbomScanner.Scan(sbom, Spdx);
+
+        await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
+        await Assert.That(report.Components[0].License).IsEqualTo("MIT OR (Apache-2.0 WITH Classpath-exception-2.0)");
+    }
+
+    [Test]
+    public async Task Scan_WithUnknownIdentifierInCycloneDxExpression_ReturnsInvalidComponent()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                {
+                  "name": "invalid",
+                  "licenses": [
+                    { "license": { "expression": "MIT OR Not-A-License" } }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var report = SbomScanner.Scan(sbom, Spdx);
+
+        await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Invalid);
+        await Assert.That(report.Components[0].License).IsEqualTo("MIT OR Not-A-License (?)");
+    }
+
+    [Test]
+    public async Task Scan_WithNaturalLanguageCycloneDxLicenseName_ReturnsAmbiguousComponent()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                {
+                  "name": "ambiguous",
+                  "licenses": [
+                    { "license": { "name": "Apache License" } }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var report = SbomScanner.Scan(sbom, Spdx);
+
+        await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Ambiguous);
+        await Assert.That(report.Components[0].License).IsEqualTo("Apache License (?)");
+    }
+
+    [Test]
+    public async Task Scan_WithCycloneDxDependencyGraph_ClassifiesRootDirectAndTransitiveComponents()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "metadata": {
+                "component": {
+                  "bom-ref": "pkg:npm/app@1.0.0",
+                  "name": "app",
+                  "version": "1.0.0",
+                  "purl": "pkg:npm/app@1.0.0",
+                  "licenses": [ { "license": { "id": "MIT" } } ]
+                }
+              },
+              "components": [
+                {
+                  "bom-ref": "pkg:npm/direct@1.0.0",
+                  "name": "direct",
+                  "version": "1.0.0",
+                  "purl": "pkg:npm/direct@1.0.0",
+                  "licenses": [ { "license": { "id": "MIT" } } ]
+                },
+                {
+                  "bom-ref": "pkg:npm/transitive@1.0.0",
+                  "name": "transitive",
+                  "version": "1.0.0",
+                  "purl": "pkg:npm/transitive@1.0.0",
+                  "licenses": [ { "license": { "id": "MIT" } } ]
+                }
+              ],
+              "dependencies": [
+                { "ref": "pkg:npm/app@1.0.0", "dependsOn": [ "pkg:npm/direct@1.0.0" ] },
+                { "ref": "pkg:npm/direct@1.0.0", "dependsOn": [ "pkg:npm/transitive@1.0.0" ] }
+              ]
+            }
+            """);
+
+        var report = SbomScanner.Scan(sbom, Spdx);
+
+        await Assert.That(report.Components.Length).IsEqualTo(3);
+        await Assert.That(report.Components[0].Name).IsEqualTo("app");
+        await Assert.That(report.Components[0].DependencyType).IsEqualTo(DependencyType.Root);
+        await Assert.That(report.Components[1].Name).IsEqualTo("direct");
+        await Assert.That(report.Components[1].DependencyType).IsEqualTo(DependencyType.Direct);
+        await Assert.That(report.Components[2].Name).IsEqualTo("transitive");
+        await Assert.That(report.Components[2].DependencyType).IsEqualTo(DependencyType.Transitive);
+    }
 }
 
 public sealed class SpdxScanTests
 {
-    private static readonly SpdxLicenseIndex Spdx = new(["Apache-2.0", "MIT"], []);
+  private static readonly SpdxLicenseIndex Spdx = new(["Apache-2.0", "GPL-2.0-only", "MIT"], ["Classpath-exception-2.0"]);
 
     [Test]
     public async Task ScanSpdxPackageWithMatchingDeclaredAndConcludedReturnsMatchedComponent()
@@ -166,5 +288,56 @@ public sealed class SpdxScanTests
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Conflict);
         await Assert.That(report.Components[0].License).IsEqualTo("MIT, Apache-2.0 (?)");
+    }
+
+    [Test]
+    public async Task Scan_WithInvalidSpdxExpressionAndNoValidEvidence_ReturnsInvalidComponent()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "spdxVersion": "SPDX-2.3",
+              "packages": [
+                {
+                  "SPDXID": "SPDXRef-Package-invalid",
+                  "name": "invalid",
+                  "licenseDeclared": "MIT OR Not-A-License",
+                  "licenseConcluded": "NOASSERTION"
+                }
+              ]
+            }
+            """);
+
+        var report = SbomScanner.Scan(sbom, Spdx);
+
+        await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Invalid);
+        await Assert.That(report.Components[0].License).IsEqualTo("MIT OR Not-A-License (?)");
+    }
+
+    [Test]
+    public async Task Scan_WithSpdxRelationships_ClassifiesRootDirectAndTransitivePackages()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "spdxVersion": "SPDX-2.3",
+              "packages": [
+                { "SPDXID": "SPDXRef-App", "name": "app", "licenseDeclared": "MIT" },
+                { "SPDXID": "SPDXRef-Direct", "name": "direct", "licenseDeclared": "MIT" },
+                { "SPDXID": "SPDXRef-Transitive", "name": "transitive", "licenseDeclared": "MIT" }
+              ],
+              "relationships": [
+                { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-App" },
+                { "spdxElementId": "SPDXRef-App", "relationshipType": "DEPENDS_ON", "relatedSpdxElement": "SPDXRef-Direct" },
+                { "spdxElementId": "SPDXRef-Direct", "relationshipType": "DEPENDS_ON", "relatedSpdxElement": "SPDXRef-Transitive" }
+              ]
+            }
+            """);
+
+        var report = SbomScanner.Scan(sbom, Spdx);
+
+        await Assert.That(report.Components[0].DependencyType).IsEqualTo(DependencyType.Root);
+        await Assert.That(report.Components[1].DependencyType).IsEqualTo(DependencyType.Direct);
+        await Assert.That(report.Components[2].DependencyType).IsEqualTo(DependencyType.Transitive);
     }
 }

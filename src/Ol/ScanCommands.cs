@@ -18,6 +18,7 @@ internal sealed class ScanCommands
     /// <param name="outFile">--out, Write output to this path.</param>
     /// <param name="verbose">Include verbose columns.</param>
     /// <param name="dependency">Dependency output filter: root,direct,transitive,unknown.</param>
+    /// <param name="groupBy">Group output by fields: name,version,license,ecosystem,dependency,status.</param>
     /// <param name="sort">Sort keys: ecosystem,name,version,license,dependency,status,purl.</param>
     /// <param name="sortOrder">Sort order: asc or desc.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
@@ -29,6 +30,7 @@ internal sealed class ScanCommands
         string? outFile = null,
         bool verbose = false,
         string? dependency = null,
+        string? groupBy = null,
         string sort = "ecosystem,name,version",
         SortOrder sortOrder = SortOrder.Asc,
         string? spdxData = null,
@@ -44,23 +46,22 @@ internal sealed class ScanCommands
         var sbomBytes = File.ReadAllBytes(sbom);
         var report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
         var components = ScanView.Apply(report.Components, dependency, sort, sortOrder);
-        var text = format switch
-        {
-            ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
-            ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
-            ReportFormat.Json => ReportRenderer.RenderJson(report.Format, components, sbom, sbomBytes, spdx),
-            _ => throw new ArgumentOutOfRangeException(nameof(format)),
-        };
+        var text = groupBy is null or ""
+            ? format switch
+            {
+                ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
+                ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
+                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, components, sbom, sbomBytes, spdx),
+                _ => throw new ArgumentOutOfRangeException(nameof(format)),
+            }
+            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, sbom, sbomBytes, spdx);
 
         if (outFile is { Length: > 0 })
         {
             File.WriteAllText(outFile, text, Encoding.UTF8);
-            Console.WriteLine(outFile);
         }
-        else
-        {
-            Console.Write(text);
-        }
+
+        Console.Write(text);
 
         if (!quiet)
         {
@@ -69,6 +70,17 @@ internal sealed class ScanCommands
         }
 
         return 0;
+    }
+
+    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
+    {
+        return format switch
+        {
+            ReportFormat.Text => ReportRenderer.RenderText(groups, groupBy),
+            ReportFormat.Markdown => ReportRenderer.RenderMarkdown(groups, groupBy),
+            ReportFormat.Json => ReportRenderer.RenderJson(sbomFormat, groups, groupBy, sbom, sbomBytes, spdx),
+            _ => throw new ArgumentOutOfRangeException(nameof(format)),
+        };
     }
 }
 
@@ -137,6 +149,35 @@ internal static class ScanView
         var filtered = FilterByDependency(components, dependency);
         Array.Sort(filtered, CreateComparison(sort, sortOrder));
         return filtered;
+    }
+
+    public static GroupRow[] Group(ScanComponent[] components, string groupBy)
+    {
+        var fields = ParseGroupFields(groupBy);
+        var groups = new Dictionary<string, GroupRowBuilder>(StringComparer.Ordinal);
+        for (var i = 0; i < components.Length; i++)
+        {
+            var values = CreateGroupValues(components[i], fields);
+            var key = string.Join('\u001f', values);
+            if (!groups.TryGetValue(key, out var builder))
+            {
+                builder = new GroupRowBuilder(values);
+                groups[key] = builder;
+            }
+
+            builder.Components.Add(components[i]);
+        }
+
+        var result = new GroupRow[groups.Count];
+        var index = 0;
+        foreach (var group in groups.Values)
+        {
+            result[index] = new GroupRow(group.Values, group.Components.Count, group.Components.ToArray());
+            index++;
+        }
+
+        Array.Sort(result, CompareGroupRows);
+        return result;
     }
 
     private static ScanComponent[] FilterByDependency(ScanComponent[] components, string? dependency)
@@ -210,7 +251,81 @@ internal static class ScanView
             _ => throw new ArgumentException($"Unknown sort key: {key}"),
         };
     }
+
+    private static GroupField[] ParseGroupFields(string groupBy)
+    {
+        var tokens = groupBy.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var fields = new GroupField[tokens.Length];
+        for (var i = 0; i < tokens.Length; i++)
+        {
+            fields[i] = tokens[i].ToLowerInvariant() switch
+            {
+                "name" => GroupField.Name,
+                "version" => GroupField.Version,
+                "license" => GroupField.License,
+                "ecosystem" => GroupField.Ecosystem,
+                "dependency" => GroupField.Dependency,
+                "status" => GroupField.Status,
+                _ => throw new ArgumentException($"Unknown group key: {tokens[i]}"),
+            };
+        }
+
+        return fields;
+    }
+
+    private static string[] CreateGroupValues(ScanComponent component, GroupField[] fields)
+    {
+        var values = new string[fields.Length];
+        for (var i = 0; i < fields.Length; i++)
+        {
+            values[i] = fields[i] switch
+            {
+                GroupField.Name => component.Name,
+                GroupField.Version => component.Version,
+                GroupField.License => component.License,
+                GroupField.Ecosystem => component.Ecosystem,
+                GroupField.Dependency => component.DependencyType.ToString().ToLowerInvariant(),
+                GroupField.Status => component.Status.ToString().ToLowerInvariant(),
+                _ => throw new ArgumentOutOfRangeException(nameof(fields)),
+            };
+        }
+
+        return values;
+    }
+
+    private static int CompareGroupRows(GroupRow left, GroupRow right)
+    {
+        for (var i = 0; i < left.Values.Length; i++)
+        {
+            var comparison = string.CompareOrdinal(left.Values[i], right.Values[i]);
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+        }
+
+        return left.Count.CompareTo(right.Count);
+    }
 }
+
+internal enum GroupField
+{
+    Name,
+    Version,
+    License,
+    Ecosystem,
+    Dependency,
+    Status,
+}
+
+internal sealed class GroupRowBuilder(string[] values)
+{
+    public string[] Values { get; } = values;
+
+    public List<ScanComponent> Components { get; } = [];
+}
+
+internal readonly record struct GroupRow(string[] Values, int Count, ScanComponent[] Components);
 
 internal static class ReportRenderer
 {
@@ -276,6 +391,62 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
+    public static string RenderText(ReadOnlySpan<GroupRow> groups, string groupBy)
+    {
+        var headers = groupBy.ToUpperInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var builder = new StringBuilder();
+        builder.AppendJoin(' ', headers);
+        builder.AppendLine(" COUNT");
+        for (var i = 0; i < groups.Length; i++)
+        {
+            for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
+            {
+                if (valueIndex != 0)
+                {
+                    builder.Append(' ');
+                }
+
+                builder.Append(Display(groups[i].Values[valueIndex]));
+            }
+
+            builder.Append(' ');
+            builder.Append(groups[i].Count);
+            builder.AppendLine();
+        }
+
+        return builder.ToString();
+    }
+
+    public static string RenderMarkdown(ReadOnlySpan<GroupRow> groups, string groupBy)
+    {
+        var headers = groupBy.ToUpperInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var builder = new StringBuilder();
+        builder.Append("| ");
+        builder.AppendJoin(" | ", headers);
+        builder.AppendLine(" | COUNT |");
+        builder.Append('|');
+        for (var i = 0; i < headers.Length + 1; i++)
+        {
+            builder.Append("---|");
+        }
+
+        builder.AppendLine();
+        for (var i = 0; i < groups.Length; i++)
+        {
+            builder.Append("| ");
+            for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
+            {
+                AppendMarkdownValue(builder, groups[i].Values[valueIndex]);
+                builder.Append(" | ");
+            }
+
+            builder.Append(groups[i].Count);
+            builder.AppendLine(" |");
+        }
+
+        return builder.ToString();
+    }
+
     public static string RenderJson(SbomFormat format, ScanComponent[] components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
     {
         using var stream = new MemoryStream();
@@ -302,6 +473,7 @@ internal static class ReportRenderer
                 writer.WriteString("dependency", component.DependencyType.ToString().ToLowerInvariant());
                 writer.WriteString("status", component.Status.ToString().ToLowerInvariant());
                 writer.WriteString("purl", component.Purl);
+                writer.WriteString("sourceId", component.SourceId);
                 writer.WriteEndObject();
             }
 
@@ -315,6 +487,54 @@ internal static class ReportRenderer
             writer.WriteNumber("ambiguous", summary.Ambiguous);
             writer.WriteNumber("invalid", summary.Invalid);
             writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    public static string RenderJson(SbomFormat format, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+        {
+            writer.WriteStartObject();
+            writer.WriteStartObject("metadata");
+            writer.WriteString("tool", "ol");
+            writer.WriteString("sbom", Path.GetFileName(sbomPath));
+            writer.WriteString("sbomSha256", Convert.ToHexString(SHA256.HashData(sbomBytes)).ToLowerInvariant());
+            writer.WriteString("format", format.ToString());
+            writer.WriteString("spdxSource", spdx.Source);
+            writer.WriteEndObject();
+
+            var headers = groupBy.ToLowerInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            writer.WriteStartArray("groups");
+            for (var i = 0; i < groups.Length; i++)
+            {
+                writer.WriteStartObject();
+                for (var valueIndex = 0; valueIndex < headers.Length; valueIndex++)
+                {
+                    writer.WriteString(headers[valueIndex], groups[i].Values[valueIndex]);
+                }
+
+                writer.WriteNumber("count", groups[i].Count);
+                writer.WriteStartArray("components");
+                for (var componentIndex = 0; componentIndex < groups[i].Components.Length; componentIndex++)
+                {
+                    var component = groups[i].Components[componentIndex];
+                    writer.WriteStartObject();
+                    writer.WriteString("name", component.Name);
+                    writer.WriteString("version", component.Version);
+                    writer.WriteString("ecosystem", component.Ecosystem);
+                    writer.WriteString("purl", component.Purl);
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
 

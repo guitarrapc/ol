@@ -1,4 +1,4 @@
-namespace Ol.Core;
+﻿namespace Ol.Core;
 
 /// <summary>
 /// Represents one scanned SBOM component.
@@ -10,6 +10,7 @@ namespace Ol.Core;
 /// <param name="DependencyType">The dependency relationship type.</param>
 /// <param name="Status">The license status.</param>
 /// <param name="Purl">The package URL, when present.</param>
+/// <param name="SourceId">The source SBOM component identifier, when present.</param>
 public readonly record struct ScanComponent(
     string Name,
     string Version,
@@ -17,4 +18,5 @@ public readonly record struct ScanComponent(
     string Ecosystem,
     DependencyType DependencyType,
     LicenseStatus Status,
-    string Purl);
+    string Purl,
+    string SourceId);

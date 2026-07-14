@@ -17,6 +17,7 @@ public static class SbomScanner
     /// <returns>The scan report.</returns>
     public static ScanReport Scan(ReadOnlySpan<byte> sbomUtf8, SpdxLicenseIndex spdxLicenseIndex)
     {
+        sbomUtf8 = SkipUtf8Bom(sbomUtf8);
         var reader = new Utf8JsonReader(sbomUtf8, isFinalBlock: true, state: default);
         var format = DetectFormat(ref reader);
 
@@ -26,6 +27,13 @@ public static class SbomScanner
             SbomFormat.SpdxJson => ScanSpdx(sbomUtf8, spdxLicenseIndex),
             _ => throw new JsonException("Unsupported SBOM JSON format."),
         };
+    }
+
+    private static ReadOnlySpan<byte> SkipUtf8Bom(ReadOnlySpan<byte> sbomUtf8)
+    {
+        return sbomUtf8.Length >= 3 && sbomUtf8[0] == 0xEF && sbomUtf8[1] == 0xBB && sbomUtf8[2] == 0xBF
+            ? sbomUtf8[3..]
+            : sbomUtf8;
     }
 
     private static SbomFormat DetectFormat(ref Utf8JsonReader reader)
@@ -59,14 +67,46 @@ public static class SbomScanner
     {
         var reader = new Utf8JsonReader(sbomUtf8, isFinalBlock: true, state: default);
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
+        var dependencyRefs = ArrayPool<DependencyEdge>.Shared.Rent(16);
         var componentCount = 0;
+        var dependencyCount = 0;
+        var hasRoot = false;
+        var rootRef = string.Empty;
 
         try
         {
             while (reader.Read())
             {
-                if (reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals("components"u8))
+                if (reader.TokenType != JsonTokenType.PropertyName)
                 {
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("metadata"u8))
+                {
+                    var rootComponent = ReadCycloneDxMetadataComponent(ref reader, spdxLicenseIndex);
+                    if (rootComponent.SourceId.Length != 0)
+                    {
+                        hasRoot = true;
+                        rootRef = rootComponent.SourceId;
+                        EnsureComponentCapacity(ref components, componentCount);
+                        components[componentCount] = rootComponent with { DependencyType = DependencyType.Root };
+                        componentCount++;
+                    }
+
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("dependencies"u8))
+                {
+                    ReadCycloneDxDependencies(ref reader, ref dependencyRefs, ref dependencyCount);
+                    continue;
+                }
+
+                if (!reader.ValueTextEquals("components"u8))
+                {
+                    reader.Read();
+                    reader.Skip();
                     continue;
                 }
 
@@ -85,14 +125,7 @@ public static class SbomScanner
                     }
 
                     var component = ReadCycloneDxComponent(ref reader, spdxLicenseIndex);
-                    if (componentCount == components.Length)
-                    {
-                        var expanded = ArrayPool<ScanComponent>.Shared.Rent(components.Length * 2);
-                        components.AsSpan(0, componentCount).CopyTo(expanded);
-                        ArrayPool<ScanComponent>.Shared.Return(components, clearArray: true);
-                        components = expanded;
-                    }
-
+                    EnsureComponentCapacity(ref components, componentCount);
                     components[componentCount] = component;
                     componentCount++;
                 }
@@ -100,11 +133,17 @@ public static class SbomScanner
 
             var result = new ScanComponent[componentCount];
             components.AsSpan(0, componentCount).CopyTo(result);
+            if (hasRoot)
+            {
+                ApplyDependencyTypes(result, rootRef, dependencyRefs.AsSpan(0, dependencyCount));
+            }
+
             return new ScanReport(SbomFormat.CycloneDxJson, result);
         }
         finally
         {
             ArrayPool<ScanComponent>.Shared.Return(components, clearArray: true);
+            ArrayPool<DependencyEdge>.Shared.Return(dependencyRefs, clearArray: true);
         }
     }
 
@@ -112,14 +151,30 @@ public static class SbomScanner
     {
         var reader = new Utf8JsonReader(sbomUtf8, isFinalBlock: true, state: default);
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
+        var dependencyRefs = ArrayPool<DependencyEdge>.Shared.Rent(16);
         var componentCount = 0;
+        var dependencyCount = 0;
+        var rootRef = string.Empty;
 
         try
         {
             while (reader.Read())
             {
-                if (reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals("packages"u8))
+                if (reader.TokenType != JsonTokenType.PropertyName)
                 {
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("relationships"u8))
+                {
+                    ReadSpdxRelationships(ref reader, ref dependencyRefs, ref dependencyCount, ref rootRef);
+                    continue;
+                }
+
+                if (!reader.ValueTextEquals("packages"u8))
+                {
+                    reader.Read();
+                    reader.Skip();
                     continue;
                 }
 
@@ -153,17 +208,24 @@ public static class SbomScanner
 
             var result = new ScanComponent[componentCount];
             components.AsSpan(0, componentCount).CopyTo(result);
+            if (rootRef.Length != 0)
+            {
+                ApplyDependencyTypes(result, rootRef, dependencyRefs.AsSpan(0, dependencyCount));
+            }
+
             return new ScanReport(SbomFormat.SpdxJson, result);
         }
         finally
         {
             ArrayPool<ScanComponent>.Shared.Return(components, clearArray: true);
+            ArrayPool<DependencyEdge>.Shared.Return(dependencyRefs, clearArray: true);
         }
     }
 
     private static ScanComponent ReadCycloneDxComponent(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
     {
         var depth = reader.CurrentDepth;
+        var sourceId = string.Empty;
         var name = string.Empty;
         var version = string.Empty;
         var purl = string.Empty;
@@ -179,6 +241,12 @@ public static class SbomScanner
 
             if (reader.TokenType != JsonTokenType.PropertyName)
             {
+                continue;
+            }
+
+            if (reader.ValueTextEquals("bom-ref"u8))
+            {
+                sourceId = ReadString(ref reader);
                 continue;
             }
 
@@ -215,12 +283,54 @@ public static class SbomScanner
             license = "-";
         }
 
-        return new ScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl);
+        return new ScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId);
+    }
+
+    private static ScanComponent ReadCycloneDxMetadataComponent(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
+    {
+        reader.Read();
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            reader.Skip();
+            return default;
+        }
+
+        var depth = reader.CurrentDepth;
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == depth)
+            {
+                break;
+            }
+
+            if (reader.TokenType != JsonTokenType.PropertyName)
+            {
+                continue;
+            }
+
+            if (reader.ValueTextEquals("component"u8))
+            {
+                reader.Read();
+                if (reader.TokenType == JsonTokenType.StartObject)
+                {
+                    return ReadCycloneDxComponent(ref reader, spdxLicenseIndex);
+                }
+
+                reader.Skip();
+                continue;
+            }
+
+            reader.Read();
+            reader.Skip();
+        }
+
+        return default;
     }
 
     private static ScanComponent ReadSpdxPackage(ref Utf8JsonReader reader, SpdxLicenseIndex spdxLicenseIndex)
     {
         var depth = reader.CurrentDepth;
+        var sourceId = string.Empty;
         var name = string.Empty;
         var version = string.Empty;
         var purl = string.Empty;
@@ -236,6 +346,12 @@ public static class SbomScanner
 
             if (reader.TokenType != JsonTokenType.PropertyName)
             {
+                continue;
+            }
+
+            if (reader.ValueTextEquals("SPDXID"u8))
+            {
+                sourceId = ReadString(ref reader);
                 continue;
             }
 
@@ -274,7 +390,77 @@ public static class SbomScanner
         }
 
         var (license, status) = ReconcileLicenses(declared, concluded, spdxLicenseIndex);
-        return new ScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl);
+        return new ScanComponent(name, version, license, GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId);
+    }
+
+    private static void ReadSpdxRelationships(ref Utf8JsonReader reader, ref DependencyEdge[] dependencies, ref int dependencyCount, ref string rootRef)
+    {
+        reader.Read();
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            reader.Skip();
+            return;
+        }
+
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                reader.Skip();
+                continue;
+            }
+
+            var depth = reader.CurrentDepth;
+            var element = string.Empty;
+            var type = string.Empty;
+            var related = string.Empty;
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == depth)
+                {
+                    break;
+                }
+
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                {
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("spdxElementId"u8))
+                {
+                    element = ReadString(ref reader);
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("relationshipType"u8))
+                {
+                    type = ReadString(ref reader);
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("relatedSpdxElement"u8))
+                {
+                    related = ReadString(ref reader);
+                    continue;
+                }
+
+                reader.Read();
+                reader.Skip();
+            }
+
+            if (string.Equals(type, "DESCRIBES", StringComparison.OrdinalIgnoreCase))
+            {
+                rootRef = related;
+            }
+            else if (string.Equals(type, "DEPENDS_ON", StringComparison.OrdinalIgnoreCase))
+            {
+                AddDependencyEdge(ref dependencies, ref dependencyCount, element, related);
+            }
+            else if (string.Equals(type, "DEPENDENCY_OF", StringComparison.OrdinalIgnoreCase))
+            {
+                AddDependencyEdge(ref dependencies, ref dependencyCount, related, element);
+            }
+        }
     }
 
     private static string ReadSpdxPurl(ref Utf8JsonReader reader)
@@ -347,6 +533,7 @@ public static class SbomScanner
 
         var validCount = 0;
         var ambiguousCount = 0;
+        var invalidCount = 0;
         var firstValue = string.Empty;
         var secondValue = string.Empty;
 
@@ -364,7 +551,8 @@ public static class SbomScanner
                 continue;
             }
 
-            if (spdxLicenseIndex.TryNormalizeLicenseId(candidate, out var normalized))
+            var status = ClassifyLicense(candidate, spdxLicenseIndex, out var normalized);
+            if (status == LicenseStatus.Matched)
             {
                 validCount++;
                 if (validCount == 1)
@@ -374,6 +562,14 @@ public static class SbomScanner
                 else if (!string.Equals(firstValue, normalized, StringComparison.Ordinal))
                 {
                     secondValue = normalized;
+                }
+            }
+            else if (status == LicenseStatus.Invalid)
+            {
+                invalidCount++;
+                if (firstValue.Length == 0)
+                {
+                    firstValue = normalized;
                 }
             }
             else
@@ -394,6 +590,11 @@ public static class SbomScanner
         if (validCount > 1)
         {
             return (secondValue.Length == 0 ? firstValue : string.Concat(firstValue, ", ", secondValue, " (?)"), LicenseStatus.Ambiguous);
+        }
+
+        if (invalidCount > 0)
+        {
+            return (string.Concat(firstValue, " (?)"), LicenseStatus.Invalid);
         }
 
         if (ambiguousCount > 0)
@@ -429,6 +630,16 @@ public static class SbomScanner
             return (secondValue, LicenseStatus.Matched);
         }
 
+        if (firstStatus == LicenseStatus.Invalid)
+        {
+            return (string.Concat(firstValue, " (?)"), LicenseStatus.Invalid);
+        }
+
+        if (secondStatus == LicenseStatus.Invalid)
+        {
+            return (string.Concat(secondValue, " (?)"), LicenseStatus.Invalid);
+        }
+
         if (firstStatus == LicenseStatus.Ambiguous)
         {
             return (string.Concat(firstValue, " (?)"), LicenseStatus.Ambiguous);
@@ -450,13 +661,27 @@ public static class SbomScanner
             return LicenseStatus.Unknown;
         }
 
-        if (spdxLicenseIndex.TryNormalizeLicenseId(value, out normalized))
+        if (SpdxExpression.TryNormalize(value, spdxLicenseIndex, out normalized))
         {
             return LicenseStatus.Matched;
         }
 
         normalized = value;
+        if (LooksLikeSpdxExpression(value))
+        {
+            return LicenseStatus.Invalid;
+        }
+
         return LicenseStatus.Ambiguous;
+    }
+
+    private static bool LooksLikeSpdxExpression(string value)
+    {
+        return value.Contains(" AND ", StringComparison.OrdinalIgnoreCase)
+            || value.Contains(" OR ", StringComparison.OrdinalIgnoreCase)
+            || value.Contains(" WITH ", StringComparison.OrdinalIgnoreCase)
+            || value.Contains('(')
+            || value.Contains(')');
     }
 
     private static string ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader)
@@ -505,6 +730,179 @@ public static class SbomScanner
 
     private static string GetEcosystem(string purl)
     {
-        return purl.AsSpan().StartsWith("pkg:npm/", StringComparison.Ordinal) ? "npm" : "-";
+        var purlSpan = purl.AsSpan();
+        if (!purlSpan.StartsWith("pkg:", StringComparison.Ordinal))
+        {
+            return "-";
+        }
+
+        var typeStart = "pkg:".Length;
+        var slash = purlSpan[typeStart..].IndexOf('/');
+        if (slash < 0)
+        {
+            return "-";
+        }
+
+        return purlSpan.Slice(typeStart, slash).ToString().ToLowerInvariant();
     }
+
+    private static void EnsureComponentCapacity(ref ScanComponent[] components, int componentCount)
+    {
+        if (componentCount != components.Length)
+        {
+            return;
+        }
+
+        var expanded = ArrayPool<ScanComponent>.Shared.Rent(components.Length * 2);
+        components.AsSpan(0, componentCount).CopyTo(expanded);
+        ArrayPool<ScanComponent>.Shared.Return(components, clearArray: true);
+        components = expanded;
+    }
+
+    private static void ReadCycloneDxDependencies(ref Utf8JsonReader reader, ref DependencyEdge[] dependencies, ref int dependencyCount)
+    {
+        reader.Read();
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            reader.Skip();
+            return;
+        }
+
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                reader.Skip();
+                continue;
+            }
+
+            var depth = reader.CurrentDepth;
+            var parentRef = string.Empty;
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == depth)
+                {
+                    break;
+                }
+
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                {
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("ref"u8))
+                {
+                    parentRef = ReadString(ref reader);
+                    continue;
+                }
+
+                if (reader.ValueTextEquals("dependsOn"u8))
+                {
+                    ReadCycloneDxDependsOn(ref reader, parentRef, ref dependencies, ref dependencyCount);
+                    continue;
+                }
+
+                reader.Read();
+                reader.Skip();
+            }
+        }
+    }
+
+    private static void ReadCycloneDxDependsOn(ref Utf8JsonReader reader, string parentRef, ref DependencyEdge[] dependencies, ref int dependencyCount)
+    {
+        reader.Read();
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            reader.Skip();
+            return;
+        }
+
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.String)
+            {
+                reader.Skip();
+                continue;
+            }
+
+            if (dependencyCount == dependencies.Length)
+            {
+                var expanded = ArrayPool<DependencyEdge>.Shared.Rent(dependencies.Length * 2);
+                dependencies.AsSpan(0, dependencyCount).CopyTo(expanded);
+                ArrayPool<DependencyEdge>.Shared.Return(dependencies, clearArray: true);
+                dependencies = expanded;
+            }
+
+            dependencies[dependencyCount] = new DependencyEdge(parentRef, reader.GetString() ?? string.Empty);
+            dependencyCount++;
+        }
+    }
+
+    private static void AddDependencyEdge(ref DependencyEdge[] dependencies, ref int dependencyCount, string parentRef, string childRef)
+    {
+        if (parentRef.Length == 0 || childRef.Length == 0)
+        {
+            return;
+        }
+
+        if (dependencyCount == dependencies.Length)
+        {
+            var expanded = ArrayPool<DependencyEdge>.Shared.Rent(dependencies.Length * 2);
+            dependencies.AsSpan(0, dependencyCount).CopyTo(expanded);
+            ArrayPool<DependencyEdge>.Shared.Return(dependencies, clearArray: true);
+            dependencies = expanded;
+        }
+
+        dependencies[dependencyCount] = new DependencyEdge(parentRef, childRef);
+        dependencyCount++;
+    }
+
+    private static void ApplyDependencyTypes(ScanComponent[] components, string rootRef, ReadOnlySpan<DependencyEdge> dependencies)
+    {
+        var directRefs = new HashSet<string>(StringComparer.Ordinal);
+        var transitiveRefs = new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<string>();
+
+        for (var i = 0; i < dependencies.Length; i++)
+        {
+            if (string.Equals(dependencies[i].ParentRef, rootRef, StringComparison.Ordinal))
+            {
+                directRefs.Add(dependencies[i].ChildRef);
+                queue.Enqueue(dependencies[i].ChildRef);
+            }
+        }
+
+        while (queue.Count != 0)
+        {
+            var current = queue.Dequeue();
+            for (var i = 0; i < dependencies.Length; i++)
+            {
+                if (!string.Equals(dependencies[i].ParentRef, current, StringComparison.Ordinal) || directRefs.Contains(dependencies[i].ChildRef) || !transitiveRefs.Add(dependencies[i].ChildRef))
+                {
+                    continue;
+                }
+
+                queue.Enqueue(dependencies[i].ChildRef);
+            }
+        }
+
+        for (var i = 0; i < components.Length; i++)
+        {
+            var component = components[i];
+            if (string.Equals(component.SourceId, rootRef, StringComparison.Ordinal))
+            {
+                components[i] = component with { DependencyType = DependencyType.Root };
+            }
+            else if (directRefs.Contains(component.SourceId))
+            {
+                components[i] = component with { DependencyType = DependencyType.Direct };
+            }
+            else if (transitiveRefs.Contains(component.SourceId))
+            {
+                components[i] = component with { DependencyType = DependencyType.Transitive };
+            }
+        }
+    }
+
+    private readonly record struct DependencyEdge(string ParentRef, string ChildRef);
 }

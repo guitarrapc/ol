@@ -42,7 +42,15 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[i]);
                 if (repositoryUrl.Length == 0)
                 {
-                    components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate("source-repository", "unavailable", default, default, LicenseStatus.Unknown, false, ["source_repository_unavailable"]));
+                    components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate(
+                        "source-repository",
+                        "unavailable",
+                        default,
+                        default,
+                        LicenseStatus.Unknown,
+                        false,
+                        ["source_repository_unavailable"],
+                        new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
                     unplannedUnknownCount++;
                     continue;
                 }
@@ -50,7 +58,15 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 var repositoryRef = metadata?.RepositoryRef ?? string.Empty;
                 if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out var target))
                 {
-                    components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate("source-repository", "unsupported", Utf8Slice.FromString(repositoryUrl), default, LicenseStatus.Unknown, false, ["unsupported_source_repository"]));
+                    components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate(
+                        "source-repository",
+                        "unsupported",
+                        Utf8Slice.FromString(repositoryUrl),
+                        default,
+                        LicenseStatus.Unknown,
+                        false,
+                        ["unsupported_source_repository"],
+                        new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
                     unplannedUnknownCount++;
                     continue;
                 }
@@ -157,7 +173,9 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         var license = record.License;
         candidate = candidate with
         {
-            SourceRepository = new SourceRepositoryEvidence(
+            Evidence = new LicenseEvidence(
+                LicenseEvidenceKind.SourceRepository,
+                SourceRepository: new SourceRepositoryEvidence(
                 record.Repository,
                 record.Ref,
                 record.HttpStatus is { } status ? (int)status : null,
@@ -166,7 +184,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 license?.Sha ?? string.Empty,
                 license?.Key ?? string.Empty,
                 license?.Name ?? string.Empty,
-                license?.HtmlUrl ?? string.Empty),
+                license?.HtmlUrl ?? string.Empty)),
         };
 
         return new SourceRepositoryLookupResult(candidate, cacheHit, cacheMiss, requested, record.Errors.Length != 0, unknown);
@@ -199,16 +217,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
 
     private static string GetSbomRepositoryUrl(ScanComponent component)
     {
-        for (var i = 0; i < component.CandidateCount; i++)
-        {
-            var candidate = component.GetCandidate(i);
-            if (candidate.Source == "sbom" && candidate.Kind == "repository-url")
-            {
-                return candidate.Raw.ToString();
-            }
-        }
-
-        return string.Empty;
+        return component.RepositoryUrl.ToString();
     }
 
     private readonly record struct SourceRepositoryLookupResult(LicenseCandidate Candidate, bool CacheHit, bool CacheMiss, bool Requested, bool FetchError, bool Unknown);

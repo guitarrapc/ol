@@ -310,7 +310,7 @@ public static class SbomScanner
 
             if (reader.ValueTextEquals("licenses"u8))
             {
-                (license, status, primaryCandidate, additionalCandidates) = ReadCycloneDxLicenses(ref reader, source, offset, spdxLicenseIndex);
+                (license, status, primaryCandidate, additionalCandidates) = ReadCycloneDxLicenses(ref reader, source, offset, spdxLicenseIndex, SbomLicenseField.CycloneDxLicenses);
                 continue;
             }
 
@@ -318,8 +318,7 @@ public static class SbomScanner
             reader.Skip();
         }
 
-        AddRepositoryReference(ref primaryCandidate, ref additionalCandidates, repositoryUrl);
-        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, primaryCandidate, additionalCandidates);
+        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, primaryCandidate, additionalCandidates, repositoryUrl);
     }
 
     private static ScanComponent ReadCycloneDxMetadataComponent(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
@@ -426,12 +425,21 @@ public static class SbomScanner
             reader.Skip();
         }
 
-        var declaredCandidate = LicenseCandidateFactory.Create("sbom", "declared", declared, spdxLicenseIndex);
-        var concludedCandidate = LicenseCandidateFactory.Create("sbom", "concluded", concluded, spdxLicenseIndex);
+        var declaredCandidate = LicenseCandidateFactory.Create(
+            "sbom",
+            "declared",
+            declared,
+            spdxLicenseIndex,
+            new LicenseEvidence(LicenseEvidenceKind.Sbom, SbomLicenseField.SpdxLicenseDeclared, LicenseAcknowledgement.Declared));
+        var concludedCandidate = LicenseCandidateFactory.Create(
+            "sbom",
+            "concluded",
+            concluded,
+            spdxLicenseIndex,
+            new LicenseEvidence(LicenseEvidenceKind.Sbom, SbomLicenseField.SpdxLicenseConcluded, LicenseAcknowledgement.Concluded));
         var (license, status) = ReconcileLicenses(declaredCandidate, concludedCandidate);
         var additionalCandidates = new[] { concludedCandidate };
-        AddRepositoryReference(ref declaredCandidate, ref additionalCandidates, repositoryUrl);
-        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, declaredCandidate, additionalCandidates);
+        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, declaredCandidate, additionalCandidates, repositoryUrl);
     }
 
     private static void ReadSpdxRelationships(ref Utf8JsonReader reader, byte[] source, int offset, ref DependencyEdge[] dependencies, ref int dependencyCount, ref Utf8Slice rootRef)
@@ -578,7 +586,7 @@ public static class SbomScanner
         return (purl, repositoryUrl);
     }
 
-    private static (Utf8Slice License, LicenseStatus Status, LicenseCandidate PrimaryCandidate, LicenseCandidate[] AdditionalCandidates) ReadCycloneDxLicenses(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
+    private static (Utf8Slice License, LicenseStatus Status, LicenseCandidate PrimaryCandidate, LicenseCandidate[] AdditionalCandidates) ReadCycloneDxLicenses(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex, SbomLicenseField sbomField)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartArray)
@@ -605,7 +613,7 @@ public static class SbomScanner
                     continue;
                 }
 
-                var candidate = ReadCycloneDxLicenseCandidate(ref reader, source, offset, spdxLicenseIndex);
+                var candidate = ReadCycloneDxLicenseCandidate(ref reader, source, offset, spdxLicenseIndex, sbomField);
                 if (candidateCount == candidateBuffer.Length)
                 {
                     var expanded = ArrayPool<LicenseCandidate>.Shared.Rent(candidateBuffer.Length * 2);
@@ -741,7 +749,8 @@ public static class SbomScanner
         Utf8Slice purl,
         Utf8Slice sourceId,
         LicenseCandidate primaryCandidate,
-        LicenseCandidate[] additionalCandidates)
+        LicenseCandidate[] additionalCandidates,
+        Utf8Slice repositoryUrl = default)
     {
         var hasDeprecatedWarning = false;
         if (primaryCandidate.Source is not null)
@@ -765,27 +774,8 @@ public static class SbomScanner
             sourceId,
             primaryCandidate,
             additionalCandidates,
-            hasDeprecatedWarning ? ["deprecated_spdx_identifier"] : []);
-    }
-
-    private static void AddRepositoryReference(ref LicenseCandidate primaryCandidate, ref LicenseCandidate[] additionalCandidates, Utf8Slice repositoryUrl)
-    {
-        if (repositoryUrl.IsEmpty)
-        {
-            return;
-        }
-
-        var candidate = new LicenseCandidate("sbom", "repository-url", repositoryUrl, default, LicenseStatus.Unknown, false, []);
-        if (primaryCandidate.Source is null)
-        {
-            primaryCandidate = candidate;
-            return;
-        }
-
-        var expanded = new LicenseCandidate[additionalCandidates.Length + 1];
-        additionalCandidates.CopyTo(expanded, 0);
-        expanded[^1] = candidate;
-        additionalCandidates = expanded;
+            hasDeprecatedWarning ? ["deprecated_spdx_identifier"] : [],
+            repositoryUrl);
     }
 
     private static Utf8Slice ReadCycloneDxRepositoryUrl(ref Utf8JsonReader reader, byte[] source, int offset)
@@ -836,11 +826,12 @@ public static class SbomScanner
         return repositoryUrl;
     }
 
-    private static LicenseCandidate ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
+    private static LicenseCandidate ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex, SbomLicenseField sbomField)
     {
         var depth = reader.CurrentDepth;
         var kind = "unknown";
         var candidate = LicenseCandidateFactory.Create("sbom", kind, default(Utf8Slice), spdxLicenseIndex);
+        var acknowledgement = LicenseAcknowledgement.None;
 
         while (reader.Read())
         {
@@ -862,10 +853,21 @@ public static class SbomScanner
                 continue;
             }
 
+            if (reader.ValueTextEquals("acknowledgement"u8))
+            {
+                reader.Read();
+                acknowledgement = reader.TokenType == JsonTokenType.String
+                    ? ValueTextEqualsAsciiIgnoreCase(ref reader, "declared") ? LicenseAcknowledgement.Declared
+                    : ValueTextEqualsAsciiIgnoreCase(ref reader, "concluded") ? LicenseAcknowledgement.Concluded
+                    : LicenseAcknowledgement.None
+                    : LicenseAcknowledgement.None;
+                continue;
+            }
+
             reader.Read();
         }
 
-        return candidate;
+        return candidate with { Evidence = new LicenseEvidence(LicenseEvidenceKind.Sbom, sbomField, acknowledgement) };
     }
 
     private static LicenseCandidate CreateLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, string kind, SpdxLicenseIndex spdxLicenseIndex)

@@ -147,13 +147,24 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
 
     private static PackageMetadataLookupResult CreateFetchError(PackageMetadataRequest request)
     {
-        var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed");
+        var evidence = new LicenseEvidence(
+            LicenseEvidenceKind.PackageRegistry,
+            CacheKeySha256: PackageMetadataCache.GetCacheKeySha256(request.CacheKey));
+        var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed", evidence);
         return new PackageMetadataLookupResult(error, true, false, true, false, true, false);
     }
 
     private static PackageMetadataLookupResult CreateUnsupportedPurlResult(Utf8Slice purl)
     {
-        var candidate = new LicenseCandidate("package-metadata", "unsupported", purl, default, LicenseStatus.Unknown, false, ["unsupported_package_metadata"]);
+        var candidate = new LicenseCandidate(
+            "package-metadata",
+            "unsupported",
+            purl,
+            default,
+            LicenseStatus.Unknown,
+            false,
+            ["unsupported_package_metadata"],
+            new LicenseEvidence(LicenseEvidenceKind.PackageRegistry));
         return new PackageMetadataLookupResult(candidate, true, false, false, false, false, true);
     }
 
@@ -172,7 +183,11 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
 
     private LicenseCandidate CreateMetadataCandidate(PackageMetadataRecord record)
     {
-        var candidate = LicenseCandidateFactory.Create(record.Source, "license", Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex);
+        var evidence = new LicenseEvidence(
+            LicenseEvidenceKind.PackageRegistry,
+            CacheKeySha256: record.CacheKeySha256,
+            CollectedAt: record.FetchedAt);
+        var candidate = LicenseCandidateFactory.Create(record.Source, "license", Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex, evidence);
         if (record.Warnings.Length == 0)
         {
             return candidate;

@@ -14,6 +14,7 @@
 /// <param name="PrimaryCandidate">The first extracted license candidate, when present.</param>
 /// <param name="AdditionalCandidates">The additional extracted candidates, when present.</param>
 /// <param name="Warnings">Warnings associated with this component.</param>
+/// <param name="RepositoryUrl">The source repository URL supplied by the SBOM, when present.</param>
 public readonly record struct ScanComponent(
     Utf8Slice Name,
     Utf8Slice Version,
@@ -25,7 +26,8 @@ public readonly record struct ScanComponent(
     Utf8Slice SourceId,
     LicenseCandidate PrimaryCandidate,
     LicenseCandidate[] AdditionalCandidates,
-    string[] Warnings)
+    string[] Warnings,
+    Utf8Slice RepositoryUrl = default)
 {
     /// <summary>Gets the number of retained license candidates.</summary>
     public int CandidateCount => PrimaryCandidate.Source is null ? 0 : AdditionalCandidates.Length + 1;

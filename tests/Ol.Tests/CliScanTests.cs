@@ -32,7 +32,12 @@ public sealed class CliScanTests
             var component = report.RootElement.GetProperty("components")[0];
             await Assert.That(component.GetProperty("status").GetString()).IsEqualTo("matched");
             await Assert.That(component.GetProperty("license").GetString()).IsEqualTo("MIT");
-            await Assert.That(component.GetProperty("licenseCandidates")[2].GetProperty("source").GetString()).IsEqualTo("github-license-api");
+            var sourceCandidate = component.GetProperty("licenseCandidates")[2];
+            await Assert.That(sourceCandidate.GetProperty("source").GetString()).IsEqualTo("github-license-api");
+            var sourceEvidence = sourceCandidate.GetProperty("evidence");
+            await Assert.That(sourceEvidence.GetProperty("type").GetString()).IsEqualTo("source-repository");
+            await Assert.That(sourceEvidence.GetProperty("repository").GetString()).IsEqualTo("owner/repository");
+            await Assert.That(sourceEvidence.GetProperty("licensePath").GetString()).IsEqualTo("LICENSE");
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("network").GetProperty("githubAuth").GetString()).IsEqualTo("none");
             var sourceMetadata = report.RootElement.GetProperty("metadata").GetProperty("sourceRepository");
             await Assert.That(sourceMetadata.GetProperty("targetCount").GetInt32()).IsEqualTo(1);
@@ -83,7 +88,12 @@ public sealed class CliScanTests
             var component = report.RootElement.GetProperty("components")[0];
             await Assert.That(component.GetProperty("status").GetString()).IsEqualTo("matched");
             await Assert.That(component.GetProperty("license").GetString()).IsEqualTo("MIT");
-            await Assert.That(component.GetProperty("licenseCandidates")[1].GetProperty("source").GetString()).IsEqualTo("npm-registry");
+            var packageCandidate = component.GetProperty("licenseCandidates")[1];
+            await Assert.That(packageCandidate.GetProperty("source").GetString()).IsEqualTo("npm-registry");
+            var packageEvidence = packageCandidate.GetProperty("evidence");
+            await Assert.That(packageEvidence.GetProperty("type").GetString()).IsEqualTo("package-registry");
+            await Assert.That(packageEvidence.GetProperty("cacheKeySha256").GetString()!.Length).IsEqualTo(64);
+            await Assert.That(packageEvidence.GetProperty("collectedAt").GetDateTimeOffset()).IsGreaterThan(DateTimeOffset.MinValue);
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("packageMetadata").GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
             await Assert.That(stderr).IsEmpty();
         }
@@ -195,7 +205,14 @@ public sealed class CliScanTests
             await Assert.That(declared.GetProperty("status").GetString()).IsEqualTo("matched");
             await Assert.That(declared.GetProperty("deprecated").GetBoolean()).IsTrue();
             await Assert.That(declared.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
-            await Assert.That(component.GetProperty("evidence").GetArrayLength()).IsEqualTo(3);
+            await Assert.That(component.TryGetProperty("evidence", out _)).IsFalse();
+            var declaredEvidence = declared.GetProperty("evidence");
+            await Assert.That(declaredEvidence.GetProperty("type").GetString()).IsEqualTo("sbom");
+            await Assert.That(declaredEvidence.GetProperty("field").GetString()).IsEqualTo("licenseDeclared");
+            await Assert.That(declaredEvidence.GetProperty("acknowledgement").GetString()).IsEqualTo("declared");
+            var concludedEvidence = candidates[1].GetProperty("evidence");
+            await Assert.That(concludedEvidence.GetProperty("field").GetString()).IsEqualTo("licenseConcluded");
+            await Assert.That(concludedEvidence.GetProperty("acknowledgement").GetString()).IsEqualTo("concluded");
             await Assert.That(candidates[2].GetProperty("kind").GetString()).IsEqualTo("unavailable");
             await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
             await Assert.That(stderr).IsEmpty();
@@ -234,6 +251,50 @@ public sealed class CliScanTests
             await Assert.That(stdout).Contains("direct");
             await Assert.That(stdout).DoesNotContain("unknown");
             await Assert.That(stderr).Contains("Filter: 2 components excluded; 1 with unknown dependency type");
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithCycloneDxLicenseAcknowledgement_ReportsClaimProvenanceWithoutDuplicateEvidenceArray()
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-acknowledgement-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            sbomPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                {
+                  "bom-ref": "example",
+                  "name": "example",
+                  "licenses": [ { "license": { "id": "MIT", "acknowledgement": "concluded" } } ]
+                }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("schemaVersion").GetInt32()).IsEqualTo(1);
+            var component = report.RootElement.GetProperty("components")[0];
+            await Assert.That(component.TryGetProperty("evidence", out _)).IsFalse();
+            var evidence = component.GetProperty("licenseCandidates")[0].GetProperty("evidence");
+            await Assert.That(evidence.GetProperty("type").GetString()).IsEqualTo("sbom");
+            await Assert.That(evidence.GetProperty("field").GetString()).IsEqualTo("licenses");
+            await Assert.That(evidence.GetProperty("acknowledgement").GetString()).IsEqualTo("concluded");
+            await Assert.That(evidence.TryGetProperty("attested", out _)).IsFalse();
+            await Assert.That(stderr).IsEmpty();
         }
         finally
         {
@@ -470,8 +531,10 @@ public sealed class CliScanTests
             var component = report.RootElement.GetProperty("components")[0];
             await Assert.That(component.GetProperty("status").GetString()).IsEqualTo("conflict");
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("network").GetProperty("githubAuth").GetString()).IsEqualTo("ol_github_token");
-            var sourceCandidate = component.GetProperty("evidence")[2];
-            var source = sourceCandidate.GetProperty("sourceRepository");
+            await Assert.That(component.TryGetProperty("evidence", out _)).IsFalse();
+            var sourceCandidate = component.GetProperty("licenseCandidates")[2];
+            var source = sourceCandidate.GetProperty("evidence");
+            await Assert.That(source.GetProperty("type").GetString()).IsEqualTo("source-repository");
             await Assert.That(sourceCandidate.GetProperty("warnings").GetArrayLength()).IsEqualTo(0);
             await Assert.That(source.GetProperty("repository").GetString()).IsEqualTo("owner/repository");
             await Assert.That(source.GetProperty("ref").GetString()).IsEqualTo(repositoryRef);

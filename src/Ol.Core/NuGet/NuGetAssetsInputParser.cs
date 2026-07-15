@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Ol.Core;
 
-internal static class NuGetAssetsScanner
+internal static class NuGetAssetsInputParser
 {
     private static ReadOnlySpan<byte> PurlPrefix => "pkg:nuget/"u8;
 

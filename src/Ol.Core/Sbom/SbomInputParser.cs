@@ -5,35 +5,10 @@ using System.Text.Json;
 namespace Ol.Core;
 
 /// <summary>
-/// Scans SBOM JSON documents into license reports.
+/// Parses SBOM JSON documents into dependency inventories.
 /// </summary>
-public static class SbomScanner
+internal static class SbomInputParser
 {
-    /// <summary>
-    /// Scans an SBOM from UTF-8 JSON bytes.
-    /// </summary>
-    /// <param name="sbomUtf8">The SBOM JSON bytes.</param>
-    /// <param name="spdxLicenseIndex">The SPDX license lookup index.</param>
-    /// <returns>The scan report.</returns>
-    public static ScanReport Scan(ReadOnlySpan<byte> sbomUtf8, SpdxLicenseIndex spdxLicenseIndex, DependencyInputRegistry? inputs = null)
-    {
-        return Scan(sbomUtf8.ToArray(), spdxLicenseIndex, inputs);
-    }
-
-    /// <summary>
-    /// Scans an owned UTF-8 SBOM buffer without copying component text.
-    /// </summary>
-    public static ScanReport Scan(byte[] sbomUtf8, SpdxLicenseIndex spdxLicenseIndex, DependencyInputRegistry? inputs = null)
-    {
-        var registry = inputs ?? DependencyInputRegistry.Default;
-        var inventory = DependencyInputScanner.ScanCore(sbomUtf8, spdxLicenseIndex, registry, default, retainGraph: false, out var handler);
-
-        var legacyFormat = string.IsNullOrEmpty(handler.LegacySbomFormat.Name)
-            ? new SbomFormat(handler.Format.Name)
-            : handler.LegacySbomFormat;
-        return new ScanReport(legacyFormat, inventory.Input.SpecificationVersion, inventory.Components);
-    }
-
     internal static DependencyInventory ParseCycloneDxInventory(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph)
     {
         var reader = new Utf8JsonReader(sbomUtf8.AsSpan(offset), isFinalBlock: true, state: default);

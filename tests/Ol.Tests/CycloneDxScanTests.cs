@@ -13,12 +13,12 @@ public sealed class CycloneDxScanTests
     {
         var format = new ScanInputFormat("test-json", "test-json-parser", "Test JSON");
         var registry = new DependencyInputRegistry([
-          new DependencyInputHandler(ScanInputKind.Sbom, format, new(new DependencyInputMarker[] { new("testFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "test"u8.ToArray()) }), static (_, _, _, _) => new DependencyInventory(default, [], [], [], []), new SbomFormat("test-json")),
+          new DependencyInputHandler(ScanInputKind.Sbom, format, new(new DependencyInputMarker[] { new("testFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "test"u8.ToArray()) }), static (_, _, _, _) => new DependencyInventory(default, [], [], [], [])),
         ]);
 
-        var report = SbomScanner.Scan(Encoding.UTF8.GetBytes("""{ "testFormat": "test" }"""), Spdx, registry);
+        var report = DependencyInputScanner.Scan(Encoding.UTF8.GetBytes("""{ "testFormat": "test" }"""), Spdx, registry);
 
-        await Assert.That(report.Format).IsEqualTo(new SbomFormat("test-json"));
+        await Assert.That(report.Input.Format).IsEqualTo(format);
     }
 
     [Test]
@@ -66,9 +66,9 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
-        await Assert.That(report.Format).IsEqualTo(SbomFormat.CycloneDxJson);
+        await Assert.That(report.Input.Format).IsEqualTo(ScanInputFormat.CycloneDx);
         await Assert.That(report.Components.Length).IsEqualTo(1);
 
         var component = report.Components[0];
@@ -103,7 +103,7 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var component = SbomScanner.Scan(sbom, Spdx).Components[0];
+        var component = DependencyInputScanner.Scan(sbom, Spdx).Components[0];
 
         await Assert.That(component.Name.Span.SequenceEqual("example"u8)).IsTrue();
         await Assert.That(component.Purl.Span.SequenceEqual("pkg:npm/example@1.0.0"u8)).IsTrue();
@@ -123,7 +123,7 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var component = SbomScanner.Scan(sbom, Spdx).Components[0];
+        var component = DependencyInputScanner.Scan(sbom, Spdx).Components[0];
 
         await Assert.That(component.Ecosystem).IsEqualTo("npm");
     }
@@ -147,7 +147,7 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Ambiguous);
         await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT, Apache-2.0 (?)");
@@ -174,7 +174,7 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Unknown);
         await Assert.That(report.Components[0].License.ToString()).IsEqualTo("-");
@@ -196,7 +196,7 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         var component = report.Components[0];
         await Assert.That(component.CandidateCount).IsEqualTo(1);
@@ -221,7 +221,7 @@ public sealed class CycloneDxScanTests
             """);
         var deprecatedSpdx = new SpdxLicenseIndex(["GPL-2.0-only", "MIT"], [], ["GPL-2.0-only"]);
 
-        var report = SbomScanner.Scan(sbom, deprecatedSpdx);
+        var report = DependencyInputScanner.Scan(sbom, deprecatedSpdx);
 
         await Assert.That(report.Components[0].GetCandidate(0).Deprecated).IsTrue();
         await Assert.That(report.Components[0].Warnings[0]).IsEqualTo("deprecated_spdx_identifier");
@@ -245,7 +245,7 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
         await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT OR (Apache-2.0 WITH Classpath-exception-2.0)");
@@ -269,7 +269,7 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Invalid);
         await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT OR Not-A-License (?)");
@@ -293,7 +293,7 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Ambiguous);
         await Assert.That(report.Components[0].License.ToString()).IsEqualTo("Apache License (?)");
@@ -338,7 +338,7 @@ public sealed class CycloneDxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components.Length).IsEqualTo(3);
         await Assert.That(report.Components[0].Name.ToString()).IsEqualTo("app");
@@ -362,7 +362,7 @@ public sealed class CycloneDxScanTests
           }
           """);
 
-        await Assert.That(() => SbomScanner.Scan(sbom, Spdx)).Throws<JsonException>();
+        await Assert.That(() => DependencyInputScanner.Scan(sbom, Spdx)).Throws<JsonException>();
     }
 }
 
@@ -396,9 +396,9 @@ public sealed class SpdxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
-        await Assert.That(report.Format).IsEqualTo(SbomFormat.SpdxJson);
+        await Assert.That(report.Input.Format).IsEqualTo(ScanInputFormat.Spdx);
         await Assert.That(report.Components.Length).IsEqualTo(1);
 
         var component = report.Components[0];
@@ -427,7 +427,7 @@ public sealed class SpdxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Conflict);
         await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT, Apache-2.0 (?)");
@@ -451,7 +451,7 @@ public sealed class SpdxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Invalid);
         await Assert.That(report.Components[0].License.ToString()).IsEqualTo("MIT OR Not-A-License (?)");
@@ -477,7 +477,7 @@ public sealed class SpdxScanTests
             }
             """);
 
-        var report = SbomScanner.Scan(sbom, Spdx);
+        var report = DependencyInputScanner.Scan(sbom, Spdx);
 
         await Assert.That(report.Components[0].DependencyType).IsEqualTo(DependencyType.Root);
         await Assert.That(report.Components[1].DependencyType).IsEqualTo(DependencyType.Direct);

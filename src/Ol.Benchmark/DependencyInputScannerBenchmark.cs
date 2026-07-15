@@ -3,7 +3,7 @@ using BenchmarkDotNet.Attributes;
 using Ol.Core;
 
 [DisassemblyDiagnoser(maxDepth: 1)]
-public class SbomScannerBenchmark
+public class DependencyInputScannerBenchmark
 {
     private readonly byte[] cycloneDx = Encoding.UTF8.GetBytes(
         """
@@ -77,9 +77,9 @@ public class SbomScannerBenchmark
     private readonly Utf8Slice sharedSourceId = "Shared.Package/2.0.0";
 
     [Benchmark]
-    public ScanReport ScanCycloneDx()
+    public DependencyInventory ScanCycloneDx()
     {
-        return SbomScanner.Scan(cycloneDx, spdx);
+        return DependencyInputScanner.Scan(cycloneDx, spdx);
     }
 
     [Benchmark]
@@ -121,15 +121,15 @@ public class SbomScannerBenchmark
     }
 
     [Benchmark]
-    public ScanReport ScanCycloneDxUnknownLicense()
+    public DependencyInventory ScanCycloneDxUnknownLicense()
     {
-        return SbomScanner.Scan(cycloneDxUnknown, spdx);
+        return DependencyInputScanner.Scan(cycloneDxUnknown, spdx);
     }
 
     [Benchmark]
-    public ScanReport ScanCycloneDxExpression()
+    public DependencyInventory ScanCycloneDxExpression()
     {
-        return SbomScanner.Scan(cycloneDxExpression, spdx);
+        return DependencyInputScanner.Scan(cycloneDxExpression, spdx);
     }
 
     private static DependencyInputRegistry CreateDetectionRegistry(bool useNuGetSignature)

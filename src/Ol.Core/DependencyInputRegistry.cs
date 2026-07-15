@@ -48,13 +48,11 @@ public readonly record struct DependencyInputSignature(ReadOnlyMemory<Dependency
 /// <param name="Format">The public input format.</param>
 /// <param name="Signature">The deterministic content signature.</param>
 /// <param name="Parser">The format-owned parser.</param>
-/// <param name="LegacySbomFormat">The legacy SBOM report format, when applicable.</param>
 public readonly record struct DependencyInputHandler(
     ScanInputKind Kind,
     ScanInputFormat Format,
     DependencyInputSignature Signature,
-    DependencyInputParser Parser,
-    SbomFormat LegacySbomFormat = default);
+    DependencyInputParser Parser);
 
 /// <summary>Immutable registry of resolved dependency input handlers.</summary>
 public sealed class DependencyInputRegistry
@@ -63,14 +61,14 @@ public sealed class DependencyInputRegistry
 
     /// <summary>Gets the built-in resolved dependency input handlers.</summary>
     public static DependencyInputRegistry Default { get; } = new([
-        new(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, new(new DependencyInputMarker[] { new("bomFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "CycloneDX"u8.ToArray()) }), SbomScanner.ParseCycloneDxInventory, SbomFormat.CycloneDxJson),
-        new(ScanInputKind.Sbom, ScanInputFormat.Spdx, new(new DependencyInputMarker[] { new("spdxVersion"u8.ToArray(), DependencyInputMarkerValueKind.String) }), SbomScanner.ParseSpdxInventory, SbomFormat.SpdxJson),
+        new(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, new(new DependencyInputMarker[] { new("bomFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "CycloneDX"u8.ToArray()) }), SbomInputParser.ParseCycloneDxInventory),
+        new(ScanInputKind.Sbom, ScanInputFormat.Spdx, new(new DependencyInputMarker[] { new("spdxVersion"u8.ToArray(), DependencyInputMarkerValueKind.String) }), SbomInputParser.ParseSpdxInventory),
         new(ScanInputKind.PackageManager, ScanInputFormat.NuGetAssets, new(new DependencyInputMarker[] {
             new("version"u8.ToArray(), DependencyInputMarkerValueKind.Number),
             new("targets"u8.ToArray(), DependencyInputMarkerValueKind.Object),
             new("libraries"u8.ToArray(), DependencyInputMarkerValueKind.Object),
             new("project"u8.ToArray(), DependencyInputMarkerValueKind.Object),
-        }), NuGetAssetsScanner.Parse),
+        }), NuGetAssetsInputParser.Parse),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>

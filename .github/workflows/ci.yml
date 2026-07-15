@@ -93,10 +93,20 @@ jobs:
           OL_GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ol = "src/Ol/bin/Release/net10.0/ol.dll"
-          dotnet $ol scan --sbom "$env:RUNNER_TEMP/ecosystem.cdx.json" --format text --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/report.txt" | Out-Null
-          dotnet $ol scan --sbom "$env:RUNNER_TEMP/ecosystem.cdx.json" --format markdown --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/report.md" | Out-Null
-          dotnet $ol scan --sbom "$env:RUNNER_TEMP/ecosystem.cdx.json" --format json --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/report.json" | Out-Null
-          ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/report.json" -Ecosystem $env:FIXTURE_ECOSYSTEM
+          function Invoke-OlScan([string] $InputPath, [string] $InputFormat, [string] $ReportPrefix) {
+            dotnet $ol scan --input $InputPath --input-format $InputFormat --format text --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/$ReportPrefix.txt" | Out-Null
+            dotnet $ol scan --input $InputPath --input-format $InputFormat --format markdown --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/$ReportPrefix.md" | Out-Null
+            dotnet $ol scan --input $InputPath --input-format $InputFormat --format json --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/$ReportPrefix.json" | Out-Null
+          }
+
+          Invoke-OlScan "$env:RUNNER_TEMP/ecosystem.cdx.json" cyclonedx report
+          ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/report.json" -TextReport "$env:RUNNER_TEMP/report.txt" -MarkdownReport "$env:RUNNER_TEMP/report.md" -Ecosystem $env:FIXTURE_ECOSYSTEM -InputKind sbom -InputFormat cyclonedx
+
+          if ($env:FIXTURE_ECOSYSTEM -eq "nuget") {
+            $assets = Join-Path $env:FIXTURE_PATH "obj/project.assets.json"
+            Invoke-OlScan $assets nuget-assets nuget-assets-report
+            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/nuget-assets-report.json" -TextReport "$env:RUNNER_TEMP/nuget-assets-report.txt" -MarkdownReport "$env:RUNNER_TEMP/nuget-assets-report.md" -Ecosystem nuget -InputKind package-manager -InputFormat nuget-assets
+          }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ecosystem-${{ matrix.ecosystem }}
@@ -105,6 +115,7 @@ jobs:
             ${{ runner.temp }}/report.txt
             ${{ runner.temp }}/report.md
             ${{ runner.temp }}/report.json
+            ${{ runner.temp }}/nuget-assets-report.*
 
   self-scan:
     runs-on: ubuntu-24.04

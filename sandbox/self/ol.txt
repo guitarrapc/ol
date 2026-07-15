@@ -1,4 +1,6 @@
-﻿NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS
+﻿Input: sbom/cyclonedx
+
+NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS
 Ol 0.0.0 - - root unknown
 BenchmarkDotNet 0.15.8 MIT nuget direct matched
 BenchmarkDotNet.Annotations 0.15.8 MIT nuget transitive matched

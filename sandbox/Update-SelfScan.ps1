@@ -40,7 +40,7 @@ try {
             default { $format }
         }
         $report = Join-Path $output "ol.$extension"
-        dotnet $ol scan --sbom $sbom --format $format --skip-enrichment --quiet --out $report | Out-Null
+        dotnet $ol scan --input $sbom --input-format cyclonedx --format $format --skip-enrichment --quiet --out $report | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Ol $format self-scan failed." }
     }
 }

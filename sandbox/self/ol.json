@@ -3,6 +3,12 @@
   "metadata": {
     "tool": "ol",
     "input": {
+      "kind": "sbom",
+      "format": "cyclonedx",
+      "sourceRef": "ol.cdx.json",
+      "sourceSha256": "08ca47df938ee2540c52a9c2e5b43c5b8206493d29c0d25d688ff1022ea1d63c",
+      "parser": "cyclonedx-json",
+      "specificationVersion": "1.7",
       "sbomRef": "ol.cdx.json",
       "sbomFormat": "CycloneDX",
       "sbomSpecVersion": "1.7",
@@ -16,6 +22,7 @@
       "exceptionsSha256": "211da1990cef279bced412f7f0ce5b855ff2b3caa3f9664a7eea9fda3e2a3312"
     },
     "packageMetadata": {
+      "targetCount": 0,
       "supportedComponentCount": 0,
       "cacheHitCount": 0,
       "cacheMissCount": 0,
@@ -36,6 +43,769 @@
     "network": {
       "githubAuth": "none"
     }
+  },
+  "inventory": {
+    "contexts": [],
+    "components": [
+      {
+        "name": "Ol",
+        "version": "0.0.0",
+        "ecosystem": "-",
+        "dependency": "root",
+        "purl": "",
+        "sourceId": "Ol@0.0.0"
+      },
+      {
+        "name": "BenchmarkDotNet",
+        "version": "0.15.8",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/BenchmarkDotNet@0.15.8",
+        "sourceId": "pkg:nuget/BenchmarkDotNet@0.15.8"
+      },
+      {
+        "name": "BenchmarkDotNet.Annotations",
+        "version": "0.15.8",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+        "sourceId": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8"
+      },
+      {
+        "name": "CommandLineParser",
+        "version": "2.9.1",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/CommandLineParser@2.9.1",
+        "sourceId": "pkg:nuget/CommandLineParser@2.9.1"
+      },
+      {
+        "name": "ConsoleAppFramework",
+        "version": "5.7.13",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/ConsoleAppFramework@5.7.13",
+        "sourceId": "pkg:nuget/ConsoleAppFramework@5.7.13"
+      },
+      {
+        "name": "EnumerableAsyncProcessor",
+        "version": "3.8.4",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+        "sourceId": "pkg:nuget/EnumerableAsyncProcessor@3.8.4"
+      },
+      {
+        "name": "Gee.External.Capstone",
+        "version": "2.3.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Gee.External.Capstone@2.3.0",
+        "sourceId": "pkg:nuget/Gee.External.Capstone@2.3.0"
+      },
+      {
+        "name": "Iced",
+        "version": "1.21.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Iced@1.21.0",
+        "sourceId": "pkg:nuget/Iced@1.21.0"
+      },
+      {
+        "name": "Microsoft.ApplicationInsights",
+        "version": "2.23.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+        "sourceId": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0"
+      },
+      {
+        "name": "Microsoft.CodeAnalysis.Analyzers",
+        "version": "3.11.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+        "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0"
+      },
+      {
+        "name": "Microsoft.CodeAnalysis.Common",
+        "version": "4.14.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+        "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0"
+      },
+      {
+        "name": "Microsoft.CodeAnalysis.CSharp",
+        "version": "4.14.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+        "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0"
+      },
+      {
+        "name": "Microsoft.Diagnostics.NETCore.Client",
+        "version": "0.2.510501",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+        "sourceId": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501"
+      },
+      {
+        "name": "Microsoft.Diagnostics.Runtime",
+        "version": "3.1.512801",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+        "sourceId": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801"
+      },
+      {
+        "name": "Microsoft.Diagnostics.Tracing.TraceEvent",
+        "version": "3.1.21",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+        "sourceId": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21"
+      },
+      {
+        "name": "Microsoft.DiaSymReader",
+        "version": "2.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+        "sourceId": "pkg:nuget/Microsoft.DiaSymReader@2.0.0"
+      },
+      {
+        "name": "Microsoft.DotNet.ILCompiler",
+        "version": "10.0.9",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+        "sourceId": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9"
+      },
+      {
+        "name": "Microsoft.DotNet.PlatformAbstractions",
+        "version": "3.1.6",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+        "sourceId": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6"
+      },
+      {
+        "name": "Microsoft.Extensions.DependencyInjection",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.DependencyModel",
+        "version": "6.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2"
+      },
+      {
+        "name": "Microsoft.Extensions.Logging",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.Logging.Abstractions",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.Options",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.Options@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.Primitives",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0"
+      },
+      {
+        "name": "Microsoft.NET.ILLink.Tasks",
+        "version": "10.0.9",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+        "sourceId": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9"
+      },
+      {
+        "name": "Microsoft.Testing.Extensions.CodeCoverage",
+        "version": "18.3.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2"
+      },
+      {
+        "name": "Microsoft.Testing.Extensions.Telemetry",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2"
+      },
+      {
+        "name": "Microsoft.Testing.Extensions.TrxReport",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2"
+      },
+      {
+        "name": "Microsoft.Testing.Extensions.TrxReport.Abstractions",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2"
+      },
+      {
+        "name": "Microsoft.Testing.Platform",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Platform@2.0.2"
+      },
+      {
+        "name": "Microsoft.Testing.Platform.MSBuild",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2"
+      },
+      {
+        "name": "Perfolizer",
+        "version": "0.6.1",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Perfolizer@0.6.1",
+        "sourceId": "pkg:nuget/Perfolizer@0.6.1"
+      },
+      {
+        "name": "Pragmastat",
+        "version": "3.2.4",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Pragmastat@3.2.4",
+        "sourceId": "pkg:nuget/Pragmastat@3.2.4"
+      },
+      {
+        "name": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+        "version": "10.0.9",
+        "ecosystem": "nuget",
+        "dependency": "unknown",
+        "purl": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+        "sourceId": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9"
+      },
+      {
+        "name": "System.CodeDom",
+        "version": "9.0.5",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/System.CodeDom@9.0.5",
+        "sourceId": "pkg:nuget/System.CodeDom@9.0.5"
+      },
+      {
+        "name": "System.Management",
+        "version": "9.0.5",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/System.Management@9.0.5",
+        "sourceId": "pkg:nuget/System.Management@9.0.5"
+      },
+      {
+        "name": "System.Reflection.TypeExtensions",
+        "version": "4.7.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+        "sourceId": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0"
+      },
+      {
+        "name": "TUnit",
+        "version": "1.12.111",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/TUnit@1.12.111",
+        "sourceId": "pkg:nuget/TUnit@1.12.111"
+      },
+      {
+        "name": "TUnit.Assertions",
+        "version": "1.12.111",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/TUnit.Assertions@1.12.111",
+        "sourceId": "pkg:nuget/TUnit.Assertions@1.12.111"
+      },
+      {
+        "name": "TUnit.Core",
+        "version": "1.12.111",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/TUnit.Core@1.12.111",
+        "sourceId": "pkg:nuget/TUnit.Core@1.12.111"
+      },
+      {
+        "name": "TUnit.Engine",
+        "version": "1.12.111",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/TUnit.Engine@1.12.111",
+        "sourceId": "pkg:nuget/TUnit.Engine@1.12.111"
+      }
+    ],
+    "occurrences": [
+      {
+        "contextIndex": -1,
+        "componentIndex": 0
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 1
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 2
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 3
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 4
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 5
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 6
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 7
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 8
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 9
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 10
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 11
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 12
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 13
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 14
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 15
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 16
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 17
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 18
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 19
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 20
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 21
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 22
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 23
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 24
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 25
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 26
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 27
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 28
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 29
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 31
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 32
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 33
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 34
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 35
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 36
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 37
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 38
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 39
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 40
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 41
+      }
+    ],
+    "edges": [
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 1
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 4
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 16
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 25
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 38
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 2
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 3
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 6
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 7
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 11
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 13
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 14
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 17
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 32
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 36
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 10,
+        "toOccurrenceIndex": 9
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 11,
+        "toOccurrenceIndex": 9
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 11,
+        "toOccurrenceIndex": 10
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 12,
+        "toOccurrenceIndex": 21
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 13,
+        "toOccurrenceIndex": 12
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 14,
+        "toOccurrenceIndex": 12
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 14,
+        "toOccurrenceIndex": 37
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 18,
+        "toOccurrenceIndex": 19
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 21,
+        "toOccurrenceIndex": 18
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 21,
+        "toOccurrenceIndex": 19
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 21,
+        "toOccurrenceIndex": 22
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 21,
+        "toOccurrenceIndex": 23
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 23,
+        "toOccurrenceIndex": 19
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 23,
+        "toOccurrenceIndex": 24
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 26,
+        "toOccurrenceIndex": 15
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 26,
+        "toOccurrenceIndex": 20
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 26,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 27,
+        "toOccurrenceIndex": 8
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 27,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 29,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 28,
+        "toOccurrenceIndex": 29
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 28,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 31,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 32,
+        "toOccurrenceIndex": 33
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 36,
+        "toOccurrenceIndex": 35
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 5
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 29
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 31
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 40
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 26
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 27
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 28
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 39
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 41
+      }
+    ]
   },
   "components": [
     {

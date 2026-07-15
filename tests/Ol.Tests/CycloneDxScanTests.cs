@@ -13,7 +13,7 @@ public sealed class CycloneDxScanTests
     {
         var format = new ScanInputFormat("test-json", "test-json-parser", "Test JSON");
         var registry = new DependencyInputRegistry([
-          new DependencyInputHandler(ScanInputKind.Sbom, format, "testFormat"u8.ToArray(), "test"u8.ToArray(), static (_, _, _, _) => new DependencyInventory(default, [], [], [], []), new SbomFormat("test-json")),
+          new DependencyInputHandler(ScanInputKind.Sbom, format, new(new DependencyInputMarker[] { new("testFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "test"u8.ToArray()) }), static (_, _, _, _) => new DependencyInventory(default, [], [], [], []), new SbomFormat("test-json")),
         ]);
 
         var report = SbomScanner.Scan(Encoding.UTF8.GetBytes("""{ "testFormat": "test" }"""), Spdx, registry);
@@ -24,8 +24,8 @@ public sealed class CycloneDxScanTests
     [Test]
     public async Task Registry_WithDuplicatePublicInputFormat_RejectsRegistration()
     {
-        var first = new DependencyInputHandler(ScanInputKind.Sbom, new ScanInputFormat("shared", "first-json", "First"), "first"u8.ToArray(), "one"u8.ToArray(), static (_, _, _, _) => default);
-        var second = new DependencyInputHandler(ScanInputKind.Sbom, new ScanInputFormat("SHARED", "second-json", "Second"), "second"u8.ToArray(), "two"u8.ToArray(), static (_, _, _, _) => default);
+        var first = new DependencyInputHandler(ScanInputKind.Sbom, new ScanInputFormat("shared", "first-json", "First"), new(new DependencyInputMarker[] { new("first"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "one"u8.ToArray()) }), static (_, _, _, _) => default);
+        var second = new DependencyInputHandler(ScanInputKind.Sbom, new ScanInputFormat("SHARED", "second-json", "Second"), new(new DependencyInputMarker[] { new("second"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "two"u8.ToArray()) }), static (_, _, _, _) => default);
 
         await Assert.That(() => new DependencyInputRegistry([first, second])).Throws<ArgumentException>();
     }

@@ -49,9 +49,39 @@ public sealed class NuGetInputTests
     }
 
     [Test]
+    public async Task Scan_ProjectAssetsVersion4_AcceptsCurrentNuGetSchema()
+    {
+        var input = await File.ReadAllTextAsync(GetFixturePath("nuget-project.assets.json"));
+
+        var inventory = DependencyInputScanner.Scan(System.Text.Encoding.UTF8.GetBytes(input.Replace("\"version\": 3", "\"version\": 4", StringComparison.Ordinal)), Spdx);
+
+        await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.NuGetAssets);
+        await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("4");
+    }
+
+    [Test]
+    public async Task Scan_ProjectAssetsUnsupportedVersion_RejectsKnownFormat()
+    {
+        var input = System.Text.Encoding.UTF8.GetBytes("""{ "version": 5, "targets": {}, "libraries": {}, "project": {} }""");
+
+        await Assert.That(() => DependencyInputScanner.Scan(input, Spdx)).Throws<JsonException>();
+    }
+
+    [Test]
     public async Task Scan_WithNuGetAndCycloneDxMarkers_RejectsAmbiguousInput()
     {
-        var input = System.Text.Encoding.UTF8.GetBytes("""{ "targets": {}, "bomFormat": "CycloneDX" }""");
+        var input = System.Text.Encoding.UTF8.GetBytes("""{ "version": 3, "targets": {}, "libraries": {}, "project": {}, "bomFormat": "CycloneDX" }""");
+
+        await Assert.That(() => DependencyInputScanner.Scan(input, Spdx)).Throws<JsonException>();
+    }
+
+    [Test]
+    [Arguments("""{ "targets": {} }""")]
+    [Arguments("""{ "version": "3", "targets": {}, "libraries": {}, "project": {} }""")]
+    [Arguments("""{ "wrapper": { "version": 3, "targets": {}, "libraries": {}, "project": {} } }""")]
+    public async Task Scan_WithIncompleteWrongTypeOrNestedNuGetSignature_RejectsUnsupportedInput(string json)
+    {
+        var input = System.Text.Encoding.UTF8.GetBytes(json);
 
         await Assert.That(() => DependencyInputScanner.Scan(input, Spdx)).Throws<JsonException>();
     }

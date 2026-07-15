@@ -61,23 +61,27 @@ The compatible SBOM shortcut accepts CycloneDX or SPDX JSON and detects the form
 ol scan --sbom bom.json
 ```
 
-The generalized input form requires an explicit registered format:
+The generalized input form detects a registered format from content by default:
 
 ```bash
-ol scan --input bom.json --input-format cyclonedx
-ol scan --input bom.spdx.json --input-format spdx
-ol scan --input obj/project.assets.json --input-format nuget-assets
+ol scan --input bom.json
+ol scan --input bom.spdx.json
+ol scan --input obj/project.assets.json
 ```
 
-Exactly one of `--sbom` and `--input` is required. They cannot be combined. `--input-format` is required with `--input` and cannot be used with `--sbom`. Format names are matched case-insensitively. Explicit format and detected document format must agree.
+`--input-format` defaults to `auto`; explicitly specifying `auto` is equivalent to omitting the option. Registered format names are matched case-insensitively. An explicit non-auto format is an assertion and must agree with the detected document format.
+
+Exactly one of `--sbom` and `--input` is required. They cannot be combined. `--input-format` can only be used with `--input`.
 
 Currently supported dependency input formats:
 
 - `cyclonedx`: CycloneDX JSON
 - `spdx`: SPDX JSON
-- `nuget-assets`: NuGet `project.assets.json` version 3
+- `nuget-assets`: NuGet `project.assets.json` version 3 or 4
 
 Unsupported inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, lockfiles, and package manifests. `ol` does not recursively query registries to reproduce package-manager dependency resolution; the NuGet adapter consumes the graph already fixed by `dotnet restore`.
+
+Auto detection uses only deterministic, format-owned top-level JSON signatures; file names and extensions are not evidence. CycloneDX requires `bomFormat` equal to `CycloneDX`, SPDX requires a string `spdxVersion`, and NuGet assets requires a numeric `version` plus object-valued `targets`, `libraries`, and `project`. Every required marker for one format must match. No match is an unsupported-input error and multiple matches are an ambiguous-input error; Ol never guesses by registration order. The NuGet parser then accepts schema version 3 or 4 and rejects other versions explicitly.
 
 `scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns non-zero only when the scan itself cannot be performed or output cannot be written.
 
@@ -125,6 +129,8 @@ ol scan --sbom bom.json --format markdown --out licenses.md
 For human-readable `text` and `markdown` output, a labeled scan summary is separated from the report by a blank line and written to stderr. JSON already contains canonical summary, warning, cache, network, input, and SPDX metadata, so successful JSON output does not emit a duplicate stderr summary. This keeps redirected and interactive JSON output free from an unexpected second representation of the same information.
 
 The human-readable input summary identifies the registered input format. It does not require the downstream scan pipeline to retain an SBOM-specific report type.
+
+`--verbose` retains its verbose report columns and additionally writes `Detected input format: {kind}/{format}` to stderr after successful detection. The normal path does not construct this diagnostic text; logging work remains inside the verbose branch.
 
 The primary `text` report starts with `Input: {kind}/{format}`. Markdown uses the same value as inline code. This header remains present with `--quiet`; quiet suppresses stderr summary output, not primary report metadata.
 

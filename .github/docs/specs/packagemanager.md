@@ -26,7 +26,7 @@ Registry responses that are valid JSON but do not embed the expected metadata ob
 
 v3 keeps this behavior and adds source repository hints described in [source.md](source.md).
 
-The resolved-input pipeline also accepts NuGet `project.assets.json` version 3 through `scan --input ... --input-format nuget-assets`. This is dependency inventory input, not package-registry license evidence. The adapter consumes the restore result and does not reproduce NuGet resolution.
+The resolved-input pipeline also accepts NuGet `project.assets.json` version 3 or 4 through `scan --input ...`, auto-detected as `nuget-assets`; `--input-format nuget-assets` remains available as an explicit assertion. This is dependency inventory input, not package-registry license evidence. The adapter consumes the restore result and does not reproduce NuGet resolution.
 
 ## NuGet resolved input
 

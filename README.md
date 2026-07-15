@@ -8,7 +8,7 @@ Ol accepts resolved dependency inputs. For a .NET project, restore it and scan N
 
 ```powershell
 dotnet restore Ol.slnx
-dotnet run --project src/Ol -- scan --input src/Ol/obj/project.assets.json --input-format nuget-assets
+dotnet run --project src/Ol -- scan --input src/Ol/obj/project.assets.json
 ```
 
 NuGet resolution can differ by target framework and runtime identifier. Ol preserves each target from `project.assets.json` as a separate resolution context in JSON output.
@@ -23,20 +23,22 @@ dotnet tool run dotnet-CycloneDX Ol.slnx --output sandbox/sbom --output-format J
 Scan the generated SBOM with the generalized input API:
 
 ```powershell
-dotnet run --project src/Ol -- scan --input sandbox/sbom/cyclonedx-sample.json --input-format cyclonedx
+dotnet run --project src/Ol -- scan --input sandbox/sbom/cyclonedx-sample.json
 ```
 
 ```bash
-dotnet run --project src/Ol -- scan --input bom.spdx.json --input-format spdx
-dotnet run --project src/Ol -- scan --input sandbox/sbom/cyclonedx-sample.json --input-format cyclonedx --format markdown --out output.md
+dotnet run --project src/Ol -- scan --input bom.spdx.json
+dotnet run --project src/Ol -- scan --input sandbox/sbom/cyclonedx-sample.json --format markdown --out output.md
 ```
 
-`--sbom <path>` remains available as a compatible shortcut that detects CycloneDX or SPDX JSON from the document. Use `--input` with `--input-format` for an explicit, uniform input contract.
+`--input-format` defaults to `auto`. Ol identifies the input from registered content signatures and rejects unknown or ambiguous documents. Use `--input-format cyclonedx`, `spdx`, or `nuget-assets` when an explicit format assertion is useful. `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
+
+`--sbom <path>` remains available as a compatible shortcut for CycloneDX or SPDX JSON.
 
 Use an isolated cache root when a build or CI job must not share the user cache:
 
 ```powershell
-dotnet run --project src/Ol -- scan --input sandbox/sbom/cyclonedx-sample.json --input-format cyclonedx --cache-dir .tmp/ol-cache
+dotnet run --project src/Ol -- scan --input sandbox/sbom/cyclonedx-sample.json --cache-dir .tmp/ol-cache
 ```
 
 ## Repository sandbox

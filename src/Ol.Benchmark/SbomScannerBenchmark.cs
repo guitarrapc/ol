@@ -65,6 +65,8 @@ public class SbomScannerBenchmark
         """);
 
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
+    private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
+    private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
     private readonly Utf8Slice projectOrigin = "src/App/App.csproj";
     private readonly Utf8Slice target = "net8.0";
     private readonly Utf8Slice directName = "Direct.Package";
@@ -93,6 +95,18 @@ public class SbomScannerBenchmark
     }
 
     [Benchmark]
+    public DependencyInventory DetectNuGetSingleMarker()
+    {
+        return DependencyInputScanner.Scan(nugetAssets, spdx, singleMarkerDetectionRegistry);
+    }
+
+    [Benchmark]
+    public DependencyInventory DetectNuGetSignature()
+    {
+        return DependencyInputScanner.Scan(nugetAssets, spdx, signatureDetectionRegistry);
+    }
+
+    [Benchmark]
     public DependencyInventory CreateNuGetInventoryResultFloor()
     {
         var components = new ScanComponent[2];
@@ -116,5 +130,23 @@ public class SbomScannerBenchmark
     public ScanReport ScanCycloneDxExpression()
     {
         return SbomScanner.Scan(cycloneDxExpression, spdx);
+    }
+
+    private static DependencyInputRegistry CreateDetectionRegistry(bool useNuGetSignature)
+    {
+        var nugetMarkers = useNuGetSignature
+            ? new DependencyInputMarker[]
+            {
+                new("version"u8.ToArray(), DependencyInputMarkerValueKind.Number),
+                new("targets"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+                new("libraries"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+                new("project"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+            }
+            : [new("targets"u8.ToArray(), DependencyInputMarkerValueKind.Object)];
+        return new DependencyInputRegistry([
+            new(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, new(new DependencyInputMarker[] { new("bomFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "CycloneDX"u8.ToArray()) }), static (_, _, _, _) => default),
+            new(ScanInputKind.Sbom, ScanInputFormat.Spdx, new(new DependencyInputMarker[] { new("spdxVersion"u8.ToArray(), DependencyInputMarkerValueKind.String) }), static (_, _, _, _) => default),
+            new(ScanInputKind.PackageManager, ScanInputFormat.NuGetAssets, new(nugetMarkers), static (_, _, _, _) => default),
+        ]);
     }
 }

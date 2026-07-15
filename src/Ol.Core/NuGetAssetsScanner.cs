@@ -90,6 +90,10 @@ internal static class NuGetAssetsScanner
             {
                 reader.Read();
                 specificationVersion = CreateScalarSlice(ref reader, source, offset);
+                if (!specificationVersion.Span.SequenceEqual("3"u8) && !specificationVersion.Span.SequenceEqual("4"u8))
+                {
+                    throw new JsonException("NuGet project.assets.json version must be 3 or 4.");
+                }
             }
             else if (reader.ValueTextEquals("project"u8))
             {

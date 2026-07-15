@@ -14,10 +14,10 @@ internal sealed class ScanCommands
     /// </summary>
     /// <param name="sbom">SBOM JSON path. Cannot be combined with --input.</param>
     /// <param name="input">Resolved dependency input path.</param>
-    /// <param name="inputFormat">Input format: cyclonedx, spdx, or nuget-assets.</param>
+    /// <param name="inputFormat">Input format: auto (default), cyclonedx, spdx, or nuget-assets.</param>
     /// <param name="format">Output format: text, json, or markdown.</param>
     /// <param name="outFile">--out, Write output to this path.</param>
-    /// <param name="verbose">Include verbose columns.</param>
+    /// <param name="verbose">Include verbose columns and input detection diagnostics.</param>
     /// <param name="dependency">Dependency output filter: root,direct,transitive,unknown.</param>
     /// <param name="groupBy">Group output by fields: name,version,license,ecosystem,dependency,status.</param>
     /// <param name="sort">Sort keys: ecosystem,name,version,license,dependency,status,purl.</param>
@@ -133,6 +133,11 @@ internal sealed class ScanCommands
                 : $"Unable to scan input: {exception.Message}");
             return 1;
         }
+        if (verbose)
+        {
+            WriteDetectedInputFormat(scanResult.Inventory.Input);
+        }
+
         var enrichedComponents = scanResult.Components;
         PackageMetadataSummary packageMetadataSummary;
         SourceRepositorySummary sourceRepositorySummary;
@@ -266,10 +271,11 @@ internal sealed class ScanCommands
             return true;
         }
 
-        if (string.IsNullOrEmpty(inputFormat))
+        if (string.IsNullOrEmpty(inputFormat) || string.Equals(inputFormat, "auto", StringComparison.OrdinalIgnoreCase))
         {
-            error = "--input-format is required with --input.";
-            return false;
+            selection = new ScanInputSelection(input!, false, default);
+            error = string.Empty;
+            return true;
         }
 
         if (!DependencyInputRegistry.Default.TryGetInputFormat(inputFormat, out var handler))
@@ -281,6 +287,14 @@ internal sealed class ScanCommands
         selection = new ScanInputSelection(input!, false, handler);
         error = string.Empty;
         return true;
+    }
+
+    private static void WriteDetectedInputFormat(in ScanInputDescriptor input)
+    {
+        Console.Error.Write("Detected input format: ");
+        Console.Error.Write(input.Kind.Name);
+        Console.Error.Write('/');
+        Console.Error.WriteLine(input.Format.Name);
     }
 
     private readonly record struct ScanInputSelection(string Path, bool IsLegacySbom, DependencyInputHandler ExpectedHandler)

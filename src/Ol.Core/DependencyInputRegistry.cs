@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text.Json;
 
 namespace Ol.Core;
@@ -10,18 +11,48 @@ namespace Ol.Core;
 /// <returns>The normalized dependency inventory.</returns>
 public delegate DependencyInventory DependencyInputParser(byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph);
 
+/// <summary>Defines how a top-level JSON property confirms one dependency input format.</summary>
+public enum DependencyInputMarkerValueKind : byte
+{
+    /// <summary>The property value must be a JSON string.</summary>
+    String,
+
+    /// <summary>The property value must equal the registered UTF-8 string.</summary>
+    StringEquals,
+
+    /// <summary>The property value must equal the registered JSON number token.</summary>
+    NumberEquals,
+
+    /// <summary>The property value must be a JSON number.</summary>
+    Number,
+
+    /// <summary>The property value must be a JSON object.</summary>
+    Object,
+}
+
+/// <summary>One required top-level JSON marker in a dependency input signature.</summary>
+/// <param name="Name">The top-level property name.</param>
+/// <param name="ValueKind">The required JSON value match.</param>
+/// <param name="Value">The required UTF-8 value for an equality match, or empty.</param>
+public readonly record struct DependencyInputMarker(
+    ReadOnlyMemory<byte> Name,
+    DependencyInputMarkerValueKind ValueKind,
+    ReadOnlyMemory<byte> Value = default);
+
+/// <summary>All markers that must match to identify one dependency input format.</summary>
+/// <param name="RequiredMarkers">The required top-level markers.</param>
+public readonly record struct DependencyInputSignature(ReadOnlyMemory<DependencyInputMarker> RequiredMarkers);
+
 /// <summary>Contains all data required to identify and parse one dependency input format.</summary>
 /// <param name="Kind">The input family.</param>
 /// <param name="Format">The public input format.</param>
-/// <param name="MarkerName">A required top-level JSON property name.</param>
-/// <param name="MarkerValue">The required marker value, or empty when property presence is sufficient.</param>
+/// <param name="Signature">The deterministic content signature.</param>
 /// <param name="Parser">The format-owned parser.</param>
 /// <param name="LegacySbomFormat">The legacy SBOM report format, when applicable.</param>
 public readonly record struct DependencyInputHandler(
     ScanInputKind Kind,
     ScanInputFormat Format,
-    ReadOnlyMemory<byte> MarkerName,
-    ReadOnlyMemory<byte> MarkerValue,
+    DependencyInputSignature Signature,
     DependencyInputParser Parser,
     SbomFormat LegacySbomFormat = default);
 
@@ -32,9 +63,14 @@ public sealed class DependencyInputRegistry
 
     /// <summary>Gets the built-in resolved dependency input handlers.</summary>
     public static DependencyInputRegistry Default { get; } = new([
-        new(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, "bomFormat"u8.ToArray(), "CycloneDX"u8.ToArray(), SbomScanner.ParseCycloneDxInventory, SbomFormat.CycloneDxJson),
-        new(ScanInputKind.Sbom, ScanInputFormat.Spdx, "spdxVersion"u8.ToArray(), Array.Empty<byte>(), SbomScanner.ParseSpdxInventory, SbomFormat.SpdxJson),
-        new(ScanInputKind.PackageManager, ScanInputFormat.NuGetAssets, "targets"u8.ToArray(), Array.Empty<byte>(), NuGetAssetsScanner.Parse),
+        new(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, new(new DependencyInputMarker[] { new("bomFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "CycloneDX"u8.ToArray()) }), SbomScanner.ParseCycloneDxInventory, SbomFormat.CycloneDxJson),
+        new(ScanInputKind.Sbom, ScanInputFormat.Spdx, new(new DependencyInputMarker[] { new("spdxVersion"u8.ToArray(), DependencyInputMarkerValueKind.String) }), SbomScanner.ParseSpdxInventory, SbomFormat.SpdxJson),
+        new(ScanInputKind.PackageManager, ScanInputFormat.NuGetAssets, new(new DependencyInputMarker[] {
+            new("version"u8.ToArray(), DependencyInputMarkerValueKind.Number),
+            new("targets"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+            new("libraries"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+            new("project"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+        }), NuGetAssetsScanner.Parse),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>
@@ -48,10 +84,10 @@ public sealed class DependencyInputRegistry
             if (string.IsNullOrEmpty(handler.Kind.Name)
                 || string.IsNullOrEmpty(handler.Format.Name)
                 || string.IsNullOrEmpty(handler.Format.Parser)
-                || handler.MarkerName.Length == 0
+                || handler.Signature.RequiredMarkers.Length is 0 or > 64
                 || handler.Parser is null)
             {
-                throw new ArgumentException("Dependency input handlers require a kind, format, marker, and parser.", nameof(handlers));
+                throw new ArgumentException("Dependency input handlers require a kind, format, signature, and parser.", nameof(handlers));
             }
 
             for (var registeredIndex = 0; registeredIndex < i; registeredIndex++)
@@ -62,11 +98,29 @@ public sealed class DependencyInputRegistry
                 }
             }
 
-            this.handlers[i] = handler with
+            var markers = handler.Signature.RequiredMarkers.Span;
+            var ownedMarkers = new DependencyInputMarker[markers.Length];
+            for (var markerIndex = 0; markerIndex < markers.Length; markerIndex++)
             {
-                MarkerName = handler.MarkerName.ToArray(),
-                MarkerValue = handler.MarkerValue.ToArray(),
-            };
+                var marker = markers[markerIndex];
+                var requiresValue = marker.ValueKind is DependencyInputMarkerValueKind.StringEquals or DependencyInputMarkerValueKind.NumberEquals;
+                if (marker.Name.Length == 0 || requiresValue != (marker.Value.Length != 0))
+                {
+                    throw new ArgumentException("Dependency input signature markers require a name and a value only for equality matches.", nameof(handlers));
+                }
+
+                for (var registeredMarkerIndex = 0; registeredMarkerIndex < markerIndex; registeredMarkerIndex++)
+                {
+                    if (ownedMarkers[registeredMarkerIndex].Name.Span.SequenceEqual(marker.Name.Span))
+                    {
+                        throw new ArgumentException("Dependency input signatures cannot repeat a marker name.", nameof(handlers));
+                    }
+                }
+
+                ownedMarkers[markerIndex] = marker with { Name = marker.Name.ToArray(), Value = marker.Value.ToArray() };
+            }
+
+            this.handlers[i] = handler with { Signature = new DependencyInputSignature(ownedMarkers) };
         }
     }
 
@@ -104,8 +158,7 @@ public static class DependencyInputScanner
     {
         ArgumentNullException.ThrowIfNull(inputUtf8);
         var offset = HasUtf8Bom(inputUtf8) ? 3 : 0;
-        var reader = new Utf8JsonReader(inputUtf8.AsSpan(offset), isFinalBlock: true, state: default);
-        handler = DetectFormat(ref reader, inputs);
+        handler = DetectFormat(inputUtf8.AsSpan(offset), inputs);
         if (!string.IsNullOrEmpty(expectedFormat.Name) && handler.Format != expectedFormat)
         {
             throw new InvalidOperationException($"Input format {expectedFormat.Name} does not match the detected {handler.Format.Name} format.");
@@ -119,48 +172,117 @@ public static class DependencyInputScanner
     private static bool HasUtf8Bom(ReadOnlySpan<byte> inputUtf8)
         => inputUtf8.Length >= 3 && inputUtf8[0] == 0xEF && inputUtf8[1] == 0xBB && inputUtf8[2] == 0xBF;
 
-    private static DependencyInputHandler DetectFormat(ref Utf8JsonReader reader, DependencyInputRegistry inputs)
+    private static DependencyInputHandler DetectFormat(ReadOnlySpan<byte> inputUtf8, DependencyInputRegistry inputs)
     {
         var handlers = inputs.Handlers;
-        var selected = -1;
-        while (reader.Read())
+        const int MaxStackHandlers = 16;
+        ulong[]? rentedMatched = null;
+        int[]? rentedPending = null;
+        Span<ulong> matched = handlers.Length <= MaxStackHandlers
+            ? stackalloc ulong[MaxStackHandlers]
+            : (rentedMatched = ArrayPool<ulong>.Shared.Rent(handlers.Length));
+        Span<int> pending = handlers.Length <= MaxStackHandlers
+            ? stackalloc int[MaxStackHandlers]
+            : (rentedPending = ArrayPool<int>.Shared.Rent(handlers.Length));
+        matched = matched[..handlers.Length];
+        pending = pending[..handlers.Length];
+        matched.Clear();
+        try
         {
-            if (reader.TokenType != JsonTokenType.PropertyName)
+            var reader = new Utf8JsonReader(inputUtf8, isFinalBlock: true, state: default);
+            while (reader.Read())
             {
-                continue;
-            }
-
-            for (var i = 0; i < handlers.Length; i++)
-            {
-                var handler = handlers[i];
-                if (!reader.ValueTextEquals(handler.MarkerName.Span))
+                if (reader.TokenType != JsonTokenType.PropertyName || reader.CurrentDepth != 1)
                 {
                     continue;
                 }
 
-                if (handler.MarkerValue.Length != 0)
+                pending.Fill(-1);
+                var hasPending = false;
+                var propertyLength = reader.HasValueSequence ? checked((int)reader.ValueSequence.Length) : reader.ValueSpan.Length;
+                for (var handlerIndex = 0; handlerIndex < handlers.Length; handlerIndex++)
                 {
-                    reader.Read();
-                    if (reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(handler.MarkerValue.Span))
+                    var markers = handlers[handlerIndex].Signature.RequiredMarkers.Span;
+                    for (var markerIndex = 0; markerIndex < markers.Length; markerIndex++)
                     {
-                        continue;
+                        var marker = markers[markerIndex];
+                        if ((matched[handlerIndex] & (1UL << markerIndex)) == 0
+                            && (reader.ValueIsEscaped || propertyLength == marker.Name.Length)
+                            && reader.ValueTextEquals(marker.Name.Span))
+                        {
+                            pending[handlerIndex] = markerIndex;
+                            hasPending = true;
+                            break;
+                        }
                     }
                 }
 
-                if (selected >= 0 && selected != i)
+                if (!hasPending || !reader.Read())
                 {
-                    throw new JsonException("Unsupported or ambiguous dependency input format.");
+                    continue;
                 }
 
-                selected = i;
+                for (var handlerIndex = 0; handlerIndex < handlers.Length; handlerIndex++)
+                {
+                    var markerIndex = pending[handlerIndex];
+                    if (markerIndex < 0)
+                    {
+                        continue;
+                    }
+
+                    var marker = handlers[handlerIndex].Signature.RequiredMarkers.Span[markerIndex];
+                    var matches = marker.ValueKind switch
+                    {
+                        DependencyInputMarkerValueKind.String => reader.TokenType == JsonTokenType.String,
+                        DependencyInputMarkerValueKind.StringEquals => reader.TokenType == JsonTokenType.String && reader.ValueTextEquals(marker.Value.Span),
+                        DependencyInputMarkerValueKind.NumberEquals => reader.TokenType == JsonTokenType.Number && !reader.HasValueSequence && reader.ValueSpan.SequenceEqual(marker.Value.Span),
+                        DependencyInputMarkerValueKind.Number => reader.TokenType == JsonTokenType.Number,
+                        DependencyInputMarkerValueKind.Object => reader.TokenType == JsonTokenType.StartObject,
+                        _ => false,
+                    };
+                    if (matches)
+                    {
+                        matched[handlerIndex] |= 1UL << markerIndex;
+                    }
+                }
+            }
+
+            var selected = -1;
+            for (var handlerIndex = 0; handlerIndex < handlers.Length; handlerIndex++)
+            {
+                var markerCount = handlers[handlerIndex].Signature.RequiredMarkers.Length;
+                var required = markerCount == 64 ? ulong.MaxValue : (1UL << markerCount) - 1;
+                if (matched[handlerIndex] != required)
+                {
+                    continue;
+                }
+
+                if (selected >= 0)
+                {
+                    throw new JsonException("Ambiguous dependency input format: multiple registered format signatures matched.");
+                }
+
+                selected = handlerIndex;
+            }
+
+            if (selected < 0)
+            {
+                throw new JsonException("Unsupported dependency input format: no registered format signature matched.");
+            }
+
+            return handlers[selected];
+        }
+        finally
+        {
+            if (rentedMatched is not null)
+            {
+                ArrayPool<ulong>.Shared.Return(rentedMatched);
+            }
+
+            if (rentedPending is not null)
+            {
+                ArrayPool<int>.Shared.Return(rentedPending);
             }
         }
-
-        if (selected < 0)
-        {
-            throw new JsonException("Unsupported or ambiguous dependency input format.");
-        }
-
-        return handlers[selected];
     }
 }

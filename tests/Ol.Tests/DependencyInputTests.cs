@@ -54,8 +54,7 @@ public sealed class DependencyInputTests
             new DependencyInputHandler(
                 ScanInputKind.Sbom,
                 format,
-                "testFormat"u8.ToArray(),
-                "test"u8.ToArray(),
+                new(new DependencyInputMarker[] { new("testFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "test"u8.ToArray()) }),
                 static (_, _, _, _) => new DependencyInventory(default, [], [], [], [])),
         ]);
 
@@ -120,5 +119,15 @@ public sealed class DependencyInputTests
         var inventory = DependencyInputScanner.Scan(input, Spdx);
 
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.Spdx);
+    }
+
+    [Test]
+    public async Task Scan_WithEscapedMarkerPropertyName_DetectsCycloneDx()
+    {
+        var input = Encoding.UTF8.GetBytes("""{ "bom\u0046ormat": "CycloneDX", "components": [] }""");
+
+        var inventory = DependencyInputScanner.Scan(input, Spdx);
+
+        await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.CycloneDx);
     }
 }

@@ -10,6 +10,91 @@ public sealed class CliScanTests
     private static readonly SemaphoreSlim CliGate = new(1, 1);
 
     [Test]
+    public async Task Scan_WithInputFormatOmitted_AutoDetectsCycloneDx()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cyclonedx");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithVerbose_AutoDetectionWritesDetectedFormatToStderr()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--skip-enrichment", "--verbose");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr.Trim()).IsEqualTo("Detected input format: sbom/cyclonedx");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitAutoInputFormat_AutoDetectsNuGetAssets()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "auto", "--format", "json", "--skip-enrichment");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).IsEmpty();
+        using var report = JsonDocument.Parse(stdout);
+        await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("nuget-assets");
+    }
+
+    [Test]
+    public async Task Scan_WithAutoInputFormatThatIsAmbiguousOrUnknown_ReturnsConciseError()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        var cases = new[]
+        {
+            (Input: """{ "bomFormat": "CycloneDX", "spdxVersion": "SPDX-2.3", "components": [], "packages": [] }""", Message: "Ambiguous dependency input format: multiple registered format signatures matched."),
+            (Input: """{ "targets": {} }""", Message: "Unsupported dependency input format: no registered format signature matched."),
+        };
+
+        try
+        {
+            foreach (var item in cases)
+            {
+                await File.WriteAllTextAsync(inputPath, item.Input, Encoding.UTF8);
+                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment");
+
+                await Assert.That(exitCode).IsEqualTo(1);
+                await Assert.That(stdout).IsEmpty();
+                await Assert.That(stderr.Trim()).IsEqualTo($"Unable to scan input: {item.Message}");
+            }
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithExplicitCycloneDxInput_EmitsGenericAndLegacyInputMetadata()
     {
         var root = FindRepositoryRoot();
@@ -76,7 +161,6 @@ public sealed class CliScanTests
             {
                 (Arguments: Array.Empty<string>(), Message: "Exactly one of --sbom or --input must be specified."),
                 (Arguments: new[] { "--sbom", inputPath, "--input", inputPath, "--input-format", "cyclonedx" }, Message: "--sbom and --input cannot be used together."),
-                (Arguments: new[] { "--input", inputPath }, Message: "--input-format is required with --input."),
                 (Arguments: new[] { "--sbom", inputPath, "--input-format", "cyclonedx" }, Message: "--input-format can only be used with --input."),
                 (Arguments: new[] { "--input", inputPath, "--input-format", "unknown" }, Message: "Unsupported input format: unknown"),
             };

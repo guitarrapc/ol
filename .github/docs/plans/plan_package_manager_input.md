@@ -103,12 +103,12 @@ dependency inventoryに、収集・照合済みのlicense candidate、status、w
 長期的なコマンド形は、入力パスと入力形式を分ける。
 
 ```text
-ol scan --input bom.json --input-format cyclonedx
-ol scan --input bom.spdx.json --input-format spdx
-ol scan --input obj/project.assets.json --input-format nuget-assets
+ol scan --input bom.json
+ol scan --input bom.spdx.json
+ol scan --input obj/project.assets.json
 ```
 
-`--input-format` を明示できることを基本とする。異なる形式が同じJSON、YAML、lockfileを使用する可能性があるため、拡張子だけに依存した判定を公開契約にしない。
+`--input-format`は`auto`を既定とし、登録済みadapterが所有するcontent signatureで判定する。異なる形式が同じJSON、YAML、lockfileを使用する可能性があるため、拡張子だけに依存した判定を公開契約にしない。明示formatは検出結果に対するassertionとして維持する。
 
 既存の次の呼び出しは、互換性のため維持する。
 
@@ -219,7 +219,7 @@ Phase 1では次の契約に確定した。
 
 - `--input-format`はcase-insensitiveな登録名とする。Phase 1時点では`cyclonedx`と`spdx`だけを受理し、Phase 3で`nuget-assets`を有効化した。
 - 既存`--sbom`はcontentによるCycloneDX/SPDX自動判定を維持する。
-- `--input`には`--input-format`を必須とし、`--sbom`との同時指定を拒否する。
+- Phase 1時点では`--input`に`--input-format`を必須とした。Phase 5で省略時を`auto`へ変更した。`--sbom`との同時指定は引き続き拒否する。
 - schema v1 JSONへ汎用input metadataを追加し、既存SBOM fieldは互換aliasとして維持する。非SBOM入力ではSBOM aliasを出力しない。
 - resolution context、occurrence、edgeは別のvalue型として保持し、network lookup targetはinventoryに含めない。
 - 非SBOM入力が将来license claimを提供する場合は`dependency-input` provenanceを使用し、SBOM evidenceと偽装しない。
@@ -279,7 +279,18 @@ Phase 4では次の契約と性能境界に確定した。
 - 同時刻のHEAD E2E比較では、textは1.946 ms / 22.77 KBから2.013 ms / 23.21 KB、JSONは2.042 ms / 39.63 KBから1.934 ms / 41.68 KBとなり、時間とallocationはいずれも10%基準内に収まった。JSONのowned output増加は完全inventory追加に対応する。
 - NuGet専用E2E baselineとして、2 packageとcache済みenrichmentを含むtext 3.484 ms / 42.14 KB、JSON 3.201 ms / 78.88 KBを記録した。
 
-### Phase 5: npm `package-lock.json` input adapter
+### Phase 5: input format自動判定とverbose診断（完了）
+
+- `--input-format`省略時と`--input-format auto`を同義とし、登録済みformatをcontentから判定する。
+- 各`DependencyInputHandler`が型付きのtop-level JSON signatureを所有し、拡張子や登録順へ依存しない。
+- CycloneDXは`bomFormat == CycloneDX`、SPDXはstring型`spdxVersion`、NuGet assetsはnumeric型`version`およびobject型`targets`、`libraries`、`project`を必須markerとする。NuGet parserはschema version 3/4だけを受理する。
+- signature一致が0件ならunsupported、複数ならambiguousとしてscan全体を失敗させ、推測しない。
+- 明示した非auto formatは従来どおり検出結果と照合し、不一致を拒否する。
+- 既存`--verbose`を詳細列と実行診断の両方に用い、検出した`{kind}/{format}`をstderrへ表示する。
+- 通常パスではverbose文字列を構築せず、format判定はJSONを1回走査する。16 handlerまで192 bytesの固定stack状態を使い、それを超えるregistryだけ`ArrayPool`を使う。
+- N=10のfocused benchmarkでは、旧single marker相当の検出が1.367 µs / 0 B、NuGet複合signatureが1.389 µs / 0 Bで、追加CPUは1.6%、allocation増加は0 Bだった。full ingestionのallocationもCycloneDX 280 B、NuGet 856 Bから増加していない。
+
+### Phase 6: npm `package-lock.json` input adapter
 
 - npm lockfile version 2および3の`packages`とdependency linkを、registry問い合わせによる再解決なしで取り込む。
 - root packageとworkspace originをcontextとして保持し、workspace、link、optional、peer、dev entryをpackage occurrenceと混同しない。
@@ -287,28 +298,28 @@ Phase 4では次の契約と性能境界に確定した。
 - `os`、`cpu`、optional install条件は入力が提供した値だけをvariantとして保持し、実行hostで評価または推測しない。
 - malformed、workspace、nested duplicate、optional/platform固有fixtureとallocation benchmarkを追加する。
 
-### Phase 6: pnpmおよびYarn lock input adapters
+### Phase 7: pnpmおよびYarn lock input adapters
 
 - pnpmは`pnpm-lock.yaml`のlockfile versionを明示formatとして扱い、importerごとのrootとsnapshot graphを保持する。
 - YarnはBerryのinstall-stateを再現しようとせず、lockfileが証明できるdescriptor/resolution graphとworkspace originだけを取り込む。ClassicとBerryを一つの曖昧parserへ混在させない。
 - peer dependency variant、virtual package、workspace/link/protocol、optional dependencyを通常のregistry packageと区別する。
 - YAML parser導入のbinary size、Native AOT、allocation影響を先にbenchmarkし、許容できない場合は狭い専用parserを選ぶ。
 
-### Phase 7: Cargo resolved metadata input adapter
+### Phase 8: Cargo resolved metadata input adapter
 
 - `cargo metadata --format-version 1 --locked` JSONを入力とし、`Cargo.toml`や`Cargo.lock`だけからfeature解決を再実装しない。
 - resolve nodes、package IDs、workspace members、features、target-specific dependencyを保持する。
 - target tripleやfeature setは生成条件としてcontext/variantへ保持し、複数metadata結果を自動mergeしない。
 - registry、git、path packageを区別し、registry packageだけに`pkg:cargo` lookup identityを付与する。
 
-### Phase 8: Go module graph input adapter
+### Phase 9: Go module graph input adapter
 
 - `go mod graph`の解決済みmodule edgeを入力とし、`go.mod`からMinimal Version Selectionを再実装しない。
 - main moduleをcontext root、versioned moduleをoccurrenceとして保持し、replace/local moduleをregistry moduleと偽装しない。
 - GOOS、GOARCH、build tagsは`go mod graph`単体では証明できないため未指定とし、別context入力が導入されるまでhostから推測しない。
 - `pkg:golang` identity、pseudo-version、retractionやreplace表現のfixtureを追加する。
 
-### Phase 9: JVMおよびPython resolved input調査
+### Phase 10: JVMおよびPython resolved input調査
 
 - Maven、Gradle、Pythonはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
 - Maven configuration/scope、Gradle configuration/variant、Python environment marker/platform wheelをresolution contextで表現できることを採用条件にする。
@@ -335,7 +346,7 @@ Phase 4では次の契約と性能境界に確定した。
 
 この計画が完了したと判断する条件は次のとおり。
 
-1. `scan` がSBOMとNuGet `project.assets.json`を、明示された入力形式として受け付ける。
+1. `scan` がSBOMとNuGet `project.assets.json`を既定で自動判定し、明示formatもassertionとして受け付ける。
 2. 既存の`scan --sbom`利用方法とlicense判定が維持される。
 3. 入力解析、dependency inventory、license enrichment、scan result、renderingの責務が分離される。
 4. package manager入力をSBOMと偽ってmetadataやevidenceを出力しない。
@@ -347,8 +358,7 @@ Phase 4では次の契約と性能境界に確定した。
 
 ## 実装前に確定する判断事項
 
-- `--input-format`の値と命名規則
-- `--sbom`互換時のformat自動判定をどこまで維持するか
+- 将来の非JSON adapterで型付きcontent signatureをどう表現するか
 - 既存JSON metadata fieldの互換期間
 - resolution contextの必須fieldとecosystem固有fieldの保持方法
 - SBOMにtarget/platform情報がない場合のcontext表現

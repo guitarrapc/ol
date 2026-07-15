@@ -64,6 +64,16 @@ internal sealed class ScanCommands
             return 1;
         }
 
+        try
+        {
+            ScanView.Validate(dependency, sort, groupBy);
+        }
+        catch (ArgumentException exception)
+        {
+            Console.Error.WriteLine($"Invalid scan option: {exception.Message}");
+            return 1;
+        }
+
         var cacheDirectories = default(CacheDirectories);
         if (!skipEnrichment)
         {
@@ -78,9 +88,29 @@ internal sealed class ScanCommands
             }
         }
 
-        var spdx = SpdxData.Load(spdxData);
-        var sbomBytes = File.ReadAllBytes(sbom);
-        var report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
+        SpdxData spdx;
+        try
+        {
+            spdx = SpdxData.Load(spdxData);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException or KeyNotFoundException)
+        {
+            Console.Error.WriteLine($"Unable to load SPDX data: {exception.Message}");
+            return 1;
+        }
+
+        byte[] sbomBytes;
+        ScanReport report;
+        try
+        {
+            sbomBytes = File.ReadAllBytes(sbom);
+            report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            Console.Error.WriteLine($"Unable to scan SBOM: {exception.Message}");
+            return 1;
+        }
         var enrichedComponents = report.Components;
         PackageMetadataSummary packageMetadataSummary;
         SourceRepositorySummary sourceRepositorySummary;
@@ -117,10 +147,26 @@ internal sealed class ScanCommands
 
         if (outFile is { Length: > 0 })
         {
-            File.WriteAllText(outFile, text, Encoding.UTF8);
+            try
+            {
+                File.WriteAllText(outFile, text, Encoding.UTF8);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                Console.Error.WriteLine($"Unable to write report: {exception.Message}");
+                return 1;
+            }
         }
 
-        Console.Write(text);
+        try
+        {
+            Console.Write(text);
+        }
+        catch (IOException exception)
+        {
+            Console.Error.WriteLine($"Unable to write report: {exception.Message}");
+            return 1;
+        }
 
         if (!quiet && format != ReportFormat.Json)
         {
@@ -129,7 +175,7 @@ internal sealed class ScanCommands
             var source = sourceRepositorySummary;
             Console.Error.WriteLine();
             Console.Error.WriteLine("Scan summary");
-            Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid");
+            Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid; {summary.Error} error");
             Console.Error.WriteLine($"  Findings: {summary.WarningCount} warning{(summary.WarningCount == 1 ? string.Empty : "s")}; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
             Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems");
             Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
@@ -264,6 +310,29 @@ internal readonly record struct SpdxData(
 
 internal static class ScanView
 {
+    public static void Validate(string? dependency, string sort, string? groupBy)
+    {
+        if (dependency is not null and not "")
+        {
+            var tokens = dependency.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (tokens.Length == 0)
+            {
+                throw new ArgumentException("Dependency filter must contain at least one value.");
+            }
+
+            foreach (var token in tokens)
+            {
+                ParseDependency(token);
+            }
+        }
+
+        ParseSortFields(sort);
+        if (groupBy is not null and not "")
+        {
+            ParseGroupFields(groupBy);
+        }
+    }
+
     public static int Apply(ScanComponent[] components, string? dependency, string sort, SortOrder sortOrder)
     {
         var count = FilterByDependency(components, dependency);
@@ -388,6 +457,11 @@ internal static class ScanView
     private static SortField[] ParseSortFields(string sort)
     {
         var tokens = sort.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length == 0)
+        {
+            throw new ArgumentException("Sort must contain at least one key.");
+        }
+
         var fields = new SortField[tokens.Length];
         for (var i = 0; i < tokens.Length; i++)
         {
@@ -455,6 +529,11 @@ internal static class ScanView
     private static GroupField[] ParseGroupFields(string groupBy)
     {
         var tokens = groupBy.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length == 0)
+        {
+            throw new ArgumentException("Group-by must contain at least one key.");
+        }
+
         var fields = new GroupField[tokens.Length];
         for (var i = 0; i < tokens.Length; i++)
         {
@@ -700,14 +779,7 @@ internal static class ReportRenderer
 
             writer.WriteEndArray();
 
-            var summary = ScanSummary.Create(components);
-            writer.WriteStartObject("summary");
-            writer.WriteNumber("matched", summary.Matched);
-            writer.WriteNumber("conflict", summary.Conflict);
-            writer.WriteNumber("unknown", summary.Unknown);
-            writer.WriteNumber("ambiguous", summary.Ambiguous);
-            writer.WriteNumber("invalid", summary.Invalid);
-            writer.WriteEndObject();
+            WriteSummary(writer, ScanSummary.Create(components));
             WriteWarnings(writer, components);
             writer.WriteEndObject();
         }
@@ -763,6 +835,7 @@ internal static class ReportRenderer
             }
 
             writer.WriteEndArray();
+            WriteSummary(writer, ScanSummary.Create(groups));
             WriteWarnings(writer, groups);
             writer.WriteEndObject();
         }
@@ -926,6 +999,18 @@ internal static class ReportRenderer
         writer.WriteEndArray();
     }
 
+    private static void WriteSummary(Utf8JsonWriter writer, ScanSummary summary)
+    {
+        writer.WriteStartObject("summary");
+        writer.WriteNumber("matched", summary.Matched);
+        writer.WriteNumber("conflict", summary.Conflict);
+        writer.WriteNumber("unknown", summary.Unknown);
+        writer.WriteNumber("ambiguous", summary.Ambiguous);
+        writer.WriteNumber("invalid", summary.Invalid);
+        writer.WriteNumber("error", summary.Error);
+        writer.WriteEndObject();
+    }
+
     private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<ScanComponent> components)
     {
         writer.WriteStartArray("warnings");
@@ -971,8 +1056,28 @@ internal static class ReportRenderer
         : format.Name;
 }
 
-internal readonly record struct ScanSummary(int Matched, int Conflict, int Unknown, int Ambiguous, int Invalid, int WarningCount, int DeprecatedSpdxCount)
+internal readonly record struct ScanSummary(int Matched, int Conflict, int Unknown, int Ambiguous, int Invalid, int Error, int WarningCount, int DeprecatedSpdxCount)
 {
+    public static ScanSummary Create(ReadOnlySpan<GroupRow> groups)
+    {
+        var total = default(ScanSummary);
+        for (var i = 0; i < groups.Length; i++)
+        {
+            var summary = Create(groups[i].Components);
+            total = new ScanSummary(
+                total.Matched + summary.Matched,
+                total.Conflict + summary.Conflict,
+                total.Unknown + summary.Unknown,
+                total.Ambiguous + summary.Ambiguous,
+                total.Invalid + summary.Invalid,
+                total.Error + summary.Error,
+                total.WarningCount + summary.WarningCount,
+                total.DeprecatedSpdxCount + summary.DeprecatedSpdxCount);
+        }
+
+        return total;
+    }
+
     public static ScanSummary Create(ReadOnlySpan<ScanComponent> components)
     {
         var matched = 0;
@@ -980,6 +1085,7 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
         var unknown = 0;
         var ambiguous = 0;
         var invalid = 0;
+        var error = 0;
         var warningCount = 0;
         var deprecatedSpdxCount = 0;
 
@@ -1002,6 +1108,9 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
                 case LicenseStatus.Invalid:
                     invalid++;
                     break;
+                case LicenseStatus.Error:
+                    error++;
+                    break;
             }
 
             warningCount += components[i].Warnings.Length;
@@ -1014,6 +1123,6 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
             }
         }
 
-        return new ScanSummary(matched, conflict, unknown, ambiguous, invalid, warningCount, deprecatedSpdxCount);
+        return new ScanSummary(matched, conflict, unknown, ambiguous, invalid, error, warningCount, deprecatedSpdxCount);
     }
 }

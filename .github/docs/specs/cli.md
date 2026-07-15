@@ -76,6 +76,8 @@ Examples of whole-command failures:
 - SPDX data cannot be loaded.
 - stdout or `--out` cannot be written.
 
+Expected input, option, SPDX-data, and I/O failures return a non-zero exit code with a concise cause on stderr. They do not emit a runtime stack trace or partial primary output. View options are validated before enrichment starts so an invalid report request does not perform external evidence collection.
+
 Examples of component-level problems:
 
 - A component has an invalid license expression.
@@ -189,6 +191,8 @@ Allowed values are:
 - `transitive`
 - `unknown`
 
+When supplied, the comma-separated filter must contain at least one value.
+
 `--dependency` is an output filter, not an analysis filter. The scan still reads the full SBOM and resolves dependency relationships before filtering. This preserves correct direct/transitive classification.
 
 When `--dependency direct` excludes components whose dependency type is `unknown`, stderr summary must include the excluded `unknown` count. This avoids implying that the scan proved those components are not direct dependencies.
@@ -225,6 +229,8 @@ ol scan --sbom bom.json --sort status,name --sort-order desc
 
 Allowed values are `asc` and `desc`. Default is `asc`.
 
+The comma-separated `--sort` value must contain at least one key.
+
 ## Grouping
 
 `--group-by` switches the output view from component rows to aggregate rows. It accepts one or more comma-separated output fields:
@@ -246,6 +252,8 @@ Groupable fields:
 
 Grouped output includes `COUNT`. Grouped JSON output includes minimal component references for traceability. Group sort keys are the group-by fields plus `count`.
 
+The comma-separated `--group-by` value must contain at least one key. Grouped JSON retains the same top-level canonical status summary as component JSON.
+
 <a id="contract-json-report"></a>
 ## JSON Report
 
@@ -258,6 +266,8 @@ JSON output is the canonical machine-readable report. It includes:
 - component results or grouped results
 - summary
 - warnings
+
+The canonical summary counts every component status, including `error`, so the status counts sum to the displayed component count. This applies to both component and grouped JSON views.
 
 Top-level `schemaVersion` identifies the breaking report contract. Schema version 1 removes the duplicate component-level `evidence` array and makes candidate provenance subordinate to each `licenseCandidates` item. Consumers must reject or explicitly migrate unsupported schema versions rather than silently interpreting a newer report as an older shape.
 
@@ -282,7 +292,7 @@ SBOM input metadata includes a SHA-256 hash:
 
 SPDX metadata is defined by [spdx.md](spdx.md) and is required in every JSON report.
 
-When v3 source repository enrichment is active, `metadata.sourceRepository` reports target, request, cache, error, and unknown counts. `metadata.network.githubAuth` reports only `ol_github_token` or `none`; it never includes a credential value.
+When v3 source repository enrichment is active, `metadata.sourceRepository` reports target, request, cache, error, and unknown counts. `targetCount` counts deduplicated repository/ref targets, while `unknownCount` counts components without source license evidence even when multiple components share one target. `metadata.network.githubAuth` reports only `ol_github_token` or `none`; it never includes a credential value.
 
 Each GitHub license candidate carries a typed `evidence` object in its `licenseCandidates` entry. It contains logical repository/ref, HTTP status, cache-key hash, and license path/SHA/key/name/URL. These provenance fields are metadata, not warnings, and never contain a cache path or token value.
 

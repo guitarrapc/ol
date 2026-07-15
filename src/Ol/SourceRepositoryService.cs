@@ -89,18 +89,20 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 results[index] = await EnrichTargetAsync(targets[index], token).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
+            var unknown = unplannedUnknownCount;
             for (var i = 0; i < components.Length; i++)
             {
                 var targetIndex = componentTargetIndexes[i];
                 if (targetIndex < 0) continue;
-                components[i] = LicenseReconciler.AddCandidate(components[i], results[targetIndex].Candidate);
+                var result = results[targetIndex];
+                components[i] = LicenseReconciler.AddCandidate(components[i], result.Candidate);
+                unknown += result.Unknown ? 1 : 0;
             }
 
             var requests = 0;
             var hits = 0;
             var misses = 0;
             var errors = 0;
-            var unknown = unplannedUnknownCount;
             for (var i = 0; i < targetCount; i++)
             {
                 var result = results[i];
@@ -108,7 +110,6 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 hits += result.CacheHit ? 1 : 0;
                 misses += result.CacheMiss ? 1 : 0;
                 errors += result.FetchError ? 1 : 0;
-                unknown += result.Unknown ? 1 : 0;
             }
 
             return (components, new SourceRepositorySummary(targetCount, requests, hits, misses, errors, unknown, authentication.Mode, concurrency, retryCount));

@@ -1080,7 +1080,8 @@
     "conflict": 0,
     "unknown": 4,
     "ambiguous": 0,
-    "invalid": 0
+    "invalid": 0,
+    "error": 0
   },
   "warnings": []
 }

@@ -101,6 +101,8 @@ Reports may include auth mode but never token values:
 
 Source repository fetches use the same bounded concurrency and retry controls as package metadata fetches. The default is one retry after the initial attempt. Timeout, HTTP 429, HTTP 5xx, and transient network failures are retryable; HTTP 400, 401, 403, 404, invalid repository identity, and unsupported hosts are not. Completion order must not change report ordering.
 
+Report metadata distinguishes work deduplication from component outcomes: `targetCount` is the number of unique repository/ref targets, while `unknownCount` is the number of components that received no usable source license. Components sharing one unknown target therefore each contribute to `unknownCount` without increasing `targetCount`.
+
 <a id="contract-source-cache"></a>
 ## Cache
 

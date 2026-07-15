@@ -217,7 +217,7 @@ Input adapter
 
 Phase 1では次の契約に確定した。
 
-- `--input-format`はcase-insensitiveな登録名とし、初期値は`cyclonedx`と`spdx`とする。`nuget-assets`はadapter実装までCLIでは受理しない。
+- `--input-format`はcase-insensitiveな登録名とする。Phase 1時点では`cyclonedx`と`spdx`だけを受理し、Phase 3で`nuget-assets`を有効化した。
 - 既存`--sbom`はcontentによるCycloneDX/SPDX自動判定を維持する。
 - `--input`には`--input-format`を必須とし、`--sbom`との同時指定を拒否する。
 - schema v1 JSONへ汎用input metadataを追加し、既存SBOM fieldは互換aliasとして維持する。非SBOM入力ではSBOM aliasを出力しない。
@@ -242,12 +242,23 @@ Phase 2では次の境界に確定した。
 - CLI orchestrationは`SbomScanner`、`ScanReport`、`SbomFormat`へ直接依存しない。
 - 既存`SbomScanner.Scan`と`ScanReport`は互換APIとして同じregistered adapterを経由する。
 
-### Phase 3: NuGet input adapter
+### Phase 3: NuGet input adapter（完了）
 
 - `project.assets.json` fixtureからtarget/RID別graphを読み取る。
 - package occurrence、edge、dependency type、purlを検証する。
 - 複数target、RID固有native dependency、重複package、project reference、malformed inputをfixtureで検証する。
 - enrichmentなし、およびcacheされたenrichmentを使ったscanを検証する。
+
+Phase 3では次の境界に確定した。
+
+- `targets`をformat markerとする`nuget-assets` handlerを既存のinput registryへ一件登録する。
+- `project.assets.json` version 3の各targetを独立したresolution contextとし、`framework/RID`のRIDはruntimeへそのまま保持する。platformとarchitectureは推測しない。
+- project自身はcontextごとのsynthetic rootとし、`project.frameworks`で証明できるroot dependencyからtarget graphを探索する。
+- `type: package`かつ`libraries`でもpackageと確認できるentryだけをNuGet package occurrenceにする。project reference、未解決entry、非package entryはpurlを持つpackageとして扱わない。
+- project reference nodeは到達性とdirect/transitive分類には使うが、package occurrenceやpackage edgeへ偽装しない。
+- package-to-package edgeとroot-to-direct-package edgeだけをcontextごとに保持する。証明できないdependency typeはunknownとする。
+- 同じpackage/versionが複数contextに現れた場合はcomponentとoccurrenceをcontextごとに保持し、生成した同一versioned purlを既存enrichmentのdeduplicate keyとして再利用する。
+- adapterは入力由来文字列をsource-backed `Utf8Slice`で保持し、graph作業配列はpoolし、生成purlとowned resultだけを永続allocationとする。
 
 ### Phase 4: 出力と性能検証
 

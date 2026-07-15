@@ -41,6 +41,17 @@ public readonly struct Utf8Slice : IEquatable<Utf8Slice>
     /// </summary>
     public ReadOnlySpan<byte> Span => buffer is null ? [] : buffer.AsSpan(offset, Length);
 
+    /// <summary>Creates a sub-slice over the same owned UTF-8 buffer.</summary>
+    internal Utf8Slice Slice(int start, int length)
+    {
+        if ((uint)start > (uint)Length || (uint)length > (uint)(Length - start))
+        {
+            throw new ArgumentOutOfRangeException();
+        }
+
+        return buffer is null || length == 0 ? default : new Utf8Slice(buffer, offset + start, length);
+    }
+
     /// <summary>
     /// Creates a separately owned UTF-8 value. This is for external or exceptional text only.
     /// </summary>

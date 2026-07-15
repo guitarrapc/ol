@@ -78,7 +78,7 @@ public sealed class CliScanTests
                 (Arguments: new[] { "--sbom", inputPath, "--input", inputPath, "--input-format", "cyclonedx" }, Message: "--sbom and --input cannot be used together."),
                 (Arguments: new[] { "--input", inputPath }, Message: "--input-format is required with --input."),
                 (Arguments: new[] { "--sbom", inputPath, "--input-format", "cyclonedx" }, Message: "--input-format can only be used with --input."),
-                (Arguments: new[] { "--input", inputPath, "--input-format", "nuget-assets" }, Message: "Unsupported input format: nuget-assets"),
+                (Arguments: new[] { "--input", inputPath, "--input-format", "unknown" }, Message: "Unsupported input format: unknown"),
             };
 
             foreach (var item in cases)
@@ -1027,6 +1027,54 @@ public sealed class CliScanTests
         finally
         {
             Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithNuGetAssetsAndSkipEnrichment_AcceptsRegisteredInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        using var report = JsonDocument.Parse(stdout);
+        var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+        await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+        await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("nuget-assets");
+        await Assert.That(input.TryGetProperty("sbomRef", out _)).IsFalse();
+        await Assert.That(report.RootElement.GetProperty("components").EnumerateArray().Any(static component => component.GetProperty("purl").GetString() == "pkg:nuget/Native.Package@4.0.0")).IsTrue();
+        await Assert.That(stderr).IsEmpty();
+    }
+
+    [Test]
+    public async Task Scan_WithNuGetAssetsAndCachedMetadata_ReusesNuGetEnrichment()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-nuget-assets-{Guid.NewGuid():N}");
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+        var cache = new PackageMetadataCache(Path.Combine(temporaryDirectory, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Direct.Package@1.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Shared.Package@2.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Native.Package@4.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Project.Transitive@3.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--cache-dir", temporaryDirectory, "--format", "json", "--concurrency", "1", "--retry", "0");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var metadata = report.RootElement.GetProperty("metadata").GetProperty("packageMetadata");
+            await Assert.That(metadata.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(6);
+            await Assert.That(metadata.GetProperty("cacheMissCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(report.RootElement.GetProperty("components").EnumerateArray().Where(static component => component.GetProperty("ecosystem").GetString() == "nuget").All(static component => component.GetProperty("license").GetString() == "MIT")).IsTrue();
+            await Assert.That(stderr).IsEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory)) Directory.Delete(temporaryDirectory, recursive: true);
         }
     }
 

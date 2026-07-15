@@ -1,0 +1,78 @@
+{
+  "version": 3,
+  "targets": {
+    "net8.0": {
+      "Direct.Package/1.0.0": {
+        "type": "package",
+        "dependencies": {
+          "shared.package": "2.0.0"
+        }
+      },
+      "Shared.Package/2.0.0": {
+        "type": "package"
+      },
+      "Referenced.Project/1.0.0": {
+        "type": "project",
+        "dependencies": {
+          "Project.Transitive": "3.0.0"
+        }
+      },
+      "Project.Transitive/3.0.0": {
+        "type": "package"
+      },
+      "Unresolved.Package/5.0.0": {
+        "type": "package"
+      }
+    },
+    "net8.0/win-x64": {
+      "Direct.Package/1.0.0": {
+        "type": "package",
+        "dependencies": {
+          "shared.package": "2.0.0",
+          "native.package": "4.0.0"
+        }
+      },
+      "Shared.Package/2.0.0": {
+        "type": "package"
+      },
+      "Native.Package/4.0.0": {
+        "type": "package",
+        "runtimeTargets": {
+          "runtimes/win-x64/native/native.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Direct.Package/1.0.0": { "type": "package", "path": "direct.package/1.0.0" },
+    "Shared.Package/2.0.0": { "type": "package", "path": "shared.package/2.0.0" },
+    "Native.Package/4.0.0": { "type": "package", "path": "native.package/4.0.0" },
+    "Project.Transitive/3.0.0": { "type": "package", "path": "project.transitive/3.0.0" },
+    "Referenced.Project/1.0.0": { "type": "project", "path": "../Referenced/Referenced.csproj" }
+  },
+  "projectFileDependencyGroups": {
+    "net8.0": [
+      "Direct.Package >= 1.0.0",
+      "Referenced.Project >= 1.0.0"
+    ]
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectName": "App",
+      "projectPath": "src/App/App.csproj"
+    },
+    "frameworks": {
+      "net8.0": {
+        "targetAlias": "net8.0",
+        "dependencies": {
+          "direct.package": { "target": "Package", "version": "[1.0.0, )" },
+          "Referenced.Project": { "target": "Project", "version": "[1.0.0, )" }
+        }
+      }
+    }
+  }
+}

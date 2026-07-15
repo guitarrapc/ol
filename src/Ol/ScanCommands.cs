@@ -14,7 +14,7 @@ internal sealed class ScanCommands
     /// </summary>
     /// <param name="sbom">SBOM JSON path. Cannot be combined with --input.</param>
     /// <param name="input">Resolved dependency input path.</param>
-    /// <param name="inputFormat">Input format: cyclonedx or spdx.</param>
+    /// <param name="inputFormat">Input format: cyclonedx, spdx, or nuget-assets.</param>
     /// <param name="format">Output format: text, json, or markdown.</param>
     /// <param name="outFile">--out, Write output to this path.</param>
     /// <param name="verbose">Include verbose columns.</param>
@@ -26,7 +26,7 @@ internal sealed class ScanCommands
     /// <param name="quiet">Suppress stderr summary.</param>
     /// <param name="refresh">Skip package metadata cache entries.</param>
     /// <param name="cacheDir">Root directory for isolated package-metadata and source-repository caches.</param>
-    /// <param name="skipEnrichment">Use only evidence already present in the SBOM.</param>
+    /// <param name="skipEnrichment">Use only evidence already present in the dependency input.</param>
     /// <param name="concurrency">Maximum concurrent package metadata lookups.</param>
     /// <param name="retry">Reserved package metadata retry count.</param>
     [Command("scan")]

@@ -34,6 +34,7 @@ public sealed class DependencyInputRegistry
     public static DependencyInputRegistry Default { get; } = new([
         new(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, "bomFormat"u8.ToArray(), "CycloneDX"u8.ToArray(), SbomScanner.ParseCycloneDxInventory, SbomFormat.CycloneDxJson),
         new(ScanInputKind.Sbom, ScanInputFormat.Spdx, "spdxVersion"u8.ToArray(), Array.Empty<byte>(), SbomScanner.ParseSpdxInventory, SbomFormat.SpdxJson),
+        new(ScanInputKind.PackageManager, ScanInputFormat.NuGetAssets, "targets"u8.ToArray(), Array.Empty<byte>(), NuGetAssetsScanner.Parse),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>

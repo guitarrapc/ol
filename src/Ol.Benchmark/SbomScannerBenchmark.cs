@@ -42,6 +42,28 @@ public class SbomScannerBenchmark
         }
         """);
 
+    private readonly byte[] nugetAssets = Encoding.UTF8.GetBytes(
+        """
+        {
+          "version": 3,
+          "targets": {
+            "net8.0": {
+              "Direct.Package/1.0.0": { "type": "package", "dependencies": { "Shared.Package": "2.0.0" } },
+              "Shared.Package/2.0.0": { "type": "package" }
+            }
+          },
+          "libraries": {
+            "Direct.Package/1.0.0": { "type": "package" },
+            "Shared.Package/2.0.0": { "type": "package" }
+          },
+          "project": {
+            "version": "1.0.0",
+            "restore": { "projectName": "App", "projectPath": "src/App/App.csproj" },
+            "frameworks": { "net8.0": { "dependencies": { "Direct.Package": { "target": "Package" } } } }
+          }
+        }
+        """);
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
 
     [Benchmark]
@@ -54,6 +76,12 @@ public class SbomScannerBenchmark
     public DependencyInventory ScanCycloneDxInventory()
     {
         return DependencyInputScanner.Scan(cycloneDx, spdx);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanNuGetAssetsInventory()
+    {
+        return DependencyInputScanner.Scan(nugetAssets, spdx, expectedFormat: ScanInputFormat.NuGetAssets);
     }
 
     [Benchmark]

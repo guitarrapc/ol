@@ -66,6 +66,7 @@ The generalized input form requires an explicit registered format:
 ```bash
 ol scan --input bom.json --input-format cyclonedx
 ol scan --input bom.spdx.json --input-format spdx
+ol scan --input obj/project.assets.json --input-format nuget-assets
 ```
 
 Exactly one of `--sbom` and `--input` is required. They cannot be combined. `--input-format` is required with `--input` and cannot be used with `--sbom`. Format names are matched case-insensitively. Explicit format and detected document format must agree.
@@ -74,8 +75,9 @@ Currently supported dependency input formats:
 
 - `cyclonedx`: CycloneDX JSON
 - `spdx`: SPDX JSON
+- `nuget-assets`: NuGet `project.assets.json` version 3
 
-`nuget-assets` is reserved for the planned `project.assets.json` adapter but is not accepted until that parser is implemented. Other unsupported inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, lockfiles, and package manifests. `ol` does not recursively query registries to reproduce package-manager dependency resolution.
+Unsupported inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, lockfiles, and package manifests. `ol` does not recursively query registries to reproduce package-manager dependency resolution; the NuGet adapter consumes the graph already fixed by `dotnet restore`.
 
 `scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns non-zero only when the scan itself cannot be performed or output cannot be written.
 

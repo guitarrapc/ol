@@ -73,7 +73,7 @@ flowchart LR
 
 The stages have distinct responsibilities:
 
-1. **Inventory and graph ingestion** uses one registered input adapter to discover components, occurrences, resolution contexts, and dependency edges. CycloneDX JSON and SPDX JSON are the initial supported inputs.
+1. **Inventory and graph ingestion** uses one registered input adapter to discover components, occurrences, resolution contexts, and dependency edges. CycloneDX JSON, SPDX JSON, and NuGet `project.assets.json` are supported inputs.
 2. **Evidence collection** adds raw license claims and collection outcomes from all available sources.
 3. **SPDX normalization** validates identifiers and expressions against the selected License List snapshot.
 4. **Reconciliation** reduces all candidates for one component to a status without discarding provenance.
@@ -103,6 +103,8 @@ The normalized inventory keeps component data separate from graph placement:
 - an absent context is represented explicitly rather than inferred from the host running Ol.
 
 SBOM inputs currently provide no common platform-resolution context, so their occurrences use the unspecified-context sentinel. Their resolved edges are retained when both endpoint identifiers map to parsed components. View sorting and filtering operate on a projection and must not reorder the inventory arrays referenced by occurrences and edges.
+
+NuGet assets inputs preserve every target framework/RID graph as a separate context. The RID is retained without inferring platform or architecture. A synthetic project root anchors proven direct package edges; project references participate in reachability classification but are not represented as NuGet packages. Repeated package/version values remain separate occurrences, while their versioned purl provides the shared enrichment identity.
 
 ### License candidate
 

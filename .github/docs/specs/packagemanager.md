@@ -26,6 +26,16 @@ Registry responses that are valid JSON but do not embed the expected metadata ob
 
 v3 keeps this behavior and adds source repository hints described in [source.md](source.md).
 
+The resolved-input pipeline also accepts NuGet `project.assets.json` version 3 through `scan --input ... --input-format nuget-assets`. This is dependency inventory input, not package-registry license evidence. The adapter consumes the restore result and does not reproduce NuGet resolution.
+
+## NuGet resolved input
+
+Each `targets` object becomes a separate resolution context. A target key before `/` is retained as the target framework and the suffix is retained verbatim as the runtime identifier. Ol does not infer operating system or architecture fields from the RID.
+
+Each context contains a synthetic project root and package occurrences backed by `type: package` entries that also exist as package libraries. Project, unresolved, and non-package entries do not receive NuGet purls and are not rendered as packages. Project nodes remain available while classifying reachability, so a package reached through a project reference is transitive, but an omitted project node is not misrepresented as a package edge.
+
+Direct dependencies are package or project names declared by the matching `project.frameworks` entry. Reachable packages at depth zero are direct, packages reached below them are transitive, and packages whose relationship cannot be proven are unknown. Package-to-package edges and project-root-to-direct-package edges are retained per context. Identical package/version values in different targets remain distinct occurrences and use the same `pkg:nuget/{id}@{version}` lookup identity for deduplicated enrichment.
+
 ## User Experience
 
 Users should not have to specify package manager or ecosystem manually. The CLI derives the ecosystem from component purl and other SBOM metadata where possible.

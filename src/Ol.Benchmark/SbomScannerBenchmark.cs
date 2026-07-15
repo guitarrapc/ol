@@ -51,6 +51,12 @@ public class SbomScannerBenchmark
     }
 
     [Benchmark]
+    public DependencyInventory ScanCycloneDxInventory()
+    {
+        return DependencyInputScanner.Scan(cycloneDx, spdx);
+    }
+
+    [Benchmark]
     public ScanReport ScanCycloneDxUnknownLicense()
     {
         return SbomScanner.Scan(cycloneDxUnknown, spdx);

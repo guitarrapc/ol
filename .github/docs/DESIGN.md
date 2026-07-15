@@ -73,7 +73,7 @@ flowchart LR
 
 The stages have distinct responsibilities:
 
-1. **Inventory and graph ingestion** discovers components and their dependency relationships. CycloneDX JSON and SPDX JSON are the initial supported inputs.
+1. **Inventory and graph ingestion** uses one registered input adapter to discover components, occurrences, resolution contexts, and dependency edges. CycloneDX JSON and SPDX JSON are the initial supported inputs.
 2. **Evidence collection** adds raw license claims and collection outcomes from all available sources.
 3. **SPDX normalization** validates identifiers and expressions against the selected License List snapshot.
 4. **Reconciliation** reduces all candidates for one component to a status without discarding provenance.
@@ -94,6 +94,15 @@ A component represents one OSS package occurrence known from the dependency inve
 - dependency relationship: `root`, `direct`, `transitive`, or `unknown`
 
 The purl, when versioned and supported, is the preferred identity for registry lookups and cache keys. Missing graph information is represented as `unknown`; it is never interpreted as proof that a component is not direct or transitive.
+
+The normalized inventory keeps component data separate from graph placement:
+
+- a component contains package identity and input-provided license evidence;
+- an occurrence points to one component and one resolution context;
+- an edge points between occurrence indexes within one context; and
+- an absent context is represented explicitly rather than inferred from the host running Ol.
+
+SBOM inputs currently provide no common platform-resolution context, so their occurrences use the unspecified-context sentinel. Their resolved edges are retained when both endpoint identifiers map to parsed components. View sorting and filtering operate on a projection and must not reorder the inventory arrays referenced by occurrences and edges.
 
 ### License candidate
 
@@ -140,7 +149,7 @@ Keeping policy separate allows the same factual report to be evaluated under dif
 
 ### SBOM evidence
 
-CycloneDX and SPDX JSON provide the initial component inventory, dependency graph, and license fields. Input format is detected from content. A document containing markers for both formats is rejected as ambiguous.
+CycloneDX and SPDX JSON provide the initial component inventory, dependency graph, and license fields through registered dependency-input handlers. Each handler owns its marker, public format identity, parser, and input metadata projection. Input format is detected from content. A document containing markers for both formats is rejected as ambiguous.
 
 The scanner resolves the full graph before any output filter is applied. SPDX `licenseDeclared` and `licenseConcluded` are separate candidates. Multiple CycloneDX license IDs without explicit `AND` or `OR` semantics remain ambiguous.
 
@@ -186,6 +195,7 @@ The chosen source, License List version, logical reference, and hashes are repor
 `Ol.Core` owns deterministic domain behavior and reusable infrastructure:
 
 - dependency inventory scanning and relationship resolution
+- immutable dependency-input registration and normalized inventory projection
 - SPDX identifier and expression validation
 - candidate creation and license reconciliation
 - package metadata request planning, registry access, retry scheduling, and cache records

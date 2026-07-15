@@ -11,29 +11,23 @@ public sealed class CycloneDxScanTests
     [Test]
     public async Task Scan_RegisteredFormat_UsesItsOwnMarkerAndParser()
     {
-        var format = new SbomFormat("test-json");
-        var registry = new SbomFormatRegistry([
-          new SbomFormatHandler(format, "testFormat"u8.ToArray(), "test"u8.ToArray(), static (source, _, _) => new ScanReport(new SbomFormat("test-json"), default, [])),
-    ]);
+        var format = new ScanInputFormat("test-json", "test-json-parser", "Test JSON");
+        var registry = new DependencyInputRegistry([
+          new DependencyInputHandler(ScanInputKind.Sbom, format, "testFormat"u8.ToArray(), "test"u8.ToArray(), static (_, _, _, _) => new DependencyInventory(default, [], [], [], []), new SbomFormat("test-json")),
+        ]);
 
         var report = SbomScanner.Scan(Encoding.UTF8.GetBytes("""{ "testFormat": "test" }"""), Spdx, registry);
 
-        await Assert.That(report.Format).IsEqualTo(format);
+        await Assert.That(report.Format).IsEqualTo(new SbomFormat("test-json"));
     }
 
     [Test]
     public async Task Registry_WithDuplicatePublicInputFormat_RejectsRegistration()
     {
-        var first = new SbomFormatHandler(new SbomFormat("first"), "first"u8.ToArray(), "one"u8.ToArray(), static (_, _, _) => default)
-        {
-            InputFormat = new ScanInputFormat("shared", "first-json", "First"),
-        };
-        var second = new SbomFormatHandler(new SbomFormat("second"), "second"u8.ToArray(), "two"u8.ToArray(), static (_, _, _) => default)
-        {
-            InputFormat = new ScanInputFormat("SHARED", "second-json", "Second"),
-        };
+        var first = new DependencyInputHandler(ScanInputKind.Sbom, new ScanInputFormat("shared", "first-json", "First"), "first"u8.ToArray(), "one"u8.ToArray(), static (_, _, _, _) => default);
+        var second = new DependencyInputHandler(ScanInputKind.Sbom, new ScanInputFormat("SHARED", "second-json", "Second"), "second"u8.ToArray(), "two"u8.ToArray(), static (_, _, _, _) => default);
 
-        await Assert.That(() => new SbomFormatRegistry([first, second])).Throws<ArgumentException>();
+        await Assert.That(() => new DependencyInputRegistry([first, second])).Throws<ArgumentException>();
     }
 
     [Test]

@@ -224,12 +224,23 @@ Phase 1では次の契約に確定した。
 - resolution context、occurrence、edgeは別のvalue型として保持し、network lookup targetはinventoryに含めない。
 - 非SBOM入力が将来license claimを提供する場合は`dependency-input` provenanceを使用し、SBOM evidenceと偽装しない。
 
-### Phase 2: 既存SBOM scanの分離
+### Phase 2: 既存SBOM scanの分離（完了）
 
 - CycloneDX/SPDX parserをinput adapterとして共通inventory境界へ接続する。
 - enrichment、reconciliation、view、rendererがSBOM parserを直接前提にしないようにする。
 - 既存CLI出力とlicense判定を維持する回帰テストを追加する。
 - format registration testを追加し、形式追加が中央switchへ波及しないことを確認する。
+
+Phase 2では次の境界に確定した。
+
+- `DependencyInputRegistry`のhandlerがinput kind、format、marker、parserを一つの登録単位として所有する。
+- `DependencyInputScanner`がcontent detection、明示format照合、parser実行、input descriptor投影を担当する。
+- CycloneDX/SPDX parserは`DependencyInventory`を返し、component、occurrence、解決可能なedgeをowned resultとして保持する。
+- SBOMが共通のplatform/target contextを提供しない場合、context配列は空、occurrenceは`UnspecifiedContext`として保持し、実行hostから推測しない。
+- occurrenceはcomponent dataを複製せず、context indexとcomponent indexだけを保持する。
+- `ScanResult`は完全なinventoryとenrichment後componentを分離し、viewのsort/filterは別のprojectionへ適用する。
+- CLI orchestrationは`SbomScanner`、`ScanReport`、`SbomFormat`へ直接依存しない。
+- 既存`SbomScanner.Scan`と`ScanReport`は互換APIとして同じregistered adapterを経由する。
 
 ### Phase 3: NuGet input adapter
 

@@ -13,20 +13,27 @@ public sealed class DependencyInventoryTests
             new DependencyResolutionContext("src/App/App.csproj", "net10.0", "win-x64", "windows", "x64", "runtime"),
             new DependencyResolutionContext("src/App/App.csproj", "net10.0", "linux-x64", "linux", "x64", "runtime"),
         };
+        var components = new[]
+        {
+            new ScanComponent("App", "1.0.0", default, "nuget", DependencyType.Root, LicenseStatus.Unknown, default, "App/1.0.0", default, [], []),
+            new ScanComponent("Example.Native", "1.0.0", default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, "pkg:nuget/Example.Native@1.0.0", "Example.Native/1.0.0", default, [], []),
+            new ScanComponent("App", "1.0.0", default, "nuget", DependencyType.Root, LicenseStatus.Unknown, default, "App/1.0.0", default, [], []),
+            new ScanComponent("Example.Native", "1.0.0", default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, "pkg:nuget/Example.Native@1.0.0", "Example.Native/1.0.0", default, [], []),
+        };
         var occurrences = new[]
         {
-            new DependencyOccurrence(0, "App", "1.0.0", "nuget", default, "App/1.0.0", DependencyType.Root, [], []),
-            new DependencyOccurrence(0, "Example.Native", "1.0.0", "nuget", "pkg:nuget/Example.Native@1.0.0", "Example.Native/1.0.0", DependencyType.Transitive, [], []),
-            new DependencyOccurrence(1, "App", "1.0.0", "nuget", default, "App/1.0.0", DependencyType.Root, [], []),
-            new DependencyOccurrence(1, "Example.Native", "1.0.0", "nuget", "pkg:nuget/Example.Native@1.0.0", "Example.Native/1.0.0", DependencyType.Transitive, [], []),
+            new DependencyOccurrence(0, 0),
+            new DependencyOccurrence(0, 1),
+            new DependencyOccurrence(1, 2),
+            new DependencyOccurrence(1, 3),
         };
         var edges = new[]
         {
             new DependencyEdge(0, 0, 1),
             new DependencyEdge(1, 2, 3),
         };
-        var inventory = new DependencyInventory(input, contexts, occurrences, edges);
-        var result = new ScanResult(inventory, []);
+        var inventory = new DependencyInventory(input, contexts, components, occurrences, edges);
+        var result = ScanResult.FromInventory(inventory);
 
         await Assert.That(result.Inventory.Contexts).Count().IsEqualTo(2);
         await Assert.That(result.Inventory.Occurrences).Count().IsEqualTo(4);
@@ -35,25 +42,27 @@ public sealed class DependencyInventoryTests
         await Assert.That(result.Inventory.Contexts[0].Platform.ToString()).IsEqualTo("windows");
         await Assert.That(result.Inventory.Contexts[1].Platform.ToString()).IsEqualTo("linux");
 
-        var firstLookup = PackageMetadataRequest.TryCreate(result.Inventory.Occurrences[1].Purl.ToString(), out var firstRequest);
-        var secondLookup = PackageMetadataRequest.TryCreate(result.Inventory.Occurrences[3].Purl.ToString(), out var secondRequest);
+        var first = result.Inventory.Components[result.Inventory.Occurrences[1].ComponentIndex];
+        var second = result.Inventory.Components[result.Inventory.Occurrences[3].ComponentIndex];
+        var firstLookup = PackageMetadataRequest.TryCreate(first.Purl.ToString(), out var firstRequest);
+        var secondLookup = PackageMetadataRequest.TryCreate(second.Purl.ToString(), out var secondRequest);
         await Assert.That(firstLookup).IsTrue();
         await Assert.That(secondLookup).IsTrue();
         await Assert.That(firstRequest.CacheKey).IsEqualTo(secondRequest.CacheKey);
     }
 
     [Test]
-    public async Task Occurrence_WithDependencyInputLicense_RetainsNonSbomProvenance()
+    public async Task Component_WithDependencyInputLicense_RetainsNonSbomProvenance()
     {
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.DependencyInput,
             DependencyInput: new DependencyInputEvidence("nuget-assets", "libraries.license"));
         var candidate = LicenseCandidateFactory.Create("nuget-assets", "license", "MIT"u8, new SpdxLicenseIndex(["MIT"], []), evidence);
-        var occurrence = new DependencyOccurrence(0, "Example", "1.0.0", "nuget", "pkg:nuget/Example@1.0.0", "Example/1.0.0", DependencyType.Direct, [candidate], []);
+        var component = new ScanComponent("Example", "1.0.0", "MIT", "nuget", DependencyType.Direct, LicenseStatus.Matched, "pkg:nuget/Example@1.0.0", "Example/1.0.0", candidate, [], []);
 
-        await Assert.That(occurrence.LicenseCandidates[0].Evidence.Kind).IsEqualTo(LicenseEvidenceKind.DependencyInput);
-        await Assert.That(occurrence.LicenseCandidates[0].Evidence.Kind).IsNotEqualTo(LicenseEvidenceKind.Sbom);
-        await Assert.That(occurrence.LicenseCandidates[0].Evidence.DependencyInput!.Format).IsEqualTo("nuget-assets");
-        await Assert.That(occurrence.LicenseCandidates[0].Evidence.DependencyInput!.Field).IsEqualTo("libraries.license");
+        await Assert.That(component.PrimaryCandidate.Evidence.Kind).IsEqualTo(LicenseEvidenceKind.DependencyInput);
+        await Assert.That(component.PrimaryCandidate.Evidence.Kind).IsNotEqualTo(LicenseEvidenceKind.Sbom);
+        await Assert.That(component.PrimaryCandidate.Evidence.DependencyInput!.Format).IsEqualTo("nuget-assets");
+        await Assert.That(component.PrimaryCandidate.Evidence.DependencyInput!.Field).IsEqualTo("libraries.license");
     }
 }

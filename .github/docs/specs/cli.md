@@ -79,6 +79,8 @@ Currently supported dependency input formats:
 
 `scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns non-zero only when the scan itself cannot be performed or output cannot be written.
 
+The command boundary parses every supported input through the registered dependency-input adapter and then consumes a normalized inventory. Enrichment, reconciliation, filtering, grouping, sorting, and rendering do not dispatch on CycloneDX or SPDX parser types. Explicit `--input-format` validation uses the same registry as content detection.
+
 Examples of whole-command failures:
 
 - dependency input cannot be read.
@@ -119,6 +121,8 @@ ol scan --sbom bom.json --format markdown --out licenses.md
 ```
 
 For human-readable `text` and `markdown` output, a labeled scan summary is separated from the report by a blank line and written to stderr. JSON already contains canonical summary, warning, cache, network, input, and SPDX metadata, so successful JSON output does not emit a duplicate stderr summary. This keeps redirected and interactive JSON output free from an unexpected second representation of the same information.
+
+The human-readable input summary identifies the registered input format. It does not require the downstream scan pipeline to retain an SBOM-specific report type.
 
 `--quiet` suppresses the human-readable stderr summary/progress output. It must not suppress the primary stdout result.
 

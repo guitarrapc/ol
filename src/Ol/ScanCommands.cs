@@ -112,17 +112,19 @@ internal sealed class ScanCommands
             return 1;
         }
 
-        byte[] sbomBytes;
-        ScanReport report;
+        byte[] inputBytes;
+        ScanResult scanResult;
         try
         {
-            sbomBytes = File.ReadAllBytes(inputPath);
-            report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
-            if (inputSelection.HasExpectedFormat && report.Format != inputSelection.ExpectedHandler.Format)
+            inputBytes = File.ReadAllBytes(inputPath);
+            var expectedFormat = inputSelection.HasExpectedFormat ? inputSelection.ExpectedHandler.Format : default;
+            var inventory = DependencyInputScanner.Scan(inputBytes, spdx.Index, expectedFormat: expectedFormat);
+            var descriptor = inventory.Input with
             {
-                SbomFormatRegistry.Default.TryGetFormat(report.Format, out var detectedHandler);
-                throw new InvalidOperationException($"Input format {inputSelection.ExpectedHandler.InputFormat.Name} does not match the detected {detectedHandler.InputFormat.Name} format.");
-            }
+                SourceReference = Path.GetFileName(inputPath),
+                SourceSha256 = format == ReportFormat.Json ? Convert.ToHexString(SHA256.HashData(inputBytes)).ToLowerInvariant() : string.Empty,
+            };
+            scanResult = ScanResult.FromInventory(inventory with { Input = descriptor });
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
@@ -131,7 +133,7 @@ internal sealed class ScanCommands
                 : $"Unable to scan input: {exception.Message}");
             return 1;
         }
-        var enrichedComponents = report.Components;
+        var enrichedComponents = scanResult.Components;
         PackageMetadataSummary packageMetadataSummary;
         SourceRepositorySummary sourceRepositorySummary;
         if (skipEnrichment)
@@ -151,11 +153,14 @@ internal sealed class ScanCommands
             sourceRepositorySummary = sourceEnrichment.Summary;
         }
 
-        var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(report.Components, dependency);
-        var componentCount = ScanView.Apply(enrichedComponents, dependency, sort, sortOrder);
-        var components = enrichedComponents.AsSpan(0, componentCount);
-        var dependencyFilteredCount = dependency is null or "" ? 0 : report.Components.Length - components.Length;
-        var inputDescriptor = format == ReportFormat.Json ? CreateInputDescriptor(inputSelection, report, inputPath, sbomBytes) : default;
+        scanResult = scanResult with { Components = enrichedComponents };
+
+        var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(scanResult.Inventory.Components, dependency);
+        var viewComponents = scanResult.Components.Length == 0 ? [] : (ScanComponent[])scanResult.Components.Clone();
+        var componentCount = ScanView.Apply(viewComponents, dependency, sort, sortOrder);
+        var components = viewComponents.AsSpan(0, componentCount);
+        var dependencyFilteredCount = dependency is null or "" ? 0 : scanResult.Inventory.Components.Length - components.Length;
+        var inputDescriptor = scanResult.Inventory.Input;
         var text = groupBy is null or ""
             ? format switch
             {
@@ -201,7 +206,7 @@ internal sealed class ScanCommands
             Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems");
             Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
             Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
-            Console.Error.WriteLine($"  Input: {Path.GetFileName(inputPath)}; SBOM format {report.Format}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
+            Console.Error.WriteLine($"  Input: {Path.GetFileName(inputPath)}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
             if (dependency is not null and not "")
             {
                 Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} components excluded; {excludedUnknownCount} with unknown dependency type");
@@ -263,7 +268,7 @@ internal sealed class ScanCommands
             return false;
         }
 
-        if (!SbomFormatRegistry.Default.TryGetInputFormat(inputFormat, out var handler))
+        if (!DependencyInputRegistry.Default.TryGetInputFormat(inputFormat, out var handler))
         {
             error = $"Unsupported input format: {inputFormat}";
             return false;
@@ -274,25 +279,9 @@ internal sealed class ScanCommands
         return true;
     }
 
-    private static ScanInputDescriptor CreateInputDescriptor(ScanInputSelection selection, ScanReport report, string inputPath, ReadOnlySpan<byte> inputBytes)
+    private readonly record struct ScanInputSelection(string Path, bool IsLegacySbom, DependencyInputHandler ExpectedHandler)
     {
-        var handler = selection.ExpectedHandler;
-        if (!selection.HasExpectedFormat && !SbomFormatRegistry.Default.TryGetFormat(report.Format, out handler))
-        {
-            throw new InvalidOperationException($"No input descriptor is registered for {report.Format}.");
-        }
-
-        return new ScanInputDescriptor(
-            ScanInputKind.Sbom,
-            handler.InputFormat,
-            Path.GetFileName(inputPath),
-            Convert.ToHexString(SHA256.HashData(inputBytes)).ToLowerInvariant(),
-            report.SpecVersion);
-    }
-
-    private readonly record struct ScanInputSelection(string Path, bool IsLegacySbom, SbomFormatHandler ExpectedHandler)
-    {
-        public bool HasExpectedFormat => !string.IsNullOrEmpty(ExpectedHandler.InputFormat.Name);
+        public bool HasExpectedFormat => !string.IsNullOrEmpty(ExpectedHandler.Format.Name);
     }
 }
 

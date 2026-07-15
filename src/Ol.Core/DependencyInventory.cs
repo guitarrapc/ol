@@ -61,28 +61,14 @@ public readonly record struct DependencyResolutionContext(
     Utf8Slice Architecture,
     Utf8Slice Variant);
 
-/// <summary>Represents one package occurrence in one resolution context.</summary>
-/// <param name="ContextIndex">The index of the owning resolution context.</param>
-/// <param name="Name">The normalized package name.</param>
-/// <param name="Version">The resolved package version.</param>
-/// <param name="Ecosystem">The package ecosystem.</param>
-/// <param name="Purl">The versioned package URL, when representable.</param>
-/// <param name="SourceId">The resolver-native occurrence identifier, when present.</param>
-/// <param name="DependencyType">The relationship to the root in this context.</param>
-/// <param name="LicenseCandidates">The license claims supplied by the dependency input.</param>
-/// <param name="Warnings">The input warnings associated with this occurrence.</param>
-/// <param name="RepositoryUrl">The repository URL supplied by the dependency input.</param>
-public readonly record struct DependencyOccurrence(
-    int ContextIndex,
-    Utf8Slice Name,
-    Utf8Slice Version,
-    string Ecosystem,
-    Utf8Slice Purl,
-    Utf8Slice SourceId,
-    DependencyType DependencyType,
-    LicenseCandidate[] LicenseCandidates,
-    string[] Warnings,
-    Utf8Slice RepositoryUrl = default);
+/// <summary>Locates one package component occurrence in one resolution context.</summary>
+/// <param name="ContextIndex">The owning resolution-context index, or <see cref="UnspecifiedContext"/>.</param>
+/// <param name="ComponentIndex">The package component index in the owning inventory.</param>
+public readonly record struct DependencyOccurrence(int ContextIndex, int ComponentIndex)
+{
+    /// <summary>Indicates that the input supplied no resolution context.</summary>
+    public const int UnspecifiedContext = -1;
+}
 
 /// <summary>Represents one directed dependency edge between package occurrences.</summary>
 /// <param name="ContextIndex">The index of the owning resolution context.</param>
@@ -93,15 +79,21 @@ public readonly record struct DependencyEdge(int ContextIndex, int FromOccurrenc
 /// <summary>Contains a complete resolved dependency inventory before external enrichment.</summary>
 /// <param name="Input">The dependency input descriptor.</param>
 /// <param name="Contexts">The distinct resolution contexts.</param>
+/// <param name="Components">The input package components in deterministic order.</param>
 /// <param name="Occurrences">The package occurrences in deterministic input order.</param>
 /// <param name="Edges">The dependency edges in deterministic input order.</param>
 public readonly record struct DependencyInventory(
     ScanInputDescriptor Input,
     DependencyResolutionContext[] Contexts,
+    ScanComponent[] Components,
     DependencyOccurrence[] Occurrences,
     DependencyEdge[] Edges);
 
 /// <summary>Contains a dependency inventory and its reconciled component results.</summary>
 /// <param name="Inventory">The complete dependency inventory.</param>
 /// <param name="Components">The reconciled component results in occurrence order.</param>
-public readonly record struct ScanResult(DependencyInventory Inventory, ScanComponent[] Components);
+public readonly record struct ScanResult(DependencyInventory Inventory, ScanComponent[] Components)
+{
+    /// <summary>Creates an unenriched scan result over one complete inventory.</summary>
+    public static ScanResult FromInventory(DependencyInventory inventory) => new(inventory, inventory.Components);
+}

@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+
 using System.Text.Json;
 
 namespace Ol.Core;
@@ -14,73 +15,26 @@ public static class SbomScanner
     /// <param name="sbomUtf8">The SBOM JSON bytes.</param>
     /// <param name="spdxLicenseIndex">The SPDX license lookup index.</param>
     /// <returns>The scan report.</returns>
-    public static ScanReport Scan(ReadOnlySpan<byte> sbomUtf8, SpdxLicenseIndex spdxLicenseIndex, SbomFormatRegistry? formats = null)
+    public static ScanReport Scan(ReadOnlySpan<byte> sbomUtf8, SpdxLicenseIndex spdxLicenseIndex, DependencyInputRegistry? inputs = null)
     {
-        return Scan(sbomUtf8.ToArray(), spdxLicenseIndex, formats);
+        return Scan(sbomUtf8.ToArray(), spdxLicenseIndex, inputs);
     }
 
     /// <summary>
     /// Scans an owned UTF-8 SBOM buffer without copying component text.
     /// </summary>
-    public static ScanReport Scan(byte[] sbomUtf8, SpdxLicenseIndex spdxLicenseIndex, SbomFormatRegistry? formats = null)
+    public static ScanReport Scan(byte[] sbomUtf8, SpdxLicenseIndex spdxLicenseIndex, DependencyInputRegistry? inputs = null)
     {
-        ArgumentNullException.ThrowIfNull(sbomUtf8);
-        var offset = HasUtf8Bom(sbomUtf8) ? 3 : 0;
-        var input = sbomUtf8.AsSpan(offset);
-        var reader = new Utf8JsonReader(input, isFinalBlock: true, state: default);
-        var handler = DetectFormat(ref reader, formats ?? SbomFormatRegistry.Default);
-        return handler.Parser(sbomUtf8, offset, spdxLicenseIndex);
+        var registry = inputs ?? DependencyInputRegistry.Default;
+        var inventory = DependencyInputScanner.ScanCore(sbomUtf8, spdxLicenseIndex, registry, default, retainGraph: false, out var handler);
+
+        var legacyFormat = string.IsNullOrEmpty(handler.LegacySbomFormat.Name)
+            ? new SbomFormat(handler.Format.Name)
+            : handler.LegacySbomFormat;
+        return new ScanReport(legacyFormat, inventory.Input.SpecificationVersion, inventory.Components);
     }
 
-    private static bool HasUtf8Bom(ReadOnlySpan<byte> sbomUtf8)
-        => sbomUtf8.Length >= 3 && sbomUtf8[0] == 0xEF && sbomUtf8[1] == 0xBB && sbomUtf8[2] == 0xBF;
-
-    private static SbomFormatHandler DetectFormat(ref Utf8JsonReader reader, SbomFormatRegistry formats)
-    {
-        var handlers = formats.Handlers;
-        var selected = -1;
-        while (reader.Read())
-        {
-            if (reader.TokenType != JsonTokenType.PropertyName)
-            {
-                continue;
-            }
-
-            for (var i = 0; i < handlers.Length; i++)
-            {
-                var handler = handlers[i];
-                if (!reader.ValueTextEquals(handler.MarkerName.Span))
-                {
-                    continue;
-                }
-
-                if (handler.MarkerValue.Length != 0)
-                {
-                    reader.Read();
-                    if (reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(handler.MarkerValue.Span))
-                    {
-                        continue;
-                    }
-                }
-
-                if (selected >= 0 && selected != i)
-                {
-                    throw new JsonException("Unsupported or ambiguous SBOM JSON format.");
-                }
-
-                selected = i;
-            }
-        }
-
-        if (selected < 0)
-        {
-            throw new JsonException("Unsupported or ambiguous SBOM JSON format.");
-        }
-
-        return handlers[selected];
-    }
-
-    internal static ScanReport ScanCycloneDx(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex)
+    internal static DependencyInventory ParseCycloneDxInventory(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph)
     {
         var reader = new Utf8JsonReader(sbomUtf8.AsSpan(offset), isFinalBlock: true, state: default);
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
@@ -162,7 +116,7 @@ public static class SbomScanner
                 ApplyDependencyTypes(result, rootRef, dependencyRefs.AsSpan(0, dependencyCount));
             }
 
-            return new ScanReport(SbomFormat.CycloneDxJson, specVersion, result);
+            return CreateInventory(specVersion, result, dependencyRefs.AsSpan(0, dependencyCount), retainGraph);
         }
         finally
         {
@@ -171,7 +125,7 @@ public static class SbomScanner
         }
     }
 
-    internal static ScanReport ScanSpdx(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex)
+    internal static DependencyInventory ParseSpdxInventory(byte[] sbomUtf8, int offset, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph)
     {
         var reader = new Utf8JsonReader(sbomUtf8.AsSpan(offset), isFinalBlock: true, state: default);
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
@@ -244,7 +198,7 @@ public static class SbomScanner
                 ApplyDependencyTypes(result, rootRef, dependencyRefs.AsSpan(0, dependencyCount));
             }
 
-            return new ScanReport(SbomFormat.SpdxJson, specVersion, result);
+            return CreateInventory(specVersion, result, dependencyRefs.AsSpan(0, dependencyCount), retainGraph);
         }
         finally
         {
@@ -1039,6 +993,78 @@ public static class SbomScanner
 
         dependencies[dependencyCount] = new DependencyEdge(parentRef, childRef);
         dependencyCount++;
+    }
+
+    private static DependencyInventory CreateInventory(Utf8Slice specVersion, ScanComponent[] components, ReadOnlySpan<DependencyEdge> dependencyRefs, bool retainGraph)
+    {
+        var input = new ScanInputDescriptor(default, default, string.Empty, string.Empty, specVersion);
+        if (!retainGraph)
+        {
+            return new DependencyInventory(input, [], components, [], []);
+        }
+
+        var occurrences = new DependencyOccurrence[components.Length];
+        for (var i = 0; i < occurrences.Length; i++)
+        {
+            occurrences[i] = new DependencyOccurrence(DependencyOccurrence.UnspecifiedContext, i);
+        }
+
+        var edges = ProjectDependencyEdges(components, dependencyRefs);
+        return new DependencyInventory(input, [], components, occurrences, edges);
+    }
+
+    private static global::Ol.Core.DependencyEdge[] ProjectDependencyEdges(ReadOnlySpan<ScanComponent> components, ReadOnlySpan<DependencyEdge> dependencyRefs)
+    {
+        if (dependencyRefs.IsEmpty || components.IsEmpty)
+        {
+            return [];
+        }
+
+        var resolved = ArrayPool<global::Ol.Core.DependencyEdge>.Shared.Rent(dependencyRefs.Length);
+        var resolvedCount = 0;
+        try
+        {
+            for (var i = 0; i < dependencyRefs.Length; i++)
+            {
+                var from = FindComponentIndex(components, dependencyRefs[i].ParentRef);
+                var to = FindComponentIndex(components, dependencyRefs[i].ChildRef);
+                if (from >= 0 && to >= 0)
+                {
+                    resolved[resolvedCount++] = new global::Ol.Core.DependencyEdge(DependencyOccurrence.UnspecifiedContext, from, to);
+                }
+            }
+
+            if (resolvedCount == 0)
+            {
+                return [];
+            }
+
+            var result = new global::Ol.Core.DependencyEdge[resolvedCount];
+            resolved.AsSpan(0, resolvedCount).CopyTo(result);
+            return result;
+        }
+        finally
+        {
+            ArrayPool<global::Ol.Core.DependencyEdge>.Shared.Return(resolved);
+        }
+    }
+
+    private static int FindComponentIndex(ReadOnlySpan<ScanComponent> components, Utf8Slice sourceId)
+    {
+        if (sourceId.IsEmpty)
+        {
+            return -1;
+        }
+
+        for (var i = 0; i < components.Length; i++)
+        {
+            if (components[i].SourceId.Equals(sourceId))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private static void ApplyDependencyTypes(ScanComponent[] components, Utf8Slice rootRef, ReadOnlySpan<DependencyEdge> dependencies)

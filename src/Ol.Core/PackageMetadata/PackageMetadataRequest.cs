@@ -23,7 +23,7 @@ public readonly record struct PackageMetadataRequest(
     /// <returns><see langword="true"/> when a supported request was created.</returns>
     public static bool TryCreate(string purl, out PackageMetadataRequest request)
     {
-        return TryCreate(purl, PackageMetadataProviders.Default, out request);
+        return TryCreate(purl, OlDefaults.PackageMetadataProviders, out request);
     }
 
     /// <summary>

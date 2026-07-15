@@ -1,7 +1,5 @@
 ﻿using System.Collections.Frozen;
 using System.Text.Json;
-using Ol.Core.PackageManagers;
-
 namespace Ol.Core.PackageMetadata;
 
 /// <summary>
@@ -61,11 +59,6 @@ public sealed class PackageMetadataProviders
 {
     private readonly FrozenDictionary<string, PackageMetadataProvider> byEcosystem;
     private readonly PackageMetadataProvider[] providers;
-
-    /// <summary>
-    /// Gets the providers built into Ol.
-    /// </summary>
-    public static PackageMetadataProviders Default { get; } = new([new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider()]);
 
     /// <summary>Gets the number of registered package ecosystems.</summary>
     public int Count => providers.Length;

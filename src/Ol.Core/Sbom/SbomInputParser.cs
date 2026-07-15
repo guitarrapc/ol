@@ -250,7 +250,7 @@ internal static class SbomInputParser
             reader.Skip();
         }
 
-        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, primaryCandidate, additionalCandidates, repositoryUrl);
+        return CreateScanComponent(name, version, license, OlDefaults.PackageMetadataProviders.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, primaryCandidate, additionalCandidates, repositoryUrl);
     }
 
     private static ScanComponent ReadCycloneDxMetadataComponent(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
@@ -371,7 +371,7 @@ internal static class SbomInputParser
             new LicenseEvidence(LicenseEvidenceKind.Sbom, SbomLicenseField.SpdxLicenseConcluded));
         var (license, status) = ReconcileLicenses(declaredCandidate, concludedCandidate);
         var additionalCandidates = new[] { concludedCandidate };
-        return CreateScanComponent(name, version, license, PackageMetadataProviders.Default.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, declaredCandidate, additionalCandidates, repositoryUrl);
+        return CreateScanComponent(name, version, license, OlDefaults.PackageMetadataProviders.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, declaredCandidate, additionalCandidates, repositoryUrl);
     }
 
     private static void ReadSpdxRelationships(ref Utf8JsonReader reader, byte[] source, int offset, ref DependencyEdge[] dependencies, ref int dependencyCount, ref Utf8Slice rootRef)

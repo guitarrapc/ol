@@ -18,7 +18,7 @@ public sealed class PackageMetadataRegistryClient
     public PackageMetadataRegistryClient(HttpClient httpClient, PackageMetadataProviders? providers = null)
     {
         this.httpClient = httpClient;
-        this.providers = providers ?? PackageMetadataProviders.Default;
+        this.providers = providers ?? OlDefaults.PackageMetadataProviders;
     }
 
     /// <summary>

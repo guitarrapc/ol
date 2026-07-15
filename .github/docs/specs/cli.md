@@ -40,6 +40,8 @@ ol cache clear source-repository
 ol cache clear all
 ```
 
+The cache category is a positional argument. Omitting it is equivalent to `all`.
+
 `package-metadata` clears the persistent package metadata cache. `source-repository` clears the persistent source repository evidence cache. `all` clears both persistent evidence caches.
 
 `scan` and `cache clear` accept `--cache-dir <path>`. The supplied path is an isolation root, never a directly managed category: Ol reads and writes only its `package-metadata` and `source-repository` children. Clearing `all` removes those children but preserves the isolation root and unrelated files beside them. An existing file is rejected as a cache root.
@@ -320,3 +322,11 @@ Logical identifiers and hashes should be used where possible. Token presence may
 ## Future Policy Checks
 
 Allow-list enforcement is outside v1-v3 scan scope. A later phase may add `check` or equivalent policy behavior. That phase should consume scan evidence and fail closed for allow-list misses, unknowns, conflicts, ambiguous values, and invalid license expressions.
+
+## Lessons Learned
+
+- JSON SBOM and SPDX files written by common Windows APIs can start with a UTF-8 BOM. Input handling must strip an optional BOM before structural detection or JSON parsing.
+- Format detection must examine the complete document. Selecting the first format marker can silently misclassify a document containing both CycloneDX and SPDX markers.
+- ConsoleAppFramework binds command method parameters as named options. Preserve the documented positional cache-category syntax by translating it before command dispatch.
+- CLI integration tests must execute the already-built CLI DLL. Parallel `dotnet run` invocations race while replacing the shared apphost executable.
+- Do not add an optional second parameter to shared `params string[]` CLI test helpers: it can capture `scan` rather than treating it as command input. Use a distinct helper for cache-aware invocation.

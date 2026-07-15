@@ -140,3 +140,8 @@ Rate-limit responses should be recorded in evidence. The scan should continue wh
 ## Report Privacy
 
 Reports must not include token values or absolute cache paths. Package cache paths should be represented by logical labels and hashes when needed.
+
+## Lessons Learned
+
+- Go module proxy metadata exposes repository identity as `Origin.URL` and does not provide a package license field. A successful lookup therefore contributes unknown license evidence plus a source reference, not a fetch error.
+- Registry parsing and persisted report records necessarily allocate. Reconciliation must avoid extra per-component `List` and `HashSet` allocations by using pooled temporary storage where equivalent behavior is preserved.

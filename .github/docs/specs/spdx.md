@@ -211,3 +211,7 @@ SPDX SBOMs can contain both `licenseDeclared` and `licenseConcluded`. Both are e
 - Unknown-like values do not create a conflict when a valid candidate exists.
 
 For CycloneDX, a single `expression` or a single license `id` can be `matched`. Multiple license IDs without explicit `AND`/`OR` semantics are `ambiguous`, not automatically synthesized into a license expression.
+
+## Lessons Learned
+
+- `Ol.Update` remains a development-time generator. The Native AOT CLI consumes generated SPDX lookup data through `Ol.Core` and must not acquire a runtime dependency on the generator.

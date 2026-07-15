@@ -110,7 +110,7 @@ v3 introduces source repository evidence cache.
 
 Cache identity is based on the logical repository and ref. Physical entry names are opaque so private repository names are not exposed in directory listings, while entries retain enough logical identity and provenance for auditability.
 
-The exact persisted properties, casing, validation rules, and schema-version behavior are defined by the planned [source repository cache schema version 1](cache_format.md#contract-source-cache-v1). Source integration must not define an independent cache shape.
+The exact persisted properties, casing, validation rules, and schema-version behavior are defined by [source repository cache schema version 1](cache_format.md#contract-source-cache-v1). Source integration must not define an independent cache shape.
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing source repository cache and overwrites it with newly fetched evidence.
 
@@ -130,3 +130,10 @@ If SBOM or package metadata evidence already yields a single valid license, a so
 If no usable license evidence exists and source repository fetching fails, the component may be `error`.
 
 If source repository evidence disagrees with SBOM or package metadata evidence, the component is `conflict`.
+
+## Lessons Learned
+
+- Preserve an exact package-version repository commit or ref from registry metadata when available. Otherwise use an explicit default-branch lookup rather than guessing a tag.
+- A corrupt cache entry and a missing entry are different audit events. Recollection may be identical, but corrupt-cache evidence must survive even when the replacement fetch fails.
+- Indexed target/result arrays keep bounded concurrent collection independent from deterministic component projection and avoid concurrent result-map overhead.
+- Source provenance is typed report metadata, not a warning. Keeping it nested on the candidate prevents warning-count inflation and duplicated formatted strings for shared results.

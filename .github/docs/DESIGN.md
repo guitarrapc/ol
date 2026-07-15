@@ -152,9 +152,9 @@ The initial ecosystems are npm, NuGet, Cargo, and Go modules. Unsupported ecosys
 
 ### Source repository evidence (implemented v3)
 
-Source evidence will extend the same model rather than creating a separate result path. Repository identities will come from existing SBOM or package metadata evidence. The initial GitHub integration will use the GitHub License API and will not attempt to outguess an unidentified license by parsing arbitrary license-file text.
+Source evidence extends the same model rather than creating a separate result path. Repository identities come from existing SBOM or package metadata evidence. The initial GitHub integration uses the GitHub License API and does not attempt to outguess an unidentified license by parsing arbitrary license-file text.
 
-Only `OL_GITHUB_TOKEN` will be an authentication input. Authentication will be restricted to the intended GitHub API host, and reports will retain only the authentication mode.
+Only `OL_GITHUB_TOKEN` is an authentication input. Authentication is restricted to the intended GitHub API host, and reports retain only the authentication mode.
 
 ### Adding an evidence source
 

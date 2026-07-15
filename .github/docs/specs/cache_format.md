@@ -169,3 +169,7 @@ It must not silently reinterpret incompatible fields. Cache incompatibility alon
 - [Package metadata evidence and cache behavior](packagemanager.md)
 - [Source repository evidence and cache behavior](source.md)
 - [CLI cache commands and privacy contract](cli.md)
+
+## Lessons Learned
+
+- Native AOT cache serialization requires a source-generated `JsonSerializerContext`; reflection-based `JsonSerializer` paths can pass Debug tests but fail at runtime.

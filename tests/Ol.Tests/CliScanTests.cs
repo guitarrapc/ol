@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using Ol.Core;
+using Ol.Core.SourceRepository;
 
 namespace Ol.Tests;
 

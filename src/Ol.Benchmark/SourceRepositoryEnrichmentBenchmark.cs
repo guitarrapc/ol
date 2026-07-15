@@ -1,6 +1,8 @@
 ﻿using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;
+using Ol.Core.SourceRepository;
+using Ol.Core.Spdx;
 
 /// <summary>Measures deterministic projection of one cached source result to duplicate package components.</summary>
 public class SourceRepositoryEnrichmentBenchmark : IDisposable

@@ -1,6 +1,7 @@
 ﻿using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;
+using Ol.Core.Spdx;
 
 public class ScanViewBenchmark : IDisposable
 {

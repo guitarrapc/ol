@@ -1,6 +1,8 @@
 ﻿using System.Text;
 using BenchmarkDotNet.Attributes;
 using Ol.Core;
+using Ol.Core.Licensing;
+using Ol.Core.Spdx;
 
 [DisassemblyDiagnoser(maxDepth: 1)]
 public class DependencyInputScannerBenchmark

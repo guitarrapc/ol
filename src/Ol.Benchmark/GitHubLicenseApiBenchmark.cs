@@ -1,5 +1,6 @@
 ﻿using BenchmarkDotNet.Attributes;
-using Ol.Core;
+using Ol.Core.GitHub;
+using Ol.Core.SourceRepository;
 
 public class GitHubLicenseApiBenchmark : IDisposable
 {

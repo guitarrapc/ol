@@ -1,4 +1,4 @@
-﻿namespace Ol.Core;
+﻿namespace Ol.Core.Licensing;
 
 /// <summary>
 /// Represents one license value extracted from an evidence source.

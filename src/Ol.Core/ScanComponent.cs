@@ -1,4 +1,6 @@
-﻿namespace Ol.Core;
+﻿using Ol.Core.Licensing;
+
+namespace Ol.Core;
 
 /// <summary>
 /// Represents one scanned SBOM component.

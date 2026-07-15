@@ -1,4 +1,6 @@
-﻿namespace Ol.Core;
+﻿using Ol.Core.Spdx;
+
+namespace Ol.Core.Licensing;
 
 /// <summary>
 /// Classifies raw license evidence into SPDX-aware candidates.

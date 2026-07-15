@@ -1,6 +1,7 @@
+﻿using Ol.Core.PackageMetadata;
 using System.Text.Json;
 
-namespace Ol.Core;
+namespace Ol.Core.PackageManagers;
 
 /// <summary>Provides Cargo registry metadata.</summary>
 public sealed class CargoPackageMetadataProvider : PackageMetadataProvider

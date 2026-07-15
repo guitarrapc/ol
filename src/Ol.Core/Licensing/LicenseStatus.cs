@@ -1,4 +1,4 @@
-﻿namespace Ol.Core;
+﻿namespace Ol.Core.Licensing;
 
 /// <summary>
 /// Describes the license classification result for a component.

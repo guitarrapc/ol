@@ -1,5 +1,6 @@
-using System.Text;
+﻿using System.Text;
 using Ol.Core;
+using Ol.Core.Spdx;
 
 namespace Ol.Tests;
 

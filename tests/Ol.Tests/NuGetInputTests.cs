@@ -1,5 +1,6 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Ol.Core;
+using Ol.Core.Spdx;
 
 namespace Ol.Tests;
 

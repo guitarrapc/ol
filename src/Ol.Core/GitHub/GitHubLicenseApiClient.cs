@@ -1,8 +1,9 @@
-﻿using System.Net;
+﻿using Ol.Core.SourceRepository;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-namespace Ol.Core;
+namespace Ol.Core.GitHub;
 
 /// <summary>Retrieves GitHub's detected repository license without parsing license bodies.</summary>
 public sealed class GitHubLicenseApiClient

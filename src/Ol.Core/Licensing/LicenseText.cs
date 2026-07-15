@@ -1,4 +1,4 @@
-﻿namespace Ol.Core;
+﻿namespace Ol.Core.Licensing;
 
 internal static class LicenseText
 {

@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 
-namespace Ol.Core;
+namespace Ol.Core.Spdx;
 
 /// <summary>
 /// Manages user-installed SPDX data selected at runtime.

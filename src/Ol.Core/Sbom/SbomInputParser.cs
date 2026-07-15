@@ -1,8 +1,11 @@
-﻿using System.Buffers;
+﻿using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
+using Ol.Core.Spdx;
+using System.Buffers;
 
 using System.Text.Json;
 
-namespace Ol.Core;
+namespace Ol.Core.Sbom;
 
 /// <summary>
 /// Parses SBOM JSON documents into dependency inventories.
@@ -988,14 +991,14 @@ internal static class SbomInputParser
         return new DependencyInventory(input, [], components, occurrences, edges);
     }
 
-    private static global::Ol.Core.DependencyEdge[] ProjectDependencyEdges(ReadOnlySpan<ScanComponent> components, ReadOnlySpan<DependencyEdge> dependencyRefs)
+    private static Core.DependencyEdge[] ProjectDependencyEdges(ReadOnlySpan<ScanComponent> components, ReadOnlySpan<DependencyEdge> dependencyRefs)
     {
         if (dependencyRefs.IsEmpty || components.IsEmpty)
         {
             return [];
         }
 
-        var resolved = ArrayPool<global::Ol.Core.DependencyEdge>.Shared.Rent(dependencyRefs.Length);
+        var resolved = ArrayPool<Core.DependencyEdge>.Shared.Rent(dependencyRefs.Length);
         var resolvedCount = 0;
         try
         {
@@ -1005,7 +1008,7 @@ internal static class SbomInputParser
                 var to = FindComponentIndex(components, dependencyRefs[i].ChildRef);
                 if (from >= 0 && to >= 0)
                 {
-                    resolved[resolvedCount++] = new global::Ol.Core.DependencyEdge(DependencyOccurrence.UnspecifiedContext, from, to);
+                    resolved[resolvedCount++] = new Core.DependencyEdge(DependencyOccurrence.UnspecifiedContext, from, to);
                 }
             }
 
@@ -1014,13 +1017,13 @@ internal static class SbomInputParser
                 return [];
             }
 
-            var result = new global::Ol.Core.DependencyEdge[resolvedCount];
+            var result = new Core.DependencyEdge[resolvedCount];
             resolved.AsSpan(0, resolvedCount).CopyTo(result);
             return result;
         }
         finally
         {
-            ArrayPool<global::Ol.Core.DependencyEdge>.Shared.Return(resolved);
+            ArrayPool<Core.DependencyEdge>.Shared.Return(resolved);
         }
     }
 

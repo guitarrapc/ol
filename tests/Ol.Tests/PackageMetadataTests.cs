@@ -1,6 +1,8 @@
 ﻿using System.Net;
 using System.Text.Json;
 using Ol.Core;
+using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
 
 namespace Ol.Tests;
 

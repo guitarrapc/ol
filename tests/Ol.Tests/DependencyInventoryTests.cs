@@ -1,4 +1,6 @@
-using Ol.Core;
+﻿using Ol.Core;
+using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
 
 namespace Ol.Tests;
 

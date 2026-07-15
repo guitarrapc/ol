@@ -2,7 +2,7 @@
 using System.Collections.Frozen;
 using System.Text;
 
-namespace Ol.Core;
+namespace Ol.Core.Spdx;
 
 /// <summary>
 /// Provides SPDX license and exception identifier lookup for scan classification.

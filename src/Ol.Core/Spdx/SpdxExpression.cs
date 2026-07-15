@@ -1,6 +1,6 @@
 ﻿using System.Buffers;
 
-namespace Ol.Core;
+namespace Ol.Core.Spdx;
 
 internal ref struct SpdxExpression
 {

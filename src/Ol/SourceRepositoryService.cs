@@ -1,5 +1,10 @@
-using System.Buffers;
+﻿using System.Buffers;
 using Ol.Core;
+using Ol.Core.GitHub;
+using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
+using Ol.Core.SourceRepository;
+using Ol.Core.Spdx;
 
 internal readonly record struct SourceRepositorySummary(int TargetCount, int GitHubRequestCount, int CacheHitCount, int CacheMissCount, int FetchErrorCount, int UnknownCount, string AuthMode, int Concurrency, int RetryCount);
 

@@ -1,6 +1,6 @@
 ﻿using System.Buffers;
 
-namespace Ol.Core;
+namespace Ol.Core.Licensing;
 
 /// <summary>
 /// Reconciles license candidates from all available evidence sources.

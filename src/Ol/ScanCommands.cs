@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using ConsoleAppFramework;
 using Ol.Core;
+using Ol.Core.Licensing;
+using Ol.Core.Spdx;
 
 /// <summary>
 /// Scan resolved dependency license evidence.

@@ -1,4 +1,4 @@
-﻿namespace Ol.Core;
+﻿namespace Ol.Core.SourceRepository;
 
 /// <summary>Identifies a normalized GitHub repository license lookup.</summary>
 public readonly record struct SourceRepositoryTarget(string Owner, string Name, string Ref)

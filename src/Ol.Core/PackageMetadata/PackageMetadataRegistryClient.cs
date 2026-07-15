@@ -1,7 +1,7 @@
 ﻿using System.Net;
 using System.Text.Json;
 
-namespace Ol.Core;
+namespace Ol.Core.PackageMetadata;
 
 /// <summary>
 /// Retrieves normalized package metadata from supported public registries.

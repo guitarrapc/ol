@@ -1,7 +1,7 @@
 ﻿using System.Collections.Frozen;
 using System.Text.Json;
 
-namespace Ol.Core;
+namespace Ol.Core.PackageMetadata;
 
 /// <summary>
 /// Describes the normalized metadata returned by one package registry.

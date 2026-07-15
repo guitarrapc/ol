@@ -1,7 +1,9 @@
+﻿using Ol.Core.Licensing;
+using Ol.Core.Spdx;
 using System.Buffers;
 using System.Text.Json;
 
-namespace Ol.Core;
+namespace Ol.Core.PackageManagers;
 
 internal static class NuGetAssetsInputParser
 {

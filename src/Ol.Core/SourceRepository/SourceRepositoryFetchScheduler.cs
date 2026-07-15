@@ -1,4 +1,6 @@
-namespace Ol.Core;
+﻿using Ol.Core.GitHub;
+
+namespace Ol.Core.SourceRepository;
 
 /// <summary>Applies the shared retry policy to GitHub License API requests.</summary>
 public static class SourceRepositoryFetchScheduler

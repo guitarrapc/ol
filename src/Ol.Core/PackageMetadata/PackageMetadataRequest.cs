@@ -1,4 +1,4 @@
-﻿namespace Ol.Core;
+﻿namespace Ol.Core.PackageMetadata;
 
 /// <summary>
 /// Identifies a package metadata lookup derived from a package URL.

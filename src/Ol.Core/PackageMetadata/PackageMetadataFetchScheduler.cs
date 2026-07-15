@@ -1,4 +1,4 @@
-﻿namespace Ol.Core;
+﻿namespace Ol.Core.PackageMetadata;
 
 /// <summary>
 /// Applies the v2 retry policy to package metadata registry requests.

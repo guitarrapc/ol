@@ -104,7 +104,9 @@ The normalized inventory keeps component data separate from graph placement:
 
 SBOM inputs currently provide no common platform-resolution context, so their occurrences use the unspecified-context sentinel. Their resolved edges are retained when both endpoint identifiers map to parsed components. View sorting and filtering operate on a projection and must not reorder the inventory arrays referenced by occurrences and edges.
 
-NuGet assets inputs preserve every target framework/RID graph as a separate context. The RID is retained without inferring platform or architecture. A synthetic project root anchors proven direct package edges; project references participate in reachability classification but are not represented as NuGet packages. Repeated package/version values remain separate occurrences, while their versioned purl provides the shared enrichment identity.
+NuGet assets inputs preserve every target framework/RID graph as a separate context. The RID is retained without inferring platform or architecture. A context-root edge sentinel anchors proven direct package edges; project references participate in reachability classification but are not represented as NuGet packages. Repeated package/version values remain separate occurrences, while their versioned purl provides the shared enrichment identity.
+
+Canonical JSON writes the complete input-order inventory separately from sorted, filtered, or grouped report components. A context-owned project root uses an edge endpoint sentinel instead of allocating or rendering a non-package license component. Human-readable reports identify the registered input kind and format before their table.
 
 ### License candidate
 

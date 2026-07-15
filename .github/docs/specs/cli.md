@@ -126,9 +126,11 @@ For human-readable `text` and `markdown` output, a labeled scan summary is separ
 
 The human-readable input summary identifies the registered input format. It does not require the downstream scan pipeline to retain an SBOM-specific report type.
 
+The primary `text` report starts with `Input: {kind}/{format}`. Markdown uses the same value as inline code. This header remains present with `--quiet`; quiet suppresses stderr summary output, not primary report metadata.
+
 `--quiet` suppresses the human-readable stderr summary/progress output. It must not suppress the primary stdout result.
 
-`--skip-enrichment` renders only evidence already present in the SBOM. Package-registry and source-repository collection are not scheduled, and their report metadata counters are zero. This mode exists for deterministic report-contract snapshots and for environments that intentionally prohibit external evidence collection; it is not equivalent to a full license-resolution run.
+`--skip-enrichment` renders only evidence already present in the dependency input. Package-registry and source-repository collection are not scheduled, and their report metadata counters are zero. This mode exists for deterministic report-contract snapshots and for environments that intentionally prohibit external evidence collection; it is not equivalent to a full license-resolution run.
 
 ## Default Columns
 
@@ -280,6 +282,7 @@ JSON output is the canonical machine-readable report. It includes:
 - input SBOM metadata
 - SPDX data metadata
 - network/cache metadata where applicable
+- the complete dependency inventory
 - component results or grouped results
 - summary
 - warnings
@@ -290,14 +293,18 @@ Top-level `schemaVersion` identifies the breaking report contract. Schema versio
 
 The current schema v1 report emits `metadata.input` and `metadata.spdx` as separate objects. Generic input metadata contains:
 
-- `kind`: the stable input family, currently `sbom`
-- `format`: the registered format name, currently `cyclonedx` or `spdx`
+- `kind`: the stable input family, currently `sbom` or `package-manager`
+- `format`: the registered format name, currently `cyclonedx`, `spdx`, or `nuget-assets`
 - `sourceRef`: the input basename rather than an absolute local path
 - `sourceSha256`: the SHA-256 of the complete input
 - `parser`: the stable parser identity
 - `specificationVersion`: the source format version when present
 
 Existing SBOM-specific fields remain additive compatibility aliases in schema v1: `sbomRef`, `sbomFormat`, `sbomSpecVersion`, and `sbomSha256`. A future non-SBOM input must not emit fabricated SBOM aliases. The SPDX metadata object records its logical data reference, License List version, and SHA-256 hashes of the active `licenses.json` and `exceptions.json` files.
+
+Top-level `inventory` is independent of the sorted or filtered report view. It contains input-order `contexts`, lightweight component identities, `occurrences`, and `edges`. Occurrence component indexes always address `inventory.components`; they never address the displayed top-level `components` or grouped rows. An edge `fromOccurrenceIndex` of `-1` denotes the project root owned by that edge's context. Empty platform or architecture values remain empty rather than being inferred from the host.
+
+Absolute project origins retained internally for graph attribution are rendered as basenames. Relative logical origins may be retained. Canonical output never exposes an absolute local project path.
 
 SBOM files and SPDX data files encoded with a UTF-8 BOM are accepted.
 
@@ -325,6 +332,8 @@ SBOM input metadata includes a SHA-256 hash:
 SPDX metadata is defined by [spdx.md](spdx.md) and is required in every JSON report.
 
 When v3 source repository enrichment is active, `metadata.sourceRepository` reports target, request, cache, error, and unknown counts. `targetCount` counts deduplicated repository/ref targets, while `unknownCount` counts components without source license evidence even when multiple components share one target. `metadata.network.githubAuth` reports only `ol_github_token` or `none`; it never includes a credential value.
+
+`metadata.packageMetadata.targetCount` counts deduplicated versioned package targets scheduled for cache or registry lookup. Component-oriented hit, miss, and outcome counts can be larger because one shared target result is projected to every matching occurrence.
 
 Each GitHub license candidate carries a typed `evidence` object in its `licenseCandidates` entry. It contains logical repository/ref, HTTP status, cache-key hash, and license path/SHA/key/name/URL. These provenance fields are metadata, not warnings, and never contain a cache path or token value.
 

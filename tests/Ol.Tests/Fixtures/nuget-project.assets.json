@@ -63,7 +63,7 @@
     "version": "1.0.0",
     "restore": {
       "projectName": "App",
-      "projectPath": "src/App/App.csproj"
+      "projectPath": "/private/src/App/App.csproj"
     },
     "frameworks": {
       "net8.0": {

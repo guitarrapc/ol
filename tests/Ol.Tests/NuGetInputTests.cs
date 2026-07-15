@@ -19,7 +19,7 @@ public sealed class NuGetInputTests
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.NuGetAssets);
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("3");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(2);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("src/App/App.csproj");
+        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("/private/src/App/App.csproj");
         await Assert.That(inventory.Contexts[0].Target.ToString()).IsEqualTo("net8.0");
         await Assert.That(inventory.Contexts[0].Runtime.IsEmpty).IsTrue();
         await Assert.That(inventory.Contexts[1].Target.ToString()).IsEqualTo("net8.0");
@@ -27,8 +27,9 @@ public sealed class NuGetInputTests
         await Assert.That(inventory.Contexts[1].Platform.IsEmpty).IsTrue();
         await Assert.That(inventory.Contexts[1].Architecture.IsEmpty).IsTrue();
 
-        await Assert.That(inventory.Occurrences).Count().IsEqualTo(8);
+        await Assert.That(inventory.Occurrences).Count().IsEqualTo(6);
         await Assert.That(inventory.Edges).Count().IsEqualTo(5);
+        await Assert.That(inventory.Components.Any(static component => component.Name.ToString() == "App")).IsFalse();
         await Assert.That(inventory.Components.Any(static component => component.Name.ToString() == "Referenced.Project")).IsFalse();
         await Assert.That(inventory.Components.Any(static component => component.Name.ToString() == "Unresolved.Package")).IsFalse();
 
@@ -44,6 +45,7 @@ public sealed class NuGetInputTests
         await Assert.That(projectTransitive.DependencyType).IsEqualTo(DependencyType.Transitive);
         await Assert.That(native.Purl.ToString()).IsEqualTo("pkg:nuget/Native.Package@4.0.0");
         await Assert.That(netShared.Purl.ToString()).IsEqualTo(winShared.Purl.ToString());
+        await Assert.That(inventory.Edges[0].FromOccurrenceIndex).IsEqualTo(DependencyOccurrence.ContextRoot);
     }
 
     [Test]

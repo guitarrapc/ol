@@ -55,7 +55,7 @@ Resolved dependency input
 - Git checkout、worktree、restore、install の実行
 - package registry を使った依存バージョンの独自解決
 - portable inventory 専用コマンドまたは専用ファイル形式
-- npm、pnpm、Cargo、Go、Maven、Gradle、Python 入力の具体実装
+- Phase 5以降に列挙していないpackage manager入力の具体実装
 
 差分機能は、入力と scan result のモデルが安定した後に別課題として検討する。JSON 出力を決定的にし、base と HEAD の `ol` 出力を外部ツールで比較できる余地は残すが、この plan では比較単位や差分分類を仕様化しない。
 
@@ -253,19 +253,67 @@ Phase 3では次の境界に確定した。
 
 - `targets`をformat markerとする`nuget-assets` handlerを既存のinput registryへ一件登録する。
 - `project.assets.json` version 3の各targetを独立したresolution contextとし、`framework/RID`のRIDはruntimeへそのまま保持する。platformとarchitectureは推測しない。
-- project自身はcontextごとのsynthetic rootとし、`project.frameworks`で証明できるroot dependencyからtarget graphを探索する。
+- project rootはcontextが所有するedge endpoint sentinelとし、`project.frameworks`で証明できるroot dependencyからtarget graphを探索する。license対象ではないproject componentは生成しない。
 - `type: package`かつ`libraries`でもpackageと確認できるentryだけをNuGet package occurrenceにする。project reference、未解決entry、非package entryはpurlを持つpackageとして扱わない。
 - project reference nodeは到達性とdirect/transitive分類には使うが、package occurrenceやpackage edgeへ偽装しない。
 - package-to-package edgeとroot-to-direct-package edgeだけをcontextごとに保持する。証明できないdependency typeはunknownとする。
 - 同じpackage/versionが複数contextに現れた場合はcomponentとoccurrenceをcontextごとに保持し、生成した同一versioned purlを既存enrichmentのdeduplicate keyとして再利用する。
 - adapterは入力由来文字列をsource-backed `Utf8Slice`で保持し、graph作業配列はpoolし、生成purlとowned resultだけを永続allocationとする。
 
-### Phase 4: 出力と性能検証
+### Phase 4: 出力と性能検証（完了）
 
 - text、JSON、Markdownが入力種別を正しく表示することを確認する。
 - JSONがdeterministicで、occurrenceとresolution contextを失わないことを確認する。
 - inventory ingestionとend-to-end scanの時間・allocationをBenchmarkDotNetで既存baselineと比較する。
 - network requestが重複package occurrence数ではなく、deduplicate済みtarget数に基づくことを確認する。
+
+Phase 4では次の契約と性能境界に確定した。
+
+- textとMarkdownのprimary reportは`{input kind}/{input format}` headerを持ち、`--quiet`でも入力種別を失わない。
+- schema v1 JSONへinput-orderの`inventory` objectを追加し、contexts、component identity、occurrences、edgesを表示用component viewと分離する。
+- occurrenceのcomponent indexは常に`inventory.components`を参照し、sort、filter、group後の表示配列を参照しない。
+- context所有のproject rootは`fromOccurrenceIndex = -1`で表し、license対象ではないsynthetic `ScanComponent`とoccurrenceを割り当てない。
+- `metadata.packageMetadata.targetCount`はdeduplicate後のversioned package target数を示す。fixtureでは6 occurrenceを4 targetへ集約する。
+- NuGet parserの一時HashSetとDictionaryを、pooled package identity配列とpooled open-addressing node indexへ置換した。
+- 2 package fixtureのNuGet ingestionはN=3で5.490 µs / 856 Bとなった。allocationは1,464 Bから約42%削減し、同等のowned result allocation floorは792 B、parser固有の上乗せは64 Bである。
+- 同時刻のHEAD E2E比較では、textは1.946 ms / 22.77 KBから2.013 ms / 23.21 KB、JSONは2.042 ms / 39.63 KBから1.934 ms / 41.68 KBとなり、時間とallocationはいずれも10%基準内に収まった。JSONのowned output増加は完全inventory追加に対応する。
+- NuGet専用E2E baselineとして、2 packageとcache済みenrichmentを含むtext 3.484 ms / 42.14 KB、JSON 3.201 ms / 78.88 KBを記録した。
+
+### Phase 5: npm `package-lock.json` input adapter
+
+- npm lockfile version 2および3の`packages`とdependency linkを、registry問い合わせによる再解決なしで取り込む。
+- root packageとworkspace originをcontextとして保持し、workspace、link、optional、peer、dev entryをpackage occurrenceと混同しない。
+- package pathが異なる同一name/version occurrenceを保持し、`pkg:npm` purl単位のenrichment targetだけをdeduplicateする。
+- `os`、`cpu`、optional install条件は入力が提供した値だけをvariantとして保持し、実行hostで評価または推測しない。
+- malformed、workspace、nested duplicate、optional/platform固有fixtureとallocation benchmarkを追加する。
+
+### Phase 6: pnpmおよびYarn lock input adapters
+
+- pnpmは`pnpm-lock.yaml`のlockfile versionを明示formatとして扱い、importerごとのrootとsnapshot graphを保持する。
+- YarnはBerryのinstall-stateを再現しようとせず、lockfileが証明できるdescriptor/resolution graphとworkspace originだけを取り込む。ClassicとBerryを一つの曖昧parserへ混在させない。
+- peer dependency variant、virtual package、workspace/link/protocol、optional dependencyを通常のregistry packageと区別する。
+- YAML parser導入のbinary size、Native AOT、allocation影響を先にbenchmarkし、許容できない場合は狭い専用parserを選ぶ。
+
+### Phase 7: Cargo resolved metadata input adapter
+
+- `cargo metadata --format-version 1 --locked` JSONを入力とし、`Cargo.toml`や`Cargo.lock`だけからfeature解決を再実装しない。
+- resolve nodes、package IDs、workspace members、features、target-specific dependencyを保持する。
+- target tripleやfeature setは生成条件としてcontext/variantへ保持し、複数metadata結果を自動mergeしない。
+- registry、git、path packageを区別し、registry packageだけに`pkg:cargo` lookup identityを付与する。
+
+### Phase 8: Go module graph input adapter
+
+- `go mod graph`の解決済みmodule edgeを入力とし、`go.mod`からMinimal Version Selectionを再実装しない。
+- main moduleをcontext root、versioned moduleをoccurrenceとして保持し、replace/local moduleをregistry moduleと偽装しない。
+- GOOS、GOARCH、build tagsは`go mod graph`単体では証明できないため未指定とし、別context入力が導入されるまでhostから推測しない。
+- `pkg:golang` identity、pseudo-version、retractionやreplace表現のfixtureを追加する。
+
+### Phase 9: JVMおよびPython resolved input調査
+
+- Maven、Gradle、Pythonはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
+- Maven configuration/scope、Gradle configuration/variant、Python environment marker/platform wheelをresolution contextで表現できることを採用条件にする。
+- 安定した標準出力がないecosystemでは、Ol固有portable inventoryを新設せず、既存SBOM生成経路を推奨する選択肢を残す。
+- adapter採用前にdeterminism、Native AOT依存、pathological input、allocation floorを評価する。
 
 ## テスト方針
 

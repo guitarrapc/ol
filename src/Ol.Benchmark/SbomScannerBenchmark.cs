@@ -65,6 +65,14 @@ public class SbomScannerBenchmark
         """);
 
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
+    private readonly Utf8Slice projectOrigin = "src/App/App.csproj";
+    private readonly Utf8Slice target = "net8.0";
+    private readonly Utf8Slice directName = "Direct.Package";
+    private readonly Utf8Slice directVersion = "1.0.0";
+    private readonly Utf8Slice directSourceId = "Direct.Package/1.0.0";
+    private readonly Utf8Slice sharedName = "Shared.Package";
+    private readonly Utf8Slice sharedVersion = "2.0.0";
+    private readonly Utf8Slice sharedSourceId = "Shared.Package/2.0.0";
 
     [Benchmark]
     public ScanReport ScanCycloneDx()
@@ -82,6 +90,20 @@ public class SbomScannerBenchmark
     public DependencyInventory ScanNuGetAssetsInventory()
     {
         return DependencyInputScanner.Scan(nugetAssets, spdx, expectedFormat: ScanInputFormat.NuGetAssets);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateNuGetInventoryResultFloor()
+    {
+        var components = new ScanComponent[2];
+        components[0] = new ScanComponent(directName, directVersion, default, "nuget", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:nuget/Direct.Package@1.0.0"u8.ToArray()), directSourceId, default, [], []);
+        components[1] = new ScanComponent(sharedName, sharedVersion, default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:nuget/Shared.Package@2.0.0"u8.ToArray()), sharedSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(projectOrigin, target, default, default, default, default)],
+            components,
+            [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)]);
     }
 
     [Benchmark]

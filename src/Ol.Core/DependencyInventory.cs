@@ -68,6 +68,9 @@ public readonly record struct DependencyOccurrence(int ContextIndex, int Compone
 {
     /// <summary>Indicates that the input supplied no resolution context.</summary>
     public const int UnspecifiedContext = -1;
+
+    /// <summary>Identifies the project root as an edge endpoint without creating a package occurrence.</summary>
+    public const int ContextRoot = -1;
 }
 
 /// <summary>Represents one directed dependency edge between package occurrences.</summary>

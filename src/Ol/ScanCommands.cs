@@ -166,10 +166,14 @@ internal sealed class ScanCommands
             {
                 ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
                 ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
-                ReportFormat.Json => ReportRenderer.RenderJson(inputDescriptor, components, spdx, packageMetadataSummary, sourceRepositorySummary),
+                ReportFormat.Json => ReportRenderer.RenderJson(scanResult.Inventory, components, spdx, packageMetadataSummary, sourceRepositorySummary),
                 _ => throw new ArgumentOutOfRangeException(nameof(format)),
             }
-            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, inputDescriptor, spdx, packageMetadataSummary, sourceRepositorySummary);
+            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, scanResult.Inventory, spdx, packageMetadataSummary, sourceRepositorySummary);
+        if (format is ReportFormat.Text or ReportFormat.Markdown)
+        {
+            text = ReportRenderer.RenderInputHeader(format, inputDescriptor) + text;
+        }
 
         if (outFile is { Length: > 0 })
         {
@@ -221,13 +225,13 @@ internal sealed class ScanCommands
         return 0;
     }
 
-    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, ScanInputDescriptor input, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, DependencyInventory inventory, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         return format switch
         {
             ReportFormat.Text => ReportRenderer.RenderText(groups, groupBy),
             ReportFormat.Markdown => ReportRenderer.RenderMarkdown(groups, groupBy),
-            ReportFormat.Json => ReportRenderer.RenderJson(input, groups, groupBy, spdx, metadataSummary, sourceSummary),
+            ReportFormat.Json => ReportRenderer.RenderJson(inventory, groups, groupBy, spdx, metadataSummary, sourceSummary),
             _ => throw new ArgumentOutOfRangeException(nameof(format)),
         };
     }
@@ -699,6 +703,11 @@ internal static class ReportRenderer
 {
     private const int JsonSchemaVersion = 1;
 
+    public static string RenderInputHeader(ReportFormat format, ScanInputDescriptor input)
+        => format == ReportFormat.Markdown
+            ? $"Input: `{input.Kind.Name}/{input.Format.Name}`{Environment.NewLine}{Environment.NewLine}"
+            : $"Input: {input.Kind.Name}/{input.Format.Name}{Environment.NewLine}{Environment.NewLine}";
+
     public static string RenderText(ReadOnlySpan<ScanComponent> components, bool verbose)
     {
         var builder = new StringBuilder();
@@ -817,7 +826,7 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static string RenderJson(ScanInputDescriptor input, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    public static string RenderJson(DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -826,11 +835,13 @@ internal static class ReportRenderer
             writer.WriteNumber("schemaVersion", JsonSchemaVersion);
             writer.WriteStartObject("metadata");
             writer.WriteString("tool", "ol");
-            WriteInputMetadata(writer, input);
+            WriteInputMetadata(writer, inventory.Input);
             WriteSpdxMetadata(writer, spdx);
             WritePackageMetadata(writer, metadataSummary);
             WriteSourceRepositoryMetadata(writer, sourceSummary);
             writer.WriteEndObject();
+
+            WriteInventory(writer, inventory);
 
             writer.WriteStartArray("components");
             for (var i = 0; i < components.Length; i++)
@@ -860,7 +871,7 @@ internal static class ReportRenderer
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    public static string RenderJson(ScanInputDescriptor input, GroupRow[] groups, string groupBy, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    public static string RenderJson(DependencyInventory inventory, GroupRow[] groups, string groupBy, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -869,11 +880,13 @@ internal static class ReportRenderer
             writer.WriteNumber("schemaVersion", JsonSchemaVersion);
             writer.WriteStartObject("metadata");
             writer.WriteString("tool", "ol");
-            WriteInputMetadata(writer, input);
+            WriteInputMetadata(writer, inventory.Input);
             WriteSpdxMetadata(writer, spdx);
             WritePackageMetadata(writer, metadataSummary);
             WriteSourceRepositoryMetadata(writer, sourceSummary);
             writer.WriteEndObject();
+
+            WriteInventory(writer, inventory);
 
             var headers = groupBy.ToLowerInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             writer.WriteStartArray("groups");
@@ -939,6 +952,7 @@ internal static class ReportRenderer
     private static void WritePackageMetadata(Utf8JsonWriter writer, PackageMetadataSummary summary)
     {
         writer.WriteStartObject("packageMetadata");
+        writer.WriteNumber("targetCount", summary.TargetCount);
         writer.WriteNumber("supportedComponentCount", summary.SupportedComponentCount);
         writer.WriteNumber("cacheHitCount", summary.CacheHitCount);
         writer.WriteNumber("cacheMissCount", summary.CacheMissCount);
@@ -1145,6 +1159,82 @@ internal static class ReportRenderer
         }
 
         writer.WriteEndObject();
+    }
+
+    private static void WriteInventory(Utf8JsonWriter writer, DependencyInventory inventory)
+    {
+        writer.WriteStartObject("inventory");
+        writer.WriteStartArray("contexts");
+        for (var i = 0; i < inventory.Contexts.Length; i++)
+        {
+            var context = inventory.Contexts[i];
+            writer.WriteStartObject();
+            WriteLogicalPath(writer, "projectOrigin"u8, context.ProjectOrigin);
+            writer.WriteString("target"u8, context.Target.Span);
+            writer.WriteString("runtime"u8, context.Runtime.Span);
+            writer.WriteString("platform"u8, context.Platform.Span);
+            writer.WriteString("architecture"u8, context.Architecture.Span);
+            writer.WriteString("variant"u8, context.Variant.Span);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WriteStartArray("components");
+        for (var i = 0; i < inventory.Components.Length; i++)
+        {
+            var component = inventory.Components[i];
+            writer.WriteStartObject();
+            writer.WriteString("name"u8, component.Name.Span);
+            writer.WriteString("version"u8, component.Version.Span);
+            writer.WriteString("ecosystem", component.Ecosystem);
+            writer.WriteString("dependency", component.DependencyType.ToString().ToLowerInvariant());
+            writer.WriteString("purl"u8, component.Purl.Span);
+            writer.WriteString("sourceId"u8, component.SourceId.Span);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WriteStartArray("occurrences");
+        for (var i = 0; i < inventory.Occurrences.Length; i++)
+        {
+            var occurrence = inventory.Occurrences[i];
+            writer.WriteStartObject();
+            writer.WriteNumber("contextIndex", occurrence.ContextIndex);
+            writer.WriteNumber("componentIndex", occurrence.ComponentIndex);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WriteStartArray("edges");
+        for (var i = 0; i < inventory.Edges.Length; i++)
+        {
+            var edge = inventory.Edges[i];
+            writer.WriteStartObject();
+            writer.WriteNumber("contextIndex", edge.ContextIndex);
+            writer.WriteNumber("fromOccurrenceIndex", edge.FromOccurrenceIndex);
+            writer.WriteNumber("toOccurrenceIndex", edge.ToOccurrenceIndex);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteLogicalPath(Utf8JsonWriter writer, ReadOnlySpan<byte> propertyName, Utf8Slice value)
+    {
+        var path = value.Span;
+        var isAbsolute = path.Length > 0 && path[0] is (byte)'/' or (byte)'\\'
+            || path.Length >= 3
+                && (path[0] is >= (byte)'A' and <= (byte)'Z' || path[0] is >= (byte)'a' and <= (byte)'z')
+                && path[1] == (byte)':'
+                && path[2] is (byte)'/' or (byte)'\\';
+        if (isAbsolute)
+        {
+            var separator = path.LastIndexOfAny((byte)'/', (byte)'\\');
+            path = separator < 0 ? path : path[(separator + 1)..];
+        }
+
+        writer.WriteString(propertyName, path);
     }
 }
 

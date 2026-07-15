@@ -14,22 +14,22 @@ internal static class NuGetAssetsScanner
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
         var occurrences = ArrayPool<DependencyOccurrence>.Shared.Rent(16);
         var edges = ArrayPool<DependencyEdge>.Shared.Rent(32);
+        var packageLibraries = ArrayPool<Utf8Slice>.Shared.Rent(16);
         var directCount = 0;
         var contextCount = 0;
         var componentCount = 0;
         var occurrenceCount = 0;
         var edgeCount = 0;
+        var packageLibraryCount = 0;
         try
         {
-            ReadProject(source, offset, ref directDependencies, ref directCount, out var specificationVersion, out var projectName, out var projectVersion, out var projectOrigin);
-            var packageLibraries = ReadPackageLibraries(source, offset);
+            ReadProject(source, offset, ref directDependencies, ref directCount, out var specificationVersion, out var projectOrigin);
+            ReadPackageLibraries(source, offset, ref packageLibraries, ref packageLibraryCount);
             ReadTargets(
                 source,
                 offset,
-                packageLibraries,
+                packageLibraries.AsSpan(0, packageLibraryCount),
                 directDependencies.AsSpan(0, directCount),
-                projectName,
-                projectVersion,
                 projectOrigin,
                 ref contexts,
                 ref contextCount,
@@ -63,6 +63,7 @@ internal static class NuGetAssetsScanner
             ArrayPool<ScanComponent>.Shared.Return(components, clearArray: true);
             ArrayPool<DependencyOccurrence>.Shared.Return(occurrences);
             ArrayPool<DependencyEdge>.Shared.Return(edges);
+            ArrayPool<Utf8Slice>.Shared.Return(packageLibraries, clearArray: true);
         }
     }
 
@@ -72,13 +73,9 @@ internal static class NuGetAssetsScanner
         ref DirectDependency[] directDependencies,
         ref int directCount,
         out Utf8Slice specificationVersion,
-        out Utf8Slice projectName,
-        out Utf8Slice projectVersion,
         out Utf8Slice projectOrigin)
     {
         specificationVersion = default;
-        projectName = default;
-        projectVersion = default;
         projectOrigin = default;
         var reader = CreateReader(source, offset);
         RequireToken(ref reader, JsonTokenType.StartObject, "NuGet project.assets.json root must be an object.");
@@ -97,7 +94,7 @@ internal static class NuGetAssetsScanner
             else if (reader.ValueTextEquals("project"u8))
             {
                 reader.Read();
-                ReadProjectObject(ref reader, source, offset, ref directDependencies, ref directCount, ref projectName, ref projectVersion, ref projectOrigin);
+                ReadProjectObject(ref reader, source, offset, ref directDependencies, ref directCount, ref projectOrigin);
             }
             else
             {
@@ -106,7 +103,7 @@ internal static class NuGetAssetsScanner
             }
         }
 
-        if (specificationVersion.IsEmpty || projectName.IsEmpty || projectOrigin.IsEmpty)
+        if (specificationVersion.IsEmpty || projectOrigin.IsEmpty)
         {
             throw new JsonException("NuGet project.assets.json is missing version or project restore metadata.");
         }
@@ -118,8 +115,6 @@ internal static class NuGetAssetsScanner
         int offset,
         ref DirectDependency[] directDependencies,
         ref int directCount,
-        ref Utf8Slice projectName,
-        ref Utf8Slice projectVersion,
         ref Utf8Slice projectOrigin)
     {
         RequireCurrentToken(ref reader, JsonTokenType.StartObject, "NuGet project must be an object.");
@@ -130,14 +125,10 @@ internal static class NuGetAssetsScanner
                 throw new JsonException("NuGet project contains an invalid property.");
             }
 
-            if (reader.ValueTextEquals("version"u8))
-            {
-                projectVersion = ReadString(ref reader, source, offset);
-            }
-            else if (reader.ValueTextEquals("restore"u8))
+            if (reader.ValueTextEquals("restore"u8))
             {
                 reader.Read();
-                ReadRestore(ref reader, source, offset, ref projectName, ref projectOrigin);
+                ReadRestore(ref reader, source, offset, ref projectOrigin);
             }
             else if (reader.ValueTextEquals("frameworks"u8))
             {
@@ -152,7 +143,7 @@ internal static class NuGetAssetsScanner
         }
     }
 
-    private static void ReadRestore(ref Utf8JsonReader reader, byte[] source, int offset, ref Utf8Slice projectName, ref Utf8Slice projectOrigin)
+    private static void ReadRestore(ref Utf8JsonReader reader, byte[] source, int offset, ref Utf8Slice projectOrigin)
     {
         RequireCurrentToken(ref reader, JsonTokenType.StartObject, "NuGet project restore must be an object.");
         while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
@@ -162,11 +153,7 @@ internal static class NuGetAssetsScanner
                 throw new JsonException("NuGet project restore contains an invalid property.");
             }
 
-            if (reader.ValueTextEquals("projectName"u8))
-            {
-                projectName = ReadString(ref reader, source, offset);
-            }
-            else if (reader.ValueTextEquals("projectPath"u8))
+            if (reader.ValueTextEquals("projectPath"u8))
             {
                 projectOrigin = ReadString(ref reader, source, offset);
             }
@@ -211,9 +198,8 @@ internal static class NuGetAssetsScanner
         }
     }
 
-    private static HashSet<Utf8Slice> ReadPackageLibraries(byte[] source, int offset)
+    private static void ReadPackageLibraries(byte[] source, int offset, ref Utf8Slice[] packages, ref int packageCount)
     {
-        var packages = new HashSet<Utf8Slice>(NuGetIdentityComparer.Instance);
         var reader = CreateReader(source, offset);
         RequireToken(ref reader, JsonTokenType.StartObject, "NuGet project.assets.json root must be an object.");
         while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
@@ -252,11 +238,13 @@ internal static class NuGetAssetsScanner
 
                 if (isPackage)
                 {
-                    packages.Add(identity);
+                    EnsureCapacity(ref packages, packageCount);
+                    packages[packageCount++] = identity;
                 }
             }
 
-            return packages;
+            Array.Sort(packages, 0, packageCount, NuGetIdentityComparer.Instance);
+            return;
         }
 
         throw new JsonException("NuGet project.assets.json is missing libraries.");
@@ -265,10 +253,8 @@ internal static class NuGetAssetsScanner
     private static void ReadTargets(
         byte[] source,
         int offset,
-        HashSet<Utf8Slice> packageLibraries,
+        ReadOnlySpan<Utf8Slice> packageLibraries,
         ReadOnlySpan<DirectDependency> directDependencies,
-        Utf8Slice projectName,
-        Utf8Slice projectVersion,
         Utf8Slice projectOrigin,
         ref DependencyResolutionContext[] contexts,
         ref int contextCount,
@@ -310,9 +296,6 @@ internal static class NuGetAssetsScanner
                     directDependencies,
                     contextIndex,
                     target,
-                    projectName,
-                    projectVersion,
-                    projectOrigin,
                     ref components,
                     ref componentCount,
                     ref occurrences,
@@ -331,13 +314,10 @@ internal static class NuGetAssetsScanner
         ref Utf8JsonReader reader,
         byte[] source,
         int offset,
-        HashSet<Utf8Slice> packageLibraries,
+        ReadOnlySpan<Utf8Slice> packageLibraries,
         ReadOnlySpan<DirectDependency> directDependencies,
         int contextIndex,
         Utf8Slice target,
-        Utf8Slice projectName,
-        Utf8Slice projectVersion,
-        Utf8Slice projectOrigin,
         ref ScanComponent[] components,
         ref int componentCount,
         ref DependencyOccurrence[] occurrences,
@@ -393,7 +373,7 @@ internal static class NuGetAssetsScanner
                     }
                 }
 
-                if (kind == TargetNodeKind.Package && !packageLibraries.Contains(identity))
+                if (kind == TargetNodeKind.Package && !ContainsPackageLibrary(packageLibraries, identity))
                 {
                     kind = TargetNodeKind.Unknown;
                 }
@@ -408,9 +388,6 @@ internal static class NuGetAssetsScanner
                 directDependencies,
                 contextIndex,
                 target,
-                projectName,
-                projectVersion,
-                projectOrigin,
                 ref components,
                 ref componentCount,
                 ref occurrences,
@@ -431,9 +408,6 @@ internal static class NuGetAssetsScanner
         ReadOnlySpan<DirectDependency> directDependencies,
         int contextIndex,
         Utf8Slice target,
-        Utf8Slice projectName,
-        Utf8Slice projectVersion,
-        Utf8Slice projectOrigin,
         ref ScanComponent[] components,
         ref int componentCount,
         ref DependencyOccurrence[] occurrences,
@@ -441,10 +415,12 @@ internal static class NuGetAssetsScanner
         ref DependencyEdge[] edges,
         ref int edgeCount)
     {
-        var nodeByName = new Dictionary<Utf8Slice, int>(nodes.Length, NuGetIdentityComparer.Instance);
+        var nodeIndexCapacity = GetNodeIndexCapacity(nodes.Length);
+        var nodeIndexes = ArrayPool<int>.Shared.Rent(nodeIndexCapacity);
+        nodeIndexes.AsSpan(0, nodeIndexCapacity).Fill(-1);
         for (var i = 0; i < nodes.Length; i++)
         {
-            nodeByName.TryAdd(nodes[i].Name, i);
+            AddNodeIndex(nodes, nodeIndexes, nodeIndexCapacity, i);
         }
 
         var depths = ArrayPool<int>.Shared.Rent(Math.Max(nodes.Length, 1));
@@ -459,7 +435,7 @@ internal static class NuGetAssetsScanner
             for (var i = 0; i < directDependencies.Length; i++)
             {
                 var direct = directDependencies[i];
-                if (!NuGetIdentityComparer.Instance.Equals(direct.Framework, target) || !nodeByName.TryGetValue(direct.Name, out var nodeIndex) || depths[nodeIndex] >= 0)
+                if (!NuGetIdentityComparer.Instance.Equals(direct.Framework, target) || !TryGetNodeIndex(nodes, nodeIndexes, nodeIndexCapacity, direct.Name, out var nodeIndex) || depths[nodeIndex] >= 0)
                 {
                     continue;
                 }
@@ -474,7 +450,7 @@ internal static class NuGetAssetsScanner
                 var node = nodes[nodeIndex];
                 for (var dependencyIndex = node.DependencyStart; dependencyIndex < node.DependencyStart + node.DependencyCount; dependencyIndex++)
                 {
-                    if (!nodeByName.TryGetValue(dependencies[dependencyIndex].Name, out var targetNodeIndex) || depths[targetNodeIndex] >= 0)
+                    if (!TryGetNodeIndex(nodes, nodeIndexes, nodeIndexCapacity, dependencies[dependencyIndex].Name, out var targetNodeIndex) || depths[targetNodeIndex] >= 0)
                     {
                         continue;
                     }
@@ -483,12 +459,6 @@ internal static class NuGetAssetsScanner
                     queue[queueTail++] = targetNodeIndex;
                 }
             }
-
-            EnsureCapacity(ref components, componentCount);
-            EnsureCapacity(ref occurrences, occurrenceCount);
-            var rootOccurrenceIndex = occurrenceCount;
-            components[componentCount] = new ScanComponent(projectName, projectVersion, default, string.Empty, DependencyType.Root, LicenseStatus.Unknown, default, projectOrigin, default, [], []);
-            occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentCount++);
 
             for (var i = 0; i < nodes.Length; i++)
             {
@@ -522,13 +492,13 @@ internal static class NuGetAssetsScanner
                 if (depths[i] == 0)
                 {
                     EnsureCapacity(ref edges, edgeCount);
-                    edges[edgeCount++] = new DependencyEdge(contextIndex, rootOccurrenceIndex, fromOccurrence);
+                    edges[edgeCount++] = new DependencyEdge(contextIndex, DependencyOccurrence.ContextRoot, fromOccurrence);
                 }
 
                 var node = nodes[i];
                 for (var dependencyIndex = node.DependencyStart; dependencyIndex < node.DependencyStart + node.DependencyCount; dependencyIndex++)
                 {
-                    if (!nodeByName.TryGetValue(dependencies[dependencyIndex].Name, out var targetNodeIndex))
+                    if (!TryGetNodeIndex(nodes, nodeIndexes, nodeIndexCapacity, dependencies[dependencyIndex].Name, out var targetNodeIndex))
                     {
                         continue;
                     }
@@ -549,7 +519,78 @@ internal static class NuGetAssetsScanner
             ArrayPool<int>.Shared.Return(depths);
             ArrayPool<int>.Shared.Return(queue);
             ArrayPool<int>.Shared.Return(occurrenceByNode);
+            ArrayPool<int>.Shared.Return(nodeIndexes);
         }
+    }
+
+    private static bool ContainsPackageLibrary(ReadOnlySpan<Utf8Slice> packages, Utf8Slice identity)
+    {
+        var low = 0;
+        var high = packages.Length - 1;
+        while (low <= high)
+        {
+            var middle = (int)((uint)(low + high) >> 1);
+            var comparison = NuGetIdentityComparer.Instance.Compare(packages[middle], identity);
+            if (comparison == 0)
+            {
+                return true;
+            }
+
+            if (comparison < 0)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return false;
+    }
+
+    private static int GetNodeIndexCapacity(int nodeCount)
+    {
+        var capacity = 2;
+        while (capacity < nodeCount * 2)
+        {
+            capacity *= 2;
+        }
+
+        return capacity;
+    }
+
+    private static void AddNodeIndex(ReadOnlySpan<TargetNode> nodes, Span<int> indexes, int capacity, int nodeIndex)
+    {
+        var slot = NuGetIdentityComparer.Instance.GetHashCode(nodes[nodeIndex].Name) & (capacity - 1);
+        while (indexes[slot] >= 0)
+        {
+            if (NuGetIdentityComparer.Instance.Equals(nodes[indexes[slot]].Name, nodes[nodeIndex].Name))
+            {
+                return;
+            }
+
+            slot = (slot + 1) & (capacity - 1);
+        }
+
+        indexes[slot] = nodeIndex;
+    }
+
+    private static bool TryGetNodeIndex(ReadOnlySpan<TargetNode> nodes, ReadOnlySpan<int> indexes, int capacity, Utf8Slice name, out int nodeIndex)
+    {
+        var slot = NuGetIdentityComparer.Instance.GetHashCode(name) & (capacity - 1);
+        while ((nodeIndex = indexes[slot]) >= 0)
+        {
+            if (NuGetIdentityComparer.Instance.Equals(nodes[nodeIndex].Name, name))
+            {
+                return true;
+            }
+
+            slot = (slot + 1) & (capacity - 1);
+        }
+
+        nodeIndex = -1;
+        return false;
     }
 
     private static Utf8Slice CreatePurl(Utf8Slice name, Utf8Slice version)
@@ -664,7 +705,7 @@ internal static class NuGetAssetsScanner
         Project,
     }
 
-    private sealed class NuGetIdentityComparer : IEqualityComparer<Utf8Slice>
+    private sealed class NuGetIdentityComparer : IEqualityComparer<Utf8Slice>, IComparer<Utf8Slice>
     {
         internal static NuGetIdentityComparer Instance { get; } = new();
 
@@ -697,6 +738,23 @@ internal static class NuGetAssetsScanner
             }
 
             return hash.ToHashCode();
+        }
+
+        public int Compare(Utf8Slice left, Utf8Slice right)
+        {
+            var leftValue = left.Span;
+            var rightValue = right.Span;
+            var length = Math.Min(leftValue.Length, rightValue.Length);
+            for (var i = 0; i < length; i++)
+            {
+                var comparison = ToLowerAscii(leftValue[i]).CompareTo(ToLowerAscii(rightValue[i]));
+                if (comparison != 0)
+                {
+                    return comparison;
+                }
+            }
+
+            return leftValue.Length.CompareTo(rightValue.Length);
         }
 
         private static byte ToLowerAscii(byte value)

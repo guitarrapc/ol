@@ -9,7 +9,8 @@ internal readonly record struct PackageMetadataSummary(
     int FetchErrorCount,
     int UnsupportedEcosystemCount,
     int Concurrency,
-    int RetryCount);
+    int RetryCount,
+    int TargetCount = 0);
 
 internal static class PackageMetadataPaths
 {
@@ -97,7 +98,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                 unsupported += result.Unsupported ? 1 : 0;
             }
 
-            return (components, new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount));
+            return (components, new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount, lookupCount));
         }
         finally
         {

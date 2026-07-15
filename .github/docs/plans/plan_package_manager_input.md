@@ -208,12 +208,21 @@ Input adapter
 
 ## 実施順序
 
-### Phase 1: コマンドとデータ境界の仕様化
+### Phase 1: コマンドとデータ境界の仕様化（完了）
 
 - `scan --input`、`--input-format`、既存`--sbom`の互換規則を決める。
 - input descriptor、dependency inventory、resolution context、scan resultの最小データを定義する。
 - occurrence、edge、network lookup targetを別の概念として定義する。
 - JSON metadataの互換方針を決める。
+
+Phase 1では次の契約に確定した。
+
+- `--input-format`はcase-insensitiveな登録名とし、初期値は`cyclonedx`と`spdx`とする。`nuget-assets`はadapter実装までCLIでは受理しない。
+- 既存`--sbom`はcontentによるCycloneDX/SPDX自動判定を維持する。
+- `--input`には`--input-format`を必須とし、`--sbom`との同時指定を拒否する。
+- schema v1 JSONへ汎用input metadataを追加し、既存SBOM fieldは互換aliasとして維持する。非SBOM入力ではSBOM aliasを出力しない。
+- resolution context、occurrence、edgeは別のvalue型として保持し、network lookup targetはinventoryに含めない。
+- 非SBOM入力が将来license claimを提供する場合は`dependency-input` provenanceを使用し、SBOM evidenceと偽装しない。
 
 ### Phase 2: 既存SBOM scanの分離
 

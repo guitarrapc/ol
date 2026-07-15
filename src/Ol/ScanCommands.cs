@@ -5,14 +5,16 @@ using ConsoleAppFramework;
 using Ol.Core;
 
 /// <summary>
-/// Scan SBOM license evidence.
+/// Scan resolved dependency license evidence.
 /// </summary>
 internal sealed class ScanCommands
 {
     /// <summary>
-    /// Scan a CycloneDX or SPDX JSON SBOM.
+    /// Scan a resolved dependency input.
     /// </summary>
-    /// <param name="sbom">SBOM JSON path.</param>
+    /// <param name="sbom">SBOM JSON path. Cannot be combined with --input.</param>
+    /// <param name="input">Resolved dependency input path.</param>
+    /// <param name="inputFormat">Input format: cyclonedx or spdx.</param>
     /// <param name="format">Output format: text, json, or markdown.</param>
     /// <param name="outFile">--out, Write output to this path.</param>
     /// <param name="verbose">Include verbose columns.</param>
@@ -29,7 +31,9 @@ internal sealed class ScanCommands
     /// <param name="retry">Reserved package metadata retry count.</param>
     [Command("scan")]
     public int Scan(
-        string sbom,
+        string? sbom = null,
+        string? input = null,
+        string? inputFormat = null,
         ReportFormat format = ReportFormat.Text,
         string? outFile = null,
         bool verbose = false,
@@ -45,9 +49,18 @@ internal sealed class ScanCommands
         int concurrency = 0,
         int retry = 1)
     {
-        if (!File.Exists(sbom))
+        if (!TryResolveInput(sbom, input, inputFormat, out var inputSelection, out var inputError))
         {
-            Console.Error.WriteLine($"SBOM file not found: {sbom}");
+            Console.Error.WriteLine($"Invalid scan input: {inputError}");
+            return 1;
+        }
+
+        var inputPath = inputSelection.Path;
+        if (!File.Exists(inputPath))
+        {
+            Console.Error.WriteLine(inputSelection.IsLegacySbom
+                ? $"SBOM file not found: {inputPath}"
+                : $"Input file not found: {inputPath}");
             return 1;
         }
 
@@ -103,12 +116,19 @@ internal sealed class ScanCommands
         ScanReport report;
         try
         {
-            sbomBytes = File.ReadAllBytes(sbom);
+            sbomBytes = File.ReadAllBytes(inputPath);
             report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
+            if (inputSelection.HasExpectedFormat && report.Format != inputSelection.ExpectedHandler.Format)
+            {
+                SbomFormatRegistry.Default.TryGetFormat(report.Format, out var detectedHandler);
+                throw new InvalidOperationException($"Input format {inputSelection.ExpectedHandler.InputFormat.Name} does not match the detected {detectedHandler.InputFormat.Name} format.");
+            }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
-            Console.Error.WriteLine($"Unable to scan SBOM: {exception.Message}");
+            Console.Error.WriteLine(inputSelection.IsLegacySbom
+                ? $"Unable to scan SBOM: {exception.Message}"
+                : $"Unable to scan input: {exception.Message}");
             return 1;
         }
         var enrichedComponents = report.Components;
@@ -135,15 +155,16 @@ internal sealed class ScanCommands
         var componentCount = ScanView.Apply(enrichedComponents, dependency, sort, sortOrder);
         var components = enrichedComponents.AsSpan(0, componentCount);
         var dependencyFilteredCount = dependency is null or "" ? 0 : report.Components.Length - components.Length;
+        var inputDescriptor = format == ReportFormat.Json ? CreateInputDescriptor(inputSelection, report, inputPath, sbomBytes) : default;
         var text = groupBy is null or ""
             ? format switch
             {
                 ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
                 ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
-                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, report.SpecVersion, components, sbom, sbomBytes, spdx, packageMetadataSummary, sourceRepositorySummary),
+                ReportFormat.Json => ReportRenderer.RenderJson(inputDescriptor, components, spdx, packageMetadataSummary, sourceRepositorySummary),
                 _ => throw new ArgumentOutOfRangeException(nameof(format)),
             }
-            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, report.SpecVersion, sbom, sbomBytes, spdx, packageMetadataSummary, sourceRepositorySummary);
+            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, inputDescriptor, spdx, packageMetadataSummary, sourceRepositorySummary);
 
         if (outFile is { Length: > 0 })
         {
@@ -180,7 +201,7 @@ internal sealed class ScanCommands
             Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems");
             Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
             Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
-            Console.Error.WriteLine($"  Input: {Path.GetFileName(sbom)}; SBOM format {report.Format}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
+            Console.Error.WriteLine($"  Input: {Path.GetFileName(inputPath)}; SBOM format {report.Format}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
             if (dependency is not null and not "")
             {
                 Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} components excluded; {excludedUnknownCount} with unknown dependency type");
@@ -195,15 +216,83 @@ internal sealed class ScanCommands
         return 0;
     }
 
-    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, SbomFormat sbomFormat, Utf8Slice specVersion, string sbom, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, ScanInputDescriptor input, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         return format switch
         {
             ReportFormat.Text => ReportRenderer.RenderText(groups, groupBy),
             ReportFormat.Markdown => ReportRenderer.RenderMarkdown(groups, groupBy),
-            ReportFormat.Json => ReportRenderer.RenderJson(sbomFormat, specVersion, groups, groupBy, sbom, sbomBytes, spdx, metadataSummary, sourceSummary),
+            ReportFormat.Json => ReportRenderer.RenderJson(input, groups, groupBy, spdx, metadataSummary, sourceSummary),
             _ => throw new ArgumentOutOfRangeException(nameof(format)),
         };
+    }
+
+    private static bool TryResolveInput(string? sbom, string? input, string? inputFormat, out ScanInputSelection selection, out string error)
+    {
+        selection = default;
+        var hasSbom = !string.IsNullOrEmpty(sbom);
+        var hasInput = !string.IsNullOrEmpty(input);
+        if (!hasSbom && !hasInput)
+        {
+            error = "Exactly one of --sbom or --input must be specified.";
+            return false;
+        }
+
+        if (hasSbom && hasInput)
+        {
+            error = "--sbom and --input cannot be used together.";
+            return false;
+        }
+
+        if (hasSbom)
+        {
+            if (!string.IsNullOrEmpty(inputFormat))
+            {
+                error = "--input-format can only be used with --input.";
+                return false;
+            }
+
+            selection = new ScanInputSelection(sbom!, true, default);
+            error = string.Empty;
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(inputFormat))
+        {
+            error = "--input-format is required with --input.";
+            return false;
+        }
+
+        if (!SbomFormatRegistry.Default.TryGetInputFormat(inputFormat, out var handler))
+        {
+            error = $"Unsupported input format: {inputFormat}";
+            return false;
+        }
+
+        selection = new ScanInputSelection(input!, false, handler);
+        error = string.Empty;
+        return true;
+    }
+
+    private static ScanInputDescriptor CreateInputDescriptor(ScanInputSelection selection, ScanReport report, string inputPath, ReadOnlySpan<byte> inputBytes)
+    {
+        var handler = selection.ExpectedHandler;
+        if (!selection.HasExpectedFormat && !SbomFormatRegistry.Default.TryGetFormat(report.Format, out handler))
+        {
+            throw new InvalidOperationException($"No input descriptor is registered for {report.Format}.");
+        }
+
+        return new ScanInputDescriptor(
+            ScanInputKind.Sbom,
+            handler.InputFormat,
+            Path.GetFileName(inputPath),
+            Convert.ToHexString(SHA256.HashData(inputBytes)).ToLowerInvariant(),
+            report.SpecVersion);
+    }
+
+    private readonly record struct ScanInputSelection(string Path, bool IsLegacySbom, SbomFormatHandler ExpectedHandler)
+    {
+        public bool HasExpectedFormat => !string.IsNullOrEmpty(ExpectedHandler.InputFormat.Name);
     }
 }
 
@@ -739,7 +828,7 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, ReadOnlySpan<ScanComponent> components, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    public static string RenderJson(ScanInputDescriptor input, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -748,12 +837,7 @@ internal static class ReportRenderer
             writer.WriteNumber("schemaVersion", JsonSchemaVersion);
             writer.WriteStartObject("metadata");
             writer.WriteString("tool", "ol");
-            writer.WriteStartObject("input");
-            writer.WriteString("sbomRef", Path.GetFileName(sbomPath));
-            writer.WriteString("sbomFormat", GetFormatName(format));
-            writer.WriteString("sbomSpecVersion"u8, specVersion.Span);
-            writer.WriteString("sbomSha256", Convert.ToHexString(SHA256.HashData(sbomBytes)).ToLowerInvariant());
-            writer.WriteEndObject();
+            WriteInputMetadata(writer, input);
             WriteSpdxMetadata(writer, spdx);
             WritePackageMetadata(writer, metadataSummary);
             WriteSourceRepositoryMetadata(writer, sourceSummary);
@@ -787,7 +871,7 @@ internal static class ReportRenderer
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    public static string RenderJson(SbomFormat format, Utf8Slice specVersion, GroupRow[] groups, string groupBy, string sbomPath, ReadOnlySpan<byte> sbomBytes, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    public static string RenderJson(ScanInputDescriptor input, GroupRow[] groups, string groupBy, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -796,12 +880,7 @@ internal static class ReportRenderer
             writer.WriteNumber("schemaVersion", JsonSchemaVersion);
             writer.WriteStartObject("metadata");
             writer.WriteString("tool", "ol");
-            writer.WriteStartObject("input");
-            writer.WriteString("sbomRef", Path.GetFileName(sbomPath));
-            writer.WriteString("sbomFormat", GetFormatName(format));
-            writer.WriteString("sbomSpecVersion"u8, specVersion.Span);
-            writer.WriteString("sbomSha256", Convert.ToHexString(SHA256.HashData(sbomBytes)).ToLowerInvariant());
-            writer.WriteEndObject();
+            WriteInputMetadata(writer, input);
             WriteSpdxMetadata(writer, spdx);
             WritePackageMetadata(writer, metadataSummary);
             WriteSourceRepositoryMetadata(writer, sourceSummary);
@@ -948,6 +1027,15 @@ internal static class ReportRenderer
                 }
 
                 break;
+            case LicenseEvidenceKind.DependencyInput:
+                writer.WriteString("type", "dependency-input");
+                if (evidence.DependencyInput is { } input)
+                {
+                    writer.WriteString("format", input.Format);
+                    writer.WriteString("field", input.Field);
+                }
+
+                break;
             case LicenseEvidenceKind.PackageRegistry:
                 writer.WriteString("type", "package-registry");
                 if (evidence.PackageRegistry?.CacheKeySha256 is { Length: > 0 } cacheKeySha256)
@@ -1050,10 +1138,25 @@ internal static class ReportRenderer
         return false;
     }
 
-    private static string GetFormatName(SbomFormat format)
-        => format == SbomFormat.CycloneDxJson ? "CycloneDX"
-        : format == SbomFormat.SpdxJson ? "SPDX"
-        : format.Name;
+    private static void WriteInputMetadata(Utf8JsonWriter writer, ScanInputDescriptor input)
+    {
+        writer.WriteStartObject("input");
+        writer.WriteString("kind", input.Kind.Name);
+        writer.WriteString("format", input.Format.Name);
+        writer.WriteString("sourceRef", input.SourceReference);
+        writer.WriteString("sourceSha256", input.SourceSha256);
+        writer.WriteString("parser", input.Format.Parser);
+        writer.WriteString("specificationVersion"u8, input.SpecificationVersion.Span);
+        if (input.Kind == ScanInputKind.Sbom)
+        {
+            writer.WriteString("sbomRef", input.SourceReference);
+            writer.WriteString("sbomFormat", input.Format.DisplayName);
+            writer.WriteString("sbomSpecVersion"u8, input.SpecificationVersion.Span);
+            writer.WriteString("sbomSha256", input.SourceSha256);
+        }
+
+        writer.WriteEndObject();
+    }
 }
 
 internal readonly record struct ScanSummary(int Matched, int Conflict, int Unknown, int Ambiguous, int Invalid, int Error, int WarningCount, int DeprecatedSpdxCount)

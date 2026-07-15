@@ -28,6 +28,8 @@ public enum LicenseEvidenceKind : byte
     None,
     /// <summary>The claim came from an SBOM license field.</summary>
     Sbom,
+    /// <summary>The claim came from a non-SBOM resolved dependency input.</summary>
+    DependencyInput,
     /// <summary>The claim came from package registry metadata.</summary>
     PackageRegistry,
     /// <summary>The claim came from source repository inspection.</summary>
@@ -64,12 +66,19 @@ public enum LicenseAcknowledgement : byte
 /// <param name="Acknowledgement">The explicit declared or concluded acknowledgement, when supplied.</param>
 /// <param name="PackageRegistry">Package-registry provenance, when applicable.</param>
 /// <param name="SourceRepository">Source-repository provenance, when applicable.</param>
+/// <param name="DependencyInput">Resolved dependency-input provenance, when applicable.</param>
 public readonly record struct LicenseEvidence(
     LicenseEvidenceKind Kind,
     SbomLicenseField SbomField = SbomLicenseField.None,
     LicenseAcknowledgement Acknowledgement = LicenseAcknowledgement.None,
     PackageRegistryEvidence? PackageRegistry = null,
-    SourceRepositoryEvidence? SourceRepository = null);
+    SourceRepositoryEvidence? SourceRepository = null,
+    DependencyInputEvidence? DependencyInput = null);
+
+/// <summary>Contains structured provenance for a non-SBOM dependency-input candidate.</summary>
+/// <param name="Format">The stable dependency input format.</param>
+/// <param name="Field">The format-native field that supplied the claim.</param>
+public sealed record DependencyInputEvidence(string Format, string Field);
 
 /// <summary>Contains structured provenance for one package-registry candidate.</summary>
 public sealed record PackageRegistryEvidence(string CacheKeySha256, DateTimeOffset CollectedAt = default);

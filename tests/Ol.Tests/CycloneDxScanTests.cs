@@ -22,6 +22,21 @@ public sealed class CycloneDxScanTests
     }
 
     [Test]
+    public async Task Registry_WithDuplicatePublicInputFormat_RejectsRegistration()
+    {
+        var first = new SbomFormatHandler(new SbomFormat("first"), "first"u8.ToArray(), "one"u8.ToArray(), static (_, _, _) => default)
+        {
+            InputFormat = new ScanInputFormat("shared", "first-json", "First"),
+        };
+        var second = new SbomFormatHandler(new SbomFormat("second"), "second"u8.ToArray(), "two"u8.ToArray(), static (_, _, _) => default)
+        {
+            InputFormat = new ScanInputFormat("SHARED", "second-json", "Second"),
+        };
+
+        await Assert.That(() => new SbomFormatRegistry([first, second])).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task TryNormalizeLicenseIdUtf8_KnownIdentifier_NormalizesWithoutInputString()
     {
         var normalized = Spdx.TryNormalizeLicenseIdUtf8("mit"u8, out var identifier);

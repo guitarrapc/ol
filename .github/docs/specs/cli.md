@@ -18,9 +18,9 @@ The command and output rules below are user-facing consequences of those design 
 
 ## Version Roadmap
 
-`ol` evolves by widening the evidence sources used by `scan`.
+`ol` evolves by widening the dependency inputs and evidence sources used by `scan`.
 
-- v1 scans SBOM files only.
+- v1 scans SBOM files. The original `--sbom` form remains compatible while the input boundary is generalized for future resolved package-manager inputs.
 - v2 adds package manager and package registry metadata as automatic hints.
 - v3 adds source repository license hints.
 - A later phase adds allow-list policy checks and CI failure behavior.
@@ -53,28 +53,37 @@ Cache entry compatibility and category-specific JSON schemas are defined by [cac
 <a id="contract-scan-failures"></a>
 ### `ol scan`
 
-`scan` is the primary command. It lists components and their license status from the available evidence sources for the current version.
+`scan` is the primary command. It lists components and their license status from one resolved dependency input and the available evidence sources for the current version.
 
-v1 accepts SBOM input only:
+The compatible SBOM shortcut accepts CycloneDX or SPDX JSON and detects the format from content:
 
 ```bash
 ol scan --sbom bom.json
 ```
 
-Supported v1 SBOM formats:
+The generalized input form requires an explicit registered format:
 
-- CycloneDX JSON
-- SPDX JSON
+```bash
+ol scan --input bom.json --input-format cyclonedx
+ol scan --input bom.spdx.json --input-format spdx
+```
 
-Unsupported v1 inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, lockfiles, and package manifests. Input format is detected from the file content rather than requiring a format flag.
+Exactly one of `--sbom` and `--input` is required. They cannot be combined. `--input-format` is required with `--input` and cannot be used with `--sbom`. Format names are matched case-insensitively. Explicit format and detected document format must agree.
+
+Currently supported dependency input formats:
+
+- `cyclonedx`: CycloneDX JSON
+- `spdx`: SPDX JSON
+
+`nuget-assets` is reserved for the planned `project.assets.json` adapter but is not accepted until that parser is implemented. Other unsupported inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, lockfiles, and package manifests. `ol` does not recursively query registries to reproduce package-manager dependency resolution.
 
 `scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns non-zero only when the scan itself cannot be performed or output cannot be written.
 
 Examples of whole-command failures:
 
-- SBOM file cannot be read.
-- SBOM format is unsupported.
-- SBOM is malformed enough that components cannot be extracted.
+- dependency input cannot be read.
+- input format is unsupported or does not match the input content.
+- input is malformed enough that components cannot be extracted.
 - SPDX data cannot be loaded.
 - stdout or `--out` cannot be written.
 
@@ -273,7 +282,16 @@ The canonical summary counts every component status, including `error`, so the s
 
 Top-level `schemaVersion` identifies the breaking report contract. Schema version 1 removes the duplicate component-level `evidence` array and makes candidate provenance subordinate to each `licenseCandidates` item. Consumers must reject or explicitly migrate unsupported schema versions rather than silently interpreting a newer report as an older shape.
 
-The current v1 report emits `metadata.input` and `metadata.spdx` as separate objects. `metadata.input.sbomRef` is the input basename, rather than an absolute local path. The SPDX object records its logical data reference, License List version, and SHA-256 hashes of the active `licenses.json` and `exceptions.json` files.
+The current schema v1 report emits `metadata.input` and `metadata.spdx` as separate objects. Generic input metadata contains:
+
+- `kind`: the stable input family, currently `sbom`
+- `format`: the registered format name, currently `cyclonedx` or `spdx`
+- `sourceRef`: the input basename rather than an absolute local path
+- `sourceSha256`: the SHA-256 of the complete input
+- `parser`: the stable parser identity
+- `specificationVersion`: the source format version when present
+
+Existing SBOM-specific fields remain additive compatibility aliases in schema v1: `sbomRef`, `sbomFormat`, `sbomSpecVersion`, and `sbomSha256`. A future non-SBOM input must not emit fabricated SBOM aliases. The SPDX metadata object records its logical data reference, License List version, and SHA-256 hashes of the active `licenses.json` and `exceptions.json` files.
 
 SBOM files and SPDX data files encoded with a UTF-8 BOM are accepted.
 
@@ -284,6 +302,12 @@ SBOM input metadata includes a SHA-256 hash:
 ```json
 {
   "input": {
+    "kind": "sbom",
+    "format": "cyclonedx",
+    "sourceRef": "bom.json",
+    "sourceSha256": "...",
+    "parser": "cyclonedx-json",
+    "specificationVersion": "1.6",
     "sbomRef": "bom.json",
     "sbomFormat": "CycloneDX",
     "sbomSpecVersion": "1.6",

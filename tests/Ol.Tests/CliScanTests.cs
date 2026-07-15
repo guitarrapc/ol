@@ -10,6 +10,118 @@ public sealed class CliScanTests
     private static readonly SemaphoreSlim CliGate = new(1, 1);
 
     [Test]
+    public async Task Scan_WithExplicitCycloneDxInput_EmitsGenericAndLegacyInputMetadata()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "cyclonedx", "--format", "json", "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("sbom");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("cyclonedx");
+            await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo(Path.GetFileName(inputPath));
+            await Assert.That(input.GetProperty("sourceSha256").GetString()!.Length).IsEqualTo(64);
+            await Assert.That(input.GetProperty("parser").GetString()).IsEqualTo("cyclonedx-json");
+            await Assert.That(input.GetProperty("specificationVersion").GetString()).IsEqualTo("1.6");
+            await Assert.That(input.GetProperty("sbomRef").GetString()).IsEqualTo(Path.GetFileName(inputPath));
+            await Assert.That(input.GetProperty("sbomFormat").GetString()).IsEqualTo("CycloneDX");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitSpdxInput_AcceptsMatchingFormat()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "spdxVersion": "SPDX-2.3", "packages": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "spdx", "--format", "json", "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("spdx");
+            await Assert.That(input.GetProperty("parser").GetString()).IsEqualTo("spdx-json");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithInvalidInputSelection_ReturnsConciseError()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var cases = new[]
+            {
+                (Arguments: Array.Empty<string>(), Message: "Exactly one of --sbom or --input must be specified."),
+                (Arguments: new[] { "--sbom", inputPath, "--input", inputPath, "--input-format", "cyclonedx" }, Message: "--sbom and --input cannot be used together."),
+                (Arguments: new[] { "--input", inputPath }, Message: "--input-format is required with --input."),
+                (Arguments: new[] { "--sbom", inputPath, "--input-format", "cyclonedx" }, Message: "--input-format can only be used with --input."),
+                (Arguments: new[] { "--input", inputPath, "--input-format", "nuget-assets" }, Message: "Unsupported input format: nuget-assets"),
+            };
+
+            foreach (var item in cases)
+            {
+                var arguments = new string[item.Arguments.Length + 2];
+                arguments[0] = "scan";
+                arguments[1] = "--skip-enrichment";
+                item.Arguments.CopyTo(arguments, 2);
+                var (exitCode, stdout, stderr) = await RunOlAsync(root, arguments);
+
+                await Assert.That(exitCode).IsEqualTo(1);
+                await Assert.That(stdout).IsEmpty();
+                await Assert.That(stderr.Trim()).IsEqualTo($"Invalid scan input: {item.Message}");
+            }
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitFormatThatDoesNotMatchContent_RejectsInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "spdxVersion": "SPDX-2.3", "packages": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "cyclonedx", "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Input format cyclonedx does not match the detected spdx format.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithCachedGitHubSourceEvidence_FillsUnknownLicenseAndReportsSafeAuthMode()
     {
         var root = FindRepositoryRoot();

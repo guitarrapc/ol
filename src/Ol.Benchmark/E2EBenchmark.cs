@@ -57,7 +57,7 @@ public class E2EBenchmark : IDisposable
         try
         {
             Console.SetOut(TextWriter.Null);
-            return scanCommands.Scan(sbomPath, format, quiet: true, concurrency: 1, retry: 0);
+            return scanCommands.Scan(sbom: sbomPath, format: format, quiet: true, concurrency: 1, retry: 0);
         }
         finally
         {

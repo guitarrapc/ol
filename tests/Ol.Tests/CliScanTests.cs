@@ -620,6 +620,113 @@ public sealed class CliScanTests
         }
     }
 
+    [Test]
+    public async Task Scan_WithCacheDir_UsesIsolatedCategorySubdirectories()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cache-dir-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var cacheDirectory = Path.Combine(temporaryDirectory, "cache");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [ { "name": "example", "purl": "pkg:npm/example@1.0.0", "licenses": [ { "license": { "id": "NOASSERTION" } } ] } ] }""", Encoding.UTF8);
+        await new PackageMetadataCache(Path.Combine(cacheDirectory, "package-metadata")).WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--cache-dir", cacheDirectory, "--concurrency", "1", "--retry", "0");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("license").GetString()).IsEqualTo("MIT");
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("packageMetadata").GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(stdout).DoesNotContain(cacheDirectory);
+            await Assert.That(stderr).IsEmpty();
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithSkipEnrichment_ProducesDeterministicSbomOnlyReport()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-sbom-only-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var unusedCacheFile = Path.Combine(temporaryDirectory, "unused-cache");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [ { "name": "example", "purl": "pkg:npm/example@1.0.0", "licenses": [ { "license": { "id": "NOASSERTION" } } ] } ] }""", Encoding.UTF8);
+        await File.WriteAllTextAsync(unusedCacheFile, "must remain untouched", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--skip-enrichment", "--cache-dir", unusedCacheFile);
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var component = report.RootElement.GetProperty("components")[0];
+            await Assert.That(component.GetProperty("licenseCandidates").GetArrayLength()).IsEqualTo(1);
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("packageMetadata").GetProperty("supportedComponentCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("sourceRepository").GetProperty("targetCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(await File.ReadAllTextAsync(unusedCacheFile)).IsEqualTo("must remain untouched");
+            await Assert.That(stderr).IsEmpty();
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheClear_WithCacheDir_RemovesOnlyManagedCategorySubdirectories()
+    {
+        var root = FindRepositoryRoot();
+        var cacheDirectory = Path.Combine(Path.GetTempPath(), $"ol-cache-clear-dir-{Guid.NewGuid():N}");
+        var sentinelPath = Path.Combine(cacheDirectory, "keep.txt");
+        Directory.CreateDirectory(cacheDirectory);
+        await File.WriteAllTextAsync(sentinelPath, "keep", Encoding.UTF8);
+        await new PackageMetadataCache(Path.Combine(cacheDirectory, "package-metadata")).WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+        var target = new SourceRepositoryTarget("owner", "repository", "default");
+        await new SourceRepositoryCache(Path.Combine(cacheDirectory, "source-repository")).WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, System.Net.HttpStatusCode.NotFound, null, [], []));
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "cache", "clear", "all", "--cache-dir", cacheDirectory);
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(File.Exists(sentinelPath)).IsTrue();
+            await Assert.That(Directory.Exists(Path.Combine(cacheDirectory, "package-metadata"))).IsFalse();
+            await Assert.That(Directory.Exists(Path.Combine(cacheDirectory, "source-repository"))).IsFalse();
+            await Assert.That(stderr).IsEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDirectory)) Directory.Delete(cacheDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheClear_WithCacheDirPointingToFile_RejectsWithoutDeletingFile()
+    {
+        var root = FindRepositoryRoot();
+        var filePath = Path.Combine(Path.GetTempPath(), $"ol-cache-file-{Guid.NewGuid():N}");
+        await File.WriteAllTextAsync(filePath, "keep", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "cache", "clear", "--cache-dir", filePath);
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(File.Exists(filePath)).IsTrue();
+            await Assert.That(stderr).Contains("Invalid cache directory");
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
 

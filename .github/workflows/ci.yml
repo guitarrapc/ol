@@ -1,0 +1,136 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Ol.slnx
+      - run: dotnet test Ol.slnx -c Release --no-restore
+
+  ecosystem-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - id: matrix
+        shell: pwsh
+        run: |
+          $manifest = Get-Content -Raw sandbox/ecosystems/manifest.json | ConvertFrom-Json
+          $matrix = @{ include = @($manifest.ecosystems) } | ConvertTo-Json -Compress -Depth 4
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
+
+  ecosystem-smoke:
+    needs: ecosystem-matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.ecosystem-matrix.outputs.matrix) }}
+    env:
+      FIXTURE_ECOSYSTEM: ${{ matrix.ecosystem }}
+      FIXTURE_PATH: ${{ matrix.path }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - if: ${{ matrix.ecosystem == 'npm' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - if: ${{ matrix.ecosystem == 'golang' }}
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.25.x'
+      - if: ${{ matrix.ecosystem == 'cargo' }}
+        name: Install Rust 1.85.0
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          rustup default 1.85.0
+      - name: Prepare fixture repository
+        shell: pwsh
+        run: ./sandbox/ci/Prepare-Ecosystem.ps1 -Path $env:FIXTURE_PATH
+      - id: syft
+        uses: anchore/sbom-action/download-syft@a930d0ac434e3182448fe678398ba5713717112a # v0.21.0
+        with:
+          syft-version: 1.44.0
+      - name: Generate CycloneDX SBOM
+        shell: pwsh
+        run: '& "${{ steps.syft.outputs.cmd }}" "dir:$env:FIXTURE_PATH" -o "cyclonedx-json=$env:RUNNER_TEMP/ecosystem.cdx.json"'
+      - run: dotnet restore Ol.slnx
+      - run: dotnet build src/Ol/Ol.csproj -c Release --no-restore
+      - name: Scan fixture repository
+        shell: pwsh
+        env:
+          OL_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ol = "src/Ol/bin/Release/net10.0/ol.dll"
+          dotnet $ol scan --sbom "$env:RUNNER_TEMP/ecosystem.cdx.json" --format text --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/report.txt" | Out-Null
+          dotnet $ol scan --sbom "$env:RUNNER_TEMP/ecosystem.cdx.json" --format markdown --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/report.md" | Out-Null
+          dotnet $ol scan --sbom "$env:RUNNER_TEMP/ecosystem.cdx.json" --format json --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/report.json" | Out-Null
+          ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/report.json" -Ecosystem $env:FIXTURE_ECOSYSTEM
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ecosystem-${{ matrix.ecosystem }}
+          path: |
+            ${{ runner.temp }}/ecosystem.cdx.json
+            ${{ runner.temp }}/report.txt
+            ${{ runner.temp }}/report.md
+            ${{ runner.temp }}/report.json
+
+  self-scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Ol.slnx
+      - run: dotnet build Ol.slnx -c Release --no-restore
+      - shell: pwsh
+        run: ./sandbox/Update-SelfScan.ps1 -NoBuild
+      - name: Verify committed self-scan snapshots
+        shell: pwsh
+        run: |
+          $status = @(git status --porcelain -- sandbox/self)
+          if ($status.Count -ne 0) {
+            $status
+            throw "Run sandbox/Update-SelfScan.ps1 and commit the updated snapshots."
+          }
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ol-self-scan
+          path: sandbox/self

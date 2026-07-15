@@ -42,6 +42,10 @@ ol cache clear all
 
 `package-metadata` clears the persistent package metadata cache. `source-repository` clears the persistent source repository evidence cache. `all` clears both persistent evidence caches.
 
+`scan` and `cache clear` accept `--cache-dir <path>`. The supplied path is an isolation root, never a directly managed category: Ol reads and writes only its `package-metadata` and `source-repository` children. Clearing `all` removes those children but preserves the isolation root and unrelated files beside them. An existing file is rejected as a cache root.
+
+The CLI option takes precedence over `OL_CACHE_DIR`. The unified environment root takes precedence over the legacy category-specific roots `OL_PACKAGE_METADATA_CACHE_ROOT` and `OL_SOURCE_REPOSITORY_CACHE_ROOT`. With none of these set, Ol uses its platform-specific user cache location. Absolute cache paths and cache-root values never appear in reports.
+
 Cache entry compatibility and category-specific JSON schemas are defined by [cache_format.md](cache_format.md). Cache JSON is an Ol-managed persistence contract and is distinct from the canonical scan report JSON.
 
 <a id="contract-scan-failures"></a>
@@ -104,6 +108,8 @@ ol scan --sbom bom.json --format markdown --out licenses.md
 For human-readable `text` and `markdown` output, a labeled scan summary is separated from the report by a blank line and written to stderr. JSON already contains canonical summary, warning, cache, network, input, and SPDX metadata, so successful JSON output does not emit a duplicate stderr summary. This keeps redirected and interactive JSON output free from an unexpected second representation of the same information.
 
 `--quiet` suppresses the human-readable stderr summary/progress output. It must not suppress the primary stdout result.
+
+`--skip-enrichment` renders only evidence already present in the SBOM. Package-registry and source-repository collection are not scheduled, and their report metadata counters are zero. This mode exists for deterministic report-contract snapshots and for environments that intentionally prohibit external evidence collection; it is not equivalent to a full license-resolution run.
 
 ## Default Columns
 

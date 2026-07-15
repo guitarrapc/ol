@@ -288,3 +288,4 @@ The architectural destination is therefore a transitive OSS license resolver and
 - [Package metadata evidence](specs/packagemanager.md)
 - [Source repository evidence](specs/source.md)
 - [Persistent evidence cache format](specs/cache_format.md)
+- [Stability and public output verification](specs/verification.md)

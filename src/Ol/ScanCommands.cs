@@ -23,6 +23,8 @@ internal sealed class ScanCommands
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="quiet">Suppress stderr summary.</param>
     /// <param name="refresh">Skip package metadata cache entries.</param>
+    /// <param name="cacheDir">Root directory for isolated package-metadata and source-repository caches.</param>
+    /// <param name="skipEnrichment">Use only evidence already present in the SBOM.</param>
     /// <param name="concurrency">Maximum concurrent package metadata lookups.</param>
     /// <param name="retry">Reserved package metadata retry count.</param>
     [Command("scan")]
@@ -38,6 +40,8 @@ internal sealed class ScanCommands
         string? spdxData = null,
         bool quiet = false,
         bool refresh = false,
+        string? cacheDir = null,
+        bool skipEnrichment = false,
         int concurrency = 0,
         int retry = 1)
     {
@@ -60,26 +64,56 @@ internal sealed class ScanCommands
             return 1;
         }
 
+        var cacheDirectories = default(CacheDirectories);
+        if (!skipEnrichment)
+        {
+            try
+            {
+                cacheDirectories = CachePaths.Resolve(cacheDir);
+            }
+            catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                Console.Error.WriteLine($"Invalid cache directory: {exception.Message}");
+                return 1;
+            }
+        }
+
         var spdx = SpdxData.Load(spdxData);
         var sbomBytes = File.ReadAllBytes(sbom);
         var report = Ol.Core.SbomScanner.Scan(sbomBytes, spdx.Index);
-        var metadataService = new PackageMetadataService(spdx.Index, new PackageMetadataCache(PackageMetadataPaths.DefaultRoot), refresh, retry);
-        var enrichment = metadataService.EnrichAsync(report.Components, concurrency).GetAwaiter().GetResult();
-        var sourceService = new SourceRepositoryService(spdx.Index, new PackageMetadataCache(PackageMetadataPaths.DefaultRoot), new SourceRepositoryCache(SourceRepositoryPaths.DefaultRoot), refresh, retry);
-        var sourceEnrichment = sourceService.EnrichAsync(enrichment.Components, concurrency).GetAwaiter().GetResult();
+        var enrichedComponents = report.Components;
+        PackageMetadataSummary packageMetadataSummary;
+        SourceRepositorySummary sourceRepositorySummary;
+        if (skipEnrichment)
+        {
+            packageMetadataSummary = new PackageMetadataSummary(0, 0, 0, 0, 0, 0, concurrency, retry);
+            sourceRepositorySummary = new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", concurrency, retry);
+        }
+        else
+        {
+            var metadataService = new PackageMetadataService(spdx.Index, new PackageMetadataCache(cacheDirectories.PackageMetadata), refresh, retry);
+            var enrichment = metadataService.EnrichAsync(enrichedComponents, concurrency).GetAwaiter().GetResult();
+            enrichedComponents = enrichment.Components;
+            packageMetadataSummary = enrichment.Summary;
+            var sourceService = new SourceRepositoryService(spdx.Index, new PackageMetadataCache(cacheDirectories.PackageMetadata), new SourceRepositoryCache(cacheDirectories.SourceRepository), refresh, retry);
+            var sourceEnrichment = sourceService.EnrichAsync(enrichedComponents, concurrency).GetAwaiter().GetResult();
+            enrichedComponents = sourceEnrichment.Components;
+            sourceRepositorySummary = sourceEnrichment.Summary;
+        }
+
         var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(report.Components, dependency);
-        var componentCount = ScanView.Apply(sourceEnrichment.Components, dependency, sort, sortOrder);
-        var components = sourceEnrichment.Components.AsSpan(0, componentCount);
+        var componentCount = ScanView.Apply(enrichedComponents, dependency, sort, sortOrder);
+        var components = enrichedComponents.AsSpan(0, componentCount);
         var dependencyFilteredCount = dependency is null or "" ? 0 : report.Components.Length - components.Length;
         var text = groupBy is null or ""
             ? format switch
             {
                 ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
                 ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
-                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, report.SpecVersion, components, sbom, sbomBytes, spdx, enrichment.Summary, sourceEnrichment.Summary),
+                ReportFormat.Json => ReportRenderer.RenderJson(report.Format, report.SpecVersion, components, sbom, sbomBytes, spdx, packageMetadataSummary, sourceRepositorySummary),
                 _ => throw new ArgumentOutOfRangeException(nameof(format)),
             }
-            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, report.SpecVersion, sbom, sbomBytes, spdx, enrichment.Summary, sourceEnrichment.Summary);
+            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, report.Format, report.SpecVersion, sbom, sbomBytes, spdx, packageMetadataSummary, sourceRepositorySummary);
 
         if (outFile is { Length: > 0 })
         {
@@ -91,8 +125,8 @@ internal sealed class ScanCommands
         if (!quiet && format != ReportFormat.Json)
         {
             var summary = ScanSummary.Create(components);
-            var packageMetadata = enrichment.Summary;
-            var source = sourceEnrichment.Summary;
+            var packageMetadata = packageMetadataSummary;
+            var source = sourceRepositorySummary;
             Console.Error.WriteLine();
             Console.Error.WriteLine("Scan summary");
             Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid");

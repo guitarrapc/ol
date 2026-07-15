@@ -1,0 +1,1086 @@
+﻿{
+  "schemaVersion": 1,
+  "metadata": {
+    "tool": "ol",
+    "input": {
+      "sbomRef": "ol.cdx.json",
+      "sbomFormat": "CycloneDX",
+      "sbomSpecVersion": "1.7",
+      "sbomSha256": "08ca47df938ee2540c52a9c2e5b43c5b8206493d29c0d25d688ff1022ea1d63c"
+    },
+    "spdx": {
+      "source": "bundled",
+      "licenseListVersion": "5e59516",
+      "dataRef": "bundled/spdx/builtin",
+      "licensesSha256": "cc0e2ecf29810ab2a2a879ed8edb10fb8a6c264be6ec19fc1a385f94a43ceec1",
+      "exceptionsSha256": "211da1990cef279bced412f7f0ce5b855ff2b3caa3f9664a7eea9fda3e2a3312"
+    },
+    "packageMetadata": {
+      "supportedComponentCount": 0,
+      "cacheHitCount": 0,
+      "cacheMissCount": 0,
+      "refreshedCount": 0,
+      "fetchErrorCount": 0,
+      "unsupportedEcosystemCount": 0,
+      "concurrency": 8,
+      "retryCount": 1
+    },
+    "sourceRepository": {
+      "targetCount": 0,
+      "githubLicenseRequestCount": 0,
+      "cacheHitCount": 0,
+      "cacheMissCount": 0,
+      "fetchErrorCount": 0,
+      "unknownCount": 0
+    },
+    "network": {
+      "githubAuth": "none"
+    }
+  },
+  "components": [
+    {
+      "name": "Ol",
+      "version": "0.0.0",
+      "license": "-",
+      "ecosystem": "-",
+      "dependency": "root",
+      "status": "unknown",
+      "purl": "",
+      "sourceId": "Ol@0.0.0",
+      "licenseCandidates": [],
+      "warnings": []
+    },
+    {
+      "name": "BenchmarkDotNet",
+      "version": "0.15.8",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/BenchmarkDotNet@0.15.8",
+      "sourceId": "pkg:nuget/BenchmarkDotNet@0.15.8",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "BenchmarkDotNet.Annotations",
+      "version": "0.15.8",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+      "sourceId": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "CommandLineParser",
+      "version": "2.9.1",
+      "license": "-",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "unknown",
+      "purl": "pkg:nuget/CommandLineParser@2.9.1",
+      "sourceId": "pkg:nuget/CommandLineParser@2.9.1",
+      "licenseCandidates": [],
+      "warnings": []
+    },
+    {
+      "name": "ConsoleAppFramework",
+      "version": "5.7.13",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/ConsoleAppFramework@5.7.13",
+      "sourceId": "pkg:nuget/ConsoleAppFramework@5.7.13",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "EnumerableAsyncProcessor",
+      "version": "3.8.4",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+      "sourceId": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Gee.External.Capstone",
+      "version": "2.3.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Gee.External.Capstone@2.3.0",
+      "sourceId": "pkg:nuget/Gee.External.Capstone@2.3.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Iced",
+      "version": "1.21.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Iced@1.21.0",
+      "sourceId": "pkg:nuget/Iced@1.21.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.ApplicationInsights",
+      "version": "2.23.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+      "sourceId": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.CodeAnalysis.Analyzers",
+      "version": "3.11.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+      "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.CodeAnalysis.CSharp",
+      "version": "4.14.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+      "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.CodeAnalysis.Common",
+      "version": "4.14.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+      "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.DiaSymReader",
+      "version": "2.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+      "sourceId": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Diagnostics.NETCore.Client",
+      "version": "0.2.510501",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+      "sourceId": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Diagnostics.Runtime",
+      "version": "3.1.512801",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+      "sourceId": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Diagnostics.Tracing.TraceEvent",
+      "version": "3.1.21",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+      "sourceId": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.DotNet.ILCompiler",
+      "version": "10.0.9",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+      "sourceId": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.DotNet.PlatformAbstractions",
+      "version": "3.1.6",
+      "license": "-",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "unknown",
+      "purl": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+      "sourceId": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+      "licenseCandidates": [],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Extensions.DependencyInjection",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Extensions.DependencyModel",
+      "version": "6.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Extensions.Logging",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Extensions.Options",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Extensions.Primitives",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.NET.ILLink.Tasks",
+      "version": "10.0.9",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+      "sourceId": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Extensions.CodeCoverage",
+      "version": "18.3.2",
+      "license": "-",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "unknown",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+      "licenseCandidates": [],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Extensions.Telemetry",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Extensions.TrxReport",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Extensions.TrxReport.Abstractions",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Platform",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Platform.MSBuild",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Perfolizer",
+      "version": "0.6.1",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Perfolizer@0.6.1",
+      "sourceId": "pkg:nuget/Perfolizer@0.6.1",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Pragmastat",
+      "version": "3.2.4",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Pragmastat@3.2.4",
+      "sourceId": "pkg:nuget/Pragmastat@3.2.4",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "System.CodeDom",
+      "version": "9.0.5",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/System.CodeDom@9.0.5",
+      "sourceId": "pkg:nuget/System.CodeDom@9.0.5",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "System.Management",
+      "version": "9.0.5",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/System.Management@9.0.5",
+      "sourceId": "pkg:nuget/System.Management@9.0.5",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "System.Reflection.TypeExtensions",
+      "version": "4.7.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+      "sourceId": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "TUnit",
+      "version": "1.12.111",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/TUnit@1.12.111",
+      "sourceId": "pkg:nuget/TUnit@1.12.111",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "TUnit.Assertions",
+      "version": "1.12.111",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/TUnit.Assertions@1.12.111",
+      "sourceId": "pkg:nuget/TUnit.Assertions@1.12.111",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "TUnit.Core",
+      "version": "1.12.111",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/TUnit.Core@1.12.111",
+      "sourceId": "pkg:nuget/TUnit.Core@1.12.111",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "TUnit.Engine",
+      "version": "1.12.111",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/TUnit.Engine@1.12.111",
+      "sourceId": "pkg:nuget/TUnit.Engine@1.12.111",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+      "version": "10.0.9",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "unknown",
+      "status": "matched",
+      "purl": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "sourceId": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "summary": {
+    "matched": 38,
+    "conflict": 0,
+    "unknown": 4,
+    "ambiguous": 0,
+    "invalid": 0
+  },
+  "warnings": []
+}

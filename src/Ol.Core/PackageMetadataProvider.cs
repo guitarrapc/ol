@@ -66,6 +66,9 @@ public sealed class PackageMetadataProviders
     /// </summary>
     public static PackageMetadataProviders Default { get; } = new([new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider()]);
 
+    /// <summary>Gets the number of registered package ecosystems.</summary>
+    public int Count => providers.Length;
+
     /// <summary>
     /// Initializes a provider registry.
     /// </summary>

@@ -51,6 +51,8 @@ Maven and other ecosystems may be added later.
 
 Each ecosystem is an independently registered metadata provider. A provider owns the versioned-purl acceptance rules, registry endpoint, and normalized response evidence for that ecosystem. This keeps ecosystem-specific changes local: adding or removing a provider does not change central request parsing, registry dispatch, or SBOM ecosystem detection. Provider registration is immutable for a scan so repeated component processing performs only data lookup, not runtime configuration work.
 
+Every registered ecosystem must have exactly one repository fixture in the ecosystem CI manifest. CI derives its smoke-test matrix from that manifest rather than maintaining another ecosystem list. The test contract compares manifest count and names with the provider registry, so adding a provider without a runnable fixture fails before release. Each matrix entry must generate a CycloneDX SBOM, be recognized under its registered purl type, complete package metadata collection without a fetch error, and render text, Markdown, and JSON reports.
+
 Unsupported ecosystems do not introduce a new component status. They are recorded as evidence with unsupported reason metadata. The component's final status remains based on available license evidence.
 
 <a id="contract-package-evidence"></a>

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "ecosystems": [
+    {
+      "ecosystem": "npm",
+      "path": "sandbox/ecosystems/npm"
+    },
+    {
+      "ecosystem": "nuget",
+      "path": "sandbox/ecosystems/nuget"
+    },
+    {
+      "ecosystem": "cargo",
+      "path": "sandbox/ecosystems/cargo"
+    },
+    {
+      "ecosystem": "golang",
+      "path": "sandbox/ecosystems/golang"
+    }
+  ]
+}

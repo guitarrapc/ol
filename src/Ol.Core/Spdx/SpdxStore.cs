@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using Ol.Core.Generated;
 
 namespace Ol.Core.Spdx;
 

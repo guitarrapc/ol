@@ -9,7 +9,8 @@ if (args is not ["generate"])
     return 1;
 }
 
-var outputPath = Path.Combine(Environment.CurrentDirectory, "src", "Ol.Core", "Generated", "SpdxGeneratedLicenseData.g.cs");
+var repositoryRoot = FindRepositoryRoot(AppContext.BaseDirectory);
+var outputPath = Path.Combine(repositoryRoot, "src", "Ol.Core", "Generated", "SpdxGeneratedLicenseData.g.cs");
 using var http = new HttpClient();
 var licenses = await http.GetByteArrayAsync(licensesUrl);
 var exceptions = await http.GetByteArrayAsync(exceptionsUrl);
@@ -17,3 +18,16 @@ Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 await File.WriteAllTextAsync(outputPath, SpdxCodeGenerator.Generate(licenses, exceptions));
 Console.WriteLine($"generated: {outputPath}");
 return 0;
+
+static string FindRepositoryRoot(string startPath)
+{
+    for (var directory = new DirectoryInfo(startPath); directory is not null; directory = directory.Parent)
+    {
+        if (File.Exists(Path.Combine(directory.FullName, "Ol.slnx")))
+        {
+            return directory.FullName;
+        }
+    }
+
+    throw new DirectoryNotFoundException("Could not find the Ol repository root (Ol.slnx).");
+}

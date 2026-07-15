@@ -50,3 +50,11 @@ Regenerate Ol's committed SBOM and text, Markdown, and JSON report snapshots thr
 ```
 
 The ecosystem CI and self-scan contract is documented in [verification.md](.github/docs/specs/verification.md).
+
+## Generated Data
+
+SPDX License list are generated from the SPDX license list JSON. To update the license list, run:
+
+```bash
+dotnet run --project src/Ol.Update -- generate
+```

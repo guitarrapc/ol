@@ -1,5 +1,6 @@
 ﻿using System.Collections.Frozen;
 using System.Text.Json;
+using Ol.Core.PackageManagers;
 
 namespace Ol.Core.PackageMetadata;
 

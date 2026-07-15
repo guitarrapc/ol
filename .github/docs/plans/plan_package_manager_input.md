@@ -1,226 +1,279 @@
-# Package Manager Input Plan
+# 複数の解決済み依存入力を受け付ける `scan` の整理
 
-## Background
+## 背景
 
-`ol` currently accepts CycloneDX JSON and SPDX JSON SBOMs, normalizes their dependency and license evidence into `ScanComponent`, enriches components from package registries and GitHub's License API, then renders a report.
+`ol` は現在、CycloneDX JSON または SPDX JSON の SBOM を入力として、依存コンポーネントが持つライセンス情報を読み取り、package registry と GitHub License API の情報で補強し、ライセンスレポートを生成する。
 
-Feedback requests a PR-oriented workflow that works without an SBOM:
+利用者から、SBOM を用意しなくても package manager の解決結果からライセンスを調査したいという要望がある。想定する代表的な用途は、PR によって直接または推移的に追加されたパッケージと、そのライセンスを確認することである。
 
-> When a pull request adds a library, show the direct and transitive packages newly required by the change, along with each license.
+この用途では、package registry や License API だけから依存関係を再解決してはならない。実際に選択されたバージョン、optional dependency、target 固有依存などを正確に再現できないためである。`ol` は package manager や既存ツールが生成した**解決済み依存入力**を読み取る。
 
-The desired feature is not an SBOM replacement. SBOM remains a useful standardized input for artifact exchange and audits. Instead, `ol` should support multiple dependency-inventory inputs, including a package manager's resolved dependency graph.
+## 結論
 
-## Conclusion
+`scan` を SBOM 専用コマンドではなく、解決済みの依存 inventory を入力としてライセンスを調査するコマンドとして整理する。
 
-Cross-language support without an SBOM is feasible if `ol` consumes **resolved dependency inventories** from package managers or their lockfiles and normalizes them to the existing component model.
-
-Package registry APIs and repository License APIs are evidence-enrichment sources only. They cannot determine which transitive dependencies a project actually resolved. The dependency inventory must therefore come first.
-
-```mermaid
-flowchart LR
-    A[Package manager / resolved lockfile] --> B[Inventory adapter]
-    B --> C[Normalized dependency graph]
-    C --> D[Package registry metadata]
-    D --> E[GitHub License API]
-    E --> F[License reconciliation]
-    C --> G[Base / HEAD graph diff]
-    F --> H[PR comment / JSON / Markdown]
-    G --> H
-```
-
-## Existing Reusable Pipeline
-
-The current implementation already separates inventory ingestion from most license resolution work:
-
-1. `SbomScanner` reads CycloneDX or SPDX JSON and produces `ScanReport` with `ScanComponent[]`.
-2. `PackageMetadataService` accepts `ScanComponent[]`, deduplicates supported versioned purls, and looks up package metadata.
-3. `SourceRepositoryService` accepts `ScanComponent[]`, resolves GitHub repositories, and calls the GitHub License API.
-4. `LicenseReconciler` appends and reconciles all license candidates.
-5. View/filter/group/render logic consumes normalized components.
-
-An inventory adapter can construct `ScanComponent` directly and pass the result through the current enrichment pipeline. For a source that supplies no native license declaration, components should start without a primary candidate; package-registry and source-repository candidates then provide the normal evidence trail.
-
-The primary compatibility boundary is a valid, versioned package URL (purl). The current package-metadata providers support:
-
-- npm: `pkg:npm/...`
-- NuGet: `pkg:nuget/...`
-- Cargo: `pkg:cargo/...`
-- Go: `pkg:golang/...`
-
-GitHub source enrichment is intentionally limited to repositories that normalize to GitHub URLs.
-
-## Do Not Reimplement Dependency Resolution
-
-Do not read only manifests such as `package.json`, `Cargo.toml`, or project files and then recursively resolve dependencies through registry APIs. That would require `ol` to duplicate each ecosystem's version-selection, target-platform, optional-dependency, and peer-dependency semantics.
-
-Use the package manager's already resolved result instead. This is necessary to accurately answer what is newly required by a PR.
-
-| Ecosystem | Preferred resolved input | Notes |
-|---|---|---|
-| NuGet / .NET | `obj/project.assets.json` | Contains restore results and target-specific dependency graphs. |
-| npm | `package-lock.json` | Provides the resolved install tree. |
-| pnpm | `pnpm-lock.yaml` | Requires traversing importers and package snapshots. |
-| Cargo | `Cargo.lock` plus `Cargo.toml` | Lockfile provides resolution; manifest helps identify direct dependencies. |
-| Go | `go list -m -json all` and/or `go mod graph` | Do not treat `go.sum` alone as a dependency graph. |
-| Maven / Gradle | Package manager dependency report | Prefer tool output over independently emulating Gradle/Maven resolution. |
-| Python | Tool-specific resolved lockfile | Add adapters per supported tool, for example uv or Poetry. |
-
-## Proposed Command Model
-
-Keep `scan` for SBOM inputs and introduce inventory-specific commands rather than pretending all inputs are SBOMs.
+SBOM は引き続き主要な入力形式だが、製品境界ではなく複数ある入力形式の一つとする。package manager 入力のために、`scan` と同じ処理を行う別の `inventory` コマンドは追加しない。
 
 ```text
-ol inventory --ecosystem nuget --input obj/project.assets.json --format json --out head.inventory.json
-ol diff --before base.inventory.json --after head.inventory.json --format markdown
+Resolved dependency input
+  ├─ CycloneDX JSON
+  ├─ SPDX JSON
+  ├─ NuGet project.assets.json
+  └─ 将来の lockfile / package manager output
+                  │
+                  v
+         Dependency inventory
+       (occurrences + edges + contexts)
+                  │
+                  v
+      License evidence enrichment
+       (registry / GitHub License API)
+                  │
+                  v
+             Scan result
+                  │
+                  v
+       text / JSON / Markdown
 ```
 
-Responsibilities:
+## 今回のスコープ
 
-- `inventory`: parse one resolved package-manager input, normalize the dependency graph, enrich license evidence, and render/store a portable inventory result.
-- `diff`: compare two normalized inventories and report dependency changes, including reconciled license evidence.
-- CI: prepares base and head worktrees/checkouts, runs restore/install, and passes their generated inventories to `ol`. `ol` should not initially own Git checkout or restore/install orchestration.
+この plan では、次を優先する。
 
-Potential future convenience command:
+1. `scan` が受け付ける入力の指定方法を整理する。
+2. 入力解析、依存 inventory、ライセンス補強、scan result の責務を分離する。
+3. SBOM 固有の入力 metadata と、入力形式に依存しない scan pipeline を分離する。
+4. platform、target、project などによって異なる依存グラフを保持できる共通モデルを定義する。
+5. 最初の非 SBOM 入力として NuGet `project.assets.json` を追加できる境界を定義する。
 
-```text
-ol inventory diff --before <resolved-input> --after <resolved-input> ...
-```
+## スコープ外
 
-This should only be added after the standalone inventory format and diff contract are stable.
+次はこの plan では扱わない。
 
-## Normalized Inventory Requirements
+- base と HEAD の差分判定および `diff` コマンド
+- PR comment の生成や投稿
+- Git checkout、worktree、restore、install の実行
+- package registry を使った依存バージョンの独自解決
+- portable inventory 専用コマンドまたは専用ファイル形式
+- npm、pnpm、Cargo、Go、Maven、Gradle、Python 入力の具体実装
 
-The SBOM-specific `ScanReport` metadata currently contains format, spec version, source path, and SBOM hashes. An inventory input must instead record explicit inventory metadata rather than a synthetic SBOM format.
+差分機能は、入力と scan result のモデルが安定した後に別課題として検討する。JSON 出力を決定的にし、base と HEAD の `ol` 出力を外部ツールで比較できる余地は残すが、この plan では比較単位や差分分類を仕様化しない。
 
-Required normalized fields per occurrence:
+## 用語と責務
 
-- ecosystem
+### 解決済み依存入力
+
+SBOM、lockfile、package manager の出力など、実際に解決されたpackage occurrenceと依存関係を提供する入力である。
+
+入力アダプターは、その形式の構文と意味を解釈して、共通の dependency inventory に変換する。manifest だけを読み、registry API を再帰的に呼び出して依存解決を再実装してはならない。
+
+### Dependency inventory
+
+ライセンス補強前の、解決済み依存グラフを表す内部ドメインモデルである。`inventory` はこの内部概念を指し、今回新設するCLIコマンド名ではない。
+
+最低限、次を保持できるようにする。
+
+- package occurrence
 - normalized package name
 - resolved version
-- versioned purl, when representable
-- direct, transitive, root, or unknown dependency type
-- dependency edges
-- project/workspace origin
-- target framework, platform, or resolver target where relevant
-- source input and parser/resolver identity
-- package-manager native repository or license data, if supplied
+- ecosystem
+- versioned purl（表現可能な場合）
+- root、direct、transitive、unknown の依存種別
+- dependency edge
+- project または workspace origin
+- resolution context
+- resolver-native identifier（入力が提供する場合）
+- 入力が提供するlicenseまたはrepository evidence
+- 入力解析時のwarning
 
-A package identity is not enough for graph reporting. The same package/version may occur through different roots, target frameworks, platforms, or dependency paths. Preserve occurrences and graph edges in the inventory; deduplicate only network metadata requests by normalized versioned purl.
+package occurrenceとnetwork lookup targetは分ける。同じpackage/versionが複数のproject、target、依存位置に出現した場合、occurrenceとedgeは保持する。一方、package registryやsource repositoryへの問い合わせは、意味的に同じversioned purlまたはsource target単位でdeduplicateする。
 
-When an input cannot prove a dependency relation, report `unknown` rather than classifying it as direct or transitive.
+### License evidence enrichment
 
-## PR Diff Semantics
+package registry、GitHub License API、cacheなどからライセンス証拠を追加する処理である。これらはdependency inputではなく、inventoryに含まれるpackage identityを補強するproviderである。
 
-Generate resolved inventories from the base commit and PR head, then compare them.
+外部I/Oはこの境界に隔離し、bounded concurrency、cancellation、cache、retryの既存方針を維持する。問い合わせ完了順にかかわらず、結果順序はdeterministicにする。
 
-A package occurrence should retain a logical identity such as:
+### Scan result
 
-$$
-(\text{ecosystem},\ \text{normalized package name},\ \text{resolved version},\ \text{origin/target})
-$$
+dependency inventoryに、収集・照合済みのlicense candidate、status、warningと実行summaryを加えた結果である。text、JSON、Markdownの表示処理はscan resultを入力とし、元の入力形式を再解釈しない。
 
-Classify results as:
+## `scan` のコマンドモデル
 
-- `added`: a resolved dependency occurrence exists only in head.
-- `removed`: a resolved dependency occurrence exists only in base.
-- `updated`: the same logical dependency changed resolved version.
-- `dependency-path-changed`: version remains the same but the origin or dependency path changed.
+長期的なコマンド形は、入力パスと入力形式を分ける。
 
-PR comments should normally focus on `added` and `updated` items, with warnings prominently surfaced for `unknown`, `conflict`, `invalid`, or fetch-error license outcomes.
+```text
+ol scan --input bom.json --input-format cyclonedx
+ol scan --input bom.spdx.json --input-format spdx
+ol scan --input obj/project.assets.json --input-format nuget-assets
+```
 
-Example report shape:
+`--input-format` を明示できることを基本とする。異なる形式が同じJSON、YAML、lockfileを使用する可能性があるため、拡張子だけに依存した判定を公開契約にしない。
 
-| Change | Package | Dependency | License | Evidence |
-|---|---|---|---|---|
-| added | Foo.Bar 2.1.0 | direct | MIT | NuGet registry |
-| added | Baz.Core 4.0.2 | transitive | Apache-2.0 | GitHub License API |
-| updated | Qux 1.3.0 → 1.4.0 | transitive | MIT → BSD-3-Clause | registry |
+既存の次の呼び出しは、互換性のため維持する。
 
-## Recommended Delivery Order
+```text
+ol scan --sbom bom.json
+```
 
-### Phase 1: NuGet resolved inventory
+`--sbom` は SBOM 入力であることを明示する既存のショートカットとして扱う。`--input` と `--sbom` の同時指定はエラーにする。既存形式の自動判定を `--sbom` で継続するか、format optionを追加するかは実装前にCLI互換性テストで確定する。
 
-Start with NuGet because this repository is .NET-based and `project.assets.json` provides a strong resolved graph source.
+入力形式の追加は、形式固有のmarker、parser、input metadata projectionを一つの登録単位に閉じ込める。新しい形式の追加によって、enrichment、reconciliation、view、output formatにecosystem固有switchを追加しない。
 
-Scope:
+## Resolution context
 
-- Read a restore-complete `project.assets.json`.
-- Create `pkg:nuget/{id}@{version}` purls.
-- Capture target framework/RID and project origin.
-- Identify direct and transitive dependencies from the asset graph.
-- Reuse package-metadata, cache, source-repository, reconciliation, and rendering services.
-- Explicitly define treatment of project references, local/path dependencies, unresolved entries, and multiple target graphs.
+解決済み依存グラフは、同じprojectやmanifestから常に一つに決まるとは限らない。platform、architecture、target framework、runtime、feature、variantなどによって、直接依存および推移的依存が変わり得る。
 
-Initial constraints should be conservative:
+これはNuGet固有の問題ではない。
 
-- Preserve target-specific occurrences instead of silently merging divergent graphs.
-- Classify any relation not proven by the asset graph as `unknown`.
-- Treat unsupported package forms as retained inventory entries with explicit warnings, not as silently omitted components.
+- NuGetでは、target frameworkとRIDによってcompile/runtime/native assetおよび依存関係が変わり得る。
+- npm系では、OS、CPU、optional dependency、install条件によって実際のinstall graphが変わり得る。
+- Cargoでは、target-specific dependencyやfeature selectionによってgraphが変わり得る。
+- Goでは、GOOS、GOARCH、build constraintsなど、graphを生成した条件が結果に影響し得る。
+- MavenやGradleでも、configuration、variant、classifier、platform条件などにより選択結果が変わり得る。
+- Pythonでも、environment markerやplatform固有distributionによって結果が変わり得る。
 
-### Phase 2: Portable inventory output and `diff`
+この差をecosystem共通の`resolution context`として扱う。contextは一つの固定文字列に潰さず、少なくとも次の意味を表せる明示的なデータとする。
 
-Define a stable inventory JSON representation that includes input metadata, package occurrences, graph edges, and license evidence. Implement `diff` against that format so base/head generation can be external to the tool.
+- projectまたはworkspace origin
+- target frameworkまたはlanguage target
+- runtime/platform/OS
+- architecture
+- resolver固有のtarget、configuration、variant
 
-### Phase 3: CI integration
+入力が値を提供しない項目はunknownまたは未指定として保持し、推測しない。
 
-In a PR workflow:
+異なるresolution contextのgraphを入力解析時にmergeしてはならない。同じpackage/versionが複数contextに存在してもoccurrenceを保持し、direct/transitive判定は各contextのrootとedgeに対して行う。表示時の集約は可能だが、集約前の情報をscan resultから失わない。
 
-1. Check out base and head revisions in isolated worktrees/directories.
-2. Run the relevant restore/install command in each.
-3. Produce normalized inventories.
-4. Run `ol diff`.
-5. Publish Markdown as a PR comment or check summary.
+NuGetの初期対応では、最低限target frameworkごとのgraphを分離する。RID別targetが存在する場合も別contextとして保持する。compile/runtime/native assetの詳細をどこまでreportに露出するかは、`project.assets.json` fixtureを確認して別途決定する。
 
-### Phase 4: Additional ecosystem adapters
+## 入力metadata
 
-Add npm, Cargo, and Go adapters one at a time. Each adapter is responsible only for converting that ecosystem's resolved input into the common inventory graph. It must not duplicate license reconciliation, cache, enrichment, rendering, or diff logic.
+現在の`ScanReport`とJSON出力は、`SbomFormat`、SBOM specification version、`sbomRef`、`sbomSha256`などを直接持つ。これを入力形式共通のdescriptorへ分離する。
 
-## Design Risks and Decisions Needed
+入力descriptorは、少なくとも次を表せるようにする。
 
-### Input/report model coupling
+- input kind: `sbom`、`package-manager`など
+- input format: `cyclonedx`、`spdx`、`nuget-assets`など
+- source reference
+- source hash
+- parser identityまたはparser version
+- format specification version（存在する場合）
+- 入力から判明したresolution context
 
-`ScanReport` and JSON rendering are SBOM-shaped today. Introduce an input descriptor or inventory report model that accurately identifies input kind, parser, source, and resolution target. Do not label a lockfile as an SBOM.
+SBOM入力では既存metadataを正確に投影する。package manager入力をSBOMとして表示したり、存在しないSBOM versionを合成したりしない。
 
-### Graph fidelity
+JSON schemaの変更では、既存consumerへの影響を明示する。旧SBOM metadata fieldを互換目的で残す場合でも、新しい入力形式に対して偽の値を出力しない。
 
-Lockfiles and package-manager outputs differ materially. They may flatten dependencies, omit roots, represent multiple target graphs, or preserve only selected paths. Each adapter requires documented classification rules and fixtures for ambiguous cases.
+## 既存pipelineの再利用と変更境界
 
-### Purl correctness
+現在の実装では、`SbomScanner`が`ScanReport`と`ScanComponent[]`を生成した後、次の処理は比較的入力形式から分離されている。
 
-Purl generation controls registry support, caching, and metadata deduplication. Namespace handling, npm scopes, NuGet normalization, Go module paths, prereleases, git dependencies, workspace dependencies, qualifiers, and subpaths require explicit rules and negative tests.
+1. package metadata enrichment
+2. source repository enrichment
+3. license reconciliation
+4. dependency filter、sort、group
+5. text、JSON、Markdown rendering
 
-### Provenance
+この後半を再利用する。一方、現在の`ScanReport`と`ScanComponent`はSBOM固有の命名とmetadataを持ち、edge、origin、resolution contextを表現できないため、そのままpackage manager inputを詰め込まない。
 
-Current license evidence distinguishes SBOM, package registry, and source repository. An inventory parser that provides its own license/repository claim needs an inventory-origin provenance representation rather than fabricated SBOM evidence.
+最小の共通データ構造を先に定義し、次の境界を作る。
 
-### Source coverage
+```text
+Input adapter
+    -> Dependency inventory
+    -> License enrichment / reconciliation
+    -> Scan result
+    -> View / renderer
+```
 
-GitHub License API enrichment only works for GitHub repositories. A valid non-GitHub package source remains unsupported at that evidence tier unless additional source providers are introduced later.
+実装はdata-orientedな配列と明示的なvalue typeを優先する。componentとedgeの蓄積では入力件数からcapacityを見積もり、必要に応じてpooled bufferを使用する。owned resultにpoolの配列を露出しない。入力由来UTF-8値は、所有元bufferが生存する範囲では`Utf8Slice`を維持する。
 
-### Network behavior
+## 最初の非SBOM入力: NuGet
 
-An SBOM-less inventory may cause immediate registry lookup for every package on its first run. Existing persistent caches, bounded concurrency, retry handling, `--refresh`, and `--skip-enrichment` mitigate this, but CI policy should define cache sharing and acceptable first-run latency.
+最初の対象は`obj/project.assets.json`とする。これはrestore済みの結果であり、projectのtargetごとの解決グラフを取得できるためである。
 
-### Test strategy
+初期対応では次を満たす。
 
-Current ecosystem validation is SBOM-centric. Add independent fixture contracts for each package-manager input, including:
+- package libraryからNuGet package occurrenceを作る。
+- `pkg:nuget/{id}@{version}` purlを正規化して生成する。
+- project originを保持する。
+- target frameworkおよびRIDをresolution contextとして保持する。
+- contextごとにrootとdependency edgeを解釈する。
+- 証明できる場合だけdirectまたはtransitiveとし、それ以外はunknownにする。
+- project reference、local/path dependency、unresolved entryを黙ってpackageとして扱わない。
+- package registry、source repository、cache、reconciliationを既存pipelineで再利用する。
 
-- resolved package identities and purls
-- direct/transitive/unknown classification
-- target/framework variations
-- duplicate package occurrences
-- unsupported and malformed input
-- no-network enrichment behavior
-- registry/source evidence reconciliation
-- base/head diff classification
+複数targetに同じpackage/versionが現れても、inventory occurrenceはmergeしない。registry lookupはversioned purl単位でdeduplicateし、結果を各occurrenceへ投影する。
 
-## Success Criteria
+## 実施順序
 
-The feature is ready for general use when a PR workflow can, without generating an SBOM:
+### Phase 1: コマンドとデータ境界の仕様化
 
-1. Obtain each revision's package manager-resolved dependency graph.
-2. Identify packages newly introduced or version-updated by the PR, including transitives.
-3. Report direct/transitive status only when supported by source evidence.
-4. Resolve licenses using the existing package-registry and GitHub source evidence pipeline.
-5. Preserve warnings, conflicts, unknowns, and evidence provenance in JSON and Markdown output.
-6. Produce deterministic, target-aware results across supported ecosystems.
+- `scan --input`、`--input-format`、既存`--sbom`の互換規則を決める。
+- input descriptor、dependency inventory、resolution context、scan resultの最小データを定義する。
+- occurrence、edge、network lookup targetを別の概念として定義する。
+- JSON metadataの互換方針を決める。
+
+### Phase 2: 既存SBOM scanの分離
+
+- CycloneDX/SPDX parserをinput adapterとして共通inventory境界へ接続する。
+- enrichment、reconciliation、view、rendererがSBOM parserを直接前提にしないようにする。
+- 既存CLI出力とlicense判定を維持する回帰テストを追加する。
+- format registration testを追加し、形式追加が中央switchへ波及しないことを確認する。
+
+### Phase 3: NuGet input adapter
+
+- `project.assets.json` fixtureからtarget/RID別graphを読み取る。
+- package occurrence、edge、dependency type、purlを検証する。
+- 複数target、RID固有native dependency、重複package、project reference、malformed inputをfixtureで検証する。
+- enrichmentなし、およびcacheされたenrichmentを使ったscanを検証する。
+
+### Phase 4: 出力と性能検証
+
+- text、JSON、Markdownが入力種別を正しく表示することを確認する。
+- JSONがdeterministicで、occurrenceとresolution contextを失わないことを確認する。
+- inventory ingestionとend-to-end scanの時間・allocationをBenchmarkDotNetで既存baselineと比較する。
+- network requestが重複package occurrence数ではなく、deduplicate済みtarget数に基づくことを確認する。
+
+## テスト方針
+
+変更はtest-firstで進め、少なくとも次を検証する。
+
+- 既存`scan --sbom`の互換性
+- `--input`、`--input-format`、`--sbom`の排他とvalidation
+- 入力形式のregistration
+- SBOM入力から共通inventoryへの変換
+- NuGet target framework/RIDごとのpackage occurrenceとedge
+- context間で異なるdirect/transitive判定
+- 入力が証明できない関係のunknown判定
+- occurrenceを保持したままnetwork targetをdeduplicateすること
+- package manager由来evidenceをSBOM evidenceと偽装しないこと
+- deterministicなreport順序とJSON出力
+- malformed inputとpathological inputに対するboundedなエラー処理
+
+## 成功条件
+
+この計画が完了したと判断する条件は次のとおり。
+
+1. `scan` がSBOMとNuGet `project.assets.json`を、明示された入力形式として受け付ける。
+2. 既存の`scan --sbom`利用方法とlicense判定が維持される。
+3. 入力解析、dependency inventory、license enrichment、scan result、renderingの責務が分離される。
+4. package manager入力をSBOMと偽ってmetadataやevidenceを出力しない。
+5. target framework、RID、platformなどが異なるgraphを早期にmergeしない。
+6. occurrenceとedgeを保持しながら、registry/source lookupは正規化済みtarget単位でdeduplicateされる。
+7. JSON出力がdeterministicで、将来または外部のbase/HEAD比較を妨げない情報を保持する。
+8. 新しい入力形式の追加がenrichment、reconciliation、view、output formatの中央分岐へ波及しない。
+9. 関連テストとallocation benchmarkで、正しさと説明不能な性能退行がないことを確認する。
+
+## 実装前に確定する判断事項
+
+- `--input-format`の値と命名規則
+- `--sbom`互換時のformat自動判定をどこまで維持するか
+- 既存JSON metadata fieldの互換期間
+- resolution contextの必須fieldとecosystem固有fieldの保持方法
+- SBOMにtarget/platform情報がない場合のcontext表現
+- NuGetのproject reference、local package、compile/runtime/native assetの表示範囲
+- package occurrenceをrendererで既定集約するか、contextごとに表示するか
+
+これらは入力fixtureと既存CLI互換性テストを根拠に決定し、未確定の値をparser側で推測しない。

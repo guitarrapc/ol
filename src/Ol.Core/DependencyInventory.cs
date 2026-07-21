@@ -1,4 +1,4 @@
-namespace Ol.Core;
+﻿namespace Ol.Core;
 
 /// <summary>Identifies the kind of resolved dependency input supplied to a scan.</summary>
 /// <param name="Name">The stable input-kind identifier.</param>

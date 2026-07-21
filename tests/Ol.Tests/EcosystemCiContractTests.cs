@@ -1,6 +1,5 @@
 ﻿using System.Text.Json;
 using Ol.Core;
-using Ol.Core.PackageMetadata;
 
 namespace Ol.Tests;
 

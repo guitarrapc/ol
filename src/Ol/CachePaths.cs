@@ -1,4 +1,4 @@
-internal readonly record struct CacheDirectories(string PackageMetadata, string SourceRepository);
+﻿internal readonly record struct CacheDirectories(string PackageMetadata, string SourceRepository);
 
 internal static class CachePaths
 {

@@ -1,5 +1,4 @@
 ﻿using ConsoleAppFramework;
-using Ol.Core;
 using Ol.Core.PackageMetadata;
 using Ol.Core.SourceRepository;
 

@@ -1,6 +1,4 @@
-﻿using Ol.Core.GitHub;
-
-using Ol.Core.SourceRepository;
+﻿using Ol.Core.SourceRepository;
 
 namespace Ol.Core.GitHub;
 

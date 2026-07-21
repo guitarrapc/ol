@@ -1,4 +1,4 @@
-using Ol.Core.PackageManagers;
+﻿using Ol.Core.PackageManagers;
 using Ol.Core.PackageMetadata;
 
 namespace Ol.Core;

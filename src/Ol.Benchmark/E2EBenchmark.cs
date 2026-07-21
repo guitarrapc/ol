@@ -1,5 +1,4 @@
 ﻿using BenchmarkDotNet.Attributes;
-using Ol.Core;
 
 /// <summary>Measures the <c>ol scan</c> command workflow end to end, including file I/O, scanning, cached enrichment, sorting, and rendering.</summary>
 public class E2EBenchmark : IDisposable

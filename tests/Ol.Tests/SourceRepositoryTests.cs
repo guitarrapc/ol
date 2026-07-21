@@ -3,7 +3,6 @@ using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
 using Ol.Core.PackageManagers;
-using Ol.Core.SourceRepository;
 using Ol.Core.Spdx;
 
 namespace Ol.Tests;

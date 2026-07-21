@@ -97,6 +97,10 @@ Auto detection uses only deterministic, format-owned content signatures; file na
 
 The command boundary parses every supported input through the registered dependency-input adapter and then consumes a normalized inventory. Multiple package-manager inventories retain their contexts, occurrences, and edges while sharing report components according to the originating handler's package-identity comparison. Enrichment, reconciliation, filtering, grouping, sorting, and rendering do not dispatch on parser types. Explicit `--input-format` validation and directory discovery use the same registry as content detection.
 
+For a repository containing multiple package managers, auto-detected inputs with different registered formats produce one `package-manager/collection` inventory. Context and occurrence indexes are remapped into the collection without creating edges between input graphs. Component combination is format-scoped: identical canonical purls from different formats remain distinct graph evidence, while downstream package-metadata scheduling may deduplicate the same registry cache key. An explicit non-auto `--input-format` is therefore inappropriate for a mixed-format directory.
+
+A single repository-wide SBOM and a direct package-manager collection are alternative authoritative inputs, not layers to union. The CLI rejects SBOM/package-manager mixtures and multiple SBOM documents. Per-ecosystem SBOMs must be merged by an SBOM-aware tool before Ol scans the resulting document. CI may scan a canonical merged/polyglot SBOM and direct lockfiles as separate jobs and reports.
+
 Examples of whole-command failures:
 
 - dependency input cannot be read.

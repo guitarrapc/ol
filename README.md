@@ -207,6 +207,55 @@ Scan summary
 
 Ol scans resolved npm `package-lock.json` version 2/3, pnpm `pnpm-lock.yaml` version 9, Yarn Classic `yarn.lock` version 1, and Yarn Berry `yarn.lock` metadata version 8. Pass the lockfile or a directory; workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
 
+### Dependency files by ecosystem
+
+Ol does not resolve package manifests or version ranges itself. It consumes either a resolved graph supported by a direct input adapter or an SBOM whose generator performed the ecosystem-specific resolution. Passing a declaration such as `package.json`, `*.csproj`, `Cargo.toml`, or `pyproject.toml` directly to Ol is not supported.
+
+| Ecosystem | Typical dependency files | Resolution supplied to Ol | Recommended workflow |
+|---|---|---|---|
+| .NET / NuGet | `*.sln`, `*.slnx`, `*.csproj`, `packages.lock.json` | Generated `project.assets.json` version 3/4 | Run `dotnet restore`, then scan the generated file or a directory containing it with `--input`. |
+| JavaScript / npm | `package.json`, `package-lock.json` | `package-lock.json` version 2/3 | Scan the committed lockfile directly with `--input`; an install is not required for Ol. |
+| JavaScript / pnpm | `package.json`, `pnpm-lock.yaml`, workspace file | `pnpm-lock.yaml` version 9.0 | Scan the committed lockfile directly with `--input`. Importers become separate contexts. |
+| JavaScript / Yarn Classic | `package.json`, `yarn.lock` | Yarn lockfile version 1 | Scan `yarn.lock` directly. The lockfile has no root manifest graph, so dependency type remains unknown where the root relationship cannot be proven. |
+| JavaScript / Yarn Berry | `package.json`, `yarn.lock`, `.yarnrc.yml` | Yarn metadata version 8 lockfile | Scan `yarn.lock` directly. Workspace contexts and proven descriptor edges are retained without reconstructing install state. |
+| Rust / Cargo | `Cargo.toml`, `Cargo.lock` | CycloneDX/SPDX JSON SBOM | Run the normal locked resolution and generate an SBOM; Ol does not directly parse Cargo inputs yet. |
+| Go modules | `go.mod`, `go.sum` | CycloneDX/SPDX JSON SBOM | Resolve modules normally and generate an SBOM; Ol does not run Minimal Version Selection itself. |
+| Java / JVM | `pom.xml`, Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Run the ecosystem build/resolution and use its CycloneDX generator or a polyglot generator. |
+| Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock` | CycloneDX/SPDX JSON SBOM | Resolve the intended environment and generate an SBOM; Ol does not choose markers, extras, or platform wheels. |
+| PHP / Composer | `composer.json`, `composer.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--sbom`. |
+| Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--sbom`. |
+
+For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, and `yarn.lock`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
+
+### Repositories with multiple package managers
+
+Use one canonical dependency source per Ol report. For a release or audit artifact, the preferred workflow is one repository-wide CycloneDX JSON SBOM. A polyglot generator such as [cdxgen](https://github.com/cdxgen/cdxgen) can recursively detect multiple languages and package managers:
+
+```bash
+# First run the repository's normal locked restore/install steps.
+cdxgen -r -o bom.cdx.json .
+dotnet run --project src/Ol -- scan --sbom bom.cdx.json
+```
+
+Check that the generated BOM contains every intended project, package ecosystem, and dependency relationship. A single file is only better when its generator has complete coverage. If separate ecosystem tools produce separate CycloneDX BOMs, merge them before scanning; [CycloneDX CLI](https://github.com/CycloneDX/cyclonedx-cli) supports hierarchical merge when every input BOM identifies its subject in `metadata.component`:
+
+```bash
+cyclonedx merge --input-files dotnet.cdx.json node.cdx.json --output-file repository.cdx.json --output-format json --hierarchical --name my-repository --version "$GIT_COMMIT"
+
+dotnet run --project src/Ol -- scan --sbom repository.cdx.json
+```
+
+When a trustworthy polyglot SBOM is unavailable, scan resolved package-manager inputs directly. Restore .NET projects first so `project.assets.json` exists, then pass selected roots or the repository directory. Do not specify `--input-format` for mixed formats:
+
+```bash
+dotnet restore MyRepository.slnx
+dotnet run --project src/Ol -- scan --input src/backend --input src/frontend --format json
+```
+
+Ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, and both Yarn lock formats. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; Ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.
+
+Ol intentionally rejects SBOM and package-manager inputs in the same report, and it does not accept multiple SBOM files as an implicit union. Combining them would double-count packages and make conflicting graph/evidence precedence ambiguous. To validate both paths in CI, produce two independent reports: a canonical SBOM report and a direct-lockfile report. The runnable mixed-manager example is under [sandbox/package-manager-inputs](sandbox/package-manager-inputs/README.md).
+
 
 ## Development
 

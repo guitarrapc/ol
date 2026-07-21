@@ -43,4 +43,21 @@ $results = foreach ($sample in $samples) {
     }
 }
 
+$collectionOutputPath = Join-Path $outputDirectory "collection.json"
+$null = dotnet $olAssembly scan --input $PSScriptRoot --skip-enrichment --format json --out $collectionOutputPath --quiet
+if ($LASTEXITCODE -ne 0) {
+    throw "Mixed package-manager collection failed with exit code $LASTEXITCODE."
+}
+
+$collectionReport = Get-Content -LiteralPath $collectionOutputPath -Raw | ConvertFrom-Json
+$results += [pscustomobject]@{
+    Sample = "all"
+    Format = $collectionReport.metadata.input.format
+    Contexts = @($collectionReport.inventory.contexts).Count
+    Components = @($collectionReport.inventory.components).Count
+    Occurrences = @($collectionReport.inventory.occurrences).Count
+    Edges = @($collectionReport.inventory.edges).Count
+    Report = $collectionOutputPath
+}
+
 $results | Format-Table -AutoSize

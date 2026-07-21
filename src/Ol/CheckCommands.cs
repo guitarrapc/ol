@@ -6,6 +6,7 @@ using Ol.Core.Licensing;
 /// <summary>Check resolved dependency licenses against an allow-list.</summary>
 internal sealed class CheckCommands
 {
+    /// <summary>Indicates that exit code 1 came from completed policy evaluation rather than CLI parsing.</summary>
     public static bool PolicyViolationReturned { get; private set; }
 
     /// <summary>Check a resolved dependency input against allowed SPDX licenses.</summary>

@@ -48,7 +48,7 @@ internal static class CommandLineArguments
 {
     internal const char InputSeparator = '\0';
 
-    public static string[] NormalizeRepeatedScanInputs(string[] args)
+    public static string[] NormalizeRepeatedInputs(string[] args)
     {
         if (args.Length < 5
             || !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase)

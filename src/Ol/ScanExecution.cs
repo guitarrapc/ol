@@ -114,27 +114,37 @@ internal static class ScanExecution
             return false;
         }
 
-        var enrichedComponents = scanResult.Components;
-        PackageMetadataSummary packageMetadataSummary;
-        SourceRepositorySummary sourceRepositorySummary;
-        if (skipEnrichment)
+        try
         {
-            packageMetadataSummary = new PackageMetadataSummary(0, 0, 0, 0, 0, 0, preparation.Concurrency, preparation.Retry);
-            sourceRepositorySummary = new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", preparation.Concurrency, preparation.Retry);
+            var enrichedComponents = scanResult.Components;
+            PackageMetadataSummary packageMetadataSummary;
+            SourceRepositorySummary sourceRepositorySummary;
+            if (skipEnrichment)
+            {
+                packageMetadataSummary = new PackageMetadataSummary(0, 0, 0, 0, 0, 0, preparation.Concurrency, preparation.Retry);
+                sourceRepositorySummary = new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", preparation.Concurrency, preparation.Retry);
+            }
+            else
+            {
+                var metadataService = new PackageMetadataService(preparation.Spdx.Index, new PackageMetadataCache(preparation.CacheDirectories.PackageMetadata), refresh, preparation.Retry);
+                var enrichment = metadataService.EnrichAsync(enrichedComponents, preparation.Concurrency).GetAwaiter().GetResult();
+                enrichedComponents = enrichment.Components;
+                packageMetadataSummary = enrichment.Summary;
+                var sourceService = new SourceRepositoryService(preparation.Spdx.Index, new PackageMetadataCache(preparation.CacheDirectories.PackageMetadata), new SourceRepositoryCache(preparation.CacheDirectories.SourceRepository), refresh, preparation.Retry);
+                var sourceEnrichment = sourceService.EnrichAsync(enrichedComponents, preparation.Concurrency).GetAwaiter().GetResult();
+                enrichedComponents = sourceEnrichment.Components;
+                sourceRepositorySummary = sourceEnrichment.Summary;
+            }
+
+            completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageMetadataSummary, sourceRepositorySummary);
         }
-        else
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or HttpRequestException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
-            var metadataService = new PackageMetadataService(preparation.Spdx.Index, new PackageMetadataCache(preparation.CacheDirectories.PackageMetadata), refresh, preparation.Retry);
-            var enrichment = metadataService.EnrichAsync(enrichedComponents, preparation.Concurrency).GetAwaiter().GetResult();
-            enrichedComponents = enrichment.Components;
-            packageMetadataSummary = enrichment.Summary;
-            var sourceService = new SourceRepositoryService(preparation.Spdx.Index, new PackageMetadataCache(preparation.CacheDirectories.PackageMetadata), new SourceRepositoryCache(preparation.CacheDirectories.SourceRepository), refresh, preparation.Retry);
-            var sourceEnrichment = sourceService.EnrichAsync(enrichedComponents, preparation.Concurrency).GetAwaiter().GetResult();
-            enrichedComponents = sourceEnrichment.Components;
-            sourceRepositorySummary = sourceEnrichment.Summary;
+            completed = default;
+            error = $"Unable to collect license evidence: {exception.Message}";
+            return false;
         }
 
-        completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageMetadataSummary, sourceRepositorySummary);
         error = string.Empty;
         return true;
     }

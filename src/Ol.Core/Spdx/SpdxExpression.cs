@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-
 using System.Collections.Frozen;
 
 namespace Ol.Core.Spdx;

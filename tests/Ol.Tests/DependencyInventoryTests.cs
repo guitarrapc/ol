@@ -47,8 +47,8 @@ public sealed class DependencyInventoryTests
 
         var first = result.Inventory.Components[result.Inventory.Occurrences[1].ComponentIndex];
         var second = result.Inventory.Components[result.Inventory.Occurrences[3].ComponentIndex];
-        var firstLookup = PackageMetadataRequest.TryCreate(first.Purl.ToString(), out var firstRequest);
-        var secondLookup = PackageMetadataRequest.TryCreate(second.Purl.ToString(), out var secondRequest);
+        var firstLookup = OlDefaults.TryCreatePackageMetadataRequest(first.Purl.ToString(), out var firstRequest);
+        var secondLookup = OlDefaults.TryCreatePackageMetadataRequest(second.Purl.ToString(), out var secondRequest);
         await Assert.That(firstLookup).IsTrue();
         await Assert.That(secondLookup).IsTrue();
         await Assert.That(firstRequest.CacheKey).IsEqualTo(secondRequest.CacheKey);

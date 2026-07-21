@@ -35,7 +35,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
             for (var i = 0; i < components.Length; i++)
             {
                 PackageMetadataRecord? metadata = null;
-                if (PackageMetadataRequest.TryCreate(components[i].Purl.ToString(), out var request))
+                if (OlDefaults.TryCreatePackageMetadataRequest(components[i].Purl.ToString(), out var request))
                 {
                     if (!metadataRecords.TryGetValue(request.CacheKey, out metadata))
                     {
@@ -142,7 +142,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         try
         {
             var githubClient = new GitHubLicenseApiClient(httpClient, authentication);
-            var record = await SourceRepositoryFetchScheduler.FetchAsync(githubClient, target, retryCount, cancellationToken).ConfigureAwait(false);
+            var record = await GitHubLicenseFetchScheduler.FetchAsync(githubClient, target, retryCount, cancellationToken).ConfigureAwait(false);
             if (cacheWasInvalid)
             {
                 record = record with { Warnings = [.. record.Warnings, "source_repository_cache_invalid"] };

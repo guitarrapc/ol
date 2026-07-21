@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Ol.Core;
+namespace Ol.Core.PackageMetadata;
 
 /// <summary>
 /// Stores package metadata using opaque, hash-named cache files.

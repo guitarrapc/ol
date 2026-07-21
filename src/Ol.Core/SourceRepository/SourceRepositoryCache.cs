@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Ol.Core;
+namespace Ol.Core.SourceRepository;
 
 /// <summary>Stores source-repository evidence using opaque hash-named cache files.</summary>
 public sealed class SourceRepositoryCache(string root)

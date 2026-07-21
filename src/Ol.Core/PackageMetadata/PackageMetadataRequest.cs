@@ -16,17 +16,6 @@ public readonly record struct PackageMetadataRequest(
     string CacheKey)
 {
     /// <summary>
-    /// Parses a supported package URL into a package metadata lookup request.
-    /// </summary>
-    /// <param name="purl">The package URL.</param>
-    /// <param name="request">The parsed request when the purl is supported and versioned.</param>
-    /// <returns><see langword="true"/> when a supported request was created.</returns>
-    public static bool TryCreate(string purl, out PackageMetadataRequest request)
-    {
-        return TryCreate(purl, OlDefaults.PackageMetadataProviders, out request);
-    }
-
-    /// <summary>
     /// Parses a supported package URL using a provider registry.
     /// </summary>
     /// <param name="purl">The package URL.</param>

@@ -29,7 +29,7 @@ public sealed class PackageMetadataTests
     [Test]
     public async Task TryParse_ScopedNpmPurl_ProducesNormalizedPackageMetadataRequest()
     {
-        var parsed = PackageMetadataRequest.TryCreate("pkg:npm/%40scope/example@1.2.3?download_url=https%3A%2F%2Fexample.test", out var request);
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:npm/%40scope/example@1.2.3?download_url=https%3A%2F%2Fexample.test", out var request);
 
         await Assert.That(parsed).IsTrue();
         await Assert.That(request.Ecosystem).IsEqualTo("npm");
@@ -213,7 +213,7 @@ public sealed class PackageMetadataTests
         var handler = new SequenceJsonResponseHandler(
             """{ "catalogEntry": "https://api.nuget.org/v3/catalog0/data/example.1.0.0.json" }""",
             """{ "licenseExpression": "MIT", "projectUrl": "https://github.com/example/project", "repository": { "commit": "abcdef" } }""");
-        var client = new PackageMetadataRegistryClient(handler);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
 
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
@@ -231,7 +231,7 @@ public sealed class PackageMetadataTests
     public async Task Fetch_NuGetRegistrationResponse_WithUntrustedCatalogEntryUrl_DoesNotFollowIt()
     {
         var handler = new SequenceJsonResponseHandler("""{ "catalogEntry": "https://example.test/private.json" }""");
-        var client = new PackageMetadataRegistryClient(handler);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
 
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
@@ -284,7 +284,7 @@ public sealed class PackageMetadataTests
     public async Task FetchScheduler_TransientFailureThenSuccess_RetriesAndReturnsRecord()
     {
         var handler = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.OK);
-        var client = new PackageMetadataRegistryClient(handler);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
         var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
 
         var record = await PackageMetadataFetchScheduler.FetchAsync(client, request, retryCount: 1);
@@ -300,8 +300,8 @@ public sealed class PackageMetadataTests
         var unavailable = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.ServiceUnavailable);
         var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
 
-        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(new PackageMetadataRegistryClient(notFound), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
-        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(new PackageMetadataRegistryClient(unavailable), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
+        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(OlDefaults.CreatePackageMetadataRegistryClient(notFound), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
+        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(OlDefaults.CreatePackageMetadataRegistryClient(unavailable), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
         await Assert.That(notFound.CallCount).IsEqualTo(1);
         await Assert.That(unavailable.CallCount).IsEqualTo(2);
     }
@@ -318,7 +318,7 @@ public sealed class PackageMetadataTests
     }
 
     private static PackageMetadataRegistryClient CreateClient(string body)
-        => new(new StaticResponseHandler(body));
+        => OlDefaults.CreatePackageMetadataRegistryClient(new StaticResponseHandler(body));
 
     private static string CreatePackageCacheJson(int schemaVersion = 1)
     {

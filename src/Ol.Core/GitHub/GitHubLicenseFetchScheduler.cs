@@ -1,9 +1,11 @@
 ﻿using Ol.Core.GitHub;
 
-namespace Ol.Core.SourceRepository;
+using Ol.Core.SourceRepository;
+
+namespace Ol.Core.GitHub;
 
 /// <summary>Applies the shared retry policy to GitHub License API requests.</summary>
-public static class SourceRepositoryFetchScheduler
+public static class GitHubLicenseFetchScheduler
 {
     /// <summary>Fetches source evidence, retrying only transient failures.</summary>
     public static async Task<SourceRepositoryRecord> FetchAsync(GitHubLicenseApiClient client, SourceRepositoryTarget target, int retryCount, CancellationToken cancellationToken = default)

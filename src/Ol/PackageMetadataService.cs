@@ -24,7 +24,7 @@ internal static class PackageMetadataPaths
 internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, PackageMetadataCache cache, bool refresh, int retryCount)
 {
     private static readonly HttpClient HttpClient = new();
-    private readonly PackageMetadataRegistryClient registryClient = new(HttpClient);
+    private readonly PackageMetadataRegistryClient registryClient = OlDefaults.CreatePackageMetadataRegistryClient(HttpClient);
 
     public async Task<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(ScanComponent[] components, int concurrency, CancellationToken cancellationToken = default)
     {
@@ -53,7 +53,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                     continue;
                 }
 
-                if (!PackageMetadataRequest.TryCreate(purl.ToString(), out var request))
+                if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request))
                 {
                     lookupByPurl.Add(purl, -1);
                     componentLookupIndexes[i] = -1;

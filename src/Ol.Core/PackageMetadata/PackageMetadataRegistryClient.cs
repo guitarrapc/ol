@@ -15,17 +15,17 @@ public sealed class PackageMetadataRegistryClient
     /// Initializes a registry client using the supplied HTTP client.
     /// </summary>
     /// <param name="httpClient">HTTP client used for registry requests.</param>
-    public PackageMetadataRegistryClient(HttpClient httpClient, PackageMetadataProviders? providers = null)
+    public PackageMetadataRegistryClient(HttpClient httpClient, PackageMetadataProviders providers)
     {
-        this.httpClient = httpClient;
-        this.providers = providers ?? OlDefaults.PackageMetadataProviders;
+        this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        this.providers = providers ?? throw new ArgumentNullException(nameof(providers));
     }
 
     /// <summary>
     /// Initializes a registry client using a test or custom HTTP message handler.
     /// </summary>
     /// <param name="handler">HTTP handler used for registry requests.</param>
-    public PackageMetadataRegistryClient(HttpMessageHandler handler, PackageMetadataProviders? providers = null)
+    public PackageMetadataRegistryClient(HttpMessageHandler handler, PackageMetadataProviders providers)
         : this(new HttpClient(handler, disposeHandler: true), providers)
     {
     }

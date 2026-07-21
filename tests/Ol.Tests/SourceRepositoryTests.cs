@@ -161,7 +161,7 @@ public sealed class SourceRepositoryTests
         var handler = new SequenceResponseHandler(HttpStatusCode.TooManyRequests, HttpStatusCode.OK);
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
 
-        var record = await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
+        var record = await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
 
         await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
         await Assert.That(handler.CallCount).IsEqualTo(2);
@@ -173,7 +173,7 @@ public sealed class SourceRepositoryTests
         var handler = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.ServiceUnavailable);
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
 
-        await Assert.That(async () => await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<SourceRepositoryFetchException>();
+        await Assert.That(async () => await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<SourceRepositoryFetchException>();
         await Assert.That(handler.CallCount).IsEqualTo(2);
     }
 
@@ -183,7 +183,7 @@ public sealed class SourceRepositoryTests
         var handler = new SequenceResponseHandler(HttpStatusCode.Forbidden, HttpStatusCode.OK);
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
 
-        await Assert.That(async () => await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<SourceRepositoryFetchException>();
+        await Assert.That(async () => await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<SourceRepositoryFetchException>();
         await Assert.That(handler.CallCount).IsEqualTo(1);
     }
 
@@ -193,7 +193,7 @@ public sealed class SourceRepositoryTests
         var handler = new TimeoutResponseHandler();
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
 
-        await Assert.That(async () => await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<TaskCanceledException>();
+        await Assert.That(async () => await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<TaskCanceledException>();
         await Assert.That(handler.CallCount).IsEqualTo(2);
     }
 

@@ -13,4 +13,16 @@ public static class OlDefaults
         new CargoPackageMetadataProvider(),
         new GoPackageMetadataProvider(),
     ]);
+
+    /// <summary>Parses a package URL using Ol's built-in package metadata providers.</summary>
+    public static bool TryCreatePackageMetadataRequest(string purl, out PackageMetadataRequest request)
+        => PackageMetadataRequest.TryCreate(purl, PackageMetadataProviders, out request);
+
+    /// <summary>Creates a package metadata registry client using Ol's built-in package metadata providers.</summary>
+    public static PackageMetadataRegistryClient CreatePackageMetadataRegistryClient(HttpClient httpClient)
+        => new(httpClient, PackageMetadataProviders);
+
+    /// <summary>Creates a package metadata registry client using Ol's built-in package metadata providers.</summary>
+    public static PackageMetadataRegistryClient CreatePackageMetadataRegistryClient(HttpMessageHandler handler)
+        => new(handler, PackageMetadataProviders);
 }

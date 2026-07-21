@@ -32,6 +32,15 @@ public readonly record struct ScanInputFormat(string Name, string Parser, string
     /// <summary>npm package-lock.json.</summary>
     public static ScanInputFormat NpmPackageLock { get; } = new("npm-package-lock", "npm-package-lock-json", "npm package lock");
 
+    /// <summary>pnpm pnpm-lock.yaml.</summary>
+    public static ScanInputFormat PnpmLock { get; } = new("pnpm-lock", "pnpm-lock-yaml", "pnpm lock");
+
+    /// <summary>Yarn Classic yarn.lock.</summary>
+    public static ScanInputFormat YarnClassicLock { get; } = new("yarn-classic-lock", "yarn-classic-lock", "Yarn Classic lock");
+
+    /// <summary>Yarn Berry yarn.lock.</summary>
+    public static ScanInputFormat YarnBerryLock { get; } = new("yarn-berry-lock", "yarn-berry-lock-yaml", "Yarn Berry lock");
+
     /// <summary>A collection containing more than one registered input format.</summary>
     public static ScanInputFormat Collection { get; } = new("collection", "dependency-input-collection", "dependency input collection");
 

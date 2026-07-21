@@ -14,6 +14,10 @@ namespace Ol.Core;
 /// <returns>The normalized dependency inventory.</returns>
 public delegate DependencyInventory DependencyInputParser(byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph);
 
+/// <summary>Detects one non-JSON dependency input format without materializing source text.</summary>
+/// <param name="inputUtf8">The dependency input after an optional UTF-8 BOM.</param>
+public delegate bool DependencyInputDetector(ReadOnlySpan<byte> inputUtf8);
+
 /// <summary>Defines how a top-level JSON property confirms one dependency input format.</summary>
 public enum DependencyInputMarkerValueKind : byte
 {
@@ -66,13 +70,15 @@ public enum DependencyComponentIdentityComparison : byte
 /// <param name="Parser">The format-owned parser.</param>
 /// <param name="DirectoryFileNames">Exact file names discovered recursively for a directory input.</param>
 /// <param name="ComponentIdentityComparison">The package identity comparison used when combining repeated inputs of this format.</param>
+/// <param name="Detector">The format-owned detector for non-JSON input, or null for a JSON signature.</param>
 public readonly record struct DependencyInputHandler(
     ScanInputKind Kind,
     ScanInputFormat Format,
     DependencyInputSignature Signature,
     DependencyInputParser Parser,
     ReadOnlyMemory<string> DirectoryFileNames = default,
-    DependencyComponentIdentityComparison ComponentIdentityComparison = DependencyComponentIdentityComparison.Ordinal);
+    DependencyComponentIdentityComparison ComponentIdentityComparison = DependencyComponentIdentityComparison.Ordinal,
+    DependencyInputDetector? Detector = null);
 
 /// <summary>Immutable registry of resolved dependency input handlers.</summary>
 public sealed class DependencyInputRegistry
@@ -93,6 +99,9 @@ public sealed class DependencyInputRegistry
             new("lockfileVersion"u8.ToArray(), DependencyInputMarkerValueKind.Number),
             new("packages"u8.ToArray(), DependencyInputMarkerValueKind.Object),
         }), NpmPackageLockInputParser.Parse, new[] { "package-lock.json" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
+        new(ScanInputKind.PackageManager, ScanInputFormat.PnpmLock, default, PnpmLockInputParser.Parse, new[] { "pnpm-lock.yaml" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, PnpmLockInputParser.Detect),
+        new(ScanInputKind.PackageManager, ScanInputFormat.YarnClassicLock, default, YarnClassicLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnClassicLockInputParser.Detect),
+        new(ScanInputKind.PackageManager, ScanInputFormat.YarnBerryLock, default, YarnBerryLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnBerryLockInputParser.Detect),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>
@@ -106,7 +115,9 @@ public sealed class DependencyInputRegistry
             if (string.IsNullOrEmpty(handler.Kind.Name)
                 || string.IsNullOrEmpty(handler.Format.Name)
                 || string.IsNullOrEmpty(handler.Format.Parser)
-                || handler.Signature.RequiredMarkers.Length is 0 or > 64
+                || handler.Signature.RequiredMarkers.Length > 64
+                || (handler.Signature.RequiredMarkers.Length == 0 && handler.Detector is null)
+                || (handler.Signature.RequiredMarkers.Length != 0 && handler.Detector is not null)
                 || handler.Parser is null)
             {
                 throw new ArgumentException("Dependency input handlers require a kind, format, signature, and parser.", nameof(handlers));
@@ -229,6 +240,33 @@ public static class DependencyInputScanner
     private static DependencyInputHandler DetectFormat(ReadOnlySpan<byte> inputUtf8, DependencyInputRegistry inputs)
     {
         var handlers = inputs.Handlers;
+        var selected = -1;
+        for (var handlerIndex = 0; handlerIndex < handlers.Length; handlerIndex++)
+        {
+            var detector = handlers[handlerIndex].Detector;
+            if (detector is null || !detector(inputUtf8))
+            {
+                continue;
+            }
+
+            if (selected >= 0)
+            {
+                throw new InvalidOperationException("Ambiguous dependency input format: multiple registered format signatures matched.");
+            }
+
+            selected = handlerIndex;
+        }
+
+        if (!LooksLikeJsonObject(inputUtf8))
+        {
+            if (selected < 0)
+            {
+                throw new InvalidOperationException("Unsupported dependency input format: no registered format signature matched.");
+            }
+
+            return handlers[selected];
+        }
+
         const int MaxStackHandlers = 16;
         ulong[]? rentedMatched = null;
         int[]? rentedPending = null;
@@ -301,10 +339,14 @@ public static class DependencyInputScanner
                 }
             }
 
-            var selected = -1;
             for (var handlerIndex = 0; handlerIndex < handlers.Length; handlerIndex++)
             {
                 var markerCount = handlers[handlerIndex].Signature.RequiredMarkers.Length;
+                if (markerCount == 0)
+                {
+                    continue;
+                }
+
                 var required = markerCount == 64 ? ulong.MaxValue : (1UL << markerCount) - 1;
                 if (matched[handlerIndex] != required)
                 {
@@ -338,5 +380,21 @@ public static class DependencyInputScanner
                 ArrayPool<int>.Shared.Return(rentedPending);
             }
         }
+    }
+
+    private static bool LooksLikeJsonObject(ReadOnlySpan<byte> inputUtf8)
+    {
+        for (var i = 0; i < inputUtf8.Length; i++)
+        {
+            var value = inputUtf8[i];
+            if (value is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n')
+            {
+                continue;
+            }
+
+            return value == (byte)'{';
+        }
+
+        return false;
     }
 }

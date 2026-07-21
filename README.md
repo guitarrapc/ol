@@ -27,7 +27,7 @@ Scan a resolved dependency input.
 Options:
   --sbom <string?>               SBOM JSON path. Cannot be combined with --input. [Default: null]
   --input <string[]?>            Repeatable resolved dependency input files or directories. [Default: null]
-  --input-format <string?>       Input format: auto (default), cyclonedx, spdx, or nuget-assets. [Default: null]
+  --input-format <string?>       Input format assertion; defaults to auto detection. [Default: null]
   --format <ReportFormat>        Output format: text, json, or markdown. [Default: Text]
   --out, --out-file <string?>    Write output to this path. [Default: null]
   --verbose                      Include verbose columns and input detection diagnostics.
@@ -44,7 +44,7 @@ Options:
   --retry <int>                  Reserved package metadata retry count. [Default: 1]
 ```
 
-`--input-format` defaults to `auto`. Ol identifies the input from registered content signatures and rejects unknown or ambiguous documents. Use `--input-format cyclonedx`, `spdx`, or `nuget-assets` when an explicit format assertion is useful. `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
+`--input-format` defaults to `auto`. Ol identifies the input from registered content signatures and rejects unknown or ambiguous documents. Supported assertions are `cyclonedx`, `spdx`, `nuget-assets`, `npm-package-lock`, `pnpm-lock`, `yarn-classic-lock`, and `yarn-berry-lock`. `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
 
 `--sbom <path>` remains available as a compatible shortcut for CycloneDX or SPDX JSON.
 
@@ -202,6 +202,10 @@ Scan summary
   Input: 2 inputs; input format NuGet assets; SPDX 5e59516 (bundled)
 
 </details>
+
+### Node.js lockfiles
+
+Ol scans resolved npm `package-lock.json` version 2/3, pnpm `pnpm-lock.yaml` version 9, Yarn Classic `yarn.lock` version 1, and Yarn Berry `yarn.lock` metadata version 8. Pass the lockfile or a directory; workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
 
 
 ## Development

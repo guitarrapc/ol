@@ -30,6 +30,8 @@ The resolved-input pipeline accepts NuGet `project.assets.json` version 3 or 4 t
 
 The same pipeline accepts npm `package-lock.json` lockfile version 2 or 3 as `npm-package-lock`. Its handler owns recursive discovery of the exact `package-lock.json` name. The adapter consumes the `packages` install tree and never calls a registry to resolve dependency ranges.
 
+pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively.
+
 ## NuGet resolved input
 
 Each `targets` object becomes a separate resolution context. A target key before `/` is retained as the target framework and the suffix is retained verbatim as the runtime identifier. Ol does not infer operating system or architecture fields from the RID.
@@ -47,6 +49,14 @@ Dependency names from `dependencies`, `optionalDependencies`, `devDependencies`,
 Different installed paths remain different components and occurrences even when their npm name and version match. The npm handler registers a `purl + sourceId` collection identity so repeated input combination also preserves nested duplicates. Their purls remain equal, allowing the existing enrichment planner to deduplicate registry work by versioned purl. Root and workspace reachability determine direct/transitive classification, and the strongest relationship is projected to the report component.
 
 Package `dev`, `optional`, `devOptional`, and `peer` flags plus `os` and `cpu` arrays are retained as sparse occurrence variants. Ol records these values in deterministic lockfile order and does not evaluate them against the executing host. The `packages[].license` string is classified as `dependency-input` evidence with its npm format and field provenance; it is not presented as SBOM evidence.
+
+## pnpm resolved input
+
+Each pnpm importer becomes a resolution context. Link and workspace nodes participate in traversal but do not become npm registry components. Version 9 snapshot identities remain source identifiers, including peer suffixes, while canonical versioned npm purls remain enrichment identities. Optional/dev reachability, peer snapshot suffixes, and package `os`/`cpu` restrictions are retained as sparse occurrence variants without host evaluation.
+
+## Yarn resolved input
+
+Yarn Classic and Berry use separate detectors and parsers. Classic version 1 provides a descriptor-to-resolution graph but no workspace root manifest, so it produces one `yarn.lock` context and keeps relationship classification unknown; optional-only incoming resolutions retain an `optional` variant. Berry metadata version 8 workspace resolutions become contexts, while npm resolutions become components. Workspace/protocol nodes are traversal-only, and virtual resolution hashes are retained as `virtual` variants. A resolution that cannot be uniquely reached without Berry install state remains an unknown occurrence in the first workspace context rather than being discarded or guessed.
 
 ## User Experience
 

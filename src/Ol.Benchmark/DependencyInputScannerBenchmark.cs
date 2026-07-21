@@ -79,6 +79,41 @@ public class DependencyInputScannerBenchmark
         }
         """);
 
+    private readonly byte[] pnpmLock = Encoding.UTF8.GetBytes(
+        """
+        lockfileVersion: '9.0'
+        importers:
+          .:
+            dependencies:
+              left-pad:
+                version: 1.3.0
+        packages:
+          left-pad@1.3.0: {}
+        snapshots:
+          left-pad@1.3.0: {}
+        """);
+
+    private readonly byte[] yarnClassicLock = Encoding.UTF8.GetBytes(
+        """
+        # yarn lockfile v1
+        left-pad@^1.3.0:
+          version "1.3.0"
+        """);
+
+    private readonly byte[] yarnBerryLock = Encoding.UTF8.GetBytes(
+        """
+        __metadata:
+          version: 8
+        "app@workspace:.":
+          version: 0.0.0-use.local
+          resolution: "app@workspace:."
+          dependencies:
+            left-pad: "npm:^1.3.0"
+        "left-pad@npm:^1.3.0":
+          version: 1.3.0
+          resolution: "left-pad@npm:1.3.0"
+        """);
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
@@ -123,6 +158,24 @@ public class DependencyInputScannerBenchmark
     }
 
     [Benchmark]
+    public DependencyInventory ScanPnpmLockInventory()
+    {
+        return DependencyInputScanner.Scan(pnpmLock, spdx, expectedFormat: ScanInputFormat.PnpmLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanYarnClassicLockInventory()
+    {
+        return DependencyInputScanner.Scan(yarnClassicLock, spdx, expectedFormat: ScanInputFormat.YarnClassicLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanYarnBerryLockInventory()
+    {
+        return DependencyInputScanner.Scan(yarnBerryLock, spdx, expectedFormat: ScanInputFormat.YarnBerryLock);
+    }
+
+    [Benchmark]
     public DependencyInventory DetectNuGetSingleMarker()
     {
         return DependencyInputScanner.Scan(nugetAssets, spdx, singleMarkerDetectionRegistry);
@@ -161,6 +214,30 @@ public class DependencyInputScannerBenchmark
             [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
             [new DependencyOccurrenceVariant(1, Utf8Slice.FromOwnedBytes("optional;os=linux;cpu=x64"u8.ToArray()))]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateSingleNpmInventoryResultFloor()
+    {
+        var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(npmRoot, default, default, default, default, default)],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateYarnClassicInventoryResultFloor()
+    {
+        var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("yarn.lock"u8.ToArray()), default, default, default, default, default)],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            []);
     }
 
     [Benchmark]

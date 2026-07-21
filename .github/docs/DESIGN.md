@@ -73,7 +73,7 @@ flowchart LR
 
 The stages have distinct responsibilities:
 
-1. **Inventory and graph ingestion** uses one registered input adapter to discover components, occurrences, resolution contexts, and dependency edges. CycloneDX JSON, SPDX JSON, and NuGet `project.assets.json` are supported inputs.
+1. **Inventory and graph ingestion** uses one registered input adapter to discover components, occurrences, resolution contexts, and dependency edges. CycloneDX JSON, SPDX JSON and package manager's dependency graph are the supported formats.
 2. **Evidence collection** adds raw license claims and collection outcomes from all available sources.
 3. **SPDX normalization** validates identifiers and expressions against the selected License List snapshot.
 4. **Reconciliation** reduces all candidates for one component to a status without discarding provenance.

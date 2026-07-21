@@ -309,12 +309,21 @@ Phase 6では次の境界と性能特性に確定した。
 - parser token loopはsource-backed `Utf8Slice`、pooled node/dependency/index/graph buffer、span-based open addressingを使用し、LINQ、transient string、per-edge collection allocationを持たない。
 - 2 package focused benchmarkではnpm ingestionが5.271 µs / 856 B、同じowned result floorが254.2 ns / 856 Bで、parser固有のmanaged allocationは0 Bだった。同時測定した既存CycloneDXは1.616 µs / 264 B、NuGetは5.237 µs / 824 Bで、記録済みallocation baselineから増加していない。
 
-### Phase 7: pnpmおよびYarn lock input adapters
+### Phase 7: pnpmおよびYarn lock input adapters（完了）
 
 - pnpmは`pnpm-lock.yaml`のlockfile versionを明示formatとして扱い、importerごとのrootとsnapshot graphを保持する。
 - YarnはBerryのinstall-stateを再現しようとせず、lockfileが証明できるdescriptor/resolution graphとworkspace originだけを取り込む。ClassicとBerryを一つの曖昧parserへ混在させない。
 - peer dependency variant、virtual package、workspace/link/protocol、optional dependencyを通常のregistry packageと区別する。
 - YAML parser導入のbinary size、Native AOT、allocation影響を先にbenchmarkし、許容できない場合は狭い専用parserを選ぶ。
+
+Phase 7では次の境界に確定した。
+
+- `pnpm-lock`はversion 9.0の`importers`、`packages`、`snapshots`を取り込み、importerをcontext、snapshotをnpm componentとして保持する。workspace/linkはtraversal nodeに限定する。
+- `yarn-classic-lock`はversion 1 header、`yarn-berry-lock`は`__metadata.version == 8`で別々に検出・解析し、同じ`yarn.lock`名を登録順に依存せずcontentで判別する。
+- Berry workspace resolutionはcontext、npm resolutionはcomponentとし、virtual hashをsparse variantへ保持する。Classicはroot manifestを持たないためdependency typeをunknownのまま保持する。
+- peer、virtual、optional、dev、`os`、`cpu`は入力が証明する値だけをvariantへ投影し、実行hostで評価しない。
+- 汎用YAML object modelは導入せず、source-backed `Utf8Slice`を返す狭いUTF-8 indentation readerと、`ArrayPool`によるnode/dependency/traversal bufferを使用する。これにより追加reflection metadataやNative AOT dependencyを持たない。
+- 1 component focused benchmarkではpnpm 3.207 µs、Yarn Classic 1.571 µs、Yarn Berry 3.414 µsで、いずれも472 Bだった。同じowned result floorも472 Bであり、3 parser固有のmanaged allocationは0 Bだった。
 
 ### Phase 8: Cargo resolved metadata input adapter
 

@@ -66,6 +66,19 @@ public class DependencyInputScannerBenchmark
         }
         """);
 
+    private readonly byte[] npmPackageLock = Encoding.UTF8.GetBytes(
+        """
+        {
+          "name": "app",
+          "lockfileVersion": 3,
+          "packages": {
+            "": { "name": "app", "dependencies": { "left-pad": "1.3.0" } },
+            "node_modules/left-pad": { "version": "1.3.0", "dependencies": { "native-addon": "2.0.0" } },
+            "node_modules/native-addon": { "version": "2.0.0", "optional": true, "os": ["linux"], "cpu": ["x64"] }
+          }
+        }
+        """);
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
@@ -77,6 +90,13 @@ public class DependencyInputScannerBenchmark
     private readonly Utf8Slice sharedName = "Shared.Package";
     private readonly Utf8Slice sharedVersion = "2.0.0";
     private readonly Utf8Slice sharedSourceId = "Shared.Package/2.0.0";
+    private readonly Utf8Slice npmRoot = "app";
+    private readonly Utf8Slice npmDirectName = "left-pad";
+    private readonly Utf8Slice npmDirectVersion = "1.3.0";
+    private readonly Utf8Slice npmDirectSourceId = "node_modules/left-pad";
+    private readonly Utf8Slice npmNativeName = "native-addon";
+    private readonly Utf8Slice npmNativeVersion = "2.0.0";
+    private readonly Utf8Slice npmNativeSourceId = "node_modules/native-addon";
 
     [Benchmark]
     public DependencyInventory ScanCycloneDx()
@@ -94,6 +114,12 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory ScanNuGetAssetsInventory()
     {
         return DependencyInputScanner.Scan(nugetAssets, spdx, expectedFormat: ScanInputFormat.NuGetAssets);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanNpmPackageLockInventory()
+    {
+        return DependencyInputScanner.Scan(npmPackageLock, spdx, expectedFormat: ScanInputFormat.NpmPackageLock);
     }
 
     [Benchmark]
@@ -120,6 +146,21 @@ public class DependencyInputScannerBenchmark
             components,
             [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateNpmInventoryResultFloor()
+    {
+        var components = new ScanComponent[2];
+        components[0] = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, [], []);
+        components[1] = new ScanComponent(npmNativeName, npmNativeVersion, default, "npm", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/native-addon@2.0.0"u8.ToArray()), npmNativeSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(npmRoot, default, default, default, default, default)],
+            components,
+            [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
+            [new DependencyOccurrenceVariant(1, Utf8Slice.FromOwnedBytes("optional;os=linux;cpu=x64"u8.ToArray()))]);
     }
 
     [Benchmark]

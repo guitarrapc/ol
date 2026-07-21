@@ -290,13 +290,24 @@ Phase 4では次の契約と性能境界に確定した。
 - 通常パスではverbose文字列を構築せず、format判定はJSONを1回走査する。16 handlerまで192 bytesの固定stack状態を使い、それを超えるregistryだけ`ArrayPool`を使う。
 - N=10のfocused benchmarkでは、旧single marker相当の検出が1.367 µs / 0 B、NuGet複合signatureが1.389 µs / 0 Bで、追加CPUは1.6%、allocation増加は0 Bだった。full ingestionのallocationもCycloneDX 280 B、NuGet 856 Bから増加していない。
 
-### Phase 6: npm `package-lock.json` input adapter
+### Phase 6: npm `package-lock.json` input adapter（完了）
 
 - npm lockfile version 2および3の`packages`とdependency linkを、registry問い合わせによる再解決なしで取り込む。
 - root packageとworkspace originをcontextとして保持し、workspace、link、optional、peer、dev entryをpackage occurrenceと混同しない。
 - package pathが異なる同一name/version occurrenceを保持し、`pkg:npm` purl単位のenrichment targetだけをdeduplicateする。
 - `os`、`cpu`、optional install条件は入力が提供した値だけをvariantとして保持し、実行hostで評価または推測しない。
 - malformed、workspace、nested duplicate、optional/platform固有fixtureとallocation benchmarkを追加する。
+
+Phase 6では次の境界と性能特性に確定した。
+
+- `lockfileVersion`のnumeric markerと`packages` objectを所有する`npm-package-lock` handlerを登録し、正確な`package-lock.json`名をdirectory discoveryへ追加した。parserはversion 2/3だけを受理する。
+- 空package pathをroot context、非`node_modules`かつ非linkのpackage pathをworkspace contextとして保持する。link/workspace/rootはgraph traversalに使うがnpm registry componentへ偽装しない。
+- `dependencies`、`optionalDependencies`、`devDependencies`、`peerDependencies`をinstalled pathに対するancestor lookupで結び、欠落したoptional/peer entryからphantom occurrenceを生成しない。
+- installed pathごとにcomponentとoccurrenceを保持し、handlerのcollection identityを`purl + sourceId`とするため、同一name/versionのnested duplicateも単一・複数入力のどちらでもsource idとedgeを失わない。同じcanonical `pkg:npm` purlは既存enrichment plannerのtarget deduplicate keyになる。
+- package固有の`dev`、`optional`、`devOptional`、`peer`、`os`、`cpu`は条件を持つoccurrenceだけのsparse variant配列に保持する。実行hostで条件を評価または推測しない。
+- `packages[].license`は`dependency-input` provenanceとしてSPDX分類し、SBOM evidenceとして表示しない。
+- parser token loopはsource-backed `Utf8Slice`、pooled node/dependency/index/graph buffer、span-based open addressingを使用し、LINQ、transient string、per-edge collection allocationを持たない。
+- 2 package focused benchmarkではnpm ingestionが5.271 µs / 856 B、同じowned result floorが254.2 ns / 856 Bで、parser固有のmanaged allocationは0 Bだった。同時測定した既存CycloneDXは1.616 µs / 264 B、NuGetは5.237 µs / 824 Bで、記録済みallocation baselineから増加していない。
 
 ### Phase 7: pnpmおよびYarn lock input adapters
 

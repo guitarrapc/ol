@@ -29,6 +29,9 @@ public readonly record struct ScanInputFormat(string Name, string Parser, string
     /// <summary>NuGet project.assets.json.</summary>
     public static ScanInputFormat NuGetAssets { get; } = new("nuget-assets", "nuget-assets-json", "NuGet assets");
 
+    /// <summary>npm package-lock.json.</summary>
+    public static ScanInputFormat NpmPackageLock { get; } = new("npm-package-lock", "npm-package-lock-json", "npm package lock");
+
     /// <summary>A collection containing more than one registered input format.</summary>
     public static ScanInputFormat Collection { get; } = new("collection", "dependency-input-collection", "dependency input collection");
 
@@ -82,18 +85,25 @@ public readonly record struct DependencyOccurrence(int ContextIndex, int Compone
 /// <param name="ToOccurrenceIndex">The dependency occurrence index.</param>
 public readonly record struct DependencyEdge(int ContextIndex, int FromOccurrenceIndex, int ToOccurrenceIndex);
 
+/// <summary>Associates package-specific resolver conditions with one occurrence.</summary>
+/// <param name="OccurrenceIndex">The occurrence index carrying the conditions.</param>
+/// <param name="Value">The input-supplied resolver conditions.</param>
+public readonly record struct DependencyOccurrenceVariant(int OccurrenceIndex, Utf8Slice Value);
+
 /// <summary>Contains a complete resolved dependency inventory before external enrichment.</summary>
 /// <param name="Input">The dependency input descriptor.</param>
 /// <param name="Contexts">The distinct resolution contexts.</param>
 /// <param name="Components">The input package components in deterministic order.</param>
 /// <param name="Occurrences">The package occurrences in deterministic input order.</param>
 /// <param name="Edges">The dependency edges in deterministic input order.</param>
+/// <param name="OccurrenceVariants">Sparse package-specific resolver conditions ordered by occurrence index.</param>
 public readonly record struct DependencyInventory(
     ScanInputDescriptor Input,
     DependencyResolutionContext[] Contexts,
     ScanComponent[] Components,
     DependencyOccurrence[] Occurrences,
-    DependencyEdge[] Edges);
+    DependencyEdge[] Edges,
+    DependencyOccurrenceVariant[]? OccurrenceVariants = null);
 
 /// <summary>Contains a dependency inventory and its reconciled component results.</summary>
 /// <param name="Inventory">The complete dependency inventory.</param>

@@ -28,6 +28,8 @@ v3 keeps this behavior and adds source repository hints described in [source.md]
 
 The resolved-input pipeline accepts NuGet `project.assets.json` version 3 or 4 through one or more `scan --input ...` file or directory options. The NuGet handler owns recursive discovery of the exact `project.assets.json` name and ASCII-case-insensitive package identity comparison. File content is still auto-detected as `nuget-assets`; `--input-format nuget-assets` remains available as an assertion over every discovered file. This is dependency inventory input, not package-registry license evidence. The adapter consumes restore results and does not reproduce NuGet resolution.
 
+The same pipeline accepts npm `package-lock.json` lockfile version 2 or 3 as `npm-package-lock`. Its handler owns recursive discovery of the exact `package-lock.json` name. The adapter consumes the `packages` install tree and never calls a registry to resolve dependency ranges.
+
 ## NuGet resolved input
 
 Each `targets` object becomes a separate resolution context. A target key before `/` is retained as the target framework and the suffix is retained verbatim as the runtime identifier. Ol does not infer operating system or architecture fields from the RID.
@@ -35,6 +37,16 @@ Each `targets` object becomes a separate resolution context. A target key before
 Each context owns an implicit project root and package occurrences backed by `type: package` entries that also exist as package libraries. The root is represented by the edge endpoint sentinel `-1`, not by a license-report component allocation. Project, unresolved, and non-package entries do not receive NuGet purls and are not rendered as packages. Project nodes remain available while classifying reachability, so a package reached through a project reference is transitive, but an omitted project node is not misrepresented as a package edge.
 
 Direct dependencies are package or project names declared by the matching `project.frameworks` entry. Reachable packages at depth zero are direct, packages reached below them are transitive, and packages whose relationship cannot be proven are unknown. Package-to-package edges and project-root-to-direct-package edges are retained per context. Identical package/version values in different projects or targets remain distinct occurrences but share one report component and one `pkg:nuget/{id}@{version}` enrichment identity. A shared component is direct if any occurrence is direct, otherwise transitive if any occurrence is transitive, otherwise unknown.
+
+## npm resolved input
+
+The empty `packages` key is the root context. Non-`node_modules` package paths become additional workspace contexts. Link entries remain traversal nodes and are not emitted as npm registry packages. Registry package names are derived from installed `node_modules` paths, including scoped names, and versioned purls use canonical percent encoding such as `pkg:npm/%40scope/name@1.2.3`.
+
+Dependency names from `dependencies`, `optionalDependencies`, `devDependencies`, and `peerDependencies` are resolved against installed package paths using Node-style ancestor lookup. Missing optional or peer entries do not create phantom components. Root-to-package and package-to-package edges are retained; a workspace or link traversal node is never relabeled as a registry package edge.
+
+Different installed paths remain different components and occurrences even when their npm name and version match. The npm handler registers a `purl + sourceId` collection identity so repeated input combination also preserves nested duplicates. Their purls remain equal, allowing the existing enrichment planner to deduplicate registry work by versioned purl. Root and workspace reachability determine direct/transitive classification, and the strongest relationship is projected to the report component.
+
+Package `dev`, `optional`, `devOptional`, and `peer` flags plus `os` and `cpu` arrays are retained as sparse occurrence variants. Ol records these values in deterministic lockfile order and does not evaluate them against the executing host. The `packages[].license` string is classified as `dependency-input` evidence with its npm format and field provenance; it is not presented as SBOM evidence.
 
 ## User Experience
 

@@ -1132,6 +1132,62 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithNpmPackageLockDirectoryAndSkipEnrichment_PreservesInventoryVariants()
+    {
+        var root = FindRepositoryRoot();
+        var inputDirectory = Path.Combine(AppContext.BaseDirectory, "Fixtures");
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputDirectory, "--input-format", "npm-package-lock", "--skip-enrichment", "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).IsEmpty();
+        using var report = JsonDocument.Parse(stdout);
+        var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+        await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+        await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("npm-package-lock");
+        await Assert.That(input.GetProperty("specificationVersion").GetString()).IsEqualTo("3");
+        await Assert.That(input.TryGetProperty("sbomRef", out _)).IsFalse();
+        var inventory = report.RootElement.GetProperty("inventory");
+        await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
+        await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(7);
+        await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(9);
+        await Assert.That(inventory.GetProperty("occurrences").EnumerateArray().Any(static occurrence => occurrence.TryGetProperty("variant", out var variant) && variant.GetString() == "optional;os=linux,!win32;cpu=x64")).IsTrue();
+        await Assert.That(stdout).DoesNotContain("node_modules/workspace-a\"");
+    }
+
+    [Test]
+    public async Task Scan_WithRepeatedNpmPackageLocks_CombinesSparseVariantIndexes()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-npm-directory-{Guid.NewGuid():N}");
+        var firstDirectory = Path.Combine(temporaryDirectory, "First");
+        var secondDirectory = Path.Combine(temporaryDirectory, "Second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        var fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "package-lock.json");
+        File.Copy(fixture, Path.Combine(firstDirectory, "package-lock.json"));
+        File.Copy(fixture, Path.Combine(secondDirectory, "package-lock.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--input-format", "npm-package-lock", "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(7);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(18);
+            await Assert.That(inventory.GetProperty("occurrences").EnumerateArray().Count(static occurrence => occurrence.TryGetProperty("variant", out _))).IsEqualTo(6);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithDirectory_CombinesNestedNuGetAssetsWithoutDuplicateComponents()
     {
         var root = FindRepositoryRoot();

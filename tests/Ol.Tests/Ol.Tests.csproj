@@ -17,6 +17,7 @@
     <Content Include="..\..\data\mock\github-license-api-license.json" Link="Fixtures\github-license-api-license.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Fixtures\nuget-project.assets.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Fixtures\nuget-project.assets-malformed.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fixtures\package-lock.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

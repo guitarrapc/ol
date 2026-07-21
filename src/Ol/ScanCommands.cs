@@ -1409,12 +1409,21 @@ internal static class ReportRenderer
 
         writer.WriteEndArray();
         writer.WriteStartArray("occurrences");
+        var occurrenceVariants = inventory.OccurrenceVariants;
+        var occurrenceVariantIndex = 0;
         for (var i = 0; i < inventory.Occurrences.Length; i++)
         {
             var occurrence = inventory.Occurrences[i];
             writer.WriteStartObject();
             writer.WriteNumber("contextIndex", occurrence.ContextIndex);
             writer.WriteNumber("componentIndex", occurrence.ComponentIndex);
+            if (occurrenceVariants is not null
+                && occurrenceVariantIndex < occurrenceVariants.Length
+                && occurrenceVariants[occurrenceVariantIndex].OccurrenceIndex == i)
+            {
+                writer.WriteString("variant"u8, occurrenceVariants[occurrenceVariantIndex].Value.Span);
+                occurrenceVariantIndex++;
+            }
             writer.WriteEndObject();
         }
 

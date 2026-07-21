@@ -14,17 +14,20 @@ internal static class DependencyInventoryCombiner
         var componentCapacity = 0;
         var occurrenceCount = 0;
         var edgeCount = 0;
+        var occurrenceVariantCount = 0;
         for (var i = 0; i < inventories.Length; i++)
         {
             contextCount = checked(contextCount + inventories[i].Contexts.Length);
             componentCapacity = checked(componentCapacity + inventories[i].Components.Length);
             occurrenceCount = checked(occurrenceCount + inventories[i].Occurrences.Length);
             edgeCount = checked(edgeCount + inventories[i].Edges.Length);
+            occurrenceVariantCount = checked(occurrenceVariantCount + (inventories[i].OccurrenceVariants?.Length ?? 0));
         }
 
         var contexts = new DependencyResolutionContext[contextCount];
         var occurrences = new DependencyOccurrence[occurrenceCount];
         var edges = new DependencyEdge[edgeCount];
+        var occurrenceVariants = new DependencyOccurrenceVariant[occurrenceVariantCount];
         var components = ArrayPool<ScanComponent>.Shared.Rent(Math.Max(componentCapacity, 1));
         var componentRemap = ArrayPool<int>.Shared.Rent(Math.Max(componentCapacity, 1));
         var componentIndexes = new Dictionary<ComponentKey, int>(componentCapacity, ComponentKeyComparer.Instance);
@@ -33,6 +36,7 @@ internal static class DependencyInventoryCombiner
         var combinedComponentCount = 0;
         var occurrenceOffset = 0;
         var edgeOffset = 0;
+        var occurrenceVariantOffset = 0;
         try
         {
             for (var inventoryIndex = 0; inventoryIndex < inventories.Length; inventoryIndex++)
@@ -46,6 +50,7 @@ internal static class DependencyInventoryCombiner
                     var key = new ComponentKey(
                         handlers[inventoryIndex].Format.Name,
                         component.Purl,
+                        component.SourceId,
                         handlers[inventoryIndex].ComponentIdentityComparison,
                         component.Purl.IsEmpty ? componentOffset + i + 1 : 0);
                     if (!componentIndexes.TryGetValue(key, out var combinedIndex))
@@ -71,6 +76,18 @@ internal static class DependencyInventoryCombiner
                         componentRemap[componentOffset + occurrence.ComponentIndex]);
                 }
 
+                var inventoryOccurrenceVariants = inventory.OccurrenceVariants;
+                if (inventoryOccurrenceVariants is not null)
+                {
+                    for (var i = 0; i < inventoryOccurrenceVariants.Length; i++)
+                    {
+                        var variant = inventoryOccurrenceVariants[i];
+                        occurrenceVariants[occurrenceVariantOffset + i] = new DependencyOccurrenceVariant(variant.OccurrenceIndex + occurrenceOffset, variant.Value);
+                    }
+
+                    occurrenceVariantOffset += inventoryOccurrenceVariants.Length;
+                }
+
                 for (var i = 0; i < inventory.Edges.Length; i++)
                 {
                     var edge = inventory.Edges[i];
@@ -91,7 +108,8 @@ internal static class DependencyInventoryCombiner
                 contexts,
                 components.AsSpan(0, combinedComponentCount).ToArray(),
                 occurrences,
-                edges);
+                edges,
+                occurrenceVariants);
         }
         finally
         {
@@ -120,6 +138,7 @@ internal static class DependencyInventoryCombiner
     private readonly record struct ComponentKey(
         string Format,
         Utf8Slice Purl,
+        Utf8Slice SourceId,
         DependencyComponentIdentityComparison Comparison,
         int UniqueIndex);
 
@@ -146,14 +165,23 @@ internal static class DependencyInventoryCombiner
                 return false;
             }
 
-            if (left.Comparison == DependencyComponentIdentityComparison.Ordinal)
+            var purlEquals = left.Comparison is DependencyComponentIdentityComparison.Ordinal or DependencyComponentIdentityComparison.OrdinalWithSourceId
+                ? leftValue.SequenceEqual(rightValue)
+                : AsciiEqualsIgnoreCase(leftValue, rightValue);
+            if (!purlEquals)
             {
-                return leftValue.SequenceEqual(rightValue);
+                return false;
             }
 
-            for (var i = 0; i < leftValue.Length; i++)
+            return left.Comparison != DependencyComponentIdentityComparison.OrdinalWithSourceId
+                || left.SourceId.Span.SequenceEqual(right.SourceId.Span);
+        }
+
+        private static bool AsciiEqualsIgnoreCase(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
+        {
+            for (var i = 0; i < left.Length; i++)
             {
-                if (ToLowerAscii(leftValue[i]) != ToLowerAscii(rightValue[i]))
+                if (ToLowerAscii(left[i]) != ToLowerAscii(right[i]))
                 {
                     return false;
                 }
@@ -175,6 +203,16 @@ internal static class DependencyInventoryCombiner
             for (var i = 0; i < bytes.Length; i++)
             {
                 hash.Add(value.Comparison == DependencyComponentIdentityComparison.AsciiIgnoreCase ? ToLowerAscii(bytes[i]) : bytes[i]);
+            }
+
+            if (value.Comparison == DependencyComponentIdentityComparison.OrdinalWithSourceId)
+            {
+                hash.Add((byte)0);
+                var sourceId = value.SourceId.Span;
+                for (var i = 0; i < sourceId.Length; i++)
+                {
+                    hash.Add(sourceId[i]);
+                }
             }
 
             return hash.ToHashCode();

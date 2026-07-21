@@ -54,6 +54,9 @@ public enum DependencyComponentIdentityComparison : byte
 
     /// <summary>Compare package URLs with ASCII case folding.</summary>
     AsciiIgnoreCase,
+
+    /// <summary>Compare canonical package URLs and resolver-native source identifiers by ordinal UTF-8 bytes.</summary>
+    OrdinalWithSourceId,
 }
 
 /// <summary>Contains all data required to identify and parse one dependency input format.</summary>
@@ -86,6 +89,10 @@ public sealed class DependencyInputRegistry
             new("libraries"u8.ToArray(), DependencyInputMarkerValueKind.Object),
             new("project"u8.ToArray(), DependencyInputMarkerValueKind.Object),
         }), NuGetAssetsInputParser.Parse, new[] { "project.assets.json" }, DependencyComponentIdentityComparison.AsciiIgnoreCase),
+        new(ScanInputKind.PackageManager, ScanInputFormat.NpmPackageLock, new(new DependencyInputMarker[] {
+            new("lockfileVersion"u8.ToArray(), DependencyInputMarkerValueKind.Number),
+            new("packages"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+        }), NpmPackageLockInputParser.Parse, new[] { "package-lock.json" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>

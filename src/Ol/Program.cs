@@ -2,6 +2,8 @@
 
 ConsoleApp.Version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.1.0";
 
+args = CommandLineArguments.NormalizeRepeatedScanInputs(args);
+
 if (args.Length >= 3
     && string.Equals(args[0], "cache", StringComparison.OrdinalIgnoreCase)
     && string.Equals(args[1], "clear", StringComparison.OrdinalIgnoreCase)

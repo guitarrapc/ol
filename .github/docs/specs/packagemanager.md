@@ -26,7 +26,7 @@ Registry responses that are valid JSON but do not embed the expected metadata ob
 
 v3 keeps this behavior and adds source repository hints described in [source.md](source.md).
 
-The resolved-input pipeline accepts one NuGet `project.assets.json` version 3 or 4, or a directory recursively containing those files, through `scan --input ...`. File content is auto-detected as `nuget-assets`; `--input-format nuget-assets` remains available as an explicit assertion. This is dependency inventory input, not package-registry license evidence. The adapter consumes restore results and does not reproduce NuGet resolution.
+The resolved-input pipeline accepts NuGet `project.assets.json` version 3 or 4 through one or more `scan --input ...` file or directory options. The NuGet handler owns recursive discovery of the exact `project.assets.json` name and ASCII-case-insensitive package identity comparison. File content is still auto-detected as `nuget-assets`; `--input-format nuget-assets` remains available as an assertion over every discovered file. This is dependency inventory input, not package-registry license evidence. The adapter consumes restore results and does not reproduce NuGet resolution.
 
 ## NuGet resolved input
 

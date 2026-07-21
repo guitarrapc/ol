@@ -144,6 +144,16 @@ public sealed class NuGetInputTests
     }
 
     [Test]
+    public async Task Registry_Default_NuGetHandlerOwnsDirectoryDiscoveryAndIdentityComparison()
+    {
+        var found = DependencyInputRegistry.Default.TryGetInputFormat("nuget-assets", out var handler);
+
+        await Assert.That(found).IsTrue();
+        await Assert.That(handler.DirectoryFileNames.ToArray()).IsEquivalentTo(["project.assets.json"]);
+        await Assert.That(handler.ComponentIdentityComparison).IsEqualTo(DependencyComponentIdentityComparison.AsciiIgnoreCase);
+    }
+
+    [Test]
     public async Task Scan_ProjectAssetsWithMalformedTargets_RejectsInput()
     {
         var input = await File.ReadAllBytesAsync(GetFixturePath("nuget-project.assets-malformed.json"));

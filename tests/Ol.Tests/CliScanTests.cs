@@ -1172,6 +1172,42 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithRepeatedInputs_CombinesBothDirectories()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-repeated-input-{Guid.NewGuid():N}");
+        var firstDirectory = Path.Combine(temporaryDirectory, "First,WithComma");
+        var secondDirectory = Path.Combine(temporaryDirectory, "Second");
+        Directory.CreateDirectory(Path.Combine(firstDirectory, "obj"));
+        Directory.CreateDirectory(Path.Combine(secondDirectory, "obj"));
+        var fixture = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(firstDirectory, "obj", "project.assets.json"), fixture, Encoding.UTF8);
+        await File.WriteAllTextAsync(
+            Path.Combine(secondDirectory, "obj", "project.assets.json"),
+            fixture.Replace("/private/src/App/App.csproj", "/private/src/Second/Second.csproj", StringComparison.Ordinal),
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo("2 inputs");
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(12);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithDirectoryWithoutNuGetAssets_ReturnsConciseError()
     {
         var root = FindRepositoryRoot();
@@ -1184,11 +1220,64 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
-            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Directory does not contain a project.assets.json file.");
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: No registered dependency input files were found in the input directories.");
         }
         finally
         {
             Directory.Delete(temporaryDirectory);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithOverlappingRepeatedDirectories_ScansEachFileOnce()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-overlapping-input-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project");
+        Directory.CreateDirectory(Path.Combine(projectDirectory, "obj"));
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "obj", "project.assets.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--input", projectDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(6);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithRepeatedSbomAndPackageManagerInput_RejectsMixedCollection()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-mixed-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var assetsPath = Path.Combine(temporaryDirectory, "project.assets.json");
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [] }""", Encoding.UTF8);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"), assetsPath);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--input", assetsPath, "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Multiple inputs must all be package-manager inputs.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
         }
     }
 

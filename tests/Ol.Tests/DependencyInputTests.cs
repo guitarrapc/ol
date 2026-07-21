@@ -66,6 +66,40 @@ public sealed class DependencyInputTests
     }
 
     [Test]
+    public async Task Registry_WithDirectoryDiscovery_CopiesHandlerOwnedFileNames()
+    {
+        var fileNames = new[] { "custom.lock" };
+        var handler = new DependencyInputHandler(
+            ScanInputKind.PackageManager,
+            new ScanInputFormat("custom", "custom-parser", "Custom"),
+            new(new DependencyInputMarker[] { new("custom"u8.ToArray(), DependencyInputMarkerValueKind.String) }),
+            static (_, _, _, _) => default,
+            fileNames);
+
+        var registry = new DependencyInputRegistry([handler]);
+        fileNames[0] = "changed.lock";
+        registry.TryGetInputFormat("custom", out var registered);
+
+        await Assert.That(registered.DirectoryFileNames.ToArray()).IsEquivalentTo(["custom.lock"]);
+    }
+
+    [Test]
+    [Arguments("../custom.lock")]
+    [Arguments("*.lock")]
+    [Arguments("")]
+    public async Task Registry_WithInvalidDirectoryDiscoveryFileName_RejectsRegistration(string fileName)
+    {
+        var handler = new DependencyInputHandler(
+            ScanInputKind.PackageManager,
+            new ScanInputFormat("custom", "custom-parser", "Custom"),
+            new(new DependencyInputMarker[] { new("custom"u8.ToArray(), DependencyInputMarkerValueKind.String) }),
+            static (_, _, _, _) => default,
+            new[] { fileName });
+
+        await Assert.That(() => new DependencyInputRegistry([handler])).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task Scan_SpdxGraph_ProducesInventoryWithOccurrencesAndEdges()
     {
         var input = Encoding.UTF8.GetBytes(

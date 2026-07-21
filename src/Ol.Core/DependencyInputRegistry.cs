@@ -46,16 +46,30 @@ public readonly record struct DependencyInputMarker(
 /// <param name="RequiredMarkers">The required top-level markers.</param>
 public readonly record struct DependencyInputSignature(ReadOnlyMemory<DependencyInputMarker> RequiredMarkers);
 
+/// <summary>Defines how package identities from repeated inputs are compared.</summary>
+public enum DependencyComponentIdentityComparison : byte
+{
+    /// <summary>Compare canonical package URLs by ordinal UTF-8 bytes.</summary>
+    Ordinal,
+
+    /// <summary>Compare package URLs with ASCII case folding.</summary>
+    AsciiIgnoreCase,
+}
+
 /// <summary>Contains all data required to identify and parse one dependency input format.</summary>
 /// <param name="Kind">The input family.</param>
 /// <param name="Format">The public input format.</param>
 /// <param name="Signature">The deterministic content signature.</param>
 /// <param name="Parser">The format-owned parser.</param>
+/// <param name="DirectoryFileNames">Exact file names discovered recursively for a directory input.</param>
+/// <param name="ComponentIdentityComparison">The package identity comparison used when combining repeated inputs of this format.</param>
 public readonly record struct DependencyInputHandler(
     ScanInputKind Kind,
     ScanInputFormat Format,
     DependencyInputSignature Signature,
-    DependencyInputParser Parser);
+    DependencyInputParser Parser,
+    ReadOnlyMemory<string> DirectoryFileNames = default,
+    DependencyComponentIdentityComparison ComponentIdentityComparison = DependencyComponentIdentityComparison.Ordinal);
 
 /// <summary>Immutable registry of resolved dependency input handlers.</summary>
 public sealed class DependencyInputRegistry
@@ -71,7 +85,7 @@ public sealed class DependencyInputRegistry
             new("targets"u8.ToArray(), DependencyInputMarkerValueKind.Object),
             new("libraries"u8.ToArray(), DependencyInputMarkerValueKind.Object),
             new("project"u8.ToArray(), DependencyInputMarkerValueKind.Object),
-        }), NuGetAssetsInputParser.Parse),
+        }), NuGetAssetsInputParser.Parse, new[] { "project.assets.json" }, DependencyComponentIdentityComparison.AsciiIgnoreCase),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>
@@ -121,7 +135,36 @@ public sealed class DependencyInputRegistry
                 ownedMarkers[markerIndex] = marker with { Name = marker.Name.ToArray(), Value = marker.Value.ToArray() };
             }
 
-            this.handlers[i] = handler with { Signature = new DependencyInputSignature(ownedMarkers) };
+            var directoryFileNames = handler.DirectoryFileNames.Span;
+            var ownedDirectoryFileNames = new string[directoryFileNames.Length];
+            for (var fileIndex = 0; fileIndex < directoryFileNames.Length; fileIndex++)
+            {
+                var fileName = directoryFileNames[fileIndex];
+                if (string.IsNullOrWhiteSpace(fileName)
+                    || fileName.Contains(Path.DirectorySeparatorChar)
+                    || fileName.Contains(Path.AltDirectorySeparatorChar)
+                    || fileName.Contains('*')
+                    || fileName.Contains('?'))
+                {
+                    throw new ArgumentException("Dependency input directory file names must be exact file names.", nameof(handlers));
+                }
+
+                for (var registeredFileIndex = 0; registeredFileIndex < fileIndex; registeredFileIndex++)
+                {
+                    if (string.Equals(ownedDirectoryFileNames[registeredFileIndex], fileName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new ArgumentException("Dependency input handlers cannot repeat a directory file name.", nameof(handlers));
+                    }
+                }
+
+                ownedDirectoryFileNames[fileIndex] = fileName;
+            }
+
+            this.handlers[i] = handler with
+            {
+                Signature = new DependencyInputSignature(ownedMarkers),
+                DirectoryFileNames = ownedDirectoryFileNames,
+            };
         }
     }
 
@@ -142,6 +185,9 @@ public sealed class DependencyInputRegistry
     }
 
     internal ReadOnlySpan<DependencyInputHandler> Handlers => handlers;
+
+    /// <summary>Gets the registered handlers in deterministic registration order.</summary>
+    public ReadOnlySpan<DependencyInputHandler> RegisteredHandlers => handlers;
 }
 
 /// <summary>Detects and parses registered resolved dependency inputs.</summary>

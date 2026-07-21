@@ -106,7 +106,7 @@ public class E2EBenchmark : IDisposable
         try
         {
             Console.SetOut(TextWriter.Null);
-            return scanCommands.Scan(input: nugetAssetsPath, inputFormat: "nuget-assets", format: format, quiet: true, concurrency: 1, retry: 0);
+            return scanCommands.Scan(input: [nugetAssetsPath], inputFormat: "nuget-assets", format: format, quiet: true, concurrency: 1, retry: 0);
         }
         finally
         {

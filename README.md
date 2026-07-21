@@ -26,7 +26,7 @@ Scan a resolved dependency input.
 
 Options:
   --sbom <string?>               SBOM JSON path. Cannot be combined with --input. [Default: null]
-  --input <string?>              Resolved dependency input file, or a directory containing project.assets.json files. [Default: null]
+  --input <string[]?>            Repeatable resolved dependency input files or directories. [Default: null]
   --input-format <string?>       Input format: auto (default), cyclonedx, spdx, or nuget-assets. [Default: null]
   --format <ReportFormat>        Output format: text, json, or markdown. [Default: Text]
   --out, --out-file <string?>    Write output to this path. [Default: null]
@@ -142,7 +142,7 @@ dotnet run --project src/Ol -- scan --input src/Ol/obj/project.assets.json --for
 You can specify a directory containing multiple `project.assets.json` files:
 
 ```bash
-dotnet run --project src/Ol -- scan --input . --format markdown
+dotnet run --project src/Ol -- scan --input src/ --input tests/ --format markdown
 ```
 
 <details><summary>Output sample (Markdown)</summary>
@@ -157,7 +157,6 @@ Input: `package-manager/nuget-assets`
 | ConsoleAppFramework | 5.7.13 | MIT | nuget | direct | matched |
 | EnumerableAsyncProcessor | 3.8.4 | MIT | nuget | transitive | matched |
 | Gee.External.Capstone | 2.3.0 | MIT | nuget | transitive | matched |
-| Humanizer.Core | 2.14.1 | MIT | nuget | direct | matched |
 | Iced | 1.21.0 | MIT | nuget | transitive | matched |
 | Microsoft.ApplicationInsights | 2.23.0 | MIT | nuget | transitive | matched |
 | Microsoft.CodeAnalysis.Analyzers | 3.11.0 | MIT | nuget | transitive | matched |
@@ -195,13 +194,12 @@ Input: `package-manager/nuget-assets`
 | runtime.win-x64.Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | transitive | matched |
 
 Scan summary
-  License results: 42 displayed components; 41 matched; 0 conflict; 1 unknown; 0 ambiguous; 0 invalid; 0 error
+  License results: 41 displayed components; 40 matched; 0 conflict; 1 unknown; 0 ambiguous; 0 invalid; 0 error
   Findings: 11 warnings; 0 deprecated SPDX identifiers
-  Package metadata (full scan): 42 supported; 41 cache hits; 1 cache misses; 0 refreshed; 0 fetch errors; 0 unsupported ecosystems
-  Source repositories (full scan): 20 targets; 1 GitHub requests; 19 cache hits; 1 cache misses; 0 fetch errors; 15 components without source license
+  Package metadata (full scan): 41 supported; 41 cache hits; 0 cache misses; 0 refreshed; 0 fetch errors; 0 unsupported ecosystems
+  Source repositories (full scan): 19 targets; 0 GitHub requests; 19 cache hits; 0 cache misses; 0 fetch errors; 14 components without source license
   Run: concurrency 8; retries 1; GitHub auth none
-  Input: ol; input format NuGet assets; SPDX 5e59516 (bundled)
-  Input: src; input format NuGet assets; SPDX 5e59516 (bundled)
+  Input: 2 inputs; input format NuGet assets; SPDX 5e59516 (bundled)
 
 </details>
 

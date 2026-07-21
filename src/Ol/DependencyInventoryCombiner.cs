@@ -3,11 +3,11 @@ using Ol.Core;
 
 internal static class DependencyInventoryCombiner
 {
-    public static DependencyInventory CombineNuGetAssets(ReadOnlySpan<DependencyInventory> inventories, ScanInputDescriptor input)
+    public static DependencyInventory Combine(ReadOnlySpan<DependencyInventory> inventories, ReadOnlySpan<DependencyInputHandler> handlers, ScanInputDescriptor input)
     {
-        if (inventories.Length == 0)
+        if (inventories.Length == 0 || handlers.Length != inventories.Length)
         {
-            throw new ArgumentException("At least one NuGet assets inventory is required.", nameof(inventories));
+            throw new ArgumentException("Each dependency inventory requires its registered input handler.", nameof(inventories));
         }
 
         var contextCount = 0;
@@ -27,7 +27,7 @@ internal static class DependencyInventoryCombiner
         var edges = new DependencyEdge[edgeCount];
         var components = ArrayPool<ScanComponent>.Shared.Rent(Math.Max(componentCapacity, 1));
         var componentRemap = ArrayPool<int>.Shared.Rent(Math.Max(componentCapacity, 1));
-        var componentIndexes = new Dictionary<Utf8Slice, int>(componentCapacity, Utf8AsciiIgnoreCaseComparer.Instance);
+        var componentIndexes = new Dictionary<ComponentKey, int>(componentCapacity, ComponentKeyComparer.Instance);
         var contextOffset = 0;
         var componentOffset = 0;
         var combinedComponentCount = 0;
@@ -43,10 +43,15 @@ internal static class DependencyInventoryCombiner
                 for (var i = 0; i < inventory.Components.Length; i++)
                 {
                     var component = inventory.Components[i];
-                    if (!componentIndexes.TryGetValue(component.Purl, out var combinedIndex))
+                    var key = new ComponentKey(
+                        handlers[inventoryIndex].Format.Name,
+                        component.Purl,
+                        handlers[inventoryIndex].ComponentIdentityComparison,
+                        component.Purl.IsEmpty ? componentOffset + i + 1 : 0);
+                    if (!componentIndexes.TryGetValue(key, out var combinedIndex))
                     {
                         combinedIndex = combinedComponentCount++;
-                        componentIndexes.Add(component.Purl, combinedIndex);
+                        componentIndexes.Add(key, combinedIndex);
                         components[combinedIndex] = component;
                     }
                     else
@@ -70,7 +75,7 @@ internal static class DependencyInventoryCombiner
                 {
                     var edge = inventory.Edges[i];
                     edges[edgeOffset + i] = new DependencyEdge(
-                        edge.ContextIndex + contextOffset,
+                        edge.ContextIndex < 0 ? edge.ContextIndex : edge.ContextIndex + contextOffset,
                         edge.FromOccurrenceIndex < 0 ? edge.FromOccurrenceIndex : edge.FromOccurrenceIndex + occurrenceOffset,
                         edge.ToOccurrenceIndex + occurrenceOffset);
                 }
@@ -112,17 +117,38 @@ internal static class DependencyInventoryCombiner
             : DependencyType.Unknown;
     }
 
-    private sealed class Utf8AsciiIgnoreCaseComparer : IEqualityComparer<Utf8Slice>
-    {
-        public static Utf8AsciiIgnoreCaseComparer Instance { get; } = new();
+    private readonly record struct ComponentKey(
+        string Format,
+        Utf8Slice Purl,
+        DependencyComponentIdentityComparison Comparison,
+        int UniqueIndex);
 
-        public bool Equals(Utf8Slice left, Utf8Slice right)
+    private sealed class ComponentKeyComparer : IEqualityComparer<ComponentKey>
+    {
+        public static ComponentKeyComparer Instance { get; } = new();
+
+        public bool Equals(ComponentKey left, ComponentKey right)
         {
-            var leftValue = left.Span;
-            var rightValue = right.Span;
+            if (left.UniqueIndex != 0 || right.UniqueIndex != 0)
+            {
+                return left.UniqueIndex == right.UniqueIndex;
+            }
+
+            if (left.Comparison != right.Comparison || !string.Equals(left.Format, right.Format, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var leftValue = left.Purl.Span;
+            var rightValue = right.Purl.Span;
             if (leftValue.Length != rightValue.Length)
             {
                 return false;
+            }
+
+            if (left.Comparison == DependencyComponentIdentityComparison.Ordinal)
+            {
+                return leftValue.SequenceEqual(rightValue);
             }
 
             for (var i = 0; i < leftValue.Length; i++)
@@ -136,13 +162,19 @@ internal static class DependencyInventoryCombiner
             return true;
         }
 
-        public int GetHashCode(Utf8Slice value)
+        public int GetHashCode(ComponentKey value)
         {
+            if (value.UniqueIndex != 0)
+            {
+                return value.UniqueIndex;
+            }
+
             var hash = new HashCode();
-            var bytes = value.Span;
+            hash.Add(value.Format, StringComparer.OrdinalIgnoreCase);
+            var bytes = value.Purl.Span;
             for (var i = 0; i < bytes.Length; i++)
             {
-                hash.Add(ToLowerAscii(bytes[i]));
+                hash.Add(value.Comparison == DependencyComponentIdentityComparison.AsciiIgnoreCase ? ToLowerAscii(bytes[i]) : bytes[i]);
             }
 
             return hash.ToHashCode();

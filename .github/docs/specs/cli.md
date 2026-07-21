@@ -53,7 +53,7 @@ Cache entry compatibility and category-specific JSON schemas are defined by [cac
 <a id="contract-scan-failures"></a>
 ### `ol scan`
 
-`scan` is the primary command. It lists components and their license status from a resolved dependency input or NuGet assets directory and the available evidence sources for the current version.
+`scan` is the primary command. It lists components and their license status from one or more resolved dependency inputs and the available evidence sources for the current version.
 
 The compatible SBOM shortcut accepts CycloneDX or SPDX JSON and detects the format from content:
 
@@ -68,13 +68,16 @@ ol scan --input bom.json
 ol scan --input bom.spdx.json
 ol scan --input obj/project.assets.json
 ol scan --input src
+ol scan --input src --input tests
 ```
 
-When `--input` names a directory, Ol recursively discovers `project.assets.json` files without following reparse points, orders them by path, and combines them as one `nuget-assets` scan. The directory form accepts only auto detection or `--input-format nuget-assets`. An empty directory is an input error. A file input retains the existing single-document behavior.
+`--input` is repeatable and each value may name a file or directory. Overlapping inputs are deduplicated by resolved file path, then ordered by a non-absolute logical path before parsing and graph-index projection. A single file retains the existing single-document behavior. Multiple discovered documents must all be package-manager inputs; combining SBOM evidence documents with package-manager inventories is rejected because their license-evidence reconciliation is not a path-merging operation.
+
+Each registered input handler owns the exact file names that directory input discovers recursively. Discovery does not follow reparse points and does not determine document format; registered content signatures remain authoritative. Currently only `nuget-assets` registers a directory file name (`project.assets.json`). A future package-manager handler becomes part of the same directory and repeated-input collection by registering its own names and package-identity comparison. A directory containing no registered names is an input error. With explicit `--input-format`, only that handler's registered names are discovered.
 
 `--input-format` defaults to `auto`; explicitly specifying `auto` is equivalent to omitting the option. Registered format names are matched case-insensitively. An explicit non-auto format is an assertion and must agree with the detected document format.
 
-Exactly one of `--sbom` and `--input` is required. They cannot be combined. `--input-format` can only be used with `--input`.
+Exactly one of `--sbom` and one-or-more `--input` options is required. They cannot be combined. `--input-format` can only be used with `--input` and asserts every discovered document.
 
 Currently supported dependency input formats:
 
@@ -88,7 +91,7 @@ Auto detection uses only deterministic, format-owned top-level JSON signatures; 
 
 `scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns non-zero only when the scan itself cannot be performed or output cannot be written.
 
-The command boundary parses every supported input through the registered dependency-input adapter and then consumes a normalized inventory. Enrichment, reconciliation, filtering, grouping, sorting, and rendering do not dispatch on CycloneDX or SPDX parser types. Explicit `--input-format` validation uses the same registry as content detection.
+The command boundary parses every supported input through the registered dependency-input adapter and then consumes a normalized inventory. Multiple package-manager inventories retain their contexts, occurrences, and edges while sharing report components according to the originating handler's package-identity comparison. Enrichment, reconciliation, filtering, grouping, sorting, and rendering do not dispatch on parser types. Explicit `--input-format` validation and directory discovery use the same registry as content detection.
 
 Examples of whole-command failures:
 
@@ -303,9 +306,9 @@ Top-level `schemaVersion` identifies the breaking report contract. Schema versio
 The current schema v1 report emits `metadata.input` and `metadata.spdx` as separate objects. Generic input metadata contains:
 
 - `kind`: the stable input family, currently `sbom` or `package-manager`
-- `format`: the registered format name, currently `cyclonedx`, `spdx`, or `nuget-assets`
-- `sourceRef`: the input file or directory basename rather than an absolute local path
-- `sourceSha256`: the SHA-256 of the complete file input, or a deterministic aggregate over relative paths and content hashes for a directory input
+- `format`: the registered format name, currently `cyclonedx`, `spdx`, or `nuget-assets`; a package-manager collection containing different formats reports `collection`
+- `sourceRef`: the input file or directory basename, or `{count} inputs` for repeated input, rather than an absolute local path
+- `sourceSha256`: the SHA-256 of the complete file input, or a deterministic aggregate over logical discovery paths and content hashes for directory or repeated input
 - `parser`: the stable parser identity
 - `specificationVersion`: the source format version when present
 

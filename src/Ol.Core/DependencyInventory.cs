@@ -29,6 +29,9 @@ public readonly record struct ScanInputFormat(string Name, string Parser, string
     /// <summary>NuGet project.assets.json.</summary>
     public static ScanInputFormat NuGetAssets { get; } = new("nuget-assets", "nuget-assets-json", "NuGet assets");
 
+    /// <summary>A collection containing more than one registered input format.</summary>
+    public static ScanInputFormat Collection { get; } = new("collection", "dependency-input-collection", "dependency input collection");
+
     /// <inheritdoc />
     public override string ToString() => Name;
 }

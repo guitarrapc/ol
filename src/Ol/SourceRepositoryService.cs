@@ -54,7 +54,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                         default,
                         LicenseStatus.Unknown,
                         false,
-                        ["source_repository_unavailable"],
+                        LicenseCandidateWarnings.SourceRepositoryUnavailable,
                         new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
                     unplannedUnknownCount++;
                     continue;
@@ -70,7 +70,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                         default,
                         LicenseStatus.Unknown,
                         false,
-                        ["unsupported_source_repository"],
+                        LicenseCandidateWarnings.UnsupportedSourceRepository,
                         new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
                     unplannedUnknownCount++;
                     continue;
@@ -161,20 +161,14 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
     private SourceRepositoryLookupResult CreateResult(SourceRepositoryRecord record, bool cacheHit, bool cacheMiss, bool requested)
     {
         var raw = record.License?.SpdxId ?? "NOASSERTION";
-        var candidate = LicenseCandidateFactory.Create("github-license-api", "license", Utf8Slice.FromString(raw), spdxLicenseIndex);
+        var candidate = LicenseCandidateFactory.Create(LicenseCandidateSource.GitHubLicenseApi, LicenseCandidateKind.License, Utf8Slice.FromString(raw), spdxLicenseIndex);
         var unknown = record.Errors.Length == 0 && candidate.Status == LicenseStatus.Unknown;
         if (record.Errors.Length != 0)
         {
-            candidate = LicenseCandidateFactory.CreateError("github-license-api", "fetch", record.Errors[0]);
+            candidate = LicenseCandidateFactory.CreateError(LicenseCandidateSource.GitHubLicenseApi, LicenseCandidateKind.Fetch, LicenseCandidateIdentifiers.ParseWarning(record.Errors[0]));
         }
 
-        if (record.Warnings.Length != 0)
-        {
-            var warnings = new string[candidate.Warnings.Length + record.Warnings.Length];
-            candidate.Warnings.CopyTo(warnings, 0);
-            record.Warnings.CopyTo(warnings, candidate.Warnings.Length);
-            candidate = candidate with { Warnings = warnings };
-        }
+        candidate = candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(record.Warnings) };
 
         var license = record.License;
         candidate = candidate with

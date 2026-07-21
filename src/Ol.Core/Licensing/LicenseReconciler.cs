@@ -38,11 +38,11 @@ public static class LicenseReconciler
         LicenseCandidate? ambiguous = null;
         var hasError = false;
         var matchedCount = 0;
-        var warningCapacity = 0;
+        var candidateWarnings = LicenseCandidateWarnings.None;
         for (var i = 0; i < component.CandidateCount; i++)
         {
             var candidate = component.GetCandidate(i);
-            warningCapacity += candidate.Warnings.Length;
+            candidateWarnings |= candidate.Warnings;
             switch (candidate.Status)
             {
                 case LicenseStatus.Matched:
@@ -75,7 +75,6 @@ public static class LicenseReconciler
             }
         }
 
-        var warningValues = warningCapacity == 0 ? null : ArrayPool<string>.Shared.Rent(warningCapacity);
         try
         {
             var (license, status) = matchedCount switch
@@ -88,44 +87,12 @@ public static class LicenseReconciler
                 _ => (default(Utf8Slice), LicenseStatus.Unknown),
             };
 
-            var warningCount = 0;
-            for (var i = 0; i < component.CandidateCount; i++)
-            {
-                var candidate = component.GetCandidate(i);
-                for (var warningIndex = 0; warningIndex < candidate.Warnings.Length; warningIndex++)
-                {
-                    var warning = candidate.Warnings[warningIndex];
-                    var duplicate = false;
-                    for (var existingIndex = 0; existingIndex < warningCount; existingIndex++)
-                    {
-                        if (string.Equals(warningValues![existingIndex], warning, StringComparison.Ordinal))
-                        {
-                            duplicate = true;
-                            break;
-                        }
-                    }
-
-                    if (!duplicate)
-                    {
-                        warningValues![warningCount] = warning;
-                        warningCount++;
-                    }
-                }
-            }
-
-            var warnings = warningCount == 0 ? [] : warningValues!.AsSpan(0, warningCount).ToArray();
-            Array.Sort(warnings, StringComparer.Ordinal);
-            return component with { License = license, Status = status, Warnings = warnings };
+            return component with { License = license, Status = status, Warnings = candidateWarnings.ToStrings() };
         }
         finally
         {
             Array.Clear(matched, 0, matchedCount);
             ArrayPool<Utf8Slice>.Shared.Return(matched);
-            if (warningValues is not null)
-            {
-                Array.Clear(warningValues, 0, warningCapacity);
-                ArrayPool<string>.Shared.Return(warningValues);
-            }
         }
     }
 }

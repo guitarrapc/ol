@@ -26,7 +26,7 @@ Registry responses that are valid JSON but do not embed the expected metadata ob
 
 v3 keeps this behavior and adds source repository hints described in [source.md](source.md).
 
-The resolved-input pipeline also accepts NuGet `project.assets.json` version 3 or 4 through `scan --input ...`, auto-detected as `nuget-assets`; `--input-format nuget-assets` remains available as an explicit assertion. This is dependency inventory input, not package-registry license evidence. The adapter consumes the restore result and does not reproduce NuGet resolution.
+The resolved-input pipeline accepts one NuGet `project.assets.json` version 3 or 4, or a directory recursively containing those files, through `scan --input ...`. File content is auto-detected as `nuget-assets`; `--input-format nuget-assets` remains available as an explicit assertion. This is dependency inventory input, not package-registry license evidence. The adapter consumes restore results and does not reproduce NuGet resolution.
 
 ## NuGet resolved input
 
@@ -34,7 +34,7 @@ Each `targets` object becomes a separate resolution context. A target key before
 
 Each context owns an implicit project root and package occurrences backed by `type: package` entries that also exist as package libraries. The root is represented by the edge endpoint sentinel `-1`, not by a license-report component allocation. Project, unresolved, and non-package entries do not receive NuGet purls and are not rendered as packages. Project nodes remain available while classifying reachability, so a package reached through a project reference is transitive, but an omitted project node is not misrepresented as a package edge.
 
-Direct dependencies are package or project names declared by the matching `project.frameworks` entry. Reachable packages at depth zero are direct, packages reached below them are transitive, and packages whose relationship cannot be proven are unknown. Package-to-package edges and project-root-to-direct-package edges are retained per context. Identical package/version values in different targets remain distinct occurrences and use the same `pkg:nuget/{id}@{version}` lookup identity for deduplicated enrichment.
+Direct dependencies are package or project names declared by the matching `project.frameworks` entry. Reachable packages at depth zero are direct, packages reached below them are transitive, and packages whose relationship cannot be proven are unknown. Package-to-package edges and project-root-to-direct-package edges are retained per context. Identical package/version values in different projects or targets remain distinct occurrences but share one report component and one `pkg:nuget/{id}@{version}` enrichment identity. A shared component is direct if any occurrence is direct, otherwise transitive if any occurrence is transitive, otherwise unknown.
 
 ## User Experience
 

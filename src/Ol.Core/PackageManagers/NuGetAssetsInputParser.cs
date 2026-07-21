@@ -17,6 +17,7 @@ internal static class NuGetAssetsInputParser
         var occurrences = ArrayPool<DependencyOccurrence>.Shared.Rent(16);
         var edges = ArrayPool<DependencyEdge>.Shared.Rent(32);
         var packageLibraries = ArrayPool<Utf8Slice>.Shared.Rent(16);
+        int[]? componentIndexes = null;
         var directCount = 0;
         var contextCount = 0;
         var componentCount = 0;
@@ -27,12 +28,17 @@ internal static class NuGetAssetsInputParser
         {
             ReadProject(source, offset, ref directDependencies, ref directCount, out var specificationVersion, out var projectOrigin);
             ReadPackageLibraries(source, offset, ref packageLibraries, ref packageLibraryCount);
+            var componentIndexCapacity = GetNodeIndexCapacity(packageLibraryCount);
+            componentIndexes = ArrayPool<int>.Shared.Rent(componentIndexCapacity);
+            componentIndexes.AsSpan(0, componentIndexCapacity).Fill(-1);
             ReadTargets(
                 source,
                 offset,
                 packageLibraries.AsSpan(0, packageLibraryCount),
                 directDependencies.AsSpan(0, directCount),
                 projectOrigin,
+                componentIndexes,
+                componentIndexCapacity,
                 ref contexts,
                 ref contextCount,
                 ref components,
@@ -66,6 +72,10 @@ internal static class NuGetAssetsInputParser
             ArrayPool<DependencyOccurrence>.Shared.Return(occurrences);
             ArrayPool<DependencyEdge>.Shared.Return(edges);
             ArrayPool<Utf8Slice>.Shared.Return(packageLibraries, clearArray: true);
+            if (componentIndexes is not null)
+            {
+                ArrayPool<int>.Shared.Return(componentIndexes);
+            }
         }
     }
 
@@ -262,6 +272,8 @@ internal static class NuGetAssetsInputParser
         ReadOnlySpan<Utf8Slice> packageLibraries,
         ReadOnlySpan<DirectDependency> directDependencies,
         Utf8Slice projectOrigin,
+        int[] componentIndexes,
+        int componentIndexCapacity,
         ref DependencyResolutionContext[] contexts,
         ref int contextCount,
         ref ScanComponent[] components,
@@ -302,6 +314,8 @@ internal static class NuGetAssetsInputParser
                     directDependencies,
                     contextIndex,
                     target,
+                    componentIndexes,
+                    componentIndexCapacity,
                     ref components,
                     ref componentCount,
                     ref occurrences,
@@ -324,6 +338,8 @@ internal static class NuGetAssetsInputParser
         ReadOnlySpan<DirectDependency> directDependencies,
         int contextIndex,
         Utf8Slice target,
+        int[] componentIndexes,
+        int componentIndexCapacity,
         ref ScanComponent[] components,
         ref int componentCount,
         ref DependencyOccurrence[] occurrences,
@@ -394,6 +410,8 @@ internal static class NuGetAssetsInputParser
                 directDependencies,
                 contextIndex,
                 target,
+                componentIndexes,
+                componentIndexCapacity,
                 ref components,
                 ref componentCount,
                 ref occurrences,
@@ -414,6 +432,8 @@ internal static class NuGetAssetsInputParser
         ReadOnlySpan<DirectDependency> directDependencies,
         int contextIndex,
         Utf8Slice target,
+        Span<int> componentIndexes,
+        int componentIndexCapacity,
         ref ScanComponent[] components,
         ref int componentCount,
         ref DependencyOccurrence[] occurrences,
@@ -480,11 +500,22 @@ internal static class NuGetAssetsInputParser
                     > 0 => DependencyType.Transitive,
                     _ => DependencyType.Unknown,
                 };
-                EnsureCapacity(ref components, componentCount);
                 EnsureCapacity(ref occurrences, occurrenceCount);
                 occurrenceByNode[i] = occurrenceCount;
-                components[componentCount] = new ScanComponent(node.Name, node.Version, default, "nuget", dependencyType, LicenseStatus.Unknown, CreatePurl(node.Name, node.Version), node.Identity, default, [], []);
-                occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentCount++);
+                if (!TryGetComponentIndex(components, componentIndexes, componentIndexCapacity, node.Identity, out var componentIndex))
+                {
+                    EnsureCapacity(ref components, componentCount);
+                    componentIndex = componentCount++;
+                    components[componentIndex] = new ScanComponent(node.Name, node.Version, default, "nuget", dependencyType, LicenseStatus.Unknown, CreatePurl(node.Name, node.Version), node.Identity, default, [], []);
+                    AddComponentIndex(components, componentIndexes, componentIndexCapacity, componentIndex);
+                }
+                else
+                {
+                    var component = components[componentIndex];
+                    components[componentIndex] = component with { DependencyType = DependencyTypes.Merge(component.DependencyType, dependencyType) };
+                }
+
+                occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex);
             }
 
             for (var i = 0; i < nodes.Length; i++)
@@ -564,6 +595,34 @@ internal static class NuGetAssetsInputParser
         }
 
         return capacity;
+    }
+
+    private static void AddComponentIndex(ReadOnlySpan<ScanComponent> components, Span<int> indexes, int capacity, int componentIndex)
+    {
+        var slot = NuGetIdentityComparer.Instance.GetHashCode(components[componentIndex].SourceId) & (capacity - 1);
+        while (indexes[slot] >= 0)
+        {
+            slot = (slot + 1) & (capacity - 1);
+        }
+
+        indexes[slot] = componentIndex;
+    }
+
+    private static bool TryGetComponentIndex(ReadOnlySpan<ScanComponent> components, ReadOnlySpan<int> indexes, int capacity, Utf8Slice identity, out int componentIndex)
+    {
+        var slot = NuGetIdentityComparer.Instance.GetHashCode(identity) & (capacity - 1);
+        while ((componentIndex = indexes[slot]) >= 0)
+        {
+            if (NuGetIdentityComparer.Instance.Equals(components[componentIndex].SourceId, identity))
+            {
+                return true;
+            }
+
+            slot = (slot + 1) & (capacity - 1);
+        }
+
+        componentIndex = -1;
+        return false;
     }
 
     private static void AddNodeIndex(ReadOnlySpan<TargetNode> nodes, Span<int> indexes, int capacity, int nodeIndex)

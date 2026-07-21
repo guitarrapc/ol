@@ -59,7 +59,7 @@ public sealed class DependencyInventoryTests
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.DependencyInput,
             DependencyInput: new DependencyInputEvidence("nuget-assets", "libraries.license"));
-        var candidate = LicenseCandidateFactory.Create("nuget-assets", "license", "MIT"u8, new SpdxLicenseIndex(["MIT"], []), evidence);
+        var candidate = LicenseCandidateFactory.Create(LicenseCandidateSource.DependencyInput, LicenseCandidateKind.License, "MIT"u8, new SpdxLicenseIndex(["MIT"], []), evidence);
         var component = new ScanComponent("Example", "1.0.0", "MIT", "nuget", DependencyType.Direct, LicenseStatus.Matched, "pkg:nuget/Example@1.0.0", "Example/1.0.0", candidate, [], []);
 
         await Assert.That(component.PrimaryCandidate.Evidence.Kind).IsEqualTo(LicenseEvidenceKind.DependencyInput);

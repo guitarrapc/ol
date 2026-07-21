@@ -18,8 +18,23 @@ public readonly record struct LicenseCandidate(
     Utf8Slice Normalized,
     LicenseStatus Status,
     bool Deprecated,
-    string[] Warnings,
+    LicenseCandidateWarnings Warnings,
     LicenseEvidence Evidence = default);
+
+/// <summary>Identifies warning codes retained by a license candidate without string storage.</summary>
+[Flags]
+public enum LicenseCandidateWarnings : ushort
+{
+    None = 0,
+    DeprecatedSpdxIdentifier = 1 << 0,
+    PackageMetadataFetchFailed = 1 << 1,
+    UnsupportedPackageMetadata = 1 << 2,
+    SourceRepositoryCacheInvalid = 1 << 3,
+    SourceRepositoryCacheWriteFailed = 1 << 4,
+    SourceRepositoryFetchFailed = 1 << 5,
+    SourceRepositoryUnavailable = 1 << 6,
+    UnsupportedSourceRepository = 1 << 7,
+}
 
 /// <summary>Identifies the evidence system that produced a license candidate.</summary>
 public enum LicenseCandidateSource : byte
@@ -51,35 +66,71 @@ public enum LicenseCandidateKind : byte
     Unsupported,
 }
 
-/// <summary>Renders stable candidate identifiers only at an output boundary.</summary>
+/// <summary>Provides stable UTF-8 candidate identifiers without string allocation.</summary>
 public static class LicenseCandidateIdentifiers
 {
-    public static string ToDisplayString(this LicenseCandidateSource value) => value switch
+    public static LicenseCandidateWarnings ParseWarning(string value) => value switch
     {
-        LicenseCandidateSource.Sbom => "sbom",
-        LicenseCandidateSource.PackageRegistry => "package-registry",
-        LicenseCandidateSource.NpmRegistry => "npm-registry",
-        LicenseCandidateSource.NuGetRegistry => "nuget-registry",
-        LicenseCandidateSource.CargoRegistry => "cargo-registry",
-        LicenseCandidateSource.GoModuleProxy => "go-module-proxy",
-        LicenseCandidateSource.SourceRepository => "source-repository",
-        LicenseCandidateSource.GitHubLicenseApi => "github-license-api",
-        LicenseCandidateSource.DependencyInput => "dependency-input",
-        _ => string.Empty,
+        "deprecated_spdx_identifier" => LicenseCandidateWarnings.DeprecatedSpdxIdentifier,
+        "package_metadata_fetch_failed" => LicenseCandidateWarnings.PackageMetadataFetchFailed,
+        "unsupported_package_metadata" => LicenseCandidateWarnings.UnsupportedPackageMetadata,
+        "source_repository_cache_invalid" => LicenseCandidateWarnings.SourceRepositoryCacheInvalid,
+        "source_repository_cache_write_failed" => LicenseCandidateWarnings.SourceRepositoryCacheWriteFailed,
+        "source_repository_fetch_failed" => LicenseCandidateWarnings.SourceRepositoryFetchFailed,
+        "source_repository_unavailable" => LicenseCandidateWarnings.SourceRepositoryUnavailable,
+        "unsupported_source_repository" => LicenseCandidateWarnings.UnsupportedSourceRepository,
+        _ => LicenseCandidateWarnings.None,
     };
 
-    public static string ToDisplayString(this LicenseCandidateKind value) => value switch
+    public static LicenseCandidateWarnings ParseWarnings(ReadOnlySpan<string> values)
     {
-        LicenseCandidateKind.License => "license",
-        LicenseCandidateKind.Id => "id",
-        LicenseCandidateKind.Name => "name",
-        LicenseCandidateKind.Expression => "expression",
-        LicenseCandidateKind.Declared => "declared",
-        LicenseCandidateKind.Concluded => "concluded",
-        LicenseCandidateKind.Fetch => "fetch",
-        LicenseCandidateKind.Unavailable => "unavailable",
-        LicenseCandidateKind.Unsupported => "unsupported",
-        _ => string.Empty,
+        var result = LicenseCandidateWarnings.None;
+        for (var i = 0; i < values.Length; i++) result |= ParseWarning(values[i]);
+        return result;
+    }
+
+    public static string[] ToStrings(this LicenseCandidateWarnings value)
+    {
+        if (value == LicenseCandidateWarnings.None) return [];
+        var result = new string[System.Numerics.BitOperations.PopCount((uint)value)];
+        var index = 0;
+        if ((value & LicenseCandidateWarnings.DeprecatedSpdxIdentifier) != 0) result[index++] = "deprecated_spdx_identifier";
+        if ((value & LicenseCandidateWarnings.PackageMetadataFetchFailed) != 0) result[index++] = "package_metadata_fetch_failed";
+        if ((value & LicenseCandidateWarnings.SourceRepositoryCacheInvalid) != 0) result[index++] = "source_repository_cache_invalid";
+        if ((value & LicenseCandidateWarnings.SourceRepositoryCacheWriteFailed) != 0) result[index++] = "source_repository_cache_write_failed";
+        if ((value & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0) result[index++] = "source_repository_fetch_failed";
+        if ((value & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0) result[index++] = "source_repository_unavailable";
+        if ((value & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0) result[index++] = "unsupported_package_metadata";
+        if ((value & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) result[index] = "unsupported_source_repository";
+        return result;
+    }
+
+    public static ReadOnlySpan<byte> ToUtf8(this LicenseCandidateSource value) => value switch
+    {
+        LicenseCandidateSource.Sbom => "sbom"u8,
+        LicenseCandidateSource.PackageRegistry => "package-registry"u8,
+        LicenseCandidateSource.NpmRegistry => "npm-registry"u8,
+        LicenseCandidateSource.NuGetRegistry => "nuget-registry"u8,
+        LicenseCandidateSource.CargoRegistry => "cargo-registry"u8,
+        LicenseCandidateSource.GoModuleProxy => "go-module-proxy"u8,
+        LicenseCandidateSource.SourceRepository => "source-repository"u8,
+        LicenseCandidateSource.GitHubLicenseApi => "github-license-api"u8,
+        LicenseCandidateSource.DependencyInput => "dependency-input"u8,
+        _ => default,
+    };
+
+    public static ReadOnlySpan<byte> ToUtf8(this LicenseCandidateKind value) => value switch
+    {
+        LicenseCandidateKind.License => "license"u8,
+        LicenseCandidateKind.Id => "id"u8,
+        LicenseCandidateKind.Name => "name"u8,
+        LicenseCandidateKind.Expression => "expression"u8,
+        LicenseCandidateKind.Declared => "declared"u8,
+        LicenseCandidateKind.Concluded => "concluded"u8,
+        LicenseCandidateKind.Fetch => "fetch"u8,
+        LicenseCandidateKind.Unavailable => "unavailable"u8,
+        LicenseCandidateKind.Unsupported => "unsupported"u8,
+        _ => default,
     };
 }
 

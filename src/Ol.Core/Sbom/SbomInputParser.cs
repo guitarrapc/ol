@@ -357,14 +357,14 @@ internal static class SbomInputParser
         }
 
         var declaredCandidate = LicenseCandidateFactory.Create(
-            "sbom",
-            "declared",
+            LicenseCandidateSource.Sbom,
+            LicenseCandidateKind.Declared,
             declared,
             spdxLicenseIndex,
             new LicenseEvidence(LicenseEvidenceKind.Sbom, SbomLicenseField.SpdxLicenseDeclared));
         var concludedCandidate = LicenseCandidateFactory.Create(
-            "sbom",
-            "concluded",
+            LicenseCandidateSource.Sbom,
+            LicenseCandidateKind.Concluded,
             concluded,
             spdxLicenseIndex,
             new LicenseEvidence(LicenseEvidenceKind.Sbom, SbomLicenseField.SpdxLicenseConcluded));
@@ -760,8 +760,8 @@ internal static class SbomInputParser
     private static LicenseCandidate ReadCycloneDxLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex, SbomLicenseField sbomField)
     {
         var depth = reader.CurrentDepth;
-        var kind = "unknown";
-        var candidate = LicenseCandidateFactory.Create("sbom", kind, default(Utf8Slice), spdxLicenseIndex);
+        var kind = LicenseCandidateKind.None;
+        var candidate = LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, kind, default(Utf8Slice), spdxLicenseIndex);
         var acknowledgement = LicenseAcknowledgement.None;
 
         while (reader.Read())
@@ -778,7 +778,7 @@ internal static class SbomInputParser
 
             if (reader.ValueTextEquals("id"u8) || reader.ValueTextEquals("expression"u8) || reader.ValueTextEquals("name"u8))
             {
-                kind = reader.ValueTextEquals("id"u8) ? "id" : reader.ValueTextEquals("expression"u8) ? "expression" : "name";
+                kind = reader.ValueTextEquals("id"u8) ? LicenseCandidateKind.Id : reader.ValueTextEquals("expression"u8) ? LicenseCandidateKind.Expression : LicenseCandidateKind.Name;
                 reader.Read();
                 candidate = CreateLicenseCandidate(ref reader, source, offset, kind, spdxLicenseIndex);
                 continue;
@@ -801,16 +801,16 @@ internal static class SbomInputParser
         return candidate with { Evidence = new LicenseEvidence(LicenseEvidenceKind.Sbom, sbomField, acknowledgement) };
     }
 
-    private static LicenseCandidate CreateLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, string kind, SpdxLicenseIndex spdxLicenseIndex)
+    private static LicenseCandidate CreateLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, LicenseCandidateKind kind, SpdxLicenseIndex spdxLicenseIndex)
     {
         if (reader.TokenType != JsonTokenType.String)
         {
-            return LicenseCandidateFactory.Create("sbom", kind, default(Utf8Slice), spdxLicenseIndex);
+            return LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, kind, default(Utf8Slice), spdxLicenseIndex);
         }
 
         return !reader.HasValueSequence && !reader.ValueIsEscaped
-            ? LicenseCandidateFactory.Create("sbom", kind, CreateValueSlice(ref reader, source, offset), spdxLicenseIndex)
-            : LicenseCandidateFactory.Create("sbom", kind, Utf8Slice.FromString(reader.GetString() ?? string.Empty), spdxLicenseIndex);
+            ? LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, kind, CreateValueSlice(ref reader, source, offset), spdxLicenseIndex)
+            : LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, kind, Utf8Slice.FromString(reader.GetString() ?? string.Empty), spdxLicenseIndex);
     }
 
     private static Utf8Slice ReadUtf8Slice(ref Utf8JsonReader reader, byte[] source, int offset)

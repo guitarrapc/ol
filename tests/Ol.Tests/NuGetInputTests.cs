@@ -28,6 +28,7 @@ public sealed class NuGetInputTests
         await Assert.That(inventory.Contexts[1].Platform.IsEmpty).IsTrue();
         await Assert.That(inventory.Contexts[1].Architecture.IsEmpty).IsTrue();
 
+        await Assert.That(inventory.Components).Count().IsEqualTo(4);
         await Assert.That(inventory.Occurrences).Count().IsEqualTo(6);
         await Assert.That(inventory.Edges).Count().IsEqualTo(5);
         await Assert.That(inventory.Components.Any(static component => component.Name.ToString() == "App")).IsFalse();
@@ -46,6 +47,8 @@ public sealed class NuGetInputTests
         await Assert.That(projectTransitive.DependencyType).IsEqualTo(DependencyType.Transitive);
         await Assert.That(native.Purl.ToString()).IsEqualTo("pkg:nuget/Native.Package@4.0.0");
         await Assert.That(netShared.Purl.ToString()).IsEqualTo(winShared.Purl.ToString());
+        await Assert.That(inventory.Occurrences[0].ComponentIndex).IsEqualTo(inventory.Occurrences[3].ComponentIndex);
+        await Assert.That(inventory.Occurrences[1].ComponentIndex).IsEqualTo(inventory.Occurrences[4].ComponentIndex);
         await Assert.That(inventory.Edges[0].FromOccurrenceIndex).IsEqualTo(DependencyOccurrence.ContextRoot);
     }
 
@@ -58,6 +61,49 @@ public sealed class NuGetInputTests
 
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.NuGetAssets);
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("4");
+    }
+
+    [Test]
+    public async Task Scan_ProjectAssetsWithMixedDependencyTypes_UsesStrongestRelationship()
+    {
+        var input = System.Text.Encoding.UTF8.GetBytes(
+            """
+            {
+              "version": 3,
+              "targets": {
+                "net8.0": {
+                  "Root.Package/1.0.0": { "type": "package", "dependencies": { "Direct.Wins": "1.0.0", "Transitive.Wins": "1.0.0" } },
+                  "Direct.Wins/1.0.0": { "type": "package" },
+                  "Transitive.Wins/1.0.0": { "type": "package" },
+                  "Unknown.Stays/1.0.0": { "type": "package" }
+                },
+                "net9.0": {
+                  "Direct.Wins/1.0.0": { "type": "package" },
+                  "Transitive.Wins/1.0.0": { "type": "package" },
+                  "Unknown.Stays/1.0.0": { "type": "package" }
+                }
+              },
+              "libraries": {
+                "Root.Package/1.0.0": { "type": "package" },
+                "Direct.Wins/1.0.0": { "type": "package" },
+                "Transitive.Wins/1.0.0": { "type": "package" },
+                "Unknown.Stays/1.0.0": { "type": "package" }
+              },
+              "project": {
+                "restore": { "projectPath": "App.csproj" },
+                "frameworks": {
+                  "net8.0": { "dependencies": { "Root.Package": { "target": "Package" } } },
+                  "net9.0": { "dependencies": { "Direct.Wins": { "target": "Package" } } }
+                }
+              }
+            }
+            """);
+
+        var inventory = DependencyInputScanner.Scan(input, Spdx, expectedFormat: ScanInputFormat.NuGetAssets);
+
+        await Assert.That(inventory.Components.Single(static component => component.Name.ToString() == "Direct.Wins").DependencyType).IsEqualTo(DependencyType.Direct);
+        await Assert.That(inventory.Components.Single(static component => component.Name.ToString() == "Transitive.Wins").DependencyType).IsEqualTo(DependencyType.Transitive);
+        await Assert.That(inventory.Components.Single(static component => component.Name.ToString() == "Unknown.Stays").DependencyType).IsEqualTo(DependencyType.Unknown);
     }
 
     [Test]

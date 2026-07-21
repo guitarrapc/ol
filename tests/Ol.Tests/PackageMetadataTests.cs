@@ -170,11 +170,11 @@ public sealed class PackageMetadataTests
             LicenseStatus.Unknown,
             "pkg:npm/example@1.0.0",
             "pkg:npm/example@1.0.0",
-            LicenseCandidateFactory.Create("sbom", "id", "NOASSERTION"u8, index),
+            LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index),
             [],
             []);
 
-        var result = LicenseReconciler.AddCandidate(component, LicenseCandidateFactory.Create("npm-registry", "license", "MIT"u8, index));
+        var result = LicenseReconciler.AddCandidate(component, LicenseCandidateFactory.Create(LicenseCandidateSource.NpmRegistry, LicenseCandidateKind.License, "MIT"u8, index));
 
         await Assert.That(result.Status).IsEqualTo(LicenseStatus.Matched);
         await Assert.That(result.License.ToString()).IsEqualTo("MIT");

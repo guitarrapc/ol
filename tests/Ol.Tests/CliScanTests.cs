@@ -1132,6 +1132,67 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithDirectory_CombinesNestedNuGetAssetsWithoutDuplicateComponents()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-nuget-directory-{Guid.NewGuid():N}");
+        var firstDirectory = Path.Combine(temporaryDirectory, "First", "obj");
+        var secondDirectory = Path.Combine(temporaryDirectory, "Second", "obj");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        var fixture = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(firstDirectory, "project.assets.json"), fixture, Encoding.UTF8);
+        await File.WriteAllTextAsync(
+            Path.Combine(secondDirectory, "project.assets.json"),
+            fixture.Replace("/private/src/App/App.csproj", "/private/src/Second/Second.csproj", StringComparison.Ordinal),
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("nuget-assets");
+            await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo(Path.GetFileName(temporaryDirectory));
+            await Assert.That(input.GetProperty("sourceSha256").GetString()!.Length).IsEqualTo(64);
+            await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(12);
+            await Assert.That(inventory.GetProperty("edges").GetArrayLength()).IsEqualTo(10);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryWithoutNuGetAssets_ReturnsConciseError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-empty-nuget-directory-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Directory does not contain a project.assets.json file.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithNuGetAssetsJson_PreservesDeterministicInventoryGraph()
     {
         var root = FindRepositoryRoot();
@@ -1146,7 +1207,7 @@ public sealed class CliScanTests
         using var report = JsonDocument.Parse(first.Stdout);
         var inventory = report.RootElement.GetProperty("inventory");
         await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
-        await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(6);
+        await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
         await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(6);
         await Assert.That(inventory.GetProperty("edges").GetArrayLength()).IsEqualTo(5);
         var winContext = inventory.GetProperty("contexts")[1];
@@ -1195,7 +1256,7 @@ public sealed class CliScanTests
             using var report = JsonDocument.Parse(stdout);
             var metadata = report.RootElement.GetProperty("metadata").GetProperty("packageMetadata");
             await Assert.That(metadata.GetProperty("targetCount").GetInt32()).IsEqualTo(4);
-            await Assert.That(metadata.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(6);
+            await Assert.That(metadata.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(4);
             await Assert.That(metadata.GetProperty("cacheMissCount").GetInt32()).IsEqualTo(0);
             await Assert.That(report.RootElement.GetProperty("components").EnumerateArray().Where(static component => component.GetProperty("ecosystem").GetString() == "nuget").All(static component => component.GetProperty("license").GetString() == "MIT")).IsTrue();
             await Assert.That(stderr).IsEmpty();

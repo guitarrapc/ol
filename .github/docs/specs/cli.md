@@ -53,7 +53,7 @@ Cache entry compatibility and category-specific JSON schemas are defined by [cac
 <a id="contract-scan-failures"></a>
 ### `ol scan`
 
-`scan` is the primary command. It lists components and their license status from one resolved dependency input and the available evidence sources for the current version.
+`scan` is the primary command. It lists components and their license status from a resolved dependency input or NuGet assets directory and the available evidence sources for the current version.
 
 The compatible SBOM shortcut accepts CycloneDX or SPDX JSON and detects the format from content:
 
@@ -67,7 +67,10 @@ The generalized input form detects a registered format from content by default:
 ol scan --input bom.json
 ol scan --input bom.spdx.json
 ol scan --input obj/project.assets.json
+ol scan --input src
 ```
+
+When `--input` names a directory, Ol recursively discovers `project.assets.json` files without following reparse points, orders them by path, and combines them as one `nuget-assets` scan. The directory form accepts only auto detection or `--input-format nuget-assets`. An empty directory is an input error. A file input retains the existing single-document behavior.
 
 `--input-format` defaults to `auto`; explicitly specifying `auto` is equivalent to omitting the option. Registered format names are matched case-insensitively. An explicit non-auto format is an assertion and must agree with the detected document format.
 
@@ -301,14 +304,14 @@ The current schema v1 report emits `metadata.input` and `metadata.spdx` as separ
 
 - `kind`: the stable input family, currently `sbom` or `package-manager`
 - `format`: the registered format name, currently `cyclonedx`, `spdx`, or `nuget-assets`
-- `sourceRef`: the input basename rather than an absolute local path
-- `sourceSha256`: the SHA-256 of the complete input
+- `sourceRef`: the input file or directory basename rather than an absolute local path
+- `sourceSha256`: the SHA-256 of the complete file input, or a deterministic aggregate over relative paths and content hashes for a directory input
 - `parser`: the stable parser identity
 - `specificationVersion`: the source format version when present
 
 Existing SBOM-specific fields remain additive compatibility aliases in schema v1: `sbomRef`, `sbomFormat`, `sbomSpecVersion`, and `sbomSha256`. A future non-SBOM input must not emit fabricated SBOM aliases. The SPDX metadata object records its logical data reference, License List version, and SHA-256 hashes of the active `licenses.json` and `exceptions.json` files.
 
-Top-level `inventory` is independent of the sorted or filtered report view. It contains input-order `contexts`, lightweight component identities, `occurrences`, and `edges`. Occurrence component indexes always address `inventory.components`; they never address the displayed top-level `components` or grouped rows. An edge `fromOccurrenceIndex` of `-1` denotes the project root owned by that edge's context. Empty platform or architecture values remain empty rather than being inferred from the host.
+Top-level `inventory` is independent of the sorted or filtered report view. It contains input-order `contexts`, lightweight component identities, `occurrences`, and `edges`. Occurrence component indexes always address `inventory.components`; they never address the displayed top-level `components` or grouped rows. Multiple occurrences may address one component when the same package identity is resolved in more than one project, target framework, or RID. An edge `fromOccurrenceIndex` of `-1` denotes the project root owned by that edge's context. Empty platform or architecture values remain empty rather than being inferred from the host.
 
 Absolute project origins retained internally for graph attribution are rendered as basenames. Relative logical origins may be retained. Canonical output never exposes an absolute local project path.
 

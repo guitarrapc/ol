@@ -154,7 +154,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey)));
-        var error = LicenseCandidateFactory.CreateError(LicenseCandidateSource.PackageRegistry, LicenseCandidateKind.Fetch, "package_metadata_fetch_failed", evidence);
+        var error = LicenseCandidateFactory.CreateError(LicenseCandidateSource.PackageRegistry, LicenseCandidateKind.Fetch, LicenseCandidateWarnings.PackageMetadataFetchFailed, evidence);
         return new PackageMetadataLookupResult(error, true, false, true, false, true, false);
     }
 
@@ -167,7 +167,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
             default,
             LicenseStatus.Unknown,
             false,
-            ["unsupported_package_metadata"],
+            LicenseCandidateWarnings.UnsupportedPackageMetadata,
             new LicenseEvidence(LicenseEvidenceKind.PackageRegistry));
         return new PackageMetadataLookupResult(candidate, true, false, false, false, false, true);
     }
@@ -190,17 +190,18 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(record.CacheKeySha256, record.FetchedAt));
-        var candidate = LicenseCandidateFactory.Create(record.Source, "license", Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex, evidence);
-        if (record.Warnings.Length == 0)
-        {
-            return candidate;
-        }
-
-        var warnings = new string[candidate.Warnings.Length + record.Warnings.Length];
-        candidate.Warnings.CopyTo(warnings, 0);
-        record.Warnings.CopyTo(warnings, candidate.Warnings.Length);
-        return candidate with { Warnings = warnings };
+        var candidate = LicenseCandidateFactory.Create(GetCandidateSource(record.Source), LicenseCandidateKind.License, Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex, evidence);
+        return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(record.Warnings) };
     }
+
+    private static LicenseCandidateSource GetCandidateSource(string source) => source switch
+    {
+        "npm-registry" => LicenseCandidateSource.NpmRegistry,
+        "nuget-registry" => LicenseCandidateSource.NuGetRegistry,
+        "cargo-registry" => LicenseCandidateSource.CargoRegistry,
+        "go-module-proxy" => LicenseCandidateSource.GoModuleProxy,
+        _ => LicenseCandidateSource.PackageRegistry,
+    };
 
     private readonly record struct PackageMetadataLookup(int Index, PackageMetadataRequest Request);
 

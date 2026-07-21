@@ -18,7 +18,7 @@ internal sealed class ScanCommands
     /// Scan a resolved dependency input.
     /// </summary>
     /// <param name="sbom">SBOM JSON path. Cannot be combined with --input.</param>
-    /// <param name="input">Resolved dependency input path.</param>
+    /// <param name="input">Resolved dependency input file, or a directory containing project.assets.json files.</param>
     /// <param name="inputFormat">Input format: auto (default), cyclonedx, spdx, or nuget-assets.</param>
     /// <param name="format">Output format: text, json, or markdown.</param>
     /// <param name="outFile">--out, Write output to this path.</param>
@@ -61,11 +61,13 @@ internal sealed class ScanCommands
         }
 
         var inputPath = inputSelection.Path;
-        if (!File.Exists(inputPath))
+        var isInputFile = File.Exists(inputPath);
+        var isInputDirectory = !inputSelection.IsLegacySbom && Directory.Exists(inputPath);
+        if (!isInputFile && !isInputDirectory)
         {
             Console.Error.WriteLine(inputSelection.IsLegacySbom
                 ? $"SBOM file not found: {inputPath}"
-                : $"Input file not found: {inputPath}");
+                : $"Input file or directory not found: {inputPath}");
             return 1;
         }
 
@@ -117,19 +119,14 @@ internal sealed class ScanCommands
             return 1;
         }
 
-        byte[] inputBytes;
         ScanResult scanResult;
         try
         {
-            inputBytes = File.ReadAllBytes(inputPath);
             var expectedFormat = inputSelection.HasExpectedFormat ? inputSelection.ExpectedHandler.Format : default;
-            var inventory = DependencyInputScanner.Scan(inputBytes, spdx.Index, expectedFormat: expectedFormat);
-            var descriptor = inventory.Input with
-            {
-                SourceReference = Path.GetFileName(inputPath),
-                SourceSha256 = format == ReportFormat.Json ? Convert.ToHexString(SHA256.HashData(inputBytes)).ToLowerInvariant() : string.Empty,
-            };
-            scanResult = ScanResult.FromInventory(inventory with { Input = descriptor });
+            var inventory = isInputDirectory
+                ? ScanNuGetAssetsDirectory(inputPath, spdx.Index, expectedFormat, format == ReportFormat.Json)
+                : ScanInputFile(inputPath, spdx.Index, expectedFormat, format == ReportFormat.Json);
+            scanResult = ScanResult.FromInventory(inventory);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
@@ -220,7 +217,7 @@ internal sealed class ScanCommands
             Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems");
             Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
             Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
-            Console.Error.WriteLine($"  Input: {Path.GetFileName(inputPath)}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
+            Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
             if (dependency is not null and not "")
             {
                 Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} components excluded; {excludedUnknownCount} with unknown dependency type");
@@ -244,6 +241,81 @@ internal sealed class ScanCommands
             ReportFormat.Json => ReportRenderer.RenderJson(inventory, groups, groupBy, spdx, metadataSummary, sourceSummary),
             _ => throw new ArgumentOutOfRangeException(nameof(format)),
         };
+    }
+
+    private static DependencyInventory ScanInputFile(string path, SpdxLicenseIndex spdx, ScanInputFormat expectedFormat, bool includeHash)
+    {
+        var inputBytes = File.ReadAllBytes(path);
+        var inventory = DependencyInputScanner.Scan(inputBytes, spdx, expectedFormat: expectedFormat);
+        var descriptor = inventory.Input with
+        {
+            SourceReference = Path.GetFileName(path),
+            SourceSha256 = includeHash ? Convert.ToHexString(SHA256.HashData(inputBytes)).ToLowerInvariant() : string.Empty,
+        };
+        return inventory with { Input = descriptor };
+    }
+
+    private static DependencyInventory ScanNuGetAssetsDirectory(string path, SpdxLicenseIndex spdx, ScanInputFormat expectedFormat, bool includeHash)
+    {
+        if (!string.IsNullOrEmpty(expectedFormat.Name) && expectedFormat != ScanInputFormat.NuGetAssets)
+        {
+            throw new InvalidOperationException("Directory input supports only the nuget-assets format.");
+        }
+
+        var enumerationOptions = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+            IgnoreInaccessible = false,
+            MatchCasing = MatchCasing.CaseInsensitive,
+        };
+        var inputPaths = Directory.GetFiles(path, "project.assets.json", enumerationOptions);
+        Array.Sort(inputPaths, StringComparer.Ordinal);
+        if (inputPaths.Length == 0)
+        {
+            throw new InvalidOperationException("Directory does not contain a project.assets.json file.");
+        }
+
+        var inventories = new DependencyInventory[inputPaths.Length];
+        IncrementalHash? sourceHash = includeHash ? IncrementalHash.CreateHash(HashAlgorithmName.SHA256) : null;
+        var specificationVersion = default(Utf8Slice);
+        try
+        {
+            for (var i = 0; i < inputPaths.Length; i++)
+            {
+                var inputBytes = File.ReadAllBytes(inputPaths[i]);
+                var inventory = DependencyInputScanner.Scan(inputBytes, spdx, expectedFormat: ScanInputFormat.NuGetAssets);
+                inventories[i] = inventory;
+                if (i == 0)
+                {
+                    specificationVersion = inventory.Input.SpecificationVersion;
+                }
+                else if (!specificationVersion.Span.SequenceEqual(inventory.Input.SpecificationVersion.Span))
+                {
+                    specificationVersion = default;
+                }
+
+                if (sourceHash is not null)
+                {
+                    var relativePath = Path.GetRelativePath(path, inputPaths[i]).Replace('\\', '/');
+                    sourceHash.AppendData(Encoding.UTF8.GetBytes(relativePath));
+                    sourceHash.AppendData([0]);
+                    sourceHash.AppendData(SHA256.HashData(inputBytes));
+                }
+            }
+
+            var descriptor = new ScanInputDescriptor(
+                ScanInputKind.PackageManager,
+                ScanInputFormat.NuGetAssets,
+                new DirectoryInfo(Path.GetFullPath(path)).Name,
+                sourceHash is null ? string.Empty : Convert.ToHexString(sourceHash.GetHashAndReset()).ToLowerInvariant(),
+                specificationVersion);
+            return DependencyInventoryCombiner.CombineNuGetAssets(inventories, descriptor);
+        }
+        finally
+        {
+            sourceHash?.Dispose();
+        }
     }
 
     private static bool TryResolveInput(string? sbom, string? input, string? inputFormat, out ScanInputSelection selection, out string error)
@@ -1005,13 +1077,13 @@ internal static class ReportRenderer
         {
             var candidate = component.GetCandidate(i);
             writer.WriteStartObject();
-            writer.WriteString("source", candidate.Source.ToDisplayString());
-            writer.WriteString("kind", candidate.Kind.ToDisplayString());
+            writer.WriteString("source"u8, candidate.Source.ToUtf8());
+            writer.WriteString("kind"u8, candidate.Kind.ToUtf8());
             writer.WriteString("raw"u8, candidate.Raw.Span);
             writer.WriteString("normalized"u8, candidate.Normalized.Span);
-            writer.WriteString("status", candidate.Status.ToString().ToLowerInvariant());
+            writer.WriteString("status"u8, candidate.Status.ToUtf8());
             writer.WriteBoolean("deprecated", candidate.Deprecated);
-            WriteWarnings(writer, candidate.Warnings);
+            WriteCandidateWarnings(writer, candidate.Warnings);
             WriteLicenseEvidence(writer, candidate.Evidence);
             writer.WriteEndObject();
         }
@@ -1106,6 +1178,20 @@ internal static class ReportRenderer
             writer.WriteStringValue(warnings[i]);
         }
 
+        writer.WriteEndArray();
+    }
+
+    private static void WriteCandidateWarnings(Utf8JsonWriter writer, LicenseCandidateWarnings warnings)
+    {
+        writer.WriteStartArray("warnings");
+        if ((warnings & LicenseCandidateWarnings.DeprecatedSpdxIdentifier) != 0) writer.WriteStringValue("deprecated_spdx_identifier"u8);
+        if ((warnings & LicenseCandidateWarnings.PackageMetadataFetchFailed) != 0) writer.WriteStringValue("package_metadata_fetch_failed"u8);
+        if ((warnings & LicenseCandidateWarnings.SourceRepositoryCacheInvalid) != 0) writer.WriteStringValue("source_repository_cache_invalid"u8);
+        if ((warnings & LicenseCandidateWarnings.SourceRepositoryCacheWriteFailed) != 0) writer.WriteStringValue("source_repository_cache_write_failed"u8);
+        if ((warnings & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0) writer.WriteStringValue("source_repository_fetch_failed"u8);
+        if ((warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0) writer.WriteStringValue("source_repository_unavailable"u8);
+        if ((warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0) writer.WriteStringValue("unsupported_package_metadata"u8);
+        if ((warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) writer.WriteStringValue("unsupported_source_repository"u8);
         writer.WriteEndArray();
     }
 

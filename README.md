@@ -26,7 +26,7 @@ Scan a resolved dependency input.
 
 Options:
   --sbom <string?>               SBOM JSON path. Cannot be combined with --input. [Default: null]
-  --input <string?>              Resolved dependency input path. [Default: null]
+  --input <string?>              Resolved dependency input file, or a directory containing project.assets.json files. [Default: null]
   --input-format <string?>       Input format: auto (default), cyclonedx, spdx, or nuget-assets. [Default: null]
   --format <ReportFormat>        Output format: text, json, or markdown. [Default: Text]
   --out, --out-file <string?>    Write output to this path. [Default: null]
@@ -132,11 +132,12 @@ Scan summary
 
 ### NuGet
 
-Ol accepts resolved dependency inputs. For a .NET project, restore it and scan NuGet's resolved `project.assets.json` directly. NuGet resolution can differ by target framework and runtime identifier. Ol preserves each target from `project.assets.json` as a separate resolution context in JSON output.
+Ol accepts resolved dependency inputs. For one .NET project, scan NuGet's resolved `project.assets.json` directly. For a repository or solution layout, pass a directory and Ol recursively combines the `project.assets.json` files below it. NuGet resolution can differ by project, target framework, and runtime identifier, so Ol preserves each as a separate occurrence context while reporting each package/version once.
 
 ```bash
 dotnet restore Ol.slnx
 dotnet run --project src/Ol -- scan --input src/Ol/obj/project.assets.json --format markdown
+dotnet run --project src/Ol -- scan --input src --format markdown
 ```
 
 <details><summary>Output sample (Markdown)</summary>
@@ -146,17 +147,14 @@ Input: `package-manager/nuget-assets`
 | NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
 |---|---|---|---|---|---|
 | ConsoleAppFramework | 5.7.13 | MIT | nuget | direct | matched |
-| ConsoleAppFramework | 5.7.13 | MIT | nuget | direct | matched |
 | Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | direct | matched |
-| Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | direct | matched |
-| Microsoft.NET.ILLink.Tasks | 10.0.9 | MIT | nuget | direct | matched |
 | Microsoft.NET.ILLink.Tasks | 10.0.9 | MIT | nuget | direct | matched |
 | runtime.win-x64.Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | transitive | matched |
 
 Scan summary
-  License results: 7 displayed components; 7 matched; 0 conflict; 0 unknown; 0 ambiguous; 0 invalid; 0 error
+  License results: 4 displayed components; 4 matched; 0 conflict; 0 unknown; 0 ambiguous; 0 invalid; 0 error
   Findings: 0 warnings; 0 deprecated SPDX identifiers
-  Package metadata (full scan): 7 supported; 7 cache hits; 0 cache misses; 0 refreshed; 0 fetch errors; 0 unsupported ecosystems
+  Package metadata (full scan): 4 supported; 4 cache hits; 0 cache misses; 0 refreshed; 0 fetch errors; 0 unsupported ecosystems
   Source repositories (full scan): 2 targets; 0 GitHub requests; 2 cache hits; 0 cache misses; 0 fetch errors; 0 components without source license
   Run: concurrency 8; retries 1; GitHub auth none
   Input: project.assets.json; input format NuGet assets; SPDX 5e59516 (bundled)

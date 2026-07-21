@@ -73,7 +73,7 @@ ol scan --input src --input tests
 
 `--input` is repeatable and each value may name a file or directory. Overlapping inputs are deduplicated by resolved file path, then ordered by a non-absolute logical path before parsing and graph-index projection. A single file retains the existing single-document behavior. Multiple discovered documents must all be package-manager inputs; combining SBOM evidence documents with package-manager inventories is rejected because their license-evidence reconciliation is not a path-merging operation.
 
-Each registered input handler owns the exact file names that directory input discovers recursively. Discovery does not follow reparse points and does not determine document format; registered content signatures remain authoritative. `nuget-assets` registers `project.assets.json`, `npm-package-lock` registers `package-lock.json`, `pnpm-lock` registers `pnpm-lock.yaml`, and both Yarn handlers register `yarn.lock`. A future package-manager handler becomes part of the same directory and repeated-input collection by registering its own names and package-identity comparison. A directory containing no registered names is an input error. With explicit `--input-format`, only that handler's registered names are discovered.
+Each registered input handler owns the exact file names that directory input discovers recursively. Discovery does not follow reparse points and does not determine document format; registered content signatures remain authoritative. `nuget-assets` registers `project.assets.json`, `npm-package-lock` registers `package-lock.json`, `pnpm-lock` registers `pnpm-lock.yaml`, both Yarn handlers register `yarn.lock`, and `cargo-metadata` registers `cargo-metadata.json`. A future package-manager handler becomes part of the same directory and repeated-input collection by registering its own names and package-identity comparison. A directory containing no registered names is an input error. With explicit `--input-format`, only that handler's registered names are discovered.
 
 `--input-format` defaults to `auto`; explicitly specifying `auto` is equivalent to omitting the option. Registered format names are matched case-insensitively. An explicit non-auto format is an assertion and must agree with the detected document format.
 
@@ -88,10 +88,11 @@ Currently supported dependency input formats:
 - `pnpm-lock`: pnpm `pnpm-lock.yaml` lockfile version 9.0
 - `yarn-classic-lock`: Yarn Classic `yarn.lock` version 1
 - `yarn-berry-lock`: Yarn Berry `yarn.lock` metadata version 8
+- `cargo-metadata`: `cargo metadata --format-version 1 --locked` JSON
 
 Unsupported inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, package manifests, and lockfile formats without a registered adapter. `ol` does not recursively query registries to reproduce package-manager dependency resolution; package-manager adapters consume already resolved graphs.
 
-Auto detection uses only deterministic, format-owned content signatures; file names and extensions are not evidence. JSON adapters use top-level property signatures. pnpm requires top-level `lockfileVersion` and `importers`, Yarn Classic requires the version 1 header, and Yarn Berry requires top-level `__metadata`. Every required marker for one format must match. No match is an unsupported-input error and multiple matches are an ambiguous-input error; Ol never guesses by registration order. Known formats with unsupported versions are rejected explicitly.
+Auto detection uses only deterministic, format-owned content signatures; file names and extensions are not evidence. JSON adapters use top-level property signatures. Cargo requires format version 1 plus top-level `packages`, `workspace_members`, `resolve`, `target_directory`, and `workspace_root` with their documented JSON types. pnpm requires top-level `lockfileVersion` and `importers`, Yarn Classic requires the version 1 header, and Yarn Berry requires top-level `__metadata`. Every required marker for one format must match. No match is an unsupported-input error and multiple matches are an ambiguous-input error; Ol never guesses by registration order. Known formats with unsupported versions are rejected explicitly.
 
 `scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns non-zero only when the scan itself cannot be performed or output cannot be written.
 
@@ -314,7 +315,7 @@ Top-level `schemaVersion` identifies the breaking report contract. Schema versio
 The current schema v1 report emits `metadata.input` and `metadata.spdx` as separate objects. Generic input metadata contains:
 
 - `kind`: the stable input family, currently `sbom` or `package-manager`
-- `format`: the registered format name, currently `cyclonedx`, `spdx`, `nuget-assets`, `npm-package-lock`, `pnpm-lock`, `yarn-classic-lock`, or `yarn-berry-lock`; a package-manager collection containing different formats reports `collection`
+- `format`: the registered format name, currently `cyclonedx`, `spdx`, `nuget-assets`, `npm-package-lock`, `pnpm-lock`, `yarn-classic-lock`, `yarn-berry-lock`, or `cargo-metadata`; a package-manager collection containing different formats reports `collection`
 - `sourceRef`: the input file or directory basename, or `{count} inputs` for repeated input, rather than an absolute local path
 - `sourceSha256`: the SHA-256 of the complete file input, or a deterministic aggregate over logical discovery paths and content hashes for directory or repeated input
 - `parser`: the stable parser identity

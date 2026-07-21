@@ -83,28 +83,40 @@ public readonly record struct DependencyInputHandler(
     DependencyComponentIdentityComparison ComponentIdentityComparison = DependencyComponentIdentityComparison.Ordinal,
     DependencyInputDetector? Detector = null);
 
-/// <summary>Immutable registry of resolved dependency input handlers.</summary>
+/// <summary>
+/// Immutable registry of resolved dependency input handlers.
+/// </summary>
 public sealed class DependencyInputRegistry
 {
     private readonly DependencyInputHandler[] handlers;
 
-    /// <summary>Gets the built-in resolved dependency input handlers.</summary>
+    /// <summary>
+    /// Gets the built-in resolved dependency input handlers.
+    /// </summary>
     public static DependencyInputRegistry Default { get; } = new([
+        // CycloneDX - SBOM
         new(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, new(new DependencyInputMarker[] { new("bomFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "CycloneDX"u8.ToArray()) }), SbomInputParser.ParseCycloneDxInventory),
+        // SPDX - SBOM
         new(ScanInputKind.Sbom, ScanInputFormat.Spdx, new(new DependencyInputMarker[] { new("spdxVersion"u8.ToArray(), DependencyInputMarkerValueKind.String) }), SbomInputParser.ParseSpdxInventory),
+        // NuGet - Package Manager
         new(ScanInputKind.PackageManager, ScanInputFormat.NuGetAssets, new(new DependencyInputMarker[] {
             new("version"u8.ToArray(), DependencyInputMarkerValueKind.Number),
             new("targets"u8.ToArray(), DependencyInputMarkerValueKind.Object),
             new("libraries"u8.ToArray(), DependencyInputMarkerValueKind.Object),
             new("project"u8.ToArray(), DependencyInputMarkerValueKind.Object),
         }), NuGetAssetsInputParser.Parse, new[] { "project.assets.json" }, DependencyComponentIdentityComparison.AsciiIgnoreCase),
+        // NPM - Package Manager
         new(ScanInputKind.PackageManager, ScanInputFormat.NpmPackageLock, new(new DependencyInputMarker[] {
             new("lockfileVersion"u8.ToArray(), DependencyInputMarkerValueKind.Number),
             new("packages"u8.ToArray(), DependencyInputMarkerValueKind.Object),
         }), NpmPackageLockInputParser.Parse, new[] { "package-lock.json" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
+        // PNPM - Package Manager
         new(ScanInputKind.PackageManager, ScanInputFormat.PnpmLock, default, PnpmLockInputParser.Parse, new[] { "pnpm-lock.yaml" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, PnpmLockInputParser.Detect),
+        // Yarn - Package Manager
         new(ScanInputKind.PackageManager, ScanInputFormat.YarnClassicLock, default, YarnClassicLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnClassicLockInputParser.Detect),
+        // Yarn - Package Manager
         new(ScanInputKind.PackageManager, ScanInputFormat.YarnBerryLock, default, YarnBerryLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnBerryLockInputParser.Detect),
+        // Cargo - Package Manager
         new(ScanInputKind.PackageManager, ScanInputFormat.CargoMetadata, new(new DependencyInputMarker[] {
             new("packages"u8.ToArray(), DependencyInputMarkerValueKind.Array),
             new("workspace_members"u8.ToArray(), DependencyInputMarkerValueKind.Array),

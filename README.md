@@ -261,7 +261,7 @@ When a trustworthy polyglot SBOM is unavailable, scan resolved package-manager i
 ```bash
 dotnet restore MyRepository.slnx
 cargo metadata --format-version 1 --locked > src/rust/cargo-metadata.json
-dotnet run --project src/Ol -- scan --input src/backend --input src/frontend --format json
+dotnet run --project src/Ol -- scan --input src/backend --input src/frontend --input src/rust --format json
 ```
 
 Ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, both Yarn lock formats, and `cargo-metadata.json`. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; Ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.

@@ -20,7 +20,7 @@ The command and output rules below are user-facing consequences of those design 
 
 `ol` evolves by widening the dependency inputs and evidence sources used by `scan`.
 
-- v1 scans SBOM files. The original `--sbom` form remains compatible while the input boundary is generalized for future resolved package-manager inputs.
+- v1 scans SBOM files through the common `--input` boundary.
 - v2 adds package manager and package registry metadata as automatic hints.
 - v3 adds source repository license hints.
 - A later phase adds allow-list policy checks and CI failure behavior.
@@ -55,13 +55,7 @@ Cache entry compatibility and category-specific JSON schemas are defined by [cac
 
 `scan` is the primary command. It lists components and their license status from one or more resolved dependency inputs and the available evidence sources for the current version.
 
-The compatible SBOM shortcut accepts CycloneDX or SPDX JSON and detects the format from content:
-
-```bash
-ol scan --sbom bom.json
-```
-
-The generalized input form detects a registered format from content by default:
+The input form detects a registered format from content by default:
 
 ```bash
 ol scan --input bom.json
@@ -77,7 +71,7 @@ Each registered input handler owns the exact file names that directory input dis
 
 `--input-format` defaults to `auto`; explicitly specifying `auto` is equivalent to omitting the option. Registered format names are matched case-insensitively. An explicit non-auto format is an assertion and must agree with the detected document format.
 
-Exactly one of `--sbom` and one-or-more `--input` options is required. They cannot be combined. `--input-format` can only be used with `--input` and asserts every discovered document.
+One or more `--input` options are required. `--input-format` asserts every discovered document.
 
 Currently supported dependency input formats:
 
@@ -131,15 +125,15 @@ Examples of component-level problems:
 Default format is `text`.
 
 ```bash
-ol scan --sbom bom.json --format text
-ol scan --sbom bom.json --format json
-ol scan --sbom bom.json --format markdown
+ol scan --input bom.json --format text
+ol scan --input bom.json --format json
+ol scan --input bom.json --format markdown
 ```
 
 `--out` writes the same format selected by `--format` to the given file. It does not suppress stdout.
 
 ```bash
-ol scan --sbom bom.json --format markdown --out licenses.md
+ol scan --input bom.json --format markdown --out licenses.md
 ```
 
 For human-readable `text` and `markdown` output, a labeled scan summary is separated from the report by a blank line and written to stderr. JSON already contains canonical summary, warning, cache, network, input, and SPDX metadata, so successful JSON output does not emit a duplicate stderr summary. This keeps redirected and interactive JSON output free from an unexpected second representation of the same information.
@@ -220,9 +214,9 @@ The field is required in JSON and displayed in default `text` and `markdown` out
 `--dependency` filters scan output by dependency type:
 
 ```bash
-ol scan --sbom bom.json --dependency direct
-ol scan --sbom bom.json --dependency root,direct
-ol scan --sbom bom.json --dependency transitive
+ol scan --input bom.json --dependency direct
+ol scan --input bom.json --dependency root,direct
+ol scan --input bom.json --dependency transitive
 ```
 
 Allowed values are:
@@ -249,7 +243,7 @@ ecosystem,name,version
 `--sort` accepts comma-separated keys:
 
 ```bash
-ol scan --sbom bom.json --sort status,ecosystem,name
+ol scan --input bom.json --sort status,ecosystem,name
 ```
 
 Normal sort keys:
@@ -265,7 +259,7 @@ Normal sort keys:
 `--sort-order` applies one direction to all selected keys:
 
 ```bash
-ol scan --sbom bom.json --sort status,name --sort-order desc
+ol scan --input bom.json --sort status,name --sort-order desc
 ```
 
 Allowed values are `asc` and `desc`. Default is `asc`.
@@ -277,9 +271,9 @@ The comma-separated `--sort` value must contain at least one key.
 `--group-by` switches the output view from component rows to aggregate rows. It accepts one or more comma-separated output fields:
 
 ```bash
-ol scan --sbom bom.json --group-by license
-ol scan --sbom bom.json --group-by ecosystem,license
-ol scan --sbom bom.json --group-by dependency,status
+ol scan --input bom.json --group-by license
+ol scan --input bom.json --group-by ecosystem,license
+ol scan --input bom.json --group-by dependency,status
 ```
 
 Groupable fields:

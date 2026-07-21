@@ -81,7 +81,7 @@ Users should not have to specify package manager or ecosystem manually. The CLI 
 There is no required `--package-manager`, `--assume-ecosystem`, or `--hint package-manager` flag in the normal flow.
 
 ```bash
-ol scan --sbom bom.json
+ol scan --input bom.json
 ```
 
 The same command gains richer evidence in v2.

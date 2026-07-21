@@ -499,7 +499,7 @@ internal sealed class ScanCommands
         if (!hasInput)
         {
             error = "--input must be specified.";
-            return true;
+            return false;
         }
 
         for (var inputIndex = 0; inputIndex < input!.Length; inputIndex++)

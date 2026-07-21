@@ -110,13 +110,7 @@ ol scan --input obj/project.assets.json
 
 `--input-format`は`auto`を既定とし、登録済みadapterが所有するcontent signatureで判定する。異なる形式が同じJSON、YAML、lockfileを使用する可能性があるため、拡張子だけに依存した判定を公開契約にしない。明示formatは検出結果に対するassertionとして維持する。
 
-既存の次の呼び出しは、互換性のため維持する。
-
-```text
-ol scan --sbom bom.json
-```
-
-`--sbom` は SBOM 入力であることを明示する既存のショートカットとして扱う。`--input` と `--sbom` の同時指定はエラーにする。既存形式の自動判定を `--sbom` で継続するか、format optionを追加するかは実装前にCLI互換性テストで確定する。
+旧`--sbom`ショートカットは廃止し、SBOMも`--input`からcontentで自動判定する。
 
 入力形式の追加は、形式固有のmarker、parser、input metadata projectionを一つの登録単位に閉じ込める。新しい形式の追加によって、enrichment、reconciliation、view、output formatにecosystem固有switchを追加しない。
 
@@ -210,7 +204,7 @@ Input adapter
 
 ### Phase 1: コマンドとデータ境界の仕様化（完了）
 
-- `scan --input`、`--input-format`、既存`--sbom`の互換規則を決める。
+- `scan --input`と`--input-format`の規則を決める。
 - input descriptor、dependency inventory、resolution context、scan resultの最小データを定義する。
 - occurrence、edge、network lookup targetを別の概念として定義する。
 - JSON metadataの互換方針を決める。
@@ -218,8 +212,8 @@ Input adapter
 Phase 1では次の契約に確定した。
 
 - `--input-format`はcase-insensitiveな登録名とする。Phase 1時点では`cyclonedx`と`spdx`だけを受理し、Phase 3で`nuget-assets`を有効化した。
-- 既存`--sbom`はcontentによるCycloneDX/SPDX自動判定を維持する。
-- Phase 1時点では`--input`に`--input-format`を必須とした。Phase 5で省略時を`auto`へ変更した。`--sbom`との同時指定は引き続き拒否する。
+- Phase 1時点では`--sbom`によるCycloneDX/SPDX自動判定を維持したが、入力境界の統一後に`--sbom`を廃止した。
+- Phase 1時点では`--input`に`--input-format`を必須とした。Phase 5で省略時を`auto`へ変更した。
 - schema v1 JSONへ汎用input metadataを追加し、既存SBOM fieldは互換aliasとして維持する。非SBOM入力ではSBOM aliasを出力しない。
 - resolution context、occurrence、edgeは別のvalue型として保持し、network lookup targetはinventoryに含めない。
 - 非SBOM入力が将来license claimを提供する場合は`dependency-input` provenanceを使用し、SBOM evidenceと偽装しない。
@@ -370,8 +364,8 @@ Phase 9では、raw `go mod graph`だけではMVSで未選択のversionを除外
 
 変更はtest-firstで進め、少なくとも次を検証する。
 
-- 既存`scan --sbom`の互換性
-- `--input`、`--input-format`、`--sbom`の排他とvalidation
+- `scan --input`によるSBOMの自動判定
+- `--input`と`--input-format`のvalidation
 - 入力形式のregistration
 - SBOM入力から共通inventoryへの変換
 - NuGet target framework/RIDごとのpackage occurrenceとedge
@@ -387,7 +381,7 @@ Phase 9では、raw `go mod graph`だけではMVSで未選択のversionを除外
 この計画が完了したと判断する条件は次のとおり。
 
 1. `scan` がSBOMとNuGet `project.assets.json`を既定で自動判定し、明示formatもassertionとして受け付ける。
-2. 既存の`scan --sbom`利用方法とlicense判定が維持される。
+2. `scan --input`によるSBOMのlicense判定が維持される。
 3. 入力解析、dependency inventory、license enrichment、scan result、renderingの責務が分離される。
 4. package manager入力をSBOMと偽ってmetadataやevidenceを出力しない。
 5. target framework、RID、platformなどが異なるgraphを早期にmergeしない。

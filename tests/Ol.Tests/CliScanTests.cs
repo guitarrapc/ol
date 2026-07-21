@@ -22,6 +22,18 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithRemovedSbomOption_ReturnsUnknownOptionError()
+    {
+        var root = FindRepositoryRoot();
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", "removed.json");
+
+        await Assert.That(exitCode).IsEqualTo(1);
+        await Assert.That(stdout.Trim()).IsEqualTo("Argument '--sbom' is not recognized.");
+        await Assert.That(stderr).IsEmpty();
+    }
+
+    [Test]
     public async Task Scan_WithInputFormatOmitted_AutoDetectsCycloneDx()
     {
         var root = FindRepositoryRoot();
@@ -171,9 +183,7 @@ public sealed class CliScanTests
         {
             var cases = new[]
             {
-                (Arguments: Array.Empty<string>(), Message: "Exactly one of --sbom or --input must be specified."),
-                (Arguments: new[] { "--sbom", inputPath, "--input", inputPath, "--input-format", "cyclonedx" }, Message: "--sbom and --input cannot be used together."),
-                (Arguments: new[] { "--sbom", inputPath, "--input-format", "cyclonedx" }, Message: "--input-format can only be used with --input."),
+                (Arguments: Array.Empty<string>(), Message: "--input must be specified."),
                 (Arguments: new[] { "--input", inputPath, "--input-format", "unknown" }, Message: "Unsupported input format: unknown"),
             };
 
@@ -233,7 +243,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -277,7 +287,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--sbom", sbomPath, "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -322,7 +332,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, stderr) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -383,7 +393,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--refresh");
+            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--input", sbomPath, "--format", "json", "--refresh");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -431,7 +441,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--spdx-data", spdxDirectory);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--spdx-data", spdxDirectory);
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -486,7 +496,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--dependency", "direct");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--dependency", "direct");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).Contains("direct");
@@ -533,7 +543,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -567,7 +577,7 @@ public sealed class CliScanTests
         {
             foreach (var format in new[] { "text", "markdown" })
             {
-                var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", format);
+                var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", format);
 
                 await Assert.That(exitCode).IsEqualTo(0);
                 await Assert.That(stderr).StartsWith($"{Environment.NewLine}Scan summary{Environment.NewLine}");
@@ -577,7 +587,7 @@ public sealed class CliScanTests
                 await Assert.That(stderr).Contains("  Input:");
             }
 
-            var (quietExitCode, _, quietStderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "text", "--quiet");
+            var (quietExitCode, _, quietStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "text", "--quiet");
             await Assert.That(quietExitCode).IsEqualTo(0);
             await Assert.That(quietStderr).IsEmpty();
         }
@@ -612,7 +622,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--spdx-data", spdxDirectory);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--spdx-data", spdxDirectory);
 
             if (exitCode != 0)
             {
@@ -658,7 +668,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "markdown", "--out", outPath);
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "markdown", "--out", outPath);
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(File.Exists(outPath)).IsTrue();
@@ -694,7 +704,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--group-by", "license");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--group-by", "license");
             if (exitCode != 0)
             {
                 throw new InvalidOperationException($"ol exited with {exitCode}. stdout: {stdout} stderr: {stderr}");
@@ -706,7 +716,7 @@ public sealed class CliScanTests
             await Assert.That(stdout).Contains("MIT 2");
             await Assert.That(stderr).Contains("License results: 3 displayed components");
 
-            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--group-by", "license", "--format", "json", "--skip-enrichment");
+            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--group-by", "license", "--format", "json", "--skip-enrichment");
 
             await Assert.That(jsonExitCode).IsEqualTo(0);
             await Assert.That(jsonStderr).IsEmpty();
@@ -748,7 +758,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--sort", "ECOSYSTEM,NAME", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--input", sbomPath, "--format", "json", "--sort", "ECOSYSTEM,NAME", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -784,7 +794,7 @@ public sealed class CliScanTests
         try
         {
             var environment = new Dictionary<string, string?> { ["OL_GITHUB_TOKEN"] = token };
-            var (exitCode, stdout, _) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, _) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).DoesNotContain(token);
@@ -829,7 +839,7 @@ public sealed class CliScanTests
         {
             const string ignoredGitHubToken = "github-token-must-not-appear";
             var environment = new Dictionary<string, string?> { ["OL_GITHUB_TOKEN"] = null, ["GITHUB_TOKEN"] = ignoredGitHubToken };
-            var (exitCode, stdout, stderr) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, stderr) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -863,7 +873,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--sbom", sbomPath, "--format", "json");
+            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "json");
 
             await Assert.That(jsonExitCode).IsEqualTo(0);
             await Assert.That(jsonStderr).IsEmpty();
@@ -871,7 +881,7 @@ public sealed class CliScanTests
             await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("status").GetString()).IsEqualTo("error");
             await Assert.That(report.RootElement.GetProperty("summary").GetProperty("error").GetInt32()).IsEqualTo(1);
 
-            var (textExitCode, _, textStderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--sbom", sbomPath, "--format", "text");
+            var (textExitCode, _, textStderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "text");
 
             await Assert.That(textExitCode).IsEqualTo(0);
             await Assert.That(textStderr).Contains("1 error");
@@ -918,7 +928,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--cache-dir", cacheDirectory, "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--cache-dir", cacheDirectory, "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -946,7 +956,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--skip-enrichment", "--cache-dir", unusedCacheFile);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--skip-enrichment", "--cache-dir", unusedCacheFile);
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -1033,7 +1043,7 @@ public sealed class CliScanTests
 
             foreach (var item in cases)
             {
-                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment", item.Option, item.Value);
+                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", item.Option, item.Value);
 
                 await Assert.That(exitCode).IsEqualTo(1);
                 await Assert.That(stdout).IsEmpty();
@@ -1055,11 +1065,11 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment");
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
-            await Assert.That(stderr).StartsWith("Unable to scan SBOM:");
+            await Assert.That(stderr).StartsWith("Unable to scan input:");
             await Assert.That(stderr).DoesNotContain("   at ");
         }
         finally
@@ -1080,7 +1090,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
@@ -1088,7 +1098,7 @@ public sealed class CliScanTests
 
             await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "licenses.json"), "{}", Encoding.UTF8);
             await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "exceptions.json"), """{ "exceptions": [] }""", Encoding.UTF8);
-            var (invalidExitCode, invalidStdout, invalidStderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
+            var (invalidExitCode, invalidStdout, invalidStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
 
             await Assert.That(invalidExitCode).IsEqualTo(1);
             await Assert.That(invalidStdout).IsEmpty();
@@ -1113,7 +1123,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment", "--out", outDirectory);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", "--out", outDirectory);
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();

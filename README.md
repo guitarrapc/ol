@@ -25,7 +25,6 @@ Usage: scan [options...] [-h|--help] [--version]
 Scan a resolved dependency input.
 
 Options:
-  --sbom <string?>               SBOM JSON path. Cannot be combined with --input. [Default: null]
   --input <string[]?>            Repeatable resolved dependency input files or directories. [Default: null]
   --input-format <string?>       Input format assertion; defaults to auto detection. [Default: null]
   --format <ReportFormat>        Output format: text, json, or markdown. [Default: Text]
@@ -59,8 +58,6 @@ Options:
 | Go | `go-module-graph` |
 
 `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
-
-`--sbom <path>` remains available as a compatible shortcut for CycloneDX or SPDX JSON.
 
 Use an isolated cache root when a build or CI job must not share the user cache:
 
@@ -268,8 +265,8 @@ ol does not resolve package manifests or version ranges itself. It consumes eith
 | Go modules | `go.mod`, `go.sum`, optional `go.work` | Paired `go list -m -json all` and `go mod graph` output | Generate `go-list-modules.json` and `go-mod-graph.txt` together, then pass both files or their directory. ol consumes Go's selected build list instead of running MVS itself. |
 | Java / JVM | `pom.xml`, Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Run the ecosystem build/resolution and use its CycloneDX generator or a polyglot generator. |
 | Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock` | CycloneDX/SPDX JSON SBOM | Resolve the intended environment and generate an SBOM; ol does not choose markers, extras, or platform wheels. |
-| PHP / Composer | `composer.json`, `composer.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--sbom`. |
-| Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--sbom`. |
+| PHP / Composer | `composer.json`, `composer.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--input`. |
+| Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--input`. |
 
 For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
 
@@ -280,7 +277,7 @@ Use one canonical dependency source per ol report. For a release or audit artifa
 ```bash
 # First run the repository's normal locked restore/install steps.
 cdxgen -r -o bom.cdx.json .
-dotnet run --project src/Ol -- scan --sbom bom.cdx.json
+dotnet run --project src/Ol -- scan --input bom.cdx.json
 ```
 
 Check that the generated BOM contains every intended project, package ecosystem, and dependency relationship. A single file is only better when its generator has complete coverage. If separate ecosystem tools produce separate CycloneDX BOMs, merge them before scanning; [CycloneDX CLI](https://github.com/CycloneDX/cyclonedx-cli) supports hierarchical merge when every input BOM identifies its subject in `metadata.component`:
@@ -288,7 +285,7 @@ Check that the generated BOM contains every intended project, package ecosystem,
 ```bash
 cyclonedx merge --input-files dotnet.cdx.json node.cdx.json --output-file repository.cdx.json --output-format json --hierarchical --name my-repository --version "$GIT_COMMIT"
 
-dotnet run --project src/Ol -- scan --sbom repository.cdx.json
+dotnet run --project src/Ol -- scan --input repository.cdx.json
 ```
 
 When a trustworthy polyglot SBOM is unavailable, scan resolved package-manager inputs directly. Restore .NET projects first so `project.assets.json` exists, then pass selected roots or the repository directory. Do not specify `--input-format` for mixed formats:

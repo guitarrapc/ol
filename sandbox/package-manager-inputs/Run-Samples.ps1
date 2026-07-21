@@ -20,7 +20,8 @@ $samples = @(
     [pscustomobject]@{ Name = "npm"; Input = "npm\package-lock.json" },
     [pscustomobject]@{ Name = "pnpm"; Input = "pnpm\pnpm-lock.yaml" },
     [pscustomobject]@{ Name = "yarn-classic"; Input = "yarn-classic\yarn.lock" },
-    [pscustomobject]@{ Name = "yarn-berry"; Input = "yarn-berry\yarn.lock" }
+    [pscustomobject]@{ Name = "yarn-berry"; Input = "yarn-berry\yarn.lock" },
+    [pscustomobject]@{ Name = "cargo"; Input = "cargo\cargo-metadata.json" }
 )
 
 $results = foreach ($sample in $samples) {

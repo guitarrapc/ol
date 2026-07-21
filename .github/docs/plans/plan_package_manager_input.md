@@ -325,12 +325,22 @@ Phase 7では次の境界に確定した。
 - 汎用YAML object modelは導入せず、source-backed `Utf8Slice`を返す狭いUTF-8 indentation readerと、`ArrayPool`によるnode/dependency/traversal bufferを使用する。これにより追加reflection metadataやNative AOT dependencyを持たない。
 - 1 component focused benchmarkではpnpm 3.207 µs、Yarn Classic 1.571 µs、Yarn Berry 3.414 µsで、いずれも472 Bだった。同じowned result floorも472 Bであり、3 parser固有のmanaged allocationは0 Bだった。
 
-### Phase 8: Cargo resolved metadata input adapter
+### Phase 8: Cargo resolved metadata input adapter（完了）
 
 - `cargo metadata --format-version 1 --locked` JSONを入力とし、`Cargo.toml`や`Cargo.lock`だけからfeature解決を再実装しない。
 - resolve nodes、package IDs、workspace members、features、target-specific dependencyを保持する。
 - target tripleやfeature setは生成条件としてcontext/variantへ保持し、複数metadata結果を自動mergeしない。
 - registry、git、path packageを区別し、registry packageだけに`pkg:cargo` lookup identityを付与する。
+
+Phase 8では次の境界に確定した。
+
+- `cargo-metadata`はtop-levelのformat version 1、`packages`、`workspace_members`、resolved `resolve`、`target_directory`、`workspace_root`でcontent detectionし、`cargo-metadata.json`をdirectory discoveryへ登録する。`resolve: null`となる`--no-deps`出力は受理しない。
+- workspace memberをpackage nameとresolved feature variantを持つcontextにし、workspace nodeはgraph traversal専用とする。非workspaceのregistry、git、path packageはCargo package idをsource identityにしたcomponentとして保持する。
+- crates.ioのgit indexおよびsparse indexだけにcanonical `pkg:cargo/{name}@{version}`を付与する。alternate registry、git、pathをcrates.io enrichment対象に偽装しない。
+- resolve node feature、incoming dependency kind、target expressionをsparse occurrence variantへ保持し、実行hostで評価しない。metadataには`--filter-platform`引数そのものがないためtarget tripleをhostから推測しない。
+- workspace crossingは到達性とdirect/transitive判定へ使うが、省略したworkspace traversal nodeを架空のpackage edgeへ置き換えない。`packages[].license`は`cargo-metadata`の`dependency-input` provenanceとして分類する。
+- parserは`Utf8JsonReader`を用いてDOMを構築せず、通常の文字列fieldをsource-backed `Utf8Slice`として保持する。package-id hash index、node/dependency/feature/graph buffer、incoming-edge indexは`ArrayPool`を使用し、token/edge loopにLINQ、transient string、per-edge collection allocationを持たない。
+- 1 component focused benchmarkではCargo metadata ingestionが13.772 µs / 600 B、同じowned result floorが186.3 ns / 600 Bで、parser固有のmanaged allocationは0 Bだった。
 
 ### Phase 9: Go module graph input adapter
 

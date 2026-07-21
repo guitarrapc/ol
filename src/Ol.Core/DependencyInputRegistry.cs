@@ -35,6 +35,9 @@ public enum DependencyInputMarkerValueKind : byte
 
     /// <summary>The property value must be a JSON object.</summary>
     Object,
+
+    /// <summary>The property value must be a JSON array.</summary>
+    Array,
 }
 
 /// <summary>One required top-level JSON marker in a dependency input signature.</summary>
@@ -102,6 +105,14 @@ public sealed class DependencyInputRegistry
         new(ScanInputKind.PackageManager, ScanInputFormat.PnpmLock, default, PnpmLockInputParser.Parse, new[] { "pnpm-lock.yaml" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, PnpmLockInputParser.Detect),
         new(ScanInputKind.PackageManager, ScanInputFormat.YarnClassicLock, default, YarnClassicLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnClassicLockInputParser.Detect),
         new(ScanInputKind.PackageManager, ScanInputFormat.YarnBerryLock, default, YarnBerryLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnBerryLockInputParser.Detect),
+        new(ScanInputKind.PackageManager, ScanInputFormat.CargoMetadata, new(new DependencyInputMarker[] {
+            new("packages"u8.ToArray(), DependencyInputMarkerValueKind.Array),
+            new("workspace_members"u8.ToArray(), DependencyInputMarkerValueKind.Array),
+            new("resolve"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+            new("target_directory"u8.ToArray(), DependencyInputMarkerValueKind.String),
+            new("version"u8.ToArray(), DependencyInputMarkerValueKind.NumberEquals, "1"u8.ToArray()),
+            new("workspace_root"u8.ToArray(), DependencyInputMarkerValueKind.String),
+        }), CargoMetadataInputParser.Parse, new[] { "cargo-metadata.json" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>
@@ -330,6 +341,7 @@ public static class DependencyInputScanner
                         DependencyInputMarkerValueKind.NumberEquals => reader.TokenType == JsonTokenType.Number && !reader.HasValueSequence && reader.ValueSpan.SequenceEqual(marker.Value.Span),
                         DependencyInputMarkerValueKind.Number => reader.TokenType == JsonTokenType.Number,
                         DependencyInputMarkerValueKind.Object => reader.TokenType == JsonTokenType.StartObject,
+                        DependencyInputMarkerValueKind.Array => reader.TokenType == JsonTokenType.StartArray,
                         _ => false,
                     };
                     if (matches)

@@ -114,6 +114,26 @@ public class DependencyInputScannerBenchmark
           resolution: "left-pad@npm:1.3.0"
         """);
 
+    private readonly byte[] cargoMetadata = Encoding.UTF8.GetBytes(
+        """
+        {
+          "packages": [
+            { "name": "app", "version": "0.1.0", "id": "path+file:///app#app@0.1.0", "source": null },
+            { "name": "itoa", "version": "1.0.0", "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "source": "registry+https://github.com/rust-lang/crates.io-index" }
+          ],
+          "workspace_members": [ "path+file:///app#app@0.1.0" ],
+          "resolve": {
+            "nodes": [
+              { "id": "path+file:///app#app@0.1.0", "deps": [ { "name": "itoa", "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "dep_kinds": [ { "kind": null, "target": null } ] } ], "features": [ "default" ] },
+              { "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "deps": [], "features": [] }
+            ]
+          },
+          "target_directory": "/app/target",
+          "version": 1,
+          "workspace_root": "/app"
+        }
+        """);
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
@@ -132,6 +152,10 @@ public class DependencyInputScannerBenchmark
     private readonly Utf8Slice npmNativeName = "native-addon";
     private readonly Utf8Slice npmNativeVersion = "2.0.0";
     private readonly Utf8Slice npmNativeSourceId = "node_modules/native-addon";
+    private readonly Utf8Slice cargoRoot = "app";
+    private readonly Utf8Slice cargoName = "itoa";
+    private readonly Utf8Slice cargoVersion = "1.0.0";
+    private readonly Utf8Slice cargoSourceId = "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0";
 
     [Benchmark]
     public DependencyInventory ScanCycloneDx()
@@ -173,6 +197,12 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory ScanYarnBerryLockInventory()
     {
         return DependencyInputScanner.Scan(yarnBerryLock, spdx, expectedFormat: ScanInputFormat.YarnBerryLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanCargoMetadataInventory()
+    {
+        return DependencyInputScanner.Scan(cargoMetadata, spdx, expectedFormat: ScanInputFormat.CargoMetadata);
     }
 
     [Benchmark]
@@ -238,6 +268,19 @@ public class DependencyInputScannerBenchmark
             [component],
             [new DependencyOccurrence(0, 0)],
             []);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateCargoInventoryResultFloor()
+    {
+        var component = new ScanComponent(cargoName, cargoVersion, default, "cargo", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:cargo/itoa@1.0.0"u8.ToArray()), cargoSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(cargoRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("features=default"u8.ToArray()))],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
+            [new DependencyOccurrenceVariant(0, Utf8Slice.FromOwnedBytes("source=registry"u8.ToArray()))]);
     }
 
     [Benchmark]

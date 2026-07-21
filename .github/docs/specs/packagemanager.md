@@ -30,7 +30,7 @@ The resolved-input pipeline accepts NuGet `project.assets.json` version 3 or 4 t
 
 The same pipeline accepts npm `package-lock.json` lockfile version 2 or 3 as `npm-package-lock`. Its handler owns recursive discovery of the exact `package-lock.json` name. The adapter consumes the `packages` install tree and never calls a registry to resolve dependency ranges.
 
-pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively.
+pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively. Cargo metadata JSON format version 1 is accepted as `cargo-metadata`, whose handler owns `cargo-metadata.json` discovery.
 
 ## NuGet resolved input
 
@@ -57,6 +57,14 @@ Each pnpm importer becomes a resolution context. Link and workspace nodes partic
 ## Yarn resolved input
 
 Yarn Classic and Berry use separate detectors and parsers. Classic version 1 provides a descriptor-to-resolution graph but no workspace root manifest, so it produces one `yarn.lock` context and keeps relationship classification unknown; optional-only incoming resolutions retain an `optional` variant. Berry metadata version 8 workspace resolutions become contexts, while npm resolutions become components. Workspace/protocol nodes are traversal-only, and virtual resolution hashes are retained as `virtual` variants. A resolution that cannot be uniquely reached without Berry install state remains an unknown occurrence in the first workspace context rather than being discarded or guessed.
+
+## Cargo resolved input
+
+The Cargo adapter consumes only JSON produced by `cargo metadata --format-version 1 --locked`. It does not resolve `Cargo.toml`, interpret `Cargo.lock`, invoke Cargo, or accept `resolve: null` output produced with `--no-deps`.
+
+Each `workspace_members` package becomes a context identified by package name and its resolved feature set. Workspace nodes remain graph traversal nodes and do not become report components. Non-workspace registry, git, and path packages become components whose exact Cargo package id is the source identity. Only the two official crates.io source identifiers receive a canonical versioned `pkg:cargo/{name}@{version}` enrichment identity; alternate registries, git sources, and path packages do not masquerade as crates.io packages.
+
+Resolve-node features plus incoming dependency `kind` and target expressions are retained in deterministic sparse occurrence variants. Workspace crossings participate in reachability classification, but omitting a workspace traversal node does not invent a package-to-package edge. The format records target expressions on dependencies but does not record the literal Cargo `--filter-platform` argument, so context target/platform/architecture fields remain unspecified rather than being inferred from the scanning host. `packages[].license` is classified as `dependency-input` evidence with Cargo metadata provenance.
 
 ## User Experience
 

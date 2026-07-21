@@ -1,6 +1,6 @@
 # Package-manager input samples
 
-These deterministic resolved-input samples exercise Ol without installing or invoking NuGet, npm, pnpm, or Yarn and without accessing package registries.
+These deterministic resolved-input samples exercise Ol without installing or invoking NuGet, npm, pnpm, Yarn, or Cargo and without accessing package registries.
 
 Run all adapters from the repository root:
 
@@ -14,6 +14,12 @@ To run one sample directly:
 
 ```bash
 dotnet run -c Release --project src/Ol -- scan --input sandbox/package-manager-inputs/pnpm/pnpm-lock.yaml --skip-enrichment --format json --quiet
+```
+
+The Cargo sample is the checked output of `cargo metadata --format-version 1 --locked`, not `Cargo.toml` or `Cargo.lock` itself:
+
+```bash
+dotnet run -c Release --project src/Ol -- scan --input sandbox/package-manager-inputs/cargo/cargo-metadata.json --skip-enrichment --format json --quiet
 ```
 
 Yarn Classic and Yarn Berry intentionally use the same `yarn.lock` file name in separate directories. Their content signatures select the correct adapter.

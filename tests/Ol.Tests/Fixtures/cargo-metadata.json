@@ -1,0 +1,59 @@
+{
+  "packages": [
+    { "name": "workspace-app", "version": "0.1.0", "id": "path+file:///repo#workspace-app@0.1.0", "license": "MIT", "source": null, "manifest_path": "/repo/Cargo.toml" },
+    { "name": "workspace-tool", "version": "0.1.0", "id": "path+file:///repo/crates/tool#workspace-tool@0.1.0", "license": "MIT", "source": null, "manifest_path": "/repo/crates/tool/Cargo.toml" },
+    { "name": "serde", "version": "1.0.0", "id": "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0", "license": "MIT OR Apache-2.0", "source": "registry+https://github.com/rust-lang/crates.io-index", "repository": "https://github.com/serde-rs/serde", "manifest_path": "/cargo/serde/Cargo.toml" },
+    { "name": "itoa", "version": "1.0.0", "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "license": "MIT OR Apache-2.0", "source": "registry+https://github.com/rust-lang/crates.io-index", "manifest_path": "/cargo/itoa/Cargo.toml" },
+    { "name": "git-dep", "version": "0.3.0", "id": "git+https://github.com/example/git-dep?rev=abc#abc", "license": "Apache-2.0", "source": "git+https://github.com/example/git-dep?rev=abc#abc", "repository": "https://github.com/example/git-dep", "manifest_path": "/git/git-dep/Cargo.toml" },
+    { "name": "local-dep", "version": "0.2.0", "id": "path+file:///repo/vendor/local-dep#0.2.0", "license": null, "license_file": "LICENSE", "source": null, "manifest_path": "/repo/vendor/local-dep/Cargo.toml" }
+  ],
+  "workspace_members": [
+    "path+file:///repo#workspace-app@0.1.0",
+    "path+file:///repo/crates/tool#workspace-tool@0.1.0"
+  ],
+  "workspace_default_members": [ "path+file:///repo#workspace-app@0.1.0" ],
+  "resolve": {
+    "nodes": [
+      {
+        "id": "path+file:///repo#workspace-app@0.1.0",
+        "dependencies": [
+          "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0",
+          "git+https://github.com/example/git-dep?rev=abc#abc",
+          "path+file:///repo/crates/tool#workspace-tool@0.1.0"
+        ],
+        "deps": [
+          { "name": "serde", "pkg": "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0", "dep_kinds": [ { "kind": null, "target": null } ] },
+          { "name": "git_dep", "pkg": "git+https://github.com/example/git-dep?rev=abc#abc", "dep_kinds": [ { "kind": null, "target": "cfg(unix)" } ] },
+          { "name": "workspace_tool", "pkg": "path+file:///repo/crates/tool#workspace-tool@0.1.0", "dep_kinds": [ { "kind": null, "target": null } ] }
+        ],
+        "features": [ "default", "cli" ]
+      },
+      {
+        "id": "path+file:///repo/crates/tool#workspace-tool@0.1.0",
+        "dependencies": [
+          "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0",
+          "path+file:///repo/vendor/local-dep#0.2.0"
+        ],
+        "deps": [
+          { "name": "itoa", "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "dep_kinds": [ { "kind": "build", "target": "cfg(target_os = \"linux\")" } ] },
+          { "name": "local_dep", "pkg": "path+file:///repo/vendor/local-dep#0.2.0", "dep_kinds": [ { "kind": null, "target": null } ] }
+        ],
+        "features": [ "default" ]
+      },
+      {
+        "id": "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0",
+        "dependencies": [ "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0" ],
+        "deps": [ { "name": "itoa", "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "dep_kinds": [ { "kind": null, "target": null } ] } ],
+        "features": [ "derive" ]
+      },
+      { "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "dependencies": [], "deps": [], "features": [] },
+      { "id": "git+https://github.com/example/git-dep?rev=abc#abc", "dependencies": [], "deps": [], "features": [] },
+      { "id": "path+file:///repo/vendor/local-dep#0.2.0", "dependencies": [], "deps": [], "features": [] }
+    ],
+    "root": "path+file:///repo#workspace-app@0.1.0"
+  },
+  "target_directory": "/repo/target",
+  "version": 1,
+  "workspace_root": "/repo",
+  "metadata": null
+}

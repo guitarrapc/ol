@@ -353,12 +353,31 @@ Phase 9では、raw `go mod graph`だけではMVSで未選択のversionを除外
 - JSON sequenceは`Utf8JsonReader`、graphはUTF-8 line parserでDOMやstring化なしに読み、module identity hash indexとnode/edge/traversal bufferを`ArrayPool`で管理する。token/edge loopにLINQ、regex、per-edge collection allocationを持たない。
 - 1 component focused benchmarkではpaired Go ingestionが2.596 µs / 544 B、同じowned result floorが166.9 ns / 544 Bで、parser固有のmanaged allocationは0 Bだった。
 
-### Phase 10: JVM、Python、PHP、Ruby resolved input調査
+### Phase 10: Python（完了）
 
 - Maven、Gradle、Pythonはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
 - Maven configuration/scope、Gradle configuration/variant、Python environment marker/platform wheelをresolution contextで表現できることを採用条件にする。
 - 安定した標準出力がないecosystemでは、Ol固有portable inventoryを新設せず、既存SBOM生成経路を推奨する選択肢を残す。
 - adapter採用前にdeterminism、Native AOT依存、pathological input、allocation floorを評価する。
+
+Pythonはpip 23.0以降stableと宣言された`pip inspect` JSON format version 1を採用した。installed environmentを入力の正とし、`requirements.txt`やlockfileからresolverを再実装しない。
+
+- `pip-inspect` handlerは`version: "1"`、`pip_version`、`installed`、`environment`のcontent signatureとexact filename `pip-inspect.json`を所有する。
+- PyPA name normalizationをUTF-8 span上で行い、normalized identity hash indexからinstalled distributionとmarkerなし`requires_dist`を結ぶ。marker/extrasはactivationを証明できないためedgeを作らない。
+- `requested=true`はdirect/root edge、`requested=false`かつ`installer=pip`はtransitive、他installerのfalseとmissingはunknownとして保持する。Python version、implementation、`sys_platform`、machine、pip versionをresolution contextにする。
+- `direct_url` packageはPyPI packageと偽装せずpurlを持たない。path/URLをreportへ出さず`source=direct`だけをvariantへ保持する。
+- `license_expression`をlegacy `license`より優先するdependency-input evidenceとし、PyPI release JSON providerも同じversioned `pkg:pypi` identityから利用する。
+- parserは`Utf8JsonReader`とsource-backed `Utf8Slice`を使い、node/requirement/component/edge/hash indexをpooled bufferで管理する。token、identity、edge loopにLINQ、regex、transient stringを持たない。
+- Windows sandboxでpip metadataをPowerShell captureするとconsole code pageによって非ASCII metadataが失敗するため、生成scriptは`python -X utf8 -m pip inspect`でUTF-8 modeを明示する。
+- 2 component focused benchmarkではpip inspect ingestionが4.841 µs / 856 B、同じowned result floorが259.3 ns / 856 Bで、parser固有のmanaged allocationは0 Bだった。
+
+### Phase 11: JVM、PHP、Ruby resolved input調査
+
+- Maven、Gradle、PHP、Rubyはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
+- Maven configuration/scopeとGradle configuration/variantをresolution contextで表現できることを採用条件にする。
+- 安定した標準出力がないecosystemでは、Ol固有portable inventoryを新設せず、既存SBOM生成経路を推奨する選択肢を残す。
+- adapter採用前にdeterminism、Native AOT依存、pathological input、allocation floorを評価する。
+
 
 ## テスト方針
 

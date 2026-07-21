@@ -1,0 +1,35 @@
+{
+  "version": "1",
+  "pip_version": "25.1",
+  "installed": [
+    {
+      "metadata": {
+        "metadata_version": "2.4",
+        "name": "requests",
+        "version": "2.32.4",
+        "license_expression": "Apache-2.0",
+        "requires_dist": ["urllib3<3,>=1.21.1"]
+      },
+      "installer": "pip",
+      "requested": true
+    },
+    {
+      "metadata": {
+        "metadata_version": "2.4",
+        "name": "urllib3",
+        "version": "2.5.0",
+        "license_expression": "MIT"
+      },
+      "installer": "pip",
+      "requested": false
+    }
+  ],
+  "environment": {
+    "implementation_name": "cpython",
+    "implementation_version": "3.12.3",
+    "platform_machine": "x86_64",
+    "python_full_version": "3.12.3",
+    "python_version": "3.12",
+    "sys_platform": "linux"
+  }
+}

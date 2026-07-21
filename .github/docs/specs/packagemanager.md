@@ -30,7 +30,7 @@ The resolved-input pipeline accepts NuGet `project.assets.json` version 3 or 4 t
 
 The same pipeline accepts npm `package-lock.json` lockfile version 2 or 3 as `npm-package-lock`. Its handler owns recursive discovery of the exact `package-lock.json` name. The adapter consumes the `packages` install tree and never calls a registry to resolve dependency ranges.
 
-pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively. Cargo metadata JSON format version 1 is accepted as `cargo-metadata`, whose handler owns `cargo-metadata.json` discovery. Go's selected-module JSON and module graph are accepted together as `go-module-graph`; its handler owns the exact companion names `go-list-modules.json` and `go-mod-graph.txt`.
+pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively. Cargo metadata JSON format version 1 is accepted as `cargo-metadata`, whose handler owns `cargo-metadata.json` discovery. Go's selected-module JSON and module graph are accepted together as `go-module-graph`; its handler owns the exact companion names `go-list-modules.json` and `go-mod-graph.txt`. pip inspect JSON format version 1 is accepted as `pip-inspect`, whose handler owns `pip-inspect.json` discovery.
 
 ## NuGet resolved input
 
@@ -73,6 +73,14 @@ The Go adapter consumes two standard tool outputs generated from the same module
 Each selected main module becomes a context root. Selected versioned modules become components with the original `path@version` as source identity. Unreplaced modules receive canonical `pkg:golang/{path}@{version}` enrichment identities. A local replacement has no version, receives no proxy identity, and retains only `replace=local`; local `Dir` and `GoMod` paths are ignored. A versioned module replacement retains the original source identity but uses the replacement path/version for its enrichment purl and records `replace={path}@{version}` as a sparse occurrence variant. `Indirect` and present `Retracted` fields become `indirect` and `retracted` variants.
 
 Reachability from each main module determines direct/transitive classification and proven root/module edges. Selected modules not proven reachable remain unknown occurrences in the first context rather than being discarded. GOOS, GOARCH, build tags, and package-level import reachability are not present in these module outputs and are not inferred from the scanning host. Both companion files must be supplied explicitly or discovered in the same directory.
+
+## Python resolved input
+
+The Python adapter consumes only stable JSON format version 1 produced by `python -m pip inspect --local`. It does not resolve `requirements.txt`, `pyproject.toml`, Poetry, uv, or Pipenv inputs. The complete `installed` array is the resolved inventory. The report's `python_full_version` or `python_version`, `implementation_name`, `sys_platform`, and `platform_machine` fields form one resolution context, with `pip_version` retained as its resolver variant rather than inferred from the scanning host.
+
+Distribution names are validated and compared using PyPA normalization: ASCII case is folded and each run of `.`, `_`, or `-` becomes one `-`. Normalized `name@version` values are source identities. Installed distributions without `direct_url` receive canonical `pkg:pypi/{normalized-name}@{version}` enrichment identities. A `direct_url` distribution receives no PyPI identity, retains only `source=direct`, and does not expose `metadata_location`, local paths, or URLs.
+
+`requested=true` proves a root-to-distribution edge and direct classification. `requested=false` proves transitive classification only with `installer: pip`, whose supported versions generate REQUESTED metadata; false values from other installers and absence remain unknown. An unconditional `requires_dist` entry proves a package-to-package edge when its normalized target exists in the installed set. Marker- or extra-conditional requirements do not produce edges because the inspect report does not identify the extras that activated them. Missing optional targets do not create components. `license_expression` is preferred over legacy `license`; either is classified as dependency-input evidence, not SBOM or registry evidence.
 
 ## User Experience
 

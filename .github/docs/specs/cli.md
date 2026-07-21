@@ -51,6 +51,7 @@ The CLI option takes precedence over `OL_CACHE_DIR`. The unified environment roo
 Cache entry compatibility and category-specific JSON schemas are defined by [cache_format.md](cache_format.md). Cache JSON is an Ol-managed persistence contract and is distinct from the canonical scan report JSON.
 
 <a id="contract-scan-failures"></a>
+
 ### `ol scan`
 
 `scan` is the primary command. It lists components and their license status from one or more resolved dependency inputs and the available evidence sources for the current version.
@@ -67,7 +68,7 @@ ol scan --input src --input tests
 
 `--input` is repeatable and each value may name a file or directory. Overlapping inputs are deduplicated by resolved file path, then ordered by a non-absolute logical path before parsing and graph-index projection. A single file retains the existing single-document behavior. Multiple discovered documents must all be package-manager inputs; combining SBOM evidence documents with package-manager inventories is rejected because their license-evidence reconciliation is not a path-merging operation.
 
-Each registered input handler owns the exact file names that directory input discovers recursively. Discovery does not follow reparse points and does not determine single-document format; registered content signatures and bundle parsers remain authoritative. `nuget-assets` registers `project.assets.json`, `npm-package-lock` registers `package-lock.json`, `pnpm-lock` registers `pnpm-lock.yaml`, both Yarn handlers register `yarn.lock`, `cargo-metadata` registers `cargo-metadata.json`, and `go-module-graph` registers the companion names `go-list-modules.json` and `go-mod-graph.txt`. Complete companion sets in the same directory are parsed as one inventory; a missing companion is an input error. A future package-manager handler becomes part of the same directory and repeated-input collection by registering its own names and package-identity comparison. A directory containing no registered names is an input error. With explicit `--input-format`, only that handler's registered names are discovered.
+Each registered input handler owns the exact file names that directory input discovers recursively. Discovery does not follow reparse points and does not determine single-document format; registered content signatures and bundle parsers remain authoritative. `nuget-assets` registers `project.assets.json`, `npm-package-lock` registers `package-lock.json`, `pnpm-lock` registers `pnpm-lock.yaml`, both Yarn handlers register `yarn.lock`, `cargo-metadata` registers `cargo-metadata.json`, `pip-inspect` registers `pip-inspect.json`, and `go-module-graph` registers the companion names `go-list-modules.json` and `go-mod-graph.txt`. Complete companion sets in the same directory are parsed as one inventory; a missing companion is an input error. A future package-manager handler becomes part of the same directory and repeated-input collection by registering its own names and package-identity comparison. A directory containing no registered names is an input error. With explicit `--input-format`, only that handler's registered names are discovered.
 
 `--input-format` defaults to `auto`; explicitly specifying `auto` is equivalent to omitting the option. Registered format names are matched case-insensitively. An explicit non-auto format is an assertion and must agree with the detected document format.
 
@@ -84,10 +85,11 @@ Currently supported dependency input formats:
 - `yarn-berry-lock`: Yarn Berry `yarn.lock` metadata version 8
 - `cargo-metadata`: `cargo metadata --format-version 1 --locked` JSON
 - `go-module-graph`: paired `go list -m -json all` and `go mod graph` output
+- `pip-inspect`: `python -m pip inspect --local` JSON format version 1
 
 Unsupported inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, package manifests, and lockfile formats without a registered adapter. `ol` does not recursively query registries to reproduce package-manager dependency resolution; package-manager adapters consume already resolved graphs.
 
-Auto detection uses only deterministic, format-owned content signatures; file names and extensions are not evidence for single-document formats. JSON adapters use top-level property signatures. Cargo requires format version 1 plus top-level `packages`, `workspace_members`, `resolve`, `target_directory`, and `workspace_root` with their documented JSON types. pnpm requires top-level `lockfileVersion` and `importers`, Yarn Classic requires the version 1 header, and Yarn Berry requires top-level `__metadata`. Multi-file handlers first associate their complete registered companion names within one directory, then validate every document through the format-owned bundle parser; names alone cannot make malformed content valid. Every required marker for one format must match. No match is an unsupported-input error and multiple matches are an ambiguous-input error; Ol never guesses by registration order. Known formats with unsupported versions are rejected explicitly.
+Auto detection uses only deterministic, format-owned content signatures; file names and extensions are not evidence for single-document formats. JSON adapters use top-level property signatures. Cargo requires format version 1 plus top-level `packages`, `workspace_members`, `resolve`, `target_directory`, and `workspace_root` with their documented JSON types. pip inspect requires string format version `1`, `pip_version`, an `installed` array, and an `environment` object. pnpm requires top-level `lockfileVersion` and `importers`, Yarn Classic requires the version 1 header, and Yarn Berry requires top-level `__metadata`. Multi-file handlers first associate their complete registered companion names within one directory, then validate every document through the format-owned bundle parser; names alone cannot make malformed content valid. Every required marker for one format must match. No match is an unsupported-input error and multiple matches are an ambiguous-input error; Ol never guesses by registration order. Known formats with unsupported versions are rejected explicitly.
 
 `scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns non-zero only when the scan itself cannot be performed or output cannot be written.
 
@@ -114,6 +116,7 @@ Examples of component-level problems:
 - Later versions cannot fetch source repository evidence for one component.
 
 <a id="contract-output-formats"></a>
+
 ## Output Formats
 
 `scan` supports these formats from v1:
@@ -165,6 +168,7 @@ NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS PURL
 `NAME`, `VERSION`, and `LICENSE` are intentionally placed first because they are the primary review fields. `PURL` is omitted from default output because it can make rows too wide.
 
 <a id="contract-component-status"></a>
+
 ## Component Status
 
 All versions use the same status vocabulary:
@@ -197,6 +201,7 @@ MIT, Apache-2.0 (?)
 The marker is display-only. JSON output preserves each claim in `licenseCandidates` and attaches its non-duplicated provenance as that candidate's typed `evidence` object.
 
 <a id="contract-dependency-type"></a>
+
 ## Dependency Type
 
 Reports distinguish component relationship when the SBOM contains enough information:
@@ -209,6 +214,7 @@ Reports distinguish component relationship when the SBOM contains enough informa
 The field is required in JSON and displayed in default `text` and `markdown` output. If the SBOM does not contain enough dependency graph information, the value is `unknown`.
 
 <a id="contract-dependency-filtering"></a>
+
 ## Dependency Filtering
 
 `--dependency` filters scan output by dependency type:
@@ -290,6 +296,7 @@ Grouped output includes `COUNT`. Grouped JSON output includes minimal component 
 The comma-separated `--group-by` value must contain at least one key. Grouped JSON retains the same top-level canonical status summary as component JSON.
 
 <a id="contract-json-report"></a>
+
 ## JSON Report
 
 JSON output is the canonical machine-readable report. It includes:
@@ -310,7 +317,7 @@ Top-level `schemaVersion` identifies the breaking report contract. Schema versio
 The current schema v1 report emits `metadata.input` and `metadata.spdx` as separate objects. Generic input metadata contains:
 
 - `kind`: the stable input family, currently `sbom` or `package-manager`
-- `format`: the registered format name, currently `cyclonedx`, `spdx`, `nuget-assets`, `npm-package-lock`, `pnpm-lock`, `yarn-classic-lock`, `yarn-berry-lock`, `cargo-metadata`, or `go-module-graph`; a package-manager collection containing different formats reports `collection`
+- `format`: the registered format name, currently `cyclonedx`, `spdx`, `nuget-assets`, `npm-package-lock`, `pnpm-lock`, `yarn-classic-lock`, `yarn-berry-lock`, `cargo-metadata`, `go-module-graph`, or `pip-inspect`; a package-manager collection containing different formats reports `collection`
 - `sourceRef`: the input file or directory basename, or `{count} inputs` for repeated input, rather than an absolute local path
 - `sourceSha256`: the SHA-256 of the complete file input, or a deterministic aggregate over logical discovery paths and content hashes for directory or repeated input
 - `parser`: the stable parser identity
@@ -363,6 +370,7 @@ v1 rejects a document that simultaneously presents CycloneDX and SPDX format mar
 Line numbers and JSON Pointers are not required in v1.
 
 <a id="contract-report-privacy"></a>
+
 ## Privacy and Security
 
 Reports must not contain:
@@ -374,9 +382,39 @@ Reports must not contain:
 Logical identifiers and hashes should be used where possible. Token presence may be reported as an auth mode, never as a value.
 
 <a id="contract-policy-checks"></a>
-## Future Policy Checks
 
-Allow-list enforcement is outside v1-v3 scan scope. A later phase may add `check` or equivalent policy behavior. That phase should consume scan evidence and fail closed for allow-list misses, unknowns, conflicts, ambiguous values, and invalid license expressions.
+## Planned `ol check`
+
+`check` is the policy-enforcement command. It runs the same dependency-input, enrichment, and reconciliation pipeline as `scan` exactly once, then evaluates the completed in-memory result. Policy evaluation does not rescan inputs, repeat registry or source collection, or change `scan` exit behavior.
+
+The initial policy surface is limited to a required allow-list:
+
+```text
+ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+`--allow-licenses` is one comma-separated list of SPDX License Identifiers. Surrounding ASCII whitespace is ignored. Matching is case-insensitive and identifiers are normalized to the official casing from the active SPDX data. Empty entries, unknown identifiers, SPDX expressions, exception identifiers, natural-language names, and an empty list are invalid check options. Duplicate identifiers after normalization have no additional effect.
+
+`check` accepts the scan controls needed to produce the completed result: `--input`, `--input-format`, `--spdx-data`, `--cache-dir`, `--refresh`, `--skip-enrichment`, `--concurrency`, `--retry`, and `--verbose`. The initial command does not accept scan view or report controls such as `--dependency`, `--group-by`, `--sort`, `--format`, or `--out`; policy always evaluates every component in the completed result and emits one deterministic text result.
+
+For a component with status `matched`, the normalized SPDX expression is evaluated as a Boolean expression where an allowed license identifier is true and every other license identifier is false:
+
+- `AND` requires both operands to be true.
+- `OR` requires at least one operand to be true.
+- Parentheses preserve SPDX precedence.
+- `WITH` has the policy value of its base license. The exception remains part of the reported normalized expression but does not independently make a forbidden base license acceptable.
+
+For example, with `--allow-licenses MIT,Apache-2.0`, `MIT`, `MIT AND Apache-2.0`, and `MIT OR GPL-3.0-only` pass; `MIT AND GPL-3.0-only` and `GPL-3.0-only WITH Classpath-exception-2.0` fail.
+
+Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.
+
+`check` writes its pass result or complete violation list to stdout. Expected option, input, SPDX-data, whole-command evidence-pipeline, and output failures write a concise cause to stderr without a stack trace or partial policy result. A component-level registry or source failure remains evidence in the completed result and is evaluated as a policy violation when it leaves that component unresolved; it is not an exit-2 command failure. Exit codes are:
+
+- `0`: every component satisfies the allow-list.
+- `1`: one or more policy violations were found.
+- `2`: the check could not be completed because its configuration, input, evidence pipeline, or output failed.
+
+Policy files, deny-lists, per-package exceptions, dependency-scope policy, JSON/Markdown output, and evaluation of a previously serialized scan report are outside the initial `check --allow-licenses` scope.
 
 ## Lessons Learned
 

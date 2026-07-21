@@ -148,6 +148,24 @@ public class DependencyInputScannerBenchmark
             """),
     ];
 
+    private readonly byte[] pipInspect = Encoding.UTF8.GetBytes(
+        """
+        {
+          "version": "1",
+          "pip_version": "25.1",
+          "installed": [
+            { "metadata": { "name": "requests", "version": "2.32.4", "requires_dist": [ "urllib3<3" ] }, "installer": "pip", "requested": true },
+            { "metadata": { "name": "urllib3", "version": "2.5.0" }, "installer": "pip", "requested": false }
+          ],
+          "environment": {
+            "implementation_name": "cpython",
+            "platform_machine": "x86_64",
+            "python_full_version": "3.12.3",
+            "sys_platform": "linux"
+          }
+        }
+        """);
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
@@ -174,6 +192,15 @@ public class DependencyInputScannerBenchmark
     private readonly Utf8Slice goName = "github.com/google/uuid";
     private readonly Utf8Slice goVersion = "v1.6.0";
     private readonly Utf8Slice goSourceId = "github.com/google/uuid@v1.6.0";
+    private readonly Utf8Slice pythonRoot = "pip-environment";
+    private readonly Utf8Slice pythonTarget = "3.12.3";
+    private readonly Utf8Slice pythonRuntime = "cpython";
+    private readonly Utf8Slice pythonPlatform = "linux";
+    private readonly Utf8Slice pythonArchitecture = "x86_64";
+    private readonly Utf8Slice pythonRequestsName = "requests";
+    private readonly Utf8Slice pythonRequestsVersion = "2.32.4";
+    private readonly Utf8Slice pythonUrllibName = "urllib3";
+    private readonly Utf8Slice pythonUrllibVersion = "2.5.0";
 
     [Benchmark]
     public DependencyInventory ScanCycloneDx()
@@ -227,6 +254,12 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory ScanGoModuleGraphInventory()
     {
         return DependencyInputScanner.ScanBundle(goModuleGraph, spdx, ScanInputFormat.GoModuleGraph);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanPipInspectInventory()
+    {
+        return DependencyInputScanner.Scan(pipInspect, spdx, expectedFormat: ScanInputFormat.PipInspect);
     }
 
     [Benchmark]
@@ -317,6 +350,21 @@ public class DependencyInputScannerBenchmark
             [component],
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
+            []);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreatePipInspectInventoryResultFloor()
+    {
+        var components = new ScanComponent[2];
+        components[0] = new ScanComponent(pythonRequestsName, pythonRequestsVersion, default, "pypi", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:pypi/requests@2.32.4"u8.ToArray()), Utf8Slice.FromOwnedBytes("requests@2.32.4"u8.ToArray()), default, [], []);
+        components[1] = new ScanComponent(pythonUrllibName, pythonUrllibVersion, default, "pypi", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:pypi/urllib3@2.5.0"u8.ToArray()), Utf8Slice.FromOwnedBytes("urllib3@2.5.0"u8.ToArray()), default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(pythonRoot, pythonTarget, pythonRuntime, pythonPlatform, pythonArchitecture, Utf8Slice.FromOwnedBytes("pip=25.1"u8.ToArray()))],
+            components,
+            [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
             []);
     }
 

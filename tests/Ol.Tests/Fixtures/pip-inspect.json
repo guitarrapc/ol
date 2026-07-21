@@ -1,0 +1,74 @@
+{
+  "version": "1",
+  "pip_version": "25.1",
+  "installed": [
+    {
+      "metadata": {
+        "metadata_version": "2.4",
+        "name": "Requests",
+        "version": "2.32.4",
+        "license_expression": "Apache-2.0",
+        "requires_dist": [
+          "urllib3<3,>=1.21.1",
+          "charset_normalizer<4,>=2",
+          "PySocks!=1.5.7,>=1.5.6; extra == 'socks'"
+        ]
+      },
+      "installer": "pip",
+      "requested": true
+    },
+    {
+      "metadata": {
+        "metadata_version": "2.4",
+        "name": "urllib3",
+        "version": "2.5.0",
+        "license_expression": "MIT"
+      },
+      "installer": "pip",
+      "requested": false
+    },
+    {
+      "metadata": {
+        "metadata_version": "2.1",
+        "name": "charset_normalizer",
+        "version": "3.4.2",
+        "license": "MIT"
+      },
+      "installer": "pip",
+      "requested": false
+    },
+    {
+      "metadata": {
+        "metadata_version": "2.1",
+        "name": "PySocks",
+        "version": "1.7.1"
+      },
+      "installer": "pip",
+      "requested": false
+    },
+    {
+      "metadata": {
+        "metadata_version": "2.1",
+        "name": "Local_Package",
+        "version": "1.0.0"
+      },
+      "metadata_location": "C:/private/project/.venv/Lib/site-packages/local_package-1.0.0.dist-info",
+      "direct_url": {
+        "url": "file:///C:/private/project/local-package",
+        "dir_info": { "editable": true }
+      },
+      "installer": "pip",
+      "requested": true
+    }
+  ],
+  "environment": {
+    "implementation_name": "cpython",
+    "implementation_version": "3.12.3",
+    "os_name": "posix",
+    "platform_machine": "x86_64",
+    "platform_system": "Linux",
+    "python_full_version": "3.12.3",
+    "python_version": "3.12",
+    "sys_platform": "linux"
+  }
+}

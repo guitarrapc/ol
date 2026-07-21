@@ -12,6 +12,7 @@ public static class OlDefaults
         new NuGetPackageMetadataProvider(),
         new CargoPackageMetadataProvider(),
         new GoPackageMetadataProvider(),
+        new PyPiPackageMetadataProvider(),
     ]);
 
     /// <summary>Parses a package URL using Ol's built-in package metadata providers.</summary>

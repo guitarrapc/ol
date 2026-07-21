@@ -1230,6 +1230,25 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithPipInspect_ReportsResolvedEnvironmentWithoutPrivatePaths()
+    {
+        var root = FindRepositoryRoot();
+        var input = Path.Combine(AppContext.BaseDirectory, "Fixtures", "pip-inspect.json");
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", input, "--skip-enrichment", "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).IsEmpty();
+        using var report = JsonDocument.Parse(stdout);
+        var metadata = report.RootElement.GetProperty("metadata").GetProperty("input");
+        await Assert.That(metadata.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+        await Assert.That(metadata.GetProperty("format").GetString()).IsEqualTo("pip-inspect");
+        await Assert.That(report.RootElement.GetProperty("inventory").GetProperty("components").GetArrayLength()).IsEqualTo(5);
+        await Assert.That(stdout).DoesNotContain("C:/private/project");
+        await Assert.That(stdout).DoesNotContain("file:///");
+    }
+
+    [Test]
     public async Task Scan_WithRepeatedNpmPackageLocks_CombinesSparseVariantIndexes()
     {
         var root = FindRepositoryRoot();

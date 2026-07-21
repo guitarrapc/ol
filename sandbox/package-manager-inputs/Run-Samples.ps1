@@ -22,7 +22,8 @@ $samples = @(
     [pscustomobject]@{ Name = "yarn-classic"; Input = "yarn-classic\yarn.lock" },
     [pscustomobject]@{ Name = "yarn-berry"; Input = "yarn-berry\yarn.lock" },
     [pscustomobject]@{ Name = "cargo"; Input = "cargo\cargo-metadata.json" },
-    [pscustomobject]@{ Name = "go"; Input = "go" }
+    [pscustomobject]@{ Name = "go"; Input = "go" },
+    [pscustomobject]@{ Name = "python"; Input = "python\pip-inspect.json" }
 )
 
 $results = foreach ($sample in $samples) {

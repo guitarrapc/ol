@@ -242,7 +242,7 @@ public sealed class PackageMetadataTests
     public async Task Providers_ParseResponse_WithNonObjectRoot_ReturnUnknownMetadataWithoutThrowing()
     {
         using var document = JsonDocument.Parse("\"unexpected\"");
-        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider()];
+        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider()];
 
         for (var i = 0; i < providers.Length; i++)
         {
@@ -268,6 +268,20 @@ public sealed class PackageMetadataTests
         await Assert.That(goRecord.Source).IsEqualTo("go-module-proxy");
         await Assert.That(goRecord.RawLicense).IsEmpty();
         await Assert.That(goRecord.RepositoryUrl).IsEqualTo("https://github.com/example/module");
+    }
+
+    [Test]
+    public async Task Fetch_PyPiResponse_UsesReleaseSpecificMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler("""{ "info": { "license_expression": "MIT", "license": "Legacy", "project_urls": { "Source": "https://github.com/example/python" } } }""");
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("pypi", "", "example", "1.0.0", "pkg:pypi/example@1.0.0"));
+
+        await Assert.That(handler.RequestUris).IsEquivalentTo(["https://pypi.org/pypi/example/1.0.0/json"]);
+        await Assert.That(record.Source).IsEqualTo("pypi-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/python");
     }
 
     [Test]

@@ -142,6 +142,13 @@ public sealed class DependencyInputRegistry
             new[] { "go-list-modules.json", "go-mod-graph.txt" },
             DependencyComponentIdentityComparison.OrdinalWithSourceId,
             BundleParser: GoModuleGraphInputParser.Parse),
+        // Python - Package Manager
+        new(ScanInputKind.PackageManager, ScanInputFormat.PipInspect, new(new DependencyInputMarker[] {
+            new("version"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "1"u8.ToArray()),
+            new("pip_version"u8.ToArray(), DependencyInputMarkerValueKind.String),
+            new("installed"u8.ToArray(), DependencyInputMarkerValueKind.Array),
+            new("environment"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+        }), PipInspectInputParser.Parse, new[] { "pip-inspect.json" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>

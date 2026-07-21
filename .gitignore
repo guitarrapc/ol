@@ -408,3 +408,5 @@ FodyWeavers.xsd
 .tmp-pg/
 .tmp-pg2/
 .tmp-pg-rel/
+sandbox/ecosystems/python/.venv/
+sandbox/ecosystems/python/pip-inspect.json

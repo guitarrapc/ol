@@ -16,6 +16,10 @@
     {
       "ecosystem": "golang",
       "path": "sandbox/ecosystems/golang"
+    },
+    {
+      "ecosystem": "pypi",
+      "path": "sandbox/ecosystems/python"
     }
   ]
 }

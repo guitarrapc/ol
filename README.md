@@ -137,7 +137,12 @@ Ol accepts resolved dependency inputs. For one .NET project, scan NuGet's resolv
 ```bash
 dotnet restore Ol.slnx
 dotnet run --project src/Ol -- scan --input src/Ol/obj/project.assets.json --format markdown
-dotnet run --project src/Ol -- scan --input src --format markdown
+```
+
+You can specify a directory containing multiple `project.assets.json` files:
+
+```bash
+dotnet run --project src/Ol -- scan --input . --format markdown
 ```
 
 <details><summary>Output sample (Markdown)</summary>
@@ -146,18 +151,57 @@ Input: `package-manager/nuget-assets`
 
 | NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
 |---|---|---|---|---|---|
+| BenchmarkDotNet | 0.15.8 | MIT | nuget | direct | matched |
+| BenchmarkDotNet.Annotations | 0.15.8 | MIT | nuget | transitive | matched |
+| CommandLineParser | 2.9.1 | MIT | nuget | transitive | matched |
 | ConsoleAppFramework | 5.7.13 | MIT | nuget | direct | matched |
+| EnumerableAsyncProcessor | 3.8.4 | MIT | nuget | transitive | matched |
+| Gee.External.Capstone | 2.3.0 | MIT | nuget | transitive | matched |
+| Humanizer.Core | 2.14.1 | MIT | nuget | direct | matched |
+| Iced | 1.21.0 | MIT | nuget | transitive | matched |
+| Microsoft.ApplicationInsights | 2.23.0 | MIT | nuget | transitive | matched |
+| Microsoft.CodeAnalysis.Analyzers | 3.11.0 | MIT | nuget | transitive | matched |
+| Microsoft.CodeAnalysis.CSharp | 4.14.0 | MIT | nuget | transitive | matched |
+| Microsoft.CodeAnalysis.Common | 4.14.0 | MIT | nuget | transitive | matched |
+| Microsoft.DiaSymReader | 2.0.0 | MIT | nuget | transitive | matched |
+| Microsoft.Diagnostics.NETCore.Client | 0.2.510501 | MIT | nuget | transitive | matched |
+| Microsoft.Diagnostics.Runtime | 3.1.512801 | MIT | nuget | transitive | matched |
+| Microsoft.Diagnostics.Tracing.TraceEvent | 3.1.21 | MIT | nuget | transitive | matched |
 | Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | direct | matched |
+| Microsoft.DotNet.PlatformAbstractions | 3.1.6 | - | nuget | transitive | unknown |
+| Microsoft.Extensions.DependencyInjection | 6.0.0 | MIT | nuget | transitive | matched |
+| Microsoft.Extensions.DependencyInjection.Abstractions | 6.0.0 | MIT | nuget | transitive | matched |
+| Microsoft.Extensions.DependencyModel | 6.0.2 | MIT | nuget | transitive | matched |
+| Microsoft.Extensions.Logging | 6.0.0 | MIT | nuget | transitive | matched |
+| Microsoft.Extensions.Logging.Abstractions | 6.0.0 | MIT | nuget | transitive | matched |
+| Microsoft.Extensions.Options | 6.0.0 | MIT | nuget | transitive | matched |
+| Microsoft.Extensions.Primitives | 6.0.0 | MIT | nuget | transitive | matched |
 | Microsoft.NET.ILLink.Tasks | 10.0.9 | MIT | nuget | direct | matched |
+| Microsoft.Testing.Extensions.CodeCoverage | 18.3.2 | MIT | nuget | transitive | matched |
+| Microsoft.Testing.Extensions.Telemetry | 2.0.2 | MIT | nuget | transitive | matched |
+| Microsoft.Testing.Extensions.TrxReport | 2.0.2 | MIT | nuget | transitive | matched |
+| Microsoft.Testing.Extensions.TrxReport.Abstractions | 2.0.2 | MIT | nuget | transitive | matched |
+| Microsoft.Testing.Platform | 2.0.2 | MIT | nuget | transitive | matched |
+| Microsoft.Testing.Platform.MSBuild | 2.0.2 | MIT | nuget | transitive | matched |
+| Perfolizer | 0.6.1 | MIT | nuget | transitive | matched |
+| Pragmastat | 3.2.4 | MIT | nuget | transitive | matched |
+| System.CodeDom | 9.0.5 | MIT | nuget | transitive | matched |
+| System.Management | 9.0.5 | MIT | nuget | transitive | matched |
+| System.Reflection.TypeExtensions | 4.7.0 | MIT | nuget | transitive | matched |
+| TUnit | 1.12.111 | MIT | nuget | direct | matched |
+| TUnit.Assertions | 1.12.111 | MIT | nuget | transitive | matched |
+| TUnit.Core | 1.12.111 | MIT | nuget | transitive | matched |
+| TUnit.Engine | 1.12.111 | MIT | nuget | transitive | matched |
 | runtime.win-x64.Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | transitive | matched |
 
 Scan summary
-  License results: 4 displayed components; 4 matched; 0 conflict; 0 unknown; 0 ambiguous; 0 invalid; 0 error
-  Findings: 0 warnings; 0 deprecated SPDX identifiers
-  Package metadata (full scan): 4 supported; 4 cache hits; 0 cache misses; 0 refreshed; 0 fetch errors; 0 unsupported ecosystems
-  Source repositories (full scan): 2 targets; 0 GitHub requests; 2 cache hits; 0 cache misses; 0 fetch errors; 0 components without source license
+  License results: 42 displayed components; 41 matched; 0 conflict; 1 unknown; 0 ambiguous; 0 invalid; 0 error
+  Findings: 11 warnings; 0 deprecated SPDX identifiers
+  Package metadata (full scan): 42 supported; 41 cache hits; 1 cache misses; 0 refreshed; 0 fetch errors; 0 unsupported ecosystems
+  Source repositories (full scan): 20 targets; 1 GitHub requests; 19 cache hits; 1 cache misses; 0 fetch errors; 15 components without source license
   Run: concurrency 8; retries 1; GitHub auth none
-  Input: project.assets.json; input format NuGet assets; SPDX 5e59516 (bundled)
+  Input: ol; input format NuGet assets; SPDX 5e59516 (bundled)
+  Input: src; input format NuGet assets; SPDX 5e59516 (bundled)
 
 </details>
 

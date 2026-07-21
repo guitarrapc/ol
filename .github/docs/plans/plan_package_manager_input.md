@@ -353,7 +353,7 @@ Phase 9では、raw `go mod graph`だけではMVSで未選択のversionを除外
 - JSON sequenceは`Utf8JsonReader`、graphはUTF-8 line parserでDOMやstring化なしに読み、module identity hash indexとnode/edge/traversal bufferを`ArrayPool`で管理する。token/edge loopにLINQ、regex、per-edge collection allocationを持たない。
 - 1 component focused benchmarkではpaired Go ingestionが2.596 µs / 544 B、同じowned result floorが166.9 ns / 544 Bで、parser固有のmanaged allocationは0 Bだった。
 
-### Phase 10: JVMおよびPython resolved input調査
+### Phase 10: JVM、Python、PHP、Ruby resolved input調査
 
 - Maven、Gradle、Pythonはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
 - Maven configuration/scope、Gradle configuration/variant、Python environment marker/platform wheelをresolution contextで表現できることを採用条件にする。

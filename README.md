@@ -1,4 +1,4 @@
-# Ol
+# ol
 
 OpenSource License checker.
 
@@ -44,21 +44,35 @@ Options:
   --retry <int>                  Reserved package metadata retry count. [Default: 1]
 ```
 
-`--input-format` defaults to `auto`. Ol identifies the input from registered content signatures and rejects unknown or ambiguous documents. Supported assertions are `cyclonedx`, `spdx`, `nuget-assets`, `npm-package-lock`, `pnpm-lock`, `yarn-classic-lock`, `yarn-berry-lock`, and `cargo-metadata`. `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
+`--input-format` defaults to `auto`. ol identifies the input from registered content signatures and rejects unknown or ambiguous documents. Supported assertions are:
+
+| Language | name |
+| --- | --- |
+| SBOM | `cyclonedx` |
+| SBOM | `spdx` |
+| .NET | `nuget-assets` |
+| JavaScript | `npm-package-lock` |
+| JavaScript | `pnpm-lock` |
+| JavaScript | `yarn-classic-lock` |
+| JavaScript | `yarn-berry-lock` |
+| Rust | `cargo-metadata` |
+| Go | `go-module-graph` |
+
+`--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
 
 `--sbom <path>` remains available as a compatible shortcut for CycloneDX or SPDX JSON.
 
 Use an isolated cache root when a build or CI job must not share the user cache:
 
 ```bash
-dotnet run --project src/Ol -- scan --input sandbox/sbom/cyclonedx-sample.json --cache-dir .tmp/ol-cache
+dotnet run --project src/ol -- scan --input sandbox/sbom/cyclonedx-sample.json --cache-dir .tmp/ol-cache
 ```
 
 ## Scan dependencies
 
 ### SBOM
 
-Ol accepts CycloneDX and SPDX JSON SBOMs. Restore the repository-pinned CycloneDX .NET tool and generate a CycloneDX JSON SBOM from the solution:
+ol accepts CycloneDX and SPDX JSON SBOMs. Restore the repository-pinned CycloneDX .NET tool and generate a CycloneDX JSON SBOM from the solution:
 
 ```bash
 dotnet tool restore
@@ -132,7 +146,7 @@ Scan summary
 
 ### NuGet
 
-Ol accepts resolved dependency inputs. For one .NET project, scan NuGet's resolved `project.assets.json` directly. For a repository or solution layout, pass a directory and Ol recursively combines the `project.assets.json` files below it. NuGet resolution can differ by project, target framework, and runtime identifier, so Ol preserves each as a separate occurrence context while reporting each package/version once.
+ol accepts resolved dependency inputs. For one .NET project, scan NuGet's resolved `project.assets.json` directly. For a repository or solution layout, pass a directory and ol recursively combines the `project.assets.json` files below it. NuGet resolution can differ by project, target framework, and runtime identifier, so ol preserves each as a separate occurrence context while reporting each package/version once.
 
 ```bash
 dotnet restore Ol.slnx
@@ -205,42 +219,63 @@ Scan summary
 
 ### Node.js lockfiles
 
-Ol scans resolved npm `package-lock.json` version 2/3, pnpm `pnpm-lock.yaml` version 9, Yarn Classic `yarn.lock` version 1, and Yarn Berry `yarn.lock` metadata version 8. Pass the lockfile or a directory; workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
+ol scans resolved npm `package-lock.json` version 2/3, pnpm `pnpm-lock.yaml` version 9, Yarn Classic `yarn.lock` version 1, and Yarn Berry `yarn.lock` metadata version 8. Pass the lockfile or a directory; workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
 
 ### Cargo metadata
 
-Ol scans Cargo's resolved metadata JSON format version 1. Generate it from the same locked feature and target selection used by the build, then scan the generated file:
+ol scans Cargo's resolved metadata JSON format version 1. Generate it from the same locked feature and target selection used by the build, then scan the generated file:
 
 ```bash
 cargo metadata --format-version 1 --locked > cargo-metadata.json
 dotnet run --project src/Ol -- scan --input cargo-metadata.json
 ```
 
-Each workspace member becomes a resolution context. Workspace and path nodes participate in reachability without being mislabeled as crates.io packages. Resolved features, dependency kinds, and target expressions are retained as variants; Ol does not evaluate them against the current host. Cargo metadata does not record the `--filter-platform` argument itself, so Ol does not infer a target triple from the machine running the scan.
+Each workspace member becomes a resolution context. Workspace and path nodes participate in reachability without being mislabeled as crates.io packages. Resolved features, dependency kinds, and target expressions are retained as variants; ol does not evaluate them against the current host. Cargo metadata does not record the `--filter-platform` argument itself, so ol does not infer a target triple from the machine running the scan.
+
+### Go module graph
+
+Go does not persist its MVS build list in a lockfile. Generate both the selected module list and its requirement edges from the same module or workspace, using these exact output names:
+
+```bash
+go list -m -json all > go-list-modules.json
+go mod graph > go-mod-graph.txt
+
+dotnet run --project src/Ol -- scan \
+  --input go-list-modules.json \
+  --input go-mod-graph.txt
+```
+
+Alternatively, pass their containing directory. ol binds the two companion files as one `go-module-graph` input:
+
+```bash
+dotnet run --project src/Ol -- scan --input .
+```
+
+`go-list-modules.json` is authoritative for the selected build list and replacement metadata. `go-mod-graph.txt` contributes only edges whose endpoints are in that selected list, so superseded module versions and Go's `go@...`/`toolchain@...` graph nodes do not become components. Local replacements receive no proxy purl and their filesystem paths are not reported. Versioned module replacements use the replacement module/version for enrichment while retaining the original requirement as `sourceId`. If the list JSON contains `Retracted` data, ol retains a `retracted` occurrence variant. GOOS, GOARCH, and build tags remain unspecified because neither output proves them.
 
 ### Dependency files by ecosystem
 
-Ol does not resolve package manifests or version ranges itself. It consumes either a resolved graph supported by a direct input adapter or an SBOM whose generator performed the ecosystem-specific resolution. Passing a declaration such as `package.json`, `*.csproj`, `Cargo.toml`, or `pyproject.toml` directly to Ol is not supported.
+ol does not resolve package manifests or version ranges itself. It consumes either a resolved graph supported by a direct input adapter or an SBOM whose generator performed the ecosystem-specific resolution. Passing a declaration such as `package.json`, `*.csproj`, `Cargo.toml`, or `pyproject.toml` directly to ol is not supported.
 
-| Ecosystem | Typical dependency files | Resolution supplied to Ol | Recommended workflow |
+| Ecosystem | Typical dependency files | Resolution supplied to ol | Recommended workflow |
 |---|---|---|---|
 | .NET / NuGet | `*.sln`, `*.slnx`, `*.csproj`, `packages.lock.json` | Generated `project.assets.json` version 3/4 | Run `dotnet restore`, then scan the generated file or a directory containing it with `--input`. |
-| JavaScript / npm | `package.json`, `package-lock.json` | `package-lock.json` version 2/3 | Scan the committed lockfile directly with `--input`; an install is not required for Ol. |
+| JavaScript / npm | `package.json`, `package-lock.json` | `package-lock.json` version 2/3 | Scan the committed lockfile directly with `--input`; an install is not required for ol. |
 | JavaScript / pnpm | `package.json`, `pnpm-lock.yaml`, workspace file | `pnpm-lock.yaml` version 9.0 | Scan the committed lockfile directly with `--input`. Importers become separate contexts. |
 | JavaScript / Yarn Classic | `package.json`, `yarn.lock` | Yarn lockfile version 1 | Scan `yarn.lock` directly. The lockfile has no root manifest graph, so dependency type remains unknown where the root relationship cannot be proven. |
 | JavaScript / Yarn Berry | `package.json`, `yarn.lock`, `.yarnrc.yml` | Yarn metadata version 8 lockfile | Scan `yarn.lock` directly. Workspace contexts and proven descriptor edges are retained without reconstructing install state. |
-| Rust / Cargo | `Cargo.toml`, `Cargo.lock` | `cargo metadata --format-version 1 --locked` JSON | Generate `cargo-metadata.json` using the build's feature/target selection, then scan it with `--input`. Ol does not resolve `Cargo.toml` or `Cargo.lock` itself. |
-| Go modules | `go.mod`, `go.sum` | CycloneDX/SPDX JSON SBOM | Resolve modules normally and generate an SBOM; Ol does not run Minimal Version Selection itself. |
+| Rust / Cargo | `Cargo.toml`, `Cargo.lock` | `cargo metadata --format-version 1 --locked` JSON | Generate `cargo-metadata.json` using the build's feature/target selection, then scan it with `--input`. ol does not resolve `Cargo.toml` or `Cargo.lock` itself. |
+| Go modules | `go.mod`, `go.sum`, optional `go.work` | Paired `go list -m -json all` and `go mod graph` output | Generate `go-list-modules.json` and `go-mod-graph.txt` together, then pass both files or their directory. ol consumes Go's selected build list instead of running MVS itself. |
 | Java / JVM | `pom.xml`, Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Run the ecosystem build/resolution and use its CycloneDX generator or a polyglot generator. |
-| Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock` | CycloneDX/SPDX JSON SBOM | Resolve the intended environment and generate an SBOM; Ol does not choose markers, extras, or platform wheels. |
+| Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock` | CycloneDX/SPDX JSON SBOM | Resolve the intended environment and generate an SBOM; ol does not choose markers, extras, or platform wheels. |
 | PHP / Composer | `composer.json`, `composer.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--sbom`. |
 | Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--sbom`. |
 
-For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, and `cargo-metadata.json`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
+For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
 
 ### Repositories with multiple package managers
 
-Use one canonical dependency source per Ol report. For a release or audit artifact, the preferred workflow is one repository-wide CycloneDX JSON SBOM. A polyglot generator such as [cdxgen](https://github.com/cdxgen/cdxgen) can recursively detect multiple languages and package managers:
+Use one canonical dependency source per ol report. For a release or audit artifact, the preferred workflow is one repository-wide CycloneDX JSON SBOM. A polyglot generator such as [cdxgen](https://github.com/cdxgen/cdxgen) can recursively detect multiple languages and package managers:
 
 ```bash
 # First run the repository's normal locked restore/install steps.
@@ -261,12 +296,16 @@ When a trustworthy polyglot SBOM is unavailable, scan resolved package-manager i
 ```bash
 dotnet restore MyRepository.slnx
 cargo metadata --format-version 1 --locked > src/rust/cargo-metadata.json
-dotnet run --project src/Ol -- scan --input src/backend --input src/frontend --input src/rust --format json
+pushd src/go
+go list -m -json all > go-list-modules.json
+go mod graph > go-mod-graph.txt
+popd
+dotnet run --project src/Ol -- scan --input src/backend --input src/frontend --input src/rust --input src/go --format json
 ```
 
-Ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, both Yarn lock formats, and `cargo-metadata.json`. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; Ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.
+ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, both Yarn lock formats, `cargo-metadata.json`, and complete Go companion pairs. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.
 
-Ol intentionally rejects SBOM and package-manager inputs in the same report, and it does not accept multiple SBOM files as an implicit union. Combining them would double-count packages and make conflicting graph/evidence precedence ambiguous. To validate both paths in CI, produce two independent reports: a canonical SBOM report and a direct-lockfile report. The runnable mixed-manager example is under [sandbox/package-manager-inputs](sandbox/package-manager-inputs/README.md).
+ol intentionally rejects SBOM and package-manager inputs in the same report, and it does not accept multiple SBOM files as an implicit union. Combining them would double-count packages and make conflicting graph/evidence precedence ambiguous. To validate both paths in CI, produce two independent reports: a canonical SBOM report and a direct-lockfile report. The runnable mixed-manager example is under [sandbox/package-manager-inputs](sandbox/package-manager-inputs/README.md).
 
 
 ## Development
@@ -275,7 +314,7 @@ The ecosystem CI and self-scan contract is documented in [verification.md](.gith
 
 ### Repository sandbox
 
-Regenerate Ol's committed SBOM and text, Markdown, and JSON report snapshots through the generalized input API with:
+Regenerate ol's committed SBOM and text, Markdown, and JSON report snapshots through the generalized input API with:
 
 ```bash
 ./sandbox/Update-SelfScan.ps1

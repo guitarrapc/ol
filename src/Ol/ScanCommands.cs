@@ -17,7 +17,6 @@ internal sealed class ScanCommands
     /// <summary>
     /// Scan a resolved dependency input.
     /// </summary>
-    /// <param name="sbom">SBOM JSON path. Cannot be combined with --input.</param>
     /// <param name="input">Repeatable resolved dependency input files or directories.</param>
     /// <param name="inputFormat">Input format: auto (default), cyclonedx, spdx, or nuget-assets.</param>
     /// <param name="format">Output format: text, json, or markdown.</param>
@@ -36,7 +35,6 @@ internal sealed class ScanCommands
     /// <param name="retry">Reserved package metadata retry count.</param>
     [Command("scan")]
     public int Scan(
-        string? sbom = null,
         [InputPathsParser] string[]? input = null,
         string? inputFormat = null,
         ReportFormat format = ReportFormat.Text,
@@ -54,7 +52,7 @@ internal sealed class ScanCommands
         int concurrency = 0,
         int retry = 1)
     {
-        if (!TryResolveInput(sbom, input, inputFormat, out var inputSelection, out var inputError))
+        if (!TryResolveInput(input, inputFormat, out var inputSelection, out var inputError))
         {
             Console.Error.WriteLine($"Invalid scan input: {inputError}");
             return 1;
@@ -64,12 +62,10 @@ internal sealed class ScanCommands
         {
             var inputPath = inputSelection.Paths[inputIndex];
             var isInputFile = File.Exists(inputPath);
-            var isInputDirectory = !inputSelection.IsLegacySbom && Directory.Exists(inputPath);
+            var isInputDirectory = Directory.Exists(inputPath);
             if (!isInputFile && !isInputDirectory)
             {
-                Console.Error.WriteLine(inputSelection.IsLegacySbom
-                    ? $"SBOM file not found: {inputPath}"
-                    : $"Input file or directory not found: {inputPath}");
+                Console.Error.WriteLine($"Input file or directory not found: {inputPath}");
                 return 1;
             }
         }
@@ -130,9 +126,7 @@ internal sealed class ScanCommands
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
-            Console.Error.WriteLine(inputSelection.IsLegacySbom
-                ? $"Unable to scan SBOM: {exception.Message}"
-                : $"Unable to scan input: {exception.Message}");
+            Console.Error.WriteLine($"Unable to scan input: {exception.Message}");
             return 1;
         }
         if (verbose)
@@ -248,30 +242,69 @@ internal sealed class ScanCommands
         var files = CollectInputFiles(selection);
         var inventories = new DependencyInventory[files.Length];
         var handlers = new DependencyInputHandler[files.Length];
+        var consumed = new bool[files.Length];
+        var loadedInputs = includeHash ? new byte[files.Length][] : null;
         IncrementalHash? sourceHash = includeHash ? IncrementalHash.CreateHash(HashAlgorithmName.SHA256) : null;
         var expectedFormat = selection.HasExpectedFormat ? selection.ExpectedHandler.Format : default;
         var kind = default(ScanInputKind);
         var format = default(ScanInputFormat);
         var specificationVersion = default(Utf8Slice);
+        var inventoryCount = 0;
         try
         {
+            if (sourceHash is not null)
+            {
+                for (var fileIndex = 0; fileIndex < files.Length; fileIndex++)
+                {
+                    var inputBytes = File.ReadAllBytes(files[fileIndex].Path);
+                    loadedInputs![fileIndex] = inputBytes;
+                    sourceHash.AppendData(Encoding.UTF8.GetBytes(files[fileIndex].LogicalPath));
+                    sourceHash.AppendData([0]);
+                    sourceHash.AppendData(SHA256.HashData(inputBytes));
+                }
+            }
+
             for (var i = 0; i < files.Length; i++)
             {
-                var inputBytes = File.ReadAllBytes(files[i].Path);
-                var inventory = DependencyInputScanner.Scan(inputBytes, spdx, expectedFormat: expectedFormat);
-                if (!DependencyInputRegistry.Default.TryGetInputFormat(inventory.Input.Format.Name, out var handler))
+                if (consumed[i]) continue;
+                DependencyInventory inventory;
+                DependencyInputHandler handler;
+                if (TryCollectInputBundle(files, i, consumed, out handler, out var bundleIndexes))
                 {
-                    throw new InvalidOperationException($"Detected input format is not registered: {inventory.Input.Format.Name}");
+                    var bundleSources = new byte[bundleIndexes.Length][];
+                    for (var bundleIndex = 0; bundleIndex < bundleIndexes.Length; bundleIndex++)
+                    {
+                        var fileIndex = bundleIndexes[bundleIndex];
+                        bundleSources[bundleIndex] = loadedInputs?[fileIndex] ?? File.ReadAllBytes(files[fileIndex].Path);
+                        consumed[fileIndex] = true;
+                    }
+
+                    if (!string.IsNullOrEmpty(expectedFormat.Name) && expectedFormat != handler.Format)
+                    {
+                        throw new InvalidOperationException($"Input format {expectedFormat.Name} does not match the detected {handler.Format.Name} format.");
+                    }
+
+                    inventory = DependencyInputScanner.ScanBundle(bundleSources, spdx, handler.Format);
+                }
+                else
+                {
+                    var inputBytes = loadedInputs?[i] ?? File.ReadAllBytes(files[i].Path);
+                    inventory = DependencyInputScanner.Scan(inputBytes, spdx, expectedFormat: expectedFormat);
+                    consumed[i] = true;
+                    if (!DependencyInputRegistry.Default.TryGetInputFormat(inventory.Input.Format.Name, out handler))
+                    {
+                        throw new InvalidOperationException($"Detected input format is not registered: {inventory.Input.Format.Name}");
+                    }
                 }
 
-                if (files.Length > 1 && inventory.Input.Kind != ScanInputKind.PackageManager)
+                if ((files.Length > 1 || inventoryCount > 0) && inventory.Input.Kind != ScanInputKind.PackageManager)
                 {
                     throw new InvalidOperationException("Multiple inputs must all be package-manager inputs.");
                 }
 
-                inventories[i] = inventory;
-                handlers[i] = handler;
-                if (i == 0)
+                inventories[inventoryCount] = inventory;
+                handlers[inventoryCount] = handler;
+                if (inventoryCount == 0)
                 {
                     kind = inventory.Input.Kind;
                     format = inventory.Input.Format;
@@ -290,12 +323,7 @@ internal sealed class ScanCommands
                     }
                 }
 
-                if (sourceHash is not null)
-                {
-                    sourceHash.AppendData(Encoding.UTF8.GetBytes(files[i].LogicalPath));
-                    sourceHash.AppendData([0]);
-                    sourceHash.AppendData(SHA256.HashData(inputBytes));
-                }
+                inventoryCount++;
             }
 
             var descriptor = new ScanInputDescriptor(
@@ -304,14 +332,73 @@ internal sealed class ScanCommands
                 GetInputSourceReference(selection.Paths),
                 sourceHash is null ? string.Empty : Convert.ToHexString(sourceHash.GetHashAndReset()).ToLowerInvariant(),
                 specificationVersion);
-            return inventories.Length == 1
+            return inventoryCount == 1
                 ? inventories[0] with { Input = descriptor }
-                : DependencyInventoryCombiner.Combine(inventories, handlers, descriptor);
+                : DependencyInventoryCombiner.Combine(inventories.AsSpan(0, inventoryCount), handlers.AsSpan(0, inventoryCount), descriptor);
         }
         finally
         {
             sourceHash?.Dispose();
         }
+    }
+
+    private static bool TryCollectInputBundle(
+        ReadOnlySpan<CollectedInputFile> files,
+        int candidateIndex,
+        ReadOnlySpan<bool> consumed,
+        out DependencyInputHandler handler,
+        out int[] bundleIndexes)
+    {
+        var candidateName = Path.GetFileName(files[candidateIndex].Path);
+        var candidateDirectory = Path.GetDirectoryName(files[candidateIndex].Path) ?? string.Empty;
+        var fileNameComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var registeredHandlers = DependencyInputRegistry.Default.RegisteredHandlers;
+        for (var handlerIndex = 0; handlerIndex < registeredHandlers.Length; handlerIndex++)
+        {
+            var candidateHandler = registeredHandlers[handlerIndex];
+            if (candidateHandler.BundleParser is null) continue;
+            var requiredNames = candidateHandler.DirectoryFileNames.Span;
+            var ownsCandidate = false;
+            for (var requiredIndex = 0; requiredIndex < requiredNames.Length; requiredIndex++)
+            {
+                if (string.Equals(requiredNames[requiredIndex], candidateName, fileNameComparison))
+                {
+                    ownsCandidate = true;
+                    break;
+                }
+            }
+
+            if (!ownsCandidate) continue;
+            bundleIndexes = new int[requiredNames.Length];
+            bundleIndexes.AsSpan().Fill(-1);
+            for (var requiredIndex = 0; requiredIndex < requiredNames.Length; requiredIndex++)
+            {
+                for (var fileIndex = 0; fileIndex < files.Length; fileIndex++)
+                {
+                    if (consumed[fileIndex]
+                        || !string.Equals(Path.GetDirectoryName(files[fileIndex].Path) ?? string.Empty, candidateDirectory, fileNameComparison)
+                        || !string.Equals(Path.GetFileName(files[fileIndex].Path), requiredNames[requiredIndex], fileNameComparison))
+                    {
+                        continue;
+                    }
+
+                    bundleIndexes[requiredIndex] = fileIndex;
+                    break;
+                }
+
+                if (bundleIndexes[requiredIndex] < 0)
+                {
+                    throw new InvalidOperationException($"Input format {candidateHandler.Format.Name} requires companion file {requiredNames[requiredIndex]} in the same directory.");
+                }
+            }
+
+            handler = candidateHandler;
+            return true;
+        }
+
+        handler = default;
+        bundleIndexes = [];
+        return false;
     }
 
     private static CollectedInputFile[] CollectInputFiles(ScanInputSelection selection)
@@ -405,33 +492,13 @@ internal sealed class ScanCommands
         return Path.GetFileName(path);
     }
 
-    private static bool TryResolveInput(string? sbom, string[]? input, string? inputFormat, out ScanInputSelection selection, out string error)
+    private static bool TryResolveInput(string[]? input, string? inputFormat, out ScanInputSelection selection, out string error)
     {
         selection = default;
-        var hasSbom = !string.IsNullOrEmpty(sbom);
         var hasInput = input is { Length: > 0 };
-        if (!hasSbom && !hasInput)
+        if (!hasInput)
         {
-            error = "Exactly one of --sbom or --input must be specified.";
-            return false;
-        }
-
-        if (hasSbom && hasInput)
-        {
-            error = "--sbom and --input cannot be used together.";
-            return false;
-        }
-
-        if (hasSbom)
-        {
-            if (!string.IsNullOrEmpty(inputFormat))
-            {
-                error = "--input-format can only be used with --input.";
-                return false;
-            }
-
-            selection = new ScanInputSelection([sbom!], true, default);
-            error = string.Empty;
+            error = "--input must be specified.";
             return true;
         }
 
@@ -446,7 +513,7 @@ internal sealed class ScanCommands
 
         if (string.IsNullOrEmpty(inputFormat) || string.Equals(inputFormat, "auto", StringComparison.OrdinalIgnoreCase))
         {
-            selection = new ScanInputSelection(input, false, default);
+            selection = new ScanInputSelection(input, default);
             error = string.Empty;
             return true;
         }
@@ -457,7 +524,7 @@ internal sealed class ScanCommands
             return false;
         }
 
-        selection = new ScanInputSelection(input, false, handler);
+        selection = new ScanInputSelection(input, handler);
         error = string.Empty;
         return true;
     }
@@ -470,7 +537,7 @@ internal sealed class ScanCommands
         Console.Error.WriteLine(input.Format.Name);
     }
 
-    private readonly record struct ScanInputSelection(string[] Paths, bool IsLegacySbom, DependencyInputHandler ExpectedHandler)
+    private readonly record struct ScanInputSelection(string[] Paths, DependencyInputHandler ExpectedHandler)
     {
         public bool HasExpectedFormat => !string.IsNullOrEmpty(ExpectedHandler.Format.Name);
     }

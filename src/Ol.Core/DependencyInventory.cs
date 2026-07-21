@@ -44,6 +44,9 @@ public readonly record struct ScanInputFormat(string Name, string Parser, string
     /// <summary>Cargo metadata JSON format version 1.</summary>
     public static ScanInputFormat CargoMetadata { get; } = new("cargo-metadata", "cargo-metadata-json", "Cargo metadata");
 
+    /// <summary>Paired Go selected-module metadata and module graph.</summary>
+    public static ScanInputFormat GoModuleGraph { get; } = new("go-module-graph", "go-module-graph-pair", "Go module graph");
+
     /// <summary>A collection containing more than one registered input format.</summary>
     public static ScanInputFormat Collection { get; } = new("collection", "dependency-input-collection", "dependency input collection");
 

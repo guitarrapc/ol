@@ -342,12 +342,22 @@ Phase 8では次の境界に確定した。
 - parserは`Utf8JsonReader`を用いてDOMを構築せず、通常の文字列fieldをsource-backed `Utf8Slice`として保持する。package-id hash index、node/dependency/feature/graph buffer、incoming-edge indexは`ArrayPool`を使用し、token/edge loopにLINQ、transient string、per-edge collection allocationを持たない。
 - 1 component focused benchmarkではCargo metadata ingestionが13.772 µs / 600 B、同じowned result floorが186.3 ns / 600 Bで、parser固有のmanaged allocationは0 Bだった。
 
-### Phase 9: Go module graph input adapter
+### Phase 9: Go module graph input adapter（完了）
 
 - `go mod graph`の解決済みmodule edgeを入力とし、`go.mod`からMinimal Version Selectionを再実装しない。
 - main moduleをcontext root、versioned moduleをoccurrenceとして保持し、replace/local moduleをregistry moduleと偽装しない。
 - GOOS、GOARCH、build tagsは`go mod graph`単体では証明できないため未指定とし、別context入力が導入されるまでhostから推測しない。
 - `pkg:golang` identity、pseudo-version、retractionやreplace表現のfixtureを追加する。
+
+Phase 9では、raw `go mod graph`だけではMVSで未選択のversionを除外できず、適用済みreplace/localの識別情報も失われるため、次の2-file境界に確定した。
+
+- `go-list-modules.json`は`go list -m -json all`のJSON object sequence、`go-mod-graph.txt`は同じmodule/workspaceで実行した`go mod graph`出力とする。handlerが2つのexact filenameとbundle parserを所有し、明示されたpairまたは同一directoryの完全なpairを1 inventoryとして読む。
+- selected module listだけをcomponent集合の根拠にし、graph edgeは両端がselected listに存在する場合だけ保持する。これにより未選択version、`go@...`、`toolchain@...`をcomponent化せず、Ol内でMVSを再実装しない。
+- main moduleをcontext root、versioned moduleをoccurrenceとする。unreplaced moduleはoriginal `path@version`と`pkg:golang`を持ち、local replaceはpurlを持たず`replace=local`だけをvariantへ保持してprivate pathをreportへ出さない。
+- versioned module replaceはoriginal requirementをsource identityとして保持し、実際のreplacement path/versionをenrichment purlとvariantへ使う。`Indirect`、入力に存在する`Retracted`、pseudo-versionを損失なく保持する。
+- GOOS、GOARCH、build tagsは両出力から証明できないためcontextで未指定とし、実行hostから推測しない。
+- JSON sequenceは`Utf8JsonReader`、graphはUTF-8 line parserでDOMやstring化なしに読み、module identity hash indexとnode/edge/traversal bufferを`ArrayPool`で管理する。token/edge loopにLINQ、regex、per-edge collection allocationを持たない。
+- 1 component focused benchmarkではpaired Go ingestionが2.596 µs / 544 B、同じowned result floorが166.9 ns / 544 Bで、parser固有のmanaged allocationは0 Bだった。
 
 ### Phase 10: JVMおよびPython resolved input調査
 

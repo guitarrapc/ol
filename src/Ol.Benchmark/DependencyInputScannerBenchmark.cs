@@ -134,6 +134,20 @@ public class DependencyInputScannerBenchmark
         }
         """);
 
+    private readonly byte[][] goModuleGraph =
+    [
+        Encoding.UTF8.GetBytes(
+            """
+            { "Path": "example.com/app", "Main": true, "GoVersion": "1.25" }
+            { "Path": "github.com/google/uuid", "Version": "v1.6.0" }
+            """),
+        Encoding.UTF8.GetBytes(
+            """
+            example.com/app github.com/google/uuid@v1.6.0
+            example.com/app go@1.25
+            """),
+    ];
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
@@ -156,6 +170,10 @@ public class DependencyInputScannerBenchmark
     private readonly Utf8Slice cargoName = "itoa";
     private readonly Utf8Slice cargoVersion = "1.0.0";
     private readonly Utf8Slice cargoSourceId = "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0";
+    private readonly Utf8Slice goRoot = "example.com/app";
+    private readonly Utf8Slice goName = "github.com/google/uuid";
+    private readonly Utf8Slice goVersion = "v1.6.0";
+    private readonly Utf8Slice goSourceId = "github.com/google/uuid@v1.6.0";
 
     [Benchmark]
     public DependencyInventory ScanCycloneDx()
@@ -203,6 +221,12 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory ScanCargoMetadataInventory()
     {
         return DependencyInputScanner.Scan(cargoMetadata, spdx, expectedFormat: ScanInputFormat.CargoMetadata);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanGoModuleGraphInventory()
+    {
+        return DependencyInputScanner.ScanBundle(goModuleGraph, spdx, ScanInputFormat.GoModuleGraph);
     }
 
     [Benchmark]
@@ -281,6 +305,19 @@ public class DependencyInputScannerBenchmark
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
             [new DependencyOccurrenceVariant(0, Utf8Slice.FromOwnedBytes("source=registry"u8.ToArray()))]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateGoModuleGraphInventoryResultFloor()
+    {
+        var component = new ScanComponent(goName, goVersion, default, "golang", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:golang/github.com/google/uuid@v1.6.0"u8.ToArray()), Utf8Slice.FromOwnedBytes(goSourceId.Span.ToArray()), default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(goRoot, default, default, default, default, default)],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
+            []);
     }
 
     [Benchmark]

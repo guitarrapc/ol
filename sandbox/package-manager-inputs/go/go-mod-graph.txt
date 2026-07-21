@@ -1,0 +1,3 @@
+example.com/ol-go-sample github.com/google/uuid@v1.6.0
+example.com/ol-go-sample go@1.25
+github.com/google/uuid@v1.6.0 go@1.20

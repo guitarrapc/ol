@@ -9,6 +9,19 @@ public sealed class CliScanTests
     private static readonly SemaphoreSlim CliGate = new(1, 1);
 
     [Test]
+    public async Task Scan_Help_DoesNotAdvertiseRemovedSbomOption()
+    {
+        var root = FindRepositoryRoot();
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--help");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).IsEmpty();
+        await Assert.That(stdout).Contains("--input <string[]?>");
+        await Assert.That(stdout).DoesNotContain("--sbom");
+    }
+
+    [Test]
     public async Task Scan_WithInputFormatOmitted_AutoDetectsCycloneDx()
     {
         var root = FindRepositoryRoot();
@@ -1153,6 +1166,57 @@ public sealed class CliScanTests
         await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(9);
         await Assert.That(inventory.GetProperty("occurrences").EnumerateArray().Any(static occurrence => occurrence.TryGetProperty("variant", out var variant) && variant.GetString() == "optional;os=linux,!win32;cpu=x64")).IsTrue();
         await Assert.That(stdout).DoesNotContain("node_modules/workspace-a\"");
+    }
+
+    [Test]
+    public async Task Scan_WithGoResolvedPairDirectory_CombinesCompanionFilesAsOneInput()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-go-module-graph-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "go-list-modules.json"), Path.Combine(temporaryDirectory, "go-list-modules.json"));
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "go-mod-graph.txt"), Path.Combine(temporaryDirectory, "go-mod-graph.txt"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("go-module-graph");
+            await Assert.That(report.RootElement.GetProperty("inventory").GetProperty("components").GetArrayLength()).IsEqualTo(5);
+            await Assert.That(stdout).DoesNotContain("/private/repo/local");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithIncompleteGoResolvedPair_ReturnsCompanionError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-go-module-graph-incomplete-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "go-list-modules.json"), Path.Combine(temporaryDirectory, "go-list-modules.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("requires companion file go-mod-graph.txt in the same directory");
+            await Assert.That(stderr).DoesNotContain("   at ");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
     }
 
     [Test]

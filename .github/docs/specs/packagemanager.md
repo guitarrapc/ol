@@ -30,7 +30,7 @@ The resolved-input pipeline accepts NuGet `project.assets.json` version 3 or 4 t
 
 The same pipeline accepts npm `package-lock.json` lockfile version 2 or 3 as `npm-package-lock`. Its handler owns recursive discovery of the exact `package-lock.json` name. The adapter consumes the `packages` install tree and never calls a registry to resolve dependency ranges.
 
-pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively. Cargo metadata JSON format version 1 is accepted as `cargo-metadata`, whose handler owns `cargo-metadata.json` discovery.
+pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively. Cargo metadata JSON format version 1 is accepted as `cargo-metadata`, whose handler owns `cargo-metadata.json` discovery. Go's selected-module JSON and module graph are accepted together as `go-module-graph`; its handler owns the exact companion names `go-list-modules.json` and `go-mod-graph.txt`.
 
 ## NuGet resolved input
 
@@ -65,6 +65,14 @@ The Cargo adapter consumes only JSON produced by `cargo metadata --format-versio
 Each `workspace_members` package becomes a context identified by package name and its resolved feature set. Workspace nodes remain graph traversal nodes and do not become report components. Non-workspace registry, git, and path packages become components whose exact Cargo package id is the source identity. Only the two official crates.io source identifiers receive a canonical versioned `pkg:cargo/{name}@{version}` enrichment identity; alternate registries, git sources, and path packages do not masquerade as crates.io packages.
 
 Resolve-node features plus incoming dependency `kind` and target expressions are retained in deterministic sparse occurrence variants. Workspace crossings participate in reachability classification, but omitting a workspace traversal node does not invent a package-to-package edge. The format records target expressions on dependencies but does not record the literal Cargo `--filter-platform` argument, so context target/platform/architecture fields remain unspecified rather than being inferred from the scanning host. `packages[].license` is classified as `dependency-input` evidence with Cargo metadata provenance.
+
+## Go resolved input
+
+The Go adapter consumes two standard tool outputs generated from the same module or workspace: `go list -m -json all` supplies the selected MVS build list, main modules, and replacement metadata; `go mod graph` supplies requirement edges. Raw graph nodes are never treated as the selected inventory. An edge is retained only when both identities occur in the selected-module list, which excludes superseded versions and the `go@...` and `toolchain@...` graph nodes without reimplementing MVS.
+
+Each selected main module becomes a context root. Selected versioned modules become components with the original `path@version` as source identity. Unreplaced modules receive canonical `pkg:golang/{path}@{version}` enrichment identities. A local replacement has no version, receives no proxy identity, and retains only `replace=local`; local `Dir` and `GoMod` paths are ignored. A versioned module replacement retains the original source identity but uses the replacement path/version for its enrichment purl and records `replace={path}@{version}` as a sparse occurrence variant. `Indirect` and present `Retracted` fields become `indirect` and `retracted` variants.
+
+Reachability from each main module determines direct/transitive classification and proven root/module edges. Selected modules not proven reachable remain unknown occurrences in the first context rather than being discarded. GOOS, GOARCH, build tags, and package-level import reachability are not present in these module outputs and are not inferred from the scanning host. Both companion files must be supplied explicitly or discovered in the same directory.
 
 ## User Experience
 

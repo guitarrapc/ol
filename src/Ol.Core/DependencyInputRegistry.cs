@@ -14,6 +14,12 @@ namespace Ol.Core;
 /// <returns>The normalized dependency inventory.</returns>
 public delegate DependencyInventory DependencyInputParser(byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph);
 
+/// <summary>Parses an ordered bundle of owned resolved dependency inputs into one normalized inventory.</summary>
+/// <param name="sources">The owned input buffers ordered by the handler's registered file names.</param>
+/// <param name="spdxLicenseIndex">The SPDX lookup index.</param>
+/// <param name="retainGraph">Whether occurrence and edge arrays are required by the caller.</param>
+public delegate DependencyInventory DependencyInputBundleParser(byte[][] sources, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph);
+
 /// <summary>Detects one non-JSON dependency input format without materializing source text.</summary>
 /// <param name="inputUtf8">The dependency input after an optional UTF-8 BOM.</param>
 public delegate bool DependencyInputDetector(ReadOnlySpan<byte> inputUtf8);
@@ -70,18 +76,20 @@ public enum DependencyComponentIdentityComparison : byte
 /// <param name="Kind">The input family.</param>
 /// <param name="Format">The public input format.</param>
 /// <param name="Signature">The deterministic content signature.</param>
-/// <param name="Parser">The format-owned parser.</param>
+/// <param name="Parser">The format-owned single-file parser, or null for a bundled format.</param>
 /// <param name="DirectoryFileNames">Exact file names discovered recursively for a directory input.</param>
 /// <param name="ComponentIdentityComparison">The package identity comparison used when combining repeated inputs of this format.</param>
 /// <param name="Detector">The format-owned detector for non-JSON input, or null for a JSON signature.</param>
+/// <param name="BundleParser">The format-owned parser for an ordered set of registered file names.</param>
 public readonly record struct DependencyInputHandler(
     ScanInputKind Kind,
     ScanInputFormat Format,
     DependencyInputSignature Signature,
-    DependencyInputParser Parser,
+    DependencyInputParser? Parser,
     ReadOnlyMemory<string> DirectoryFileNames = default,
     DependencyComponentIdentityComparison ComponentIdentityComparison = DependencyComponentIdentityComparison.Ordinal,
-    DependencyInputDetector? Detector = null);
+    DependencyInputDetector? Detector = null,
+    DependencyInputBundleParser? BundleParser = null);
 
 /// <summary>
 /// Immutable registry of resolved dependency input handlers.
@@ -125,6 +133,15 @@ public sealed class DependencyInputRegistry
             new("version"u8.ToArray(), DependencyInputMarkerValueKind.NumberEquals, "1"u8.ToArray()),
             new("workspace_root"u8.ToArray(), DependencyInputMarkerValueKind.String),
         }), CargoMetadataInputParser.Parse, new[] { "cargo-metadata.json" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
+        // Go - Package Manager
+        new(
+            ScanInputKind.PackageManager,
+            ScanInputFormat.GoModuleGraph,
+            default,
+            null,
+            new[] { "go-list-modules.json", "go-mod-graph.txt" },
+            DependencyComponentIdentityComparison.OrdinalWithSourceId,
+            BundleParser: GoModuleGraphInputParser.Parse),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>
@@ -135,15 +152,17 @@ public sealed class DependencyInputRegistry
         for (var i = 0; i < handlers.Length; i++)
         {
             var handler = handlers[i];
+            var isBundle = handler.BundleParser is not null;
             if (string.IsNullOrEmpty(handler.Kind.Name)
                 || string.IsNullOrEmpty(handler.Format.Name)
                 || string.IsNullOrEmpty(handler.Format.Parser)
                 || handler.Signature.RequiredMarkers.Length > 64
-                || (handler.Signature.RequiredMarkers.Length == 0 && handler.Detector is null)
-                || (handler.Signature.RequiredMarkers.Length != 0 && handler.Detector is not null)
-                || handler.Parser is null)
+                || isBundle == (handler.Parser is not null)
+                || (!isBundle && handler.Signature.RequiredMarkers.Length == 0 && handler.Detector is null)
+                || (!isBundle && handler.Signature.RequiredMarkers.Length != 0 && handler.Detector is not null)
+                || (isBundle && (handler.Signature.RequiredMarkers.Length != 0 || handler.Detector is not null || handler.DirectoryFileNames.Length < 2)))
             {
-                throw new ArgumentException("Dependency input handlers require a kind, format, signature, and parser.", nameof(handlers));
+                throw new ArgumentException("Dependency input handlers require a kind, format, and either one detected parser or one multi-file bundle parser.", nameof(handlers));
             }
 
             for (var registeredIndex = 0; registeredIndex < i; registeredIndex++)
@@ -252,7 +271,35 @@ public static class DependencyInputScanner
             throw new InvalidOperationException($"Input format {expectedFormat.Name} does not match the detected {handler.Format.Name} format.");
         }
 
+        if (handler.Parser is null)
+        {
+            throw new InvalidOperationException($"Input format {handler.Format.Name} requires its registered companion files.");
+        }
+
         var inventory = handler.Parser(inputUtf8, offset, spdxLicenseIndex, retainGraph);
+        var descriptor = inventory.Input with { Kind = handler.Kind, Format = handler.Format };
+        return inventory with { Input = descriptor };
+    }
+
+    /// <summary>Scans an ordered multi-file dependency input bundle without copying source text.</summary>
+    public static DependencyInventory ScanBundle(byte[][] sources, SpdxLicenseIndex spdxLicenseIndex, ScanInputFormat expectedFormat, DependencyInputRegistry? inputs = null)
+        => ScanBundleCore(sources, spdxLicenseIndex, inputs ?? DependencyInputRegistry.Default, expectedFormat, retainGraph: true, out _);
+
+    internal static DependencyInventory ScanBundleCore(byte[][] sources, SpdxLicenseIndex spdxLicenseIndex, DependencyInputRegistry inputs, ScanInputFormat expectedFormat, bool retainGraph, out DependencyInputHandler handler)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        if (string.IsNullOrEmpty(expectedFormat.Name) || !inputs.TryGetInputFormat(expectedFormat.Name, out handler) || handler.Format != expectedFormat)
+        {
+            throw new InvalidOperationException("A registered expected format is required for a multi-file dependency input.");
+        }
+
+        if (handler.BundleParser is null || sources.Length != handler.DirectoryFileNames.Length)
+        {
+            throw new InvalidOperationException($"Input format {expectedFormat.Name} requires {handler.DirectoryFileNames.Length} registered companion files.");
+        }
+
+        for (var sourceIndex = 0; sourceIndex < sources.Length; sourceIndex++) ArgumentNullException.ThrowIfNull(sources[sourceIndex]);
+        var inventory = handler.BundleParser(sources, spdxLicenseIndex, retainGraph);
         var descriptor = inventory.Input with { Kind = handler.Kind, Format = handler.Format };
         return inventory with { Input = descriptor };
     }

@@ -1,0 +1,40 @@
+{
+  "Path": "example.com/app",
+  "Main": true,
+  "Dir": "/repo",
+  "GoMod": "/repo/go.mod",
+  "GoVersion": "1.25"
+}
+{
+  "Path": "example.com/direct",
+  "Version": "v1.2.0",
+  "Time": "2025-01-01T00:00:00Z",
+  "Indirect": false
+}
+{
+  "Path": "example.com/transitive",
+  "Version": "v0.0.0-20250101120000-abcdef123456",
+  "Indirect": true
+}
+{
+  "Path": "example.com/local",
+  "Version": "v0.5.0",
+  "Replace": {
+    "Path": "../local",
+    "Dir": "/private/repo/local",
+    "GoMod": "/private/repo/local/go.mod"
+  }
+}
+{
+  "Path": "example.com/forked",
+  "Version": "v1.0.0",
+  "Replace": {
+    "Path": "github.com/acme/forked",
+    "Version": "v1.1.0"
+  }
+}
+{
+  "Path": "example.com/retracted",
+  "Version": "v1.0.0",
+  "Retracted": ["published accidentally"]
+}

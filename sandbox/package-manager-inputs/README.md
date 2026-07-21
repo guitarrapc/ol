@@ -1,6 +1,6 @@
 # Package-manager input samples
 
-These deterministic resolved-input samples exercise Ol without installing or invoking NuGet, npm, pnpm, Yarn, or Cargo and without accessing package registries.
+These deterministic resolved-input samples exercise Ol without installing or invoking NuGet, npm, pnpm, Yarn, Cargo, or Go and without accessing package registries.
 
 Run all adapters from the repository root:
 
@@ -20,6 +20,12 @@ The Cargo sample is the checked output of `cargo metadata --format-version 1 --l
 
 ```bash
 dotnet run -c Release --project src/Ol -- scan --input sandbox/package-manager-inputs/cargo/cargo-metadata.json --skip-enrichment --format json --quiet
+```
+
+The Go sample pairs the selected build list from `go list -m -json all` with dependency edges from `go mod graph`. Scan their containing directory so Ol binds the companion files as one input:
+
+```bash
+dotnet run -c Release --project src/Ol -- scan --input sandbox/package-manager-inputs/go --skip-enrichment --format json --quiet
 ```
 
 Yarn Classic and Yarn Berry intentionally use the same `yarn.lock` file name in separate directories. Their content signatures select the correct adapter.

@@ -50,7 +50,9 @@ internal static class CommandLineArguments
 
     public static string[] NormalizeRepeatedScanInputs(string[] args)
     {
-        if (args.Length < 5 || !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase))
+        if (args.Length < 5
+            || !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(args[0], "check", StringComparison.OrdinalIgnoreCase))
         {
             return args;
         }

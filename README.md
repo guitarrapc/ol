@@ -10,6 +10,7 @@ Usage: [command] [-h|--help] [--version]
 
 Commands:
   cache clear     Clears cached evidence for the specified category.
+  check           Check a resolved dependency input against allowed SPDX licenses.
   scan            Scan a resolved dependency input.
   spdx clear      Clear user-managed SPDX data.
   spdx list       List installed SPDX data versions.
@@ -17,6 +18,33 @@ Commands:
   spdx use        Switch active SPDX data version.
   spdx version    Show the active SPDX data source.
 ```
+
+```bash
+$ ol check --help
+Usage: check [options...] [-h|--help] [--version]
+
+Check a resolved dependency input against allowed SPDX licenses.
+
+Options:
+  --input <string[]?>           Repeatable resolved dependency input files or directories. [Default: null]
+  --allow-licenses <string?>    Comma-separated SPDX License Identifiers. [Default: null]
+  --input-format <string?>      Input format assertion; defaults to auto detection. [Default: null]
+  --spdx-data <string?>         Directory containing licenses.json and exceptions.json. [Default: null]
+  --verbose                     Include input detection diagnostics.
+  --refresh                     Skip package metadata cache entries.
+  --cache-dir <string?>         Root directory for isolated package-metadata and source-repository caches. [Default: null]
+  --skip-enrichment             Use only evidence already present in the dependency input.
+  --concurrency <int>           Maximum concurrent package metadata lookups. [Default: 0]
+  --retry <int>                 Reserved package metadata retry count. [Default: 1]
+```
+
+Use `check` in CI to fail when a resolved dependency has a forbidden or unresolved license:
+
+```bash
+ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+The command returns `0` when every component satisfies the allow-list, `1` for policy violations, and `2` when the check cannot be completed.
 
 ```bash
 $ ol scan --help

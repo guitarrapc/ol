@@ -1,21 +1,25 @@
 ﻿using System.Buffers;
 
+using System.Collections.Frozen;
+
 namespace Ol.Core.Spdx;
 
 internal ref struct SpdxExpression
 {
     private readonly ReadOnlySpan<byte> value;
     private readonly SpdxLicenseIndex spdxLicenseIndex;
+    private readonly FrozenSet<string>? allowedLicenses;
     private Span<char> output;
     private int position;
     private int outputCount;
     private bool hasDeprecatedLicense;
 
-    private SpdxExpression(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, Span<char> output)
+    private SpdxExpression(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, Span<char> output, FrozenSet<string>? allowedLicenses = null)
     {
         this.value = value;
         this.spdxLicenseIndex = spdxLicenseIndex;
         this.output = output;
+        this.allowedLicenses = allowedLicenses;
         position = 0;
         outputCount = 0;
     }
@@ -30,7 +34,7 @@ internal ref struct SpdxExpression
         try
         {
             var parser = new SpdxExpression(value, spdxLicenseIndex, output);
-            if (!parser.TryParseExpression() || !parser.IsAtEnd())
+            if (!parser.TryParseExpression(out _) || !parser.IsAtEnd())
             {
                 normalized = default;
                 hasDeprecatedLicense = false;
@@ -53,14 +57,20 @@ internal ref struct SpdxExpression
         }
     }
 
-    private bool TryParseExpression()
+    public static bool TryEvaluatePolicy(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, FrozenSet<string> allowedLicenses, out bool allowed)
     {
-        return TryParseOrExpression();
+        var parser = new SpdxExpression(value, spdxLicenseIndex, [], allowedLicenses);
+        return parser.TryParseExpression(out allowed) && parser.IsAtEnd();
     }
 
-    private bool TryParseOrExpression()
+    private bool TryParseExpression(out bool allowed)
     {
-        if (!TryParseAndExpression())
+        return TryParseOrExpression(out allowed);
+    }
+
+    private bool TryParseOrExpression(out bool allowed)
+    {
+        if (!TryParseAndExpression(out allowed))
         {
             return false;
         }
@@ -68,18 +78,20 @@ internal ref struct SpdxExpression
         while (TryConsumeOperator("or"u8))
         {
             Append(" OR ");
-            if (!TryParseAndExpression())
+            if (!TryParseAndExpression(out var right))
             {
                 return false;
             }
+
+            allowed |= right;
         }
 
         return true;
     }
 
-    private bool TryParseAndExpression()
+    private bool TryParseAndExpression(out bool allowed)
     {
-        if (!TryParseWithExpression())
+        if (!TryParseWithExpression(out allowed))
         {
             return false;
         }
@@ -87,18 +99,20 @@ internal ref struct SpdxExpression
         while (TryConsumeOperator("and"u8))
         {
             Append(" AND ");
-            if (!TryParseWithExpression())
+            if (!TryParseWithExpression(out var right))
             {
                 return false;
             }
+
+            allowed &= right;
         }
 
         return true;
     }
 
-    private bool TryParseWithExpression()
+    private bool TryParseWithExpression(out bool allowed)
     {
-        if (!TryParsePrimary())
+        if (!TryParsePrimary(out allowed))
         {
             return false;
         }
@@ -118,11 +132,12 @@ internal ref struct SpdxExpression
         return true;
     }
 
-    private bool TryParsePrimary()
+    private bool TryParsePrimary(out bool allowed)
     {
         SkipWhitespace();
         if (position >= value.Length)
         {
+            allowed = false;
             return false;
         }
 
@@ -130,7 +145,7 @@ internal ref struct SpdxExpression
         {
             position++;
             Append('(');
-            if (!TryParseExpression())
+            if (!TryParseExpression(out allowed))
             {
                 return false;
             }
@@ -148,11 +163,13 @@ internal ref struct SpdxExpression
 
         if (!TryReadIdentifier(out var licenseId) || !spdxLicenseIndex.TryNormalizeLicenseIdUtf8(licenseId, out var normalizedLicense))
         {
+            allowed = false;
             return false;
         }
 
         hasDeprecatedLicense |= spdxLicenseIndex.IsDeprecatedLicenseId(normalizedLicense);
         Append(normalizedLicense);
+        allowed = allowedLicenses?.Contains(normalizedLicense) ?? false;
         return true;
     }
 
@@ -234,12 +251,14 @@ internal ref struct SpdxExpression
 
     private void Append(char value)
     {
+        if (output.IsEmpty) return;
         output[outputCount] = value;
         outputCount++;
     }
 
     private void Append(string value)
     {
+        if (output.IsEmpty) return;
         value.CopyTo(output[outputCount..]);
         outputCount += value.Length;
     }

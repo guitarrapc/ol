@@ -52,37 +52,6 @@ internal sealed class ScanCommands
         int concurrency = 0,
         int retry = 1)
     {
-        if (!TryResolveInput(input, inputFormat, out var inputSelection, out var inputError))
-        {
-            Console.Error.WriteLine($"Invalid scan input: {inputError}");
-            return 1;
-        }
-
-        for (var inputIndex = 0; inputIndex < inputSelection.Paths.Length; inputIndex++)
-        {
-            var inputPath = inputSelection.Paths[inputIndex];
-            var isInputFile = File.Exists(inputPath);
-            var isInputDirectory = Directory.Exists(inputPath);
-            if (!isInputFile && !isInputDirectory)
-            {
-                Console.Error.WriteLine($"Input file or directory not found: {inputPath}");
-                return 1;
-            }
-        }
-
-        concurrency = concurrency == 0 ? Math.Max(4, Math.Min(Environment.ProcessorCount, 8)) : concurrency;
-        if (concurrency < 1)
-        {
-            Console.Error.WriteLine("Concurrency must be at least 1.");
-            return 1;
-        }
-
-        if (retry < 0)
-        {
-            Console.Error.WriteLine("Retry must not be negative.");
-            return 1;
-        }
-
         try
         {
             ScanView.Validate(dependency, sort, groupBy);
@@ -93,68 +62,26 @@ internal sealed class ScanCommands
             return 1;
         }
 
-        var cacheDirectories = default(CacheDirectories);
-        if (!skipEnrichment)
+        if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, skipEnrichment, concurrency, retry, out var preparation, out var preparationError))
         {
-            try
-            {
-                cacheDirectories = CachePaths.Resolve(cacheDir);
-            }
-            catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                Console.Error.WriteLine($"Invalid cache directory: {exception.Message}");
-                return 1;
-            }
-        }
-
-        SpdxData spdx;
-        try
-        {
-            spdx = SpdxData.Load(spdxData);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException or KeyNotFoundException)
-        {
-            Console.Error.WriteLine($"Unable to load SPDX data: {exception.Message}");
+            Console.Error.WriteLine(preparationError);
             return 1;
         }
 
-        ScanResult scanResult;
-        try
+        if (!ScanExecution.TryExecute(preparation, refresh, skipEnrichment, format == ReportFormat.Json, out var completed, out var executionError))
         {
-            var inventory = ScanInputs(inputSelection, spdx.Index, format == ReportFormat.Json);
-            scanResult = ScanResult.FromInventory(inventory);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
-        {
-            Console.Error.WriteLine($"Unable to scan input: {exception.Message}");
+            Console.Error.WriteLine(executionError);
             return 1;
         }
+
+        var scanResult = completed.Result;
+        var spdx = preparation.Spdx;
+        var packageMetadataSummary = completed.PackageMetadataSummary;
+        var sourceRepositorySummary = completed.SourceRepositorySummary;
         if (verbose)
         {
             WriteDetectedInputFormat(scanResult.Inventory.Input);
         }
-
-        var enrichedComponents = scanResult.Components;
-        PackageMetadataSummary packageMetadataSummary;
-        SourceRepositorySummary sourceRepositorySummary;
-        if (skipEnrichment)
-        {
-            packageMetadataSummary = new PackageMetadataSummary(0, 0, 0, 0, 0, 0, concurrency, retry);
-            sourceRepositorySummary = new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", concurrency, retry);
-        }
-        else
-        {
-            var metadataService = new PackageMetadataService(spdx.Index, new PackageMetadataCache(cacheDirectories.PackageMetadata), refresh, retry);
-            var enrichment = metadataService.EnrichAsync(enrichedComponents, concurrency).GetAwaiter().GetResult();
-            enrichedComponents = enrichment.Components;
-            packageMetadataSummary = enrichment.Summary;
-            var sourceService = new SourceRepositoryService(spdx.Index, new PackageMetadataCache(cacheDirectories.PackageMetadata), new SourceRepositoryCache(cacheDirectories.SourceRepository), refresh, retry);
-            var sourceEnrichment = sourceService.EnrichAsync(enrichedComponents, concurrency).GetAwaiter().GetResult();
-            enrichedComponents = sourceEnrichment.Components;
-            sourceRepositorySummary = sourceEnrichment.Summary;
-        }
-
-        scanResult = scanResult with { Components = enrichedComponents };
 
         var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(scanResult.Inventory.Components, dependency);
         var viewComponents = scanResult.Components.Length == 0 ? [] : (ScanComponent[])scanResult.Components.Clone();
@@ -237,7 +164,7 @@ internal sealed class ScanCommands
         };
     }
 
-    private static DependencyInventory ScanInputs(ScanInputSelection selection, SpdxLicenseIndex spdx, bool includeHash)
+    internal static DependencyInventory ScanInputs(ScanInputSelection selection, SpdxLicenseIndex spdx, bool includeHash)
     {
         var files = CollectInputFiles(selection);
         var inventories = new DependencyInventory[files.Length];
@@ -492,7 +419,7 @@ internal sealed class ScanCommands
         return Path.GetFileName(path);
     }
 
-    private static bool TryResolveInput(string[]? input, string? inputFormat, out ScanInputSelection selection, out string error)
+    internal static bool TryResolveInput(string[]? input, string? inputFormat, out ScanInputSelection selection, out string error)
     {
         selection = default;
         var hasInput = input is { Length: > 0 };
@@ -537,7 +464,7 @@ internal sealed class ScanCommands
         Console.Error.WriteLine(input.Format.Name);
     }
 
-    private readonly record struct ScanInputSelection(string[] Paths, DependencyInputHandler ExpectedHandler)
+    internal readonly record struct ScanInputSelection(string[] Paths, DependencyInputHandler ExpectedHandler)
     {
         public bool HasExpectedFormat => !string.IsNullOrEmpty(ExpectedHandler.Format.Name);
     }

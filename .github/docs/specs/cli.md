@@ -383,7 +383,7 @@ Logical identifiers and hashes should be used where possible. Token presence may
 
 <a id="contract-policy-checks"></a>
 
-## Planned `ol check`
+## `ol check`
 
 `check` is the policy-enforcement command. It runs the same dependency-input, enrichment, and reconciliation pipeline as `scan` exactly once, then evaluates the completed in-memory result. Policy evaluation does not rescan inputs, repeat registry or source collection, or change `scan` exit behavior.
 

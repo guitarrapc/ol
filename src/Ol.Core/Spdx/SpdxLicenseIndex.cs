@@ -58,6 +58,10 @@ public sealed class SpdxLicenseIndex
         }
     }
 
+    /// <summary>Attempts to normalize an SPDX license identifier without allocating an input string.</summary>
+    public bool TryNormalizeLicenseId(ReadOnlySpan<char> licenseId, out string normalized)
+        => licenseSpanLookup.TryGetValue(licenseId, out normalized!);
+
     /// <summary>Attempts to normalize a UTF-8 license identifier to a shared canonical UTF-8 slice.</summary>
     public bool TryNormalizeLicenseIdUtf8Slice(ReadOnlySpan<byte> licenseIdUtf8, out Utf8Slice normalized)
         => TryNormalizeLicenseIdUtf8Slice(licenseIdUtf8, out normalized, out _);

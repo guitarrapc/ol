@@ -15,7 +15,7 @@ public static class LicenseReconciler
     /// <returns>The reconciled component.</returns>
     public static ScanComponent AddCandidate(ScanComponent component, LicenseCandidate candidate)
     {
-        if (component.PrimaryCandidate.Source is null)
+        if (component.PrimaryCandidate.Source == LicenseCandidateSource.None)
         {
             return Reconcile(component with { PrimaryCandidate = candidate });
         }

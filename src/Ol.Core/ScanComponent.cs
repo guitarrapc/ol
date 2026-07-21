@@ -32,11 +32,11 @@ public readonly record struct ScanComponent(
     Utf8Slice RepositoryUrl = default)
 {
     /// <summary>Gets the number of retained license candidates.</summary>
-    public int CandidateCount => PrimaryCandidate.Source is null ? 0 : AdditionalCandidates.Length + 1;
+    public int CandidateCount => PrimaryCandidate.Source != LicenseCandidateSource.None ? AdditionalCandidates.Length + 1 : 0;
 
     /// <summary>Gets a retained candidate by index without materializing a combined array.</summary>
     public LicenseCandidate GetCandidate(int index)
-        => index == 0 && PrimaryCandidate.Source is not null ? PrimaryCandidate
+        => index == 0 && PrimaryCandidate.Source != LicenseCandidateSource.None ? PrimaryCandidate
         : (uint)(index - 1) < (uint)AdditionalCandidates.Length ? AdditionalCandidates[index - 1]
         : throw new ArgumentOutOfRangeException(nameof(index));
 }

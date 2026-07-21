@@ -684,7 +684,7 @@ internal static class SbomInputParser
         Utf8Slice repositoryUrl = default)
     {
         var hasDeprecatedWarning = false;
-        if (primaryCandidate.Source is not null)
+        if (primaryCandidate.Source != LicenseCandidateSource.None)
         {
             hasDeprecatedWarning = primaryCandidate.Deprecated;
         }

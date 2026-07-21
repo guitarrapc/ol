@@ -154,15 +154,15 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey)));
-        var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed", evidence);
+        var error = LicenseCandidateFactory.CreateError(LicenseCandidateSource.PackageRegistry, LicenseCandidateKind.Fetch, "package_metadata_fetch_failed", evidence);
         return new PackageMetadataLookupResult(error, true, false, true, false, true, false);
     }
 
     private static PackageMetadataLookupResult CreateUnsupportedPurlResult(Utf8Slice purl)
     {
         var candidate = new LicenseCandidate(
-            "package-metadata",
-            "unsupported",
+            LicenseCandidateSource.PackageRegistry,
+            LicenseCandidateKind.Unsupported,
             purl,
             default,
             LicenseStatus.Unknown,

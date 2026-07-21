@@ -179,7 +179,7 @@ public sealed class PackageMetadataTests
         await Assert.That(result.Status).IsEqualTo(LicenseStatus.Matched);
         await Assert.That(result.License.ToString()).IsEqualTo("MIT");
         await Assert.That(result.CandidateCount).IsEqualTo(2);
-        await Assert.That(result.GetCandidate(1).Source).IsEqualTo("npm-registry");
+        await Assert.That(result.GetCandidate(1).Source).IsEqualTo(LicenseCandidateSource.NpmRegistry);
     }
 
     [Test]

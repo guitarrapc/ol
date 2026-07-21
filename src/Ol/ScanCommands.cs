@@ -1005,8 +1005,8 @@ internal static class ReportRenderer
         {
             var candidate = component.GetCandidate(i);
             writer.WriteStartObject();
-            writer.WriteString("source", candidate.Source);
-            writer.WriteString("kind", candidate.Kind);
+            writer.WriteString("source", candidate.Source.ToDisplayString());
+            writer.WriteString("kind", candidate.Kind.ToDisplayString());
             writer.WriteString("raw"u8, candidate.Raw.Span);
             writer.WriteString("normalized"u8, candidate.Normalized.Span);
             writer.WriteString("status", candidate.Status.ToString().ToLowerInvariant());

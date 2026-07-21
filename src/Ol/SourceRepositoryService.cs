@@ -48,8 +48,8 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 if (repositoryUrl.Length == 0)
                 {
                     components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate(
-                        "source-repository",
-                        "unavailable",
+                        LicenseCandidateSource.SourceRepository,
+                        LicenseCandidateKind.Unavailable,
                         default,
                         default,
                         LicenseStatus.Unknown,
@@ -64,8 +64,8 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out var target))
                 {
                     components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate(
-                        "source-repository",
-                        "unsupported",
+                        LicenseCandidateSource.SourceRepository,
+                        LicenseCandidateKind.Unsupported,
                         Utf8Slice.FromString(repositoryUrl),
                         default,
                         LicenseStatus.Unknown,

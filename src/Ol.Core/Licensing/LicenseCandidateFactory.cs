@@ -7,6 +7,12 @@ namespace Ol.Core.Licensing;
 /// </summary>
 public static class LicenseCandidateFactory
 {
+    public static LicenseCandidate Create(string source, string kind, ReadOnlySpan<byte> rawUtf8, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
+        => Create(ParseSource(source), ParseKind(kind), rawUtf8, spdxLicenseIndex, evidence);
+
+    public static LicenseCandidate Create(string source, string kind, Utf8Slice raw, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
+        => Create(ParseSource(source), ParseKind(kind), raw, spdxLicenseIndex, evidence);
+
     /// <summary>
     /// Creates one classified license candidate from an unescaped UTF-8 JSON string value.
     /// </summary>
@@ -16,7 +22,7 @@ public static class LicenseCandidateFactory
     /// <param name="spdxLicenseIndex">The active SPDX data index.</param>
     /// <param name="evidence">Typed provenance that substantiates the candidate.</param>
     /// <returns>The classified candidate.</returns>
-    public static LicenseCandidate Create(string source, string kind, ReadOnlySpan<byte> rawUtf8, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
+    public static LicenseCandidate Create(LicenseCandidateSource source, LicenseCandidateKind kind, ReadOnlySpan<byte> rawUtf8, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
     {
         var bytes = rawUtf8.ToArray();
         return Create(source, kind, new Utf8Slice(bytes, 0, bytes.Length), spdxLicenseIndex, evidence);
@@ -31,7 +37,7 @@ public static class LicenseCandidateFactory
     /// <param name="spdxLicenseIndex">The active SPDX data index.</param>
     /// <param name="evidence">Typed provenance that substantiates the candidate.</param>
     /// <returns>The classified candidate.</returns>
-    public static LicenseCandidate Create(string source, string kind, Utf8Slice raw, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
+    public static LicenseCandidate Create(LicenseCandidateSource source, LicenseCandidateKind kind, Utf8Slice raw, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
     {
         var status = Classify(raw.Span, spdxLicenseIndex, out var normalized, out var deprecated);
         return new LicenseCandidate(source, kind, raw, normalized, status, deprecated, deprecated ? ["deprecated_spdx_identifier"] : [], evidence);
@@ -45,8 +51,34 @@ public static class LicenseCandidateFactory
     /// <param name="warning">The warning retained for the failure.</param>
     /// <param name="evidence">Typed provenance for the failed collection attempt.</param>
     /// <returns>The error candidate.</returns>
-    public static LicenseCandidate CreateError(string source, string kind, string warning, LicenseEvidence evidence = default)
+    public static LicenseCandidate CreateError(LicenseCandidateSource source, LicenseCandidateKind kind, string warning, LicenseEvidence evidence = default)
         => new(source, kind, default, default, LicenseStatus.Error, false, [warning], evidence);
+
+    public static LicenseCandidate CreateError(string source, string kind, string warning, LicenseEvidence evidence = default)
+        => CreateError(ParseSource(source), ParseKind(kind), warning, evidence);
+
+    private static LicenseCandidateSource ParseSource(string value) => value switch
+    {
+        "sbom" => LicenseCandidateSource.Sbom,
+        "nuget-assets" => LicenseCandidateSource.DependencyInput,
+        "github-license-api" => LicenseCandidateSource.GitHubLicenseApi,
+        "npm-registry" => LicenseCandidateSource.NpmRegistry,
+        "nuget-registry" => LicenseCandidateSource.NuGetRegistry,
+        "cargo-registry" => LicenseCandidateSource.CargoRegistry,
+        "go-module-proxy" => LicenseCandidateSource.GoModuleProxy,
+        _ => LicenseCandidateSource.PackageRegistry,
+    };
+
+    private static LicenseCandidateKind ParseKind(string value) => value switch
+    {
+        "id" => LicenseCandidateKind.Id,
+        "name" => LicenseCandidateKind.Name,
+        "expression" => LicenseCandidateKind.Expression,
+        "declared" => LicenseCandidateKind.Declared,
+        "concluded" => LicenseCandidateKind.Concluded,
+        "fetch" => LicenseCandidateKind.Fetch,
+        _ => LicenseCandidateKind.License,
+    };
 
     private static LicenseStatus Classify(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, out Utf8Slice normalized, out bool deprecated)
     {

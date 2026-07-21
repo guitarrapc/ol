@@ -12,14 +12,76 @@
 /// <param name="Warnings">Warnings associated with this candidate.</param>
 /// <param name="Evidence">Typed provenance that substantiates this candidate.</param>
 public readonly record struct LicenseCandidate(
-    string Source,
-    string Kind,
+    LicenseCandidateSource Source,
+    LicenseCandidateKind Kind,
     Utf8Slice Raw,
     Utf8Slice Normalized,
     LicenseStatus Status,
     bool Deprecated,
     string[] Warnings,
     LicenseEvidence Evidence = default);
+
+/// <summary>Identifies the evidence system that produced a license candidate.</summary>
+public enum LicenseCandidateSource : byte
+{
+    None,
+    Sbom,
+    PackageRegistry,
+    NpmRegistry,
+    NuGetRegistry,
+    CargoRegistry,
+    GoModuleProxy,
+    SourceRepository,
+    GitHubLicenseApi,
+    DependencyInput,
+}
+
+/// <summary>Identifies the field type that produced a license candidate.</summary>
+public enum LicenseCandidateKind : byte
+{
+    None,
+    License,
+    Id,
+    Name,
+    Expression,
+    Declared,
+    Concluded,
+    Fetch,
+    Unavailable,
+    Unsupported,
+}
+
+/// <summary>Renders stable candidate identifiers only at an output boundary.</summary>
+public static class LicenseCandidateIdentifiers
+{
+    public static string ToDisplayString(this LicenseCandidateSource value) => value switch
+    {
+        LicenseCandidateSource.Sbom => "sbom",
+        LicenseCandidateSource.PackageRegistry => "package-registry",
+        LicenseCandidateSource.NpmRegistry => "npm-registry",
+        LicenseCandidateSource.NuGetRegistry => "nuget-registry",
+        LicenseCandidateSource.CargoRegistry => "cargo-registry",
+        LicenseCandidateSource.GoModuleProxy => "go-module-proxy",
+        LicenseCandidateSource.SourceRepository => "source-repository",
+        LicenseCandidateSource.GitHubLicenseApi => "github-license-api",
+        LicenseCandidateSource.DependencyInput => "dependency-input",
+        _ => string.Empty,
+    };
+
+    public static string ToDisplayString(this LicenseCandidateKind value) => value switch
+    {
+        LicenseCandidateKind.License => "license",
+        LicenseCandidateKind.Id => "id",
+        LicenseCandidateKind.Name => "name",
+        LicenseCandidateKind.Expression => "expression",
+        LicenseCandidateKind.Declared => "declared",
+        LicenseCandidateKind.Concluded => "concluded",
+        LicenseCandidateKind.Fetch => "fetch",
+        LicenseCandidateKind.Unavailable => "unavailable",
+        LicenseCandidateKind.Unsupported => "unsupported",
+        _ => string.Empty,
+    };
+}
 
 /// <summary>Identifies the provenance family that substantiates a license candidate.</summary>
 public enum LicenseEvidenceKind : byte

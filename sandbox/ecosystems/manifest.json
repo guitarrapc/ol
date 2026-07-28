@@ -1,25 +1,35 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "ecosystems": [
     {
       "ecosystem": "npm",
-      "path": "sandbox/ecosystems/npm"
+      "path": "sandbox/ecosystems/npm",
+      "package": "is-number",
+      "metadataSource": "npm-registry"
     },
     {
       "ecosystem": "nuget",
-      "path": "sandbox/ecosystems/nuget"
+      "path": "sandbox/ecosystems/nuget",
+      "package": "Humanizer.Core",
+      "metadataSource": "nuget-registry"
     },
     {
       "ecosystem": "cargo",
-      "path": "sandbox/ecosystems/cargo"
+      "path": "sandbox/ecosystems/cargo",
+      "package": "itoa",
+      "metadataSource": "cargo-registry"
     },
     {
       "ecosystem": "golang",
-      "path": "sandbox/ecosystems/golang"
+      "path": "sandbox/ecosystems/golang",
+      "package": "github.com/google/uuid",
+      "metadataSource": "go-module-proxy"
     },
     {
       "ecosystem": "pypi",
-      "path": "sandbox/ecosystems/python"
+      "path": "sandbox/ecosystems/python",
+      "package": "idna",
+      "metadataSource": "package-registry"
     }
   ]
 }

@@ -55,6 +55,8 @@ jobs:
     env:
       FIXTURE_ECOSYSTEM: ${{ matrix.ecosystem }}
       FIXTURE_PATH: ${{ matrix.path }}
+      FIXTURE_PACKAGE: ${{ matrix.package }}
+      FIXTURE_METADATA_SOURCE: ${{ matrix.metadataSource }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -98,12 +100,12 @@ jobs:
           }
 
           Invoke-OlScan "$env:RUNNER_TEMP/ecosystem.cdx.json" report
-          ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/report.json" -TextReport "$env:RUNNER_TEMP/report.txt" -MarkdownReport "$env:RUNNER_TEMP/report.md" -Ecosystem $env:FIXTURE_ECOSYSTEM -InputKind sbom -InputFormat cyclonedx
+          ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/report.json" -TextReport "$env:RUNNER_TEMP/report.txt" -MarkdownReport "$env:RUNNER_TEMP/report.md" -Ecosystem $env:FIXTURE_ECOSYSTEM -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind sbom -InputFormat cyclonedx
 
           if ($env:FIXTURE_ECOSYSTEM -eq "nuget") {
             $assets = Join-Path $env:FIXTURE_PATH "obj/project.assets.json"
             Invoke-OlScan $assets nuget-assets-report
-            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/nuget-assets-report.json" -TextReport "$env:RUNNER_TEMP/nuget-assets-report.txt" -MarkdownReport "$env:RUNNER_TEMP/nuget-assets-report.md" -Ecosystem nuget -InputKind package-manager -InputFormat nuget-assets
+            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/nuget-assets-report.json" -TextReport "$env:RUNNER_TEMP/nuget-assets-report.txt" -MarkdownReport "$env:RUNNER_TEMP/nuget-assets-report.md" -Ecosystem nuget -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat nuget-assets
           }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

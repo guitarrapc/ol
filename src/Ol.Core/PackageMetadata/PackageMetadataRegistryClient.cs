@@ -8,6 +8,7 @@ namespace Ol.Core.PackageMetadata;
 /// </summary>
 public sealed class PackageMetadataRegistryClient
 {
+    private const string UserAgent = "ol";
     private readonly HttpClient httpClient;
     private readonly PackageMetadataProviders providers;
 
@@ -45,7 +46,7 @@ public sealed class PackageMetadataRegistryClient
         }
 
         var endpoint = provider.CreateEndpoint(request);
-        using var response = await httpClient.GetAsync(endpoint, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await GetAsync(endpoint, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             throw new PackageMetadataFetchException(response.StatusCode);
@@ -59,7 +60,7 @@ public sealed class PackageMetadataRegistryClient
             PackageMetadataResponse metadata;
             if (followUpEndpoint is not null)
             {
-                using var followUpResponse = await httpClient.GetAsync(followUpEndpoint, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                using var followUpResponse = await GetAsync(followUpEndpoint, cancellationToken).ConfigureAwait(false);
                 if (!followUpResponse.IsSuccessStatusCode)
                 {
                     throw new PackageMetadataFetchException(followUpResponse.StatusCode);
@@ -80,6 +81,13 @@ public sealed class PackageMetadataRegistryClient
         {
             throw new PackageMetadataFetchException(null, exception);
         }
+    }
+
+    private async Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+        return await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -26,6 +26,20 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Fetch_RegistryRequest_SendsOlUserAgent()
+    {
+        var provider = new TestPackageMetadataProvider();
+        var providers = new PackageMetadataProviders([provider]);
+        var handler = new RequestHeaderHandler();
+        var client = new PackageMetadataRegistryClient(handler, providers);
+
+        await client.FetchAsync(new PackageMetadataRequest("test", "", "example", "1.0.0", "pkg:test/example@1.0.0"));
+
+        await Assert.That(handler.UserAgent).Contains("ol");
+        await Assert.That(handler.UserAgent).Contains("github.com/guitarrapc/ol");
+    }
+
+    [Test]
     public async Task TryParse_ScopedNpmPurl_ProducesNormalizedPackageMetadataRequest()
     {
         var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:npm/%40scope/example@1.2.3?download_url=https%3A%2F%2Fexample.test", out var request);
@@ -389,6 +403,17 @@ public sealed class PackageMetadataTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+    }
+
+    private sealed class RequestHeaderHandler : HttpMessageHandler
+    {
+        public string UserAgent { get; private set; } = string.Empty;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            UserAgent = request.Headers.UserAgent.ToString();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{ "license": "MIT" }""") });
+        }
     }
 
     private sealed class SequenceResponseHandler(params HttpStatusCode[] statuses) : HttpMessageHandler

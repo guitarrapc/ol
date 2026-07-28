@@ -12,6 +12,12 @@ param(
     [string] $Ecosystem,
 
     [Parameter(Mandatory)]
+    [string] $Package,
+
+    [Parameter(Mandatory)]
+    [string] $MetadataSource,
+
+    [Parameter(Mandatory)]
     [string] $InputKind,
 
     [Parameter(Mandatory)]
@@ -58,6 +64,17 @@ if ($json.metadata.packageMetadata.targetCount -lt 1) {
     throw "Package metadata enrichment did not report a deduplicated $Ecosystem target."
 }
 
-if ($json.metadata.packageMetadata.fetchErrorCount -ne 0) {
-    throw "Package metadata enrichment failed for $Ecosystem."
+$packagePurl = "pkg:$Ecosystem/$Package@*"
+$packageComponents = @($components | Where-Object { $_.purl -like $packagePurl })
+if ($packageComponents.Count -eq 0) {
+    throw "Expected package $packagePurl was not produced."
+}
+
+if (@($packageComponents | Where-Object { @($_.warnings) -contains "package_metadata_fetch_failed" }).Count -ne 0) {
+    throw "Package metadata enrichment failed for $packagePurl."
+}
+
+$metadataCandidates = @($packageComponents.licenseCandidates | Where-Object { $_.source -eq $MetadataSource })
+if ($metadataCandidates.Count -eq 0) {
+    throw "Package metadata source $MetadataSource was not recorded for $packagePurl."
 }

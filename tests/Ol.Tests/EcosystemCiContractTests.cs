@@ -10,7 +10,7 @@ public sealed class EcosystemCiContractTests
     {
         var root = FindRepositoryRoot();
         using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "sandbox", "ecosystems", "manifest.json")));
-        await Assert.That(document.RootElement.GetProperty("schemaVersion").GetInt32()).IsEqualTo(1);
+        await Assert.That(document.RootElement.GetProperty("schemaVersion").GetInt32()).IsEqualTo(2);
         var entries = document.RootElement.GetProperty("ecosystems");
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ecosystemRoot = Path.GetFullPath(Path.Combine(root, "sandbox", "ecosystems")) + Path.DirectorySeparatorChar;
@@ -20,9 +20,13 @@ public sealed class EcosystemCiContractTests
         {
             var ecosystem = entry.GetProperty("ecosystem").GetString()!;
             var path = entry.GetProperty("path").GetString()!;
+            var package = entry.GetProperty("package").GetString()!;
+            var metadataSource = entry.GetProperty("metadataSource").GetString()!;
             var fixturePath = Path.GetFullPath(Path.Combine(root, path));
             await Assert.That(seen.Add(ecosystem)).IsTrue();
             await Assert.That(OlDefaults.PackageMetadataProviders.TryGet(ecosystem, out _)).IsTrue();
+            await Assert.That(package).IsNotEmpty();
+            await Assert.That(metadataSource).IsNotEmpty();
             await Assert.That(fixturePath.StartsWith(ecosystemRoot, StringComparison.OrdinalIgnoreCase)).IsTrue();
             await Assert.That(Directory.Exists(fixturePath)).IsTrue();
             await Assert.That(File.Exists(Path.Combine(fixturePath, "prepare.ps1"))).IsTrue();

@@ -1,4 +1,4 @@
-namespace Ol.Tests;
+﻿namespace Ol.Tests;
 
 public sealed class CliTestAssemblyTests
 {

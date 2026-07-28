@@ -1,4 +1,4 @@
-using Ol.Core;
+﻿using Ol.Core;
 using Ol.Core.Spdx;
 using System.Text;
 using System.Text.Json;

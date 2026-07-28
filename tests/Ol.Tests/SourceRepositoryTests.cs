@@ -4,6 +4,7 @@ using Ol.Core.GitHub;
 using Ol.Core.Licensing;
 using Ol.Core.PackageManagers;
 using Ol.Core.Spdx;
+using Ol.Internals;
 
 namespace Ol.Tests;
 

@@ -1,4 +1,4 @@
-using Ol.Core.Licensing;
+﻿using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -149,7 +149,7 @@ internal static class ComposerLockInputParser
         while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
         {
             RequireCurrentToken(ref reader, JsonTokenType.PropertyName, "composer.json contains an invalid root property.");
-                if (reader.ValueTextEquals("name"u8))
+            if (reader.ValueTextEquals("name"u8))
             {
                 projectOrigin = ReadString(ref reader, source, offset);
                 ValidateOptionalPackageName(projectOrigin.Span);

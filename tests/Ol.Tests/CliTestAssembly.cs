@@ -1,4 +1,4 @@
-namespace Ol.Tests;
+﻿namespace Ol.Tests;
 
 internal static class CliTestAssembly
 {

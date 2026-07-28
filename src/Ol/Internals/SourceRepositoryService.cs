@@ -6,6 +6,8 @@ using Ol.Core.PackageMetadata;
 using Ol.Core.SourceRepository;
 using Ol.Core.Spdx;
 
+namespace Ol.Internals;
+
 internal readonly record struct SourceRepositorySummary(int TargetCount, int GitHubRequestCount, int CacheHitCount, int CacheMissCount, int FetchErrorCount, int UnknownCount, string AuthMode, int Concurrency, int RetryCount);
 
 internal static class SourceRepositoryPaths

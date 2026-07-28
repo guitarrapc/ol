@@ -2,6 +2,7 @@
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
+using Ol.Internals;
 
 public class ScanViewBenchmark : IDisposable
 {

@@ -1,7 +1,9 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Ol.Core;
 using Ol.Core.PackageMetadata;
 using Ol.Core.SourceRepository;
+
+namespace Ol.Internals;
 
 internal readonly record struct ScanPreparation(
     ScanCommands.ScanInputSelection Input,

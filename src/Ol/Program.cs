@@ -1,4 +1,5 @@
 ﻿using ConsoleAppFramework;
+using Ol.Internals;
 
 ConsoleApp.Version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.1.0";
 

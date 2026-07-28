@@ -1,6 +1,7 @@
 ﻿using ConsoleAppFramework;
 using Ol.Core.PackageMetadata;
 using Ol.Core.SourceRepository;
+using Ol.Internals;
 
 /// <summary>
 /// Manage locally cached scan evidence.

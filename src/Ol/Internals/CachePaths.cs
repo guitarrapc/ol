@@ -1,4 +1,6 @@
-﻿internal readonly record struct CacheDirectories(string PackageMetadata, string SourceRepository);
+﻿namespace Ol.Internals;
+
+internal readonly record struct CacheDirectories(string PackageMetadata, string SourceRepository);
 
 internal static class CachePaths
 {

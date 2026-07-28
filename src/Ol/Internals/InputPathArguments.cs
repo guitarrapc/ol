@@ -1,5 +1,7 @@
 ﻿using ConsoleAppFramework;
 
+namespace Ol.Internals;
+
 [AttributeUsage(AttributeTargets.Parameter)]
 internal sealed class InputPathsParserAttribute : Attribute, IArgumentParser<string[]>
 {

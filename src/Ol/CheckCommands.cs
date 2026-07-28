@@ -1,7 +1,8 @@
-using System.Text;
+﻿using System.Text;
 using ConsoleAppFramework;
 using Ol.Core;
 using Ol.Core.Licensing;
+using Ol.Internals;
 
 /// <summary>Check resolved dependency licenses against an allow-list.</summary>
 internal sealed class CheckCommands

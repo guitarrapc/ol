@@ -2,6 +2,7 @@
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
+using Ol.Internals;
 
 /// <summary>Measures deterministic projection of one cached source result to duplicate package components.</summary>
 public class SourceRepositoryEnrichmentBenchmark : IDisposable

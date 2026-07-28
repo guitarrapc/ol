@@ -1,6 +1,8 @@
 ﻿using System.Buffers;
 using Ol.Core;
 
+namespace Ol.Internals;
+
 internal static class DependencyInventoryCombiner
 {
     public static DependencyInventory Combine(ReadOnlySpan<DependencyInventory> inventories, ReadOnlySpan<DependencyInputHandler> handlers, ScanInputDescriptor input)

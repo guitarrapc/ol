@@ -4,6 +4,8 @@ using Ol.Core.Licensing;
 using Ol.Core.PackageMetadata;
 using Ol.Core.Spdx;
 
+namespace Ol.Internals;
+
 internal readonly record struct PackageMetadataSummary(
     int SupportedComponentCount,
     int CacheHitCount,

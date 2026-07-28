@@ -1,4 +1,6 @@
-using System.Buffers;
+﻿using System.Buffers;
+
+namespace Ol.Internals;
 
 internal sealed class PooledStreamBufferWriter : IBufferWriter<byte>, IDisposable
 {

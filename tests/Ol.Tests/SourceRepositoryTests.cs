@@ -325,6 +325,88 @@ public sealed class SourceRepositoryTests
         await Assert.That(handler.Authorization).IsEmpty();
     }
 
+    [Test]
+    public async Task Cache_Read_ValidEntry_MatchesAsyncHit()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-cache-{Guid.NewGuid():N}");
+        var target = new SourceRepositoryTarget("owner", "repository", "main");
+        try
+        {
+            var cache = new SourceRepositoryCache(root);
+            await cache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty), [], []));
+
+            var read = cache.Read(target.CacheKey);
+            var readAsync = await cache.ReadAsync(target.CacheKey);
+
+            await Assert.That(read.Status).IsEqualTo(SourceRepositoryCacheReadStatus.Hit);
+            await Assert.That(read.Status).IsEqualTo(readAsync.Status);
+            await Assert.That(read.Record!.Value.CacheKey).IsEqualTo(readAsync.Record!.Value.CacheKey);
+            await Assert.That(read.Record.Value.License!.Value.SpdxId).IsEqualTo("MIT");
+            await Assert.That(read.Record.Value.FetchedAt).IsEqualTo(readAsync.Record.Value.FetchedAt);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Cache_Read_MissingCorruptAndIncompatibleEntries_MatchAsyncStatus()
+    {
+        await AssertSyncReadMatchesAsync(null, SourceRepositoryCacheReadStatus.Missing);
+        await AssertSyncReadMatchesAsync("{ invalid json", SourceRepositoryCacheReadStatus.Invalid);
+        await AssertSyncReadMatchesAsync(CreateSourceCacheJson(source: "other-source"), SourceRepositoryCacheReadStatus.Invalid);
+        await AssertSyncReadMatchesAsync(CreateSourceCacheJson(cacheKey: "github:owner/other@default"), SourceRepositoryCacheReadStatus.Invalid);
+    }
+
+    [Test]
+    public async Task Cache_Read_MissingCacheRoot_ReportsMissingWithoutThrowing()
+    {
+        var cache = new SourceRepositoryCache(Path.Combine(Path.GetTempPath(), $"ol-source-cache-{Guid.NewGuid():N}"));
+
+        await Assert.That(cache.Read("github:owner/repository@default").Status).IsEqualTo(SourceRepositoryCacheReadStatus.Missing);
+    }
+
+    private static async Task AssertSyncReadMatchesAsync(string? json, SourceRepositoryCacheReadStatus expected)
+    {
+        const string cacheKey = "github:owner/repository@default";
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new SourceRepositoryCache(root);
+            Directory.CreateDirectory(root);
+            if (json is not null) await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
+
+            var read = cache.Read(cacheKey);
+            var readAsync = await cache.ReadAsync(cacheKey);
+
+            await Assert.That(read.Status).IsEqualTo(expected);
+            await Assert.That(read.Status).IsEqualTo(readAsync.Status);
+            await Assert.That(read.Record.HasValue).IsFalse();
+            await Assert.That(readAsync.Record.HasValue).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string CreateSourceCacheJson(string cacheKey = "github:owner/repository@default", string source = "github-license-api")
+        => $$"""
+            {
+              "CacheKey": "{{cacheKey}}",
+              "Source": "{{source}}",
+              "AuthMode": "none",
+              "Repository": "owner/repository",
+              "Ref": "default",
+              "HttpStatus": 200,
+              "License": null,
+              "Warnings": [],
+              "Errors": [],
+              "FetchedAt": "2026-07-08T00:00:00+00:00"
+            }
+            """;
+
     private sealed class GitHubResponseHandler(HttpStatusCode statusCode, string body) : HttpMessageHandler
     {
         public string Authorization { get; private set; } = string.Empty;

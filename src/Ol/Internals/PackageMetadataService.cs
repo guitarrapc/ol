@@ -48,7 +48,69 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                 Summary: new PackageMetadataSummary(0, 0, 0, 0, 0, 0, concurrency, retryCount)));
         }
 
-        return EnrichCoreAsync(components, recordsByComponent, concurrency, cancellationToken);
+        return components.Length == 1
+            ? EnrichSingleComponent(components, recordsByComponent, concurrency, cancellationToken)
+            : EnrichCoreAsync(components, recordsByComponent, concurrency, cancellationToken);
+    }
+
+    private ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichSingleComponent(
+        ScanComponent[] components,
+        Memory<PackageMetadataRecord?> recordsByComponent,
+        int concurrency,
+        CancellationToken cancellationToken)
+    {
+        var purl = components[0].Purl;
+        if (purl.IsEmpty)
+        {
+            return ValueTask.FromResult(ApplySingleLookup(components, recordsByComponent, default, concurrency, lookupCount: 0));
+        }
+
+        if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request))
+        {
+            return ValueTask.FromResult(ApplySingleLookup(components, recordsByComponent, CreateUnsupportedPurlResult(purl), concurrency, lookupCount: 0));
+        }
+
+        if (!refresh && cache.TryRead(request.CacheKey) is { } cachedRecord)
+        {
+            var cacheHit = new PackageMetadataLookupResult(cachedRecord, CreateMetadataCandidate(cachedRecord), true, true, false, false, false, false);
+            return ValueTask.FromResult(ApplySingleLookup(components, recordsByComponent, cacheHit, concurrency, lookupCount: 1));
+        }
+
+        return FetchSingleLookupAsync(components, recordsByComponent, request, concurrency, cancellationToken);
+    }
+
+    private async ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> FetchSingleLookupAsync(
+        ScanComponent[] components,
+        Memory<PackageMetadataRecord?> recordsByComponent,
+        PackageMetadataRequest request,
+        int concurrency,
+        CancellationToken cancellationToken)
+    {
+        var result = await FetchLookupAsync(request, cancellationToken).ConfigureAwait(false);
+        return ApplySingleLookup(components, recordsByComponent, result, concurrency, lookupCount: 1);
+    }
+
+    private (ScanComponent[] Components, PackageMetadataSummary Summary) ApplySingleLookup(
+        ScanComponent[] components,
+        Memory<PackageMetadataRecord?> recordsByComponent,
+        in PackageMetadataLookupResult result,
+        int concurrency,
+        int lookupCount)
+    {
+        recordsByComponent.Span[0] = result.Record;
+        components[0] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[0], result.Candidate) : components[0];
+        return (
+            components,
+            new PackageMetadataSummary(
+                result.Supported ? 1 : 0,
+                result.CacheHit ? 1 : 0,
+                result.CacheMiss ? 1 : 0,
+                result.Refreshed ? 1 : 0,
+                result.FetchError ? 1 : 0,
+                result.Unsupported ? 1 : 0,
+                concurrency,
+                retryCount,
+                lookupCount));
     }
 
     private async ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichCoreAsync(
@@ -207,6 +269,11 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
             }
         }
 
+        return await FetchLookupAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<PackageMetadataLookupResult> FetchLookupAsync(PackageMetadataRequest request, CancellationToken cancellationToken)
+    {
         try
         {
             var record = await PackageMetadataFetchScheduler.FetchAsync(registryClient, request, retryCount, cancellationToken).ConfigureAwait(false);

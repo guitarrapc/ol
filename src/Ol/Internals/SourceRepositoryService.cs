@@ -42,20 +42,89 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 Summary: new SourceRepositorySummary(0, 0, 0, 0, 0, 0, authentication.Mode, concurrency, retryCount)));
         }
 
-        if (components.Length == 1)
+        return components.Length == 1
+            ? EnrichSingleComponent(components, recordsByComponent, concurrency, cancellationToken)
+            : EnrichCoreAsync(components, recordsByComponent, concurrency, cancellationToken);
+    }
+
+    private ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichSingleComponent(
+        ScanComponent[] components,
+        ReadOnlyMemory<PackageMetadataRecord?> recordsByComponent,
+        int concurrency,
+        CancellationToken cancellationToken)
+    {
+        var metadata = recordsByComponent.Span[0];
+        var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[0]);
+        if (repositoryUrl.Length == 0)
         {
-            var metadata = recordsByComponent.Span[0];
-            var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[0]);
-            if (repositoryUrl.Length == 0)
-            {
-                components[0] = AddUnavailableCandidate(components[0]);
-                return ValueTask.FromResult((
-                    Components: components,
-                    Summary: new SourceRepositorySummary(0, 0, 0, 0, 0, 1, authentication.Mode, concurrency, retryCount)));
-            }
+            components[0] = AddUnavailableCandidate(components[0]);
+            return ValueTask.FromResult((
+                Components: components,
+                Summary: new SourceRepositorySummary(0, 0, 0, 0, 0, 1, authentication.Mode, concurrency, retryCount)));
         }
 
-        return EnrichCoreAsync(components, recordsByComponent, concurrency, cancellationToken);
+        return EnrichSingleTarget(components, repositoryUrl, metadata?.RepositoryRef ?? string.Empty, concurrency, cancellationToken);
+    }
+
+    private ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichSingleTarget(
+        ScanComponent[] components,
+        string repositoryUrl,
+        string repositoryRef,
+        int concurrency,
+        CancellationToken cancellationToken)
+    {
+        if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out var target))
+        {
+            components[0] = AddUnsupportedCandidate(components[0], repositoryUrl);
+            return ValueTask.FromResult((
+                Components: components,
+                Summary: new SourceRepositorySummary(0, 0, 0, 0, 0, 1, authentication.Mode, concurrency, retryCount)));
+        }
+
+        var cacheWasInvalid = false;
+        if (!refresh)
+        {
+            var cached = sourceCache.Read(target.CacheKey);
+            if (cached.Record is { } cachedRecord)
+            {
+                return ValueTask.FromResult(ApplySingleTarget(components, CreateResult(cachedRecord, cacheHit: true, cacheMiss: false, requested: false), concurrency));
+            }
+
+            cacheWasInvalid = cached.Status == SourceRepositoryCacheReadStatus.Invalid;
+        }
+
+        return FetchSingleTargetAsync(components, target, cacheWasInvalid, concurrency, cancellationToken);
+    }
+
+    private async ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> FetchSingleTargetAsync(
+        ScanComponent[] components,
+        SourceRepositoryTarget target,
+        bool cacheWasInvalid,
+        int concurrency,
+        CancellationToken cancellationToken)
+    {
+        var result = await FetchTargetAsync(target, cacheWasInvalid, cancellationToken).ConfigureAwait(false);
+        return ApplySingleTarget(components, result, concurrency);
+    }
+
+    private (ScanComponent[] Components, SourceRepositorySummary Summary) ApplySingleTarget(
+        ScanComponent[] components,
+        in SourceRepositoryLookupResult result,
+        int concurrency)
+    {
+        components[0] = LicenseReconciler.AddCandidate(components[0], result.Candidate);
+        return (
+            components,
+            new SourceRepositorySummary(
+                1,
+                result.Requested ? 1 : 0,
+                result.CacheHit ? 1 : 0,
+                result.CacheMiss ? 1 : 0,
+                result.FetchError ? 1 : 0,
+                result.Unknown ? 1 : 0,
+                authentication.Mode,
+                concurrency,
+                retryCount));
     }
 
     private async ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichCoreAsync(
@@ -88,15 +157,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 var repositoryRef = metadata?.RepositoryRef ?? string.Empty;
                 if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out var target))
                 {
-                    components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate(
-                        LicenseCandidateSource.SourceRepository,
-                        LicenseCandidateKind.Unsupported,
-                        Utf8Slice.FromString(repositoryUrl),
-                        default,
-                        LicenseStatus.Unknown,
-                        false,
-                        LicenseCandidateWarnings.UnsupportedSourceRepository,
-                        new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
+                    components[i] = AddUnsupportedCandidate(components[i], repositoryUrl);
                     unplannedUnknownCount++;
                     continue;
                 }
@@ -190,6 +251,11 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
             cacheWasInvalid = cached.Status == SourceRepositoryCacheReadStatus.Invalid;
         }
 
+        return await FetchTargetAsync(target, cacheWasInvalid, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<SourceRepositoryLookupResult> FetchTargetAsync(SourceRepositoryTarget target, bool cacheWasInvalid, CancellationToken cancellationToken)
+    {
         try
         {
             var githubClient = new GitHubLicenseApiClient(httpClient, authentication);
@@ -269,6 +335,19 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
     private static string GetSbomRepositoryUrl(ScanComponent component)
     {
         return component.RepositoryUrl.ToString();
+    }
+
+    private static ScanComponent AddUnsupportedCandidate(ScanComponent component, string repositoryUrl)
+    {
+        return LicenseReconciler.AddCandidate(component, new LicenseCandidate(
+            LicenseCandidateSource.SourceRepository,
+            LicenseCandidateKind.Unsupported,
+            Utf8Slice.FromString(repositoryUrl),
+            default,
+            LicenseStatus.Unknown,
+            false,
+            LicenseCandidateWarnings.UnsupportedSourceRepository,
+            new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
     }
 
     private static ScanComponent AddUnavailableCandidate(ScanComponent component)

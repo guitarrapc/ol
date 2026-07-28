@@ -48,6 +48,36 @@ public sealed class PackageMetadataCache(string root)
     }
 
     /// <summary>
+    /// Reads a cache entry by its logical key without asynchronous file access.
+    /// </summary>
+    /// <param name="cacheKey">The logical package metadata cache key.</param>
+    /// <returns>The cache entry, or <see langword="null"/> when it is absent or corrupt.</returns>
+    public PackageMetadataRecord? TryRead(string cacheKey)
+    {
+        var path = GetPath(cacheKey);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var document = JsonDocument.Parse(stream);
+            if (!IsValidVersion1(document.RootElement, cacheKey))
+            {
+                return null;
+            }
+
+            return document.RootElement.Deserialize(PackageMetadataJsonContext.Default.PackageMetadataRecord);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Writes a package metadata cache entry.
     /// </summary>
     /// <param name="record">The normalized metadata record to persist.</param>

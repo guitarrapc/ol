@@ -40,6 +40,24 @@ public sealed class SourceRepositoryCache(string root)
         catch (IOException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
     }
 
+    /// <summary>Reads an entry without asynchronous file access and distinguishes a cache miss from an invalid entry.</summary>
+    public SourceRepositoryCacheReadResult Read(string cacheKey)
+    {
+        var path = GetPath(cacheKey);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var record = JsonSerializer.Deserialize(stream, SourceRepositoryJsonContext.Default.SourceRepositoryRecord);
+            return record is { } value && IsValid(value, cacheKey)
+                ? new(SourceRepositoryCacheReadStatus.Hit, value)
+                : new(SourceRepositoryCacheReadStatus.Invalid, null);
+        }
+        catch (FileNotFoundException) { return new(SourceRepositoryCacheReadStatus.Missing, null); }
+        catch (DirectoryNotFoundException) { return new(SourceRepositoryCacheReadStatus.Missing, null); }
+        catch (JsonException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
+        catch (IOException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
+    }
+
     /// <summary>Writes a normalized source evidence entry.</summary>
     public async Task WriteAsync(SourceRepositoryRecord record, CancellationToken cancellationToken = default)
     {

@@ -3,7 +3,6 @@ using System.Text.Json;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.PackageManagers;
-using Ol.Core.PackageMetadata;
 using Ol.Core.Spdx;
 using Ol.Internals;
 
@@ -430,6 +429,139 @@ public sealed class PackageMetadataTests
 
         await Assert.That(record.RawLicense).IsEmpty();
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://example.test/repository");
+    }
+
+    [Test]
+    public async Task Cache_TryRead_ValidEntry_MatchesAsyncHit()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "https://example.test/repository", [], [], DateTimeOffset.UtcNow, "0123456789abcdef"));
+
+            var read = cache.TryRead(cacheKey);
+            var readAsync = await cache.TryReadAsync(cacheKey);
+
+            await Assert.That(read.HasValue).IsTrue();
+            await Assert.That(read!.Value.CacheKey).IsEqualTo(readAsync!.Value.CacheKey);
+            await Assert.That(read.Value.RawLicense).IsEqualTo(readAsync.Value.RawLicense);
+            await Assert.That(read.Value.RepositoryUrl).IsEqualTo(readAsync.Value.RepositoryUrl);
+            await Assert.That(read.Value.RepositoryRef).IsEqualTo(readAsync.Value.RepositoryRef);
+            await Assert.That(read.Value.FetchedAt).IsEqualTo(readAsync.Value.FetchedAt);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Cache_TryRead_MissingCorruptAndInvalidEntries_MatchAsyncMiss()
+    {
+        await AssertSyncReadMatchesAsyncMiss(null);
+        await AssertSyncReadMatchesAsyncMiss("{ invalid json");
+        await AssertSyncReadMatchesAsyncMiss(CreatePackageCacheJson(schemaVersion: 2));
+        await AssertSyncReadMatchesAsyncMiss(CreatePackageCacheJson().Replace(PackageMetadataCache.GetCacheKeySha256("pkg:npm/example@1.0.0"), new string('0', 64), StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task Cache_TryRead_MissingCacheRoot_ReportsMissWithoutThrowing()
+    {
+        var cache = new PackageMetadataCache(Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}"));
+
+        await Assert.That(cache.TryRead("pkg:npm/example@1.0.0").HasValue).IsFalse();
+    }
+
+    [Test]
+    public async Task Enrichment_SingleComponentWithCachedMetadata_ReportsCacheHitWithoutFetching()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:npm/example@1.0.0";
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            await cache.WriteAsync(new PackageMetadataRecord(purl, "npm-registry", "MIT", string.Empty, [], []));
+            var index = new SpdxLicenseIndex(["MIT"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            var records = new PackageMetadataRecord?[1];
+
+            var enrichment = await service.EnrichAsync(components, records, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(enrichment.Summary.TargetCount).IsEqualTo(1);
+            await Assert.That(enrichment.Summary.SupportedComponentCount).IsEqualTo(1);
+            await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
+            await Assert.That(records[0]!.Value.CacheKey).IsEqualTo(purl);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_SingleComponentWithoutSupportedPurl_ReportsUnsupportedWithoutTarget()
+    {
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var service = new PackageMetadataService(index, new PackageMetadataCache(Path.GetTempPath()), refresh: false, retryCount: 0);
+        var unsupported = new[] { CreateEnrichmentComponent(index, "pkg:unknown-ecosystem/example@1.0.0") };
+        var empty = new[] { CreateEnrichmentComponent(index, default) };
+        var unsupportedRecords = new PackageMetadataRecord?[1];
+        var emptyRecords = new PackageMetadataRecord?[1];
+
+        var unsupportedEnrichment = await service.EnrichAsync(unsupported, unsupportedRecords, concurrency: 1);
+        var emptyEnrichment = await service.EnrichAsync(empty, emptyRecords, concurrency: 1);
+
+        await Assert.That(unsupportedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(1);
+        await Assert.That(unsupportedEnrichment.Summary.SupportedComponentCount).IsEqualTo(1);
+        await Assert.That(unsupportedEnrichment.Summary.TargetCount).IsEqualTo(0);
+        await Assert.That(unsupportedEnrichment.Components[0].Warnings).Contains("unsupported_package_metadata");
+        await Assert.That(unsupportedRecords[0].HasValue).IsFalse();
+        await Assert.That(emptyEnrichment.Summary.SupportedComponentCount).IsEqualTo(0);
+        await Assert.That(emptyEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(0);
+        await Assert.That(emptyEnrichment.Summary.TargetCount).IsEqualTo(0);
+        await Assert.That(emptyEnrichment.Components[0].CandidateCount).IsEqualTo(1);
+        await Assert.That(emptyRecords[0].HasValue).IsFalse();
+    }
+
+    private static ScanComponent CreateEnrichmentComponent(SpdxLicenseIndex index, Utf8Slice purl)
+        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+
+    private static async Task AssertSyncReadMatchesAsyncMiss(string? json)
+    {
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            if (json is not null)
+            {
+                await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
+            }
+
+            var read = cache.TryRead(cacheKey);
+            var readAsync = await cache.TryReadAsync(cacheKey);
+
+            await Assert.That(read.HasValue).IsFalse();
+            await Assert.That(readAsync.HasValue).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 
     private static PackageMetadataRegistryClient CreateClient(string body)

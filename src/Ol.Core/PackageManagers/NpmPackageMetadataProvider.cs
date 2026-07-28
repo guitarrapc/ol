@@ -10,6 +10,6 @@ public sealed class NpmPackageMetadataProvider : PackageMetadataProvider
     public override string Ecosystem => "npm";
     public override Uri CreateEndpoint(PackageMetadataRequest request)
         => new(BaseUri, string.Concat(Uri.EscapeDataString(request.Namespace.Length == 0 ? request.Name : string.Concat(request.Namespace, "/", request.Name)), "/", Uri.EscapeDataString(request.Version)));
-    public override PackageMetadataResponse ParseResponse(JsonElement root)
+    public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
         => new("npm-registry", PackageMetadataJson.ReadString(root, "license"), PackageMetadataJson.ReadRepository(root), PackageMetadataJson.ReadString(root, "gitHead"));
 }

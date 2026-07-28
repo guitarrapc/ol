@@ -28,10 +28,30 @@ public sealed class PackagistPackageMetadataProvider : PackageMetadataProvider
     public override Uri CreateEndpoint(PackageMetadataRequest request)
         => new(BaseUri, string.Concat(Uri.EscapeDataString(request.Namespace), "/", Uri.EscapeDataString(request.Name), ".json"));
 
-    public override PackageMetadataResponse ParseResponse(JsonElement root)
+    public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
     {
         var package = PackageMetadataJson.ReadElement(root, "package");
-        return new("packagist-registry", string.Empty, PackageMetadataJson.ReadString(package, "repository"));
+        var versions = PackageMetadataJson.ReadElement(package, "versions");
+        var version = versions.ValueKind == JsonValueKind.Object && versions.TryGetProperty(request.Version, out var requestedVersion)
+            ? requestedVersion
+            : default;
+        return new("packagist-registry", ReadLicenses(version), PackageMetadataJson.ReadString(package, "repository"));
+    }
+
+    private static string ReadLicenses(JsonElement version)
+    {
+        var licenses = PackageMetadataJson.ReadElement(version, "license");
+        if (licenses.ValueKind != JsonValueKind.Array) return string.Empty;
+        var values = new string[licenses.GetArrayLength()];
+        var count = 0;
+        foreach (var item in licenses.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String) continue;
+            var value = item.GetString();
+            if (!string.IsNullOrWhiteSpace(value)) values[count++] = value;
+        }
+
+        return count == 0 ? string.Empty : string.Join(" OR ", values.AsSpan(0, count));
     }
 
     private static bool IsComposerNamePart(string value)

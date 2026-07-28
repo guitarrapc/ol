@@ -259,7 +259,7 @@ public sealed class PackageMetadataTests
 
         for (var i = 0; i < providers.Length; i++)
         {
-            var response = providers[i].ParseResponse(document.RootElement);
+            var response = providers[i].ParseResponse(document.RootElement, default);
 
             await Assert.That(response.RawLicense).IsEmpty();
             await Assert.That(response.RepositoryUrl).IsEmpty();
@@ -298,9 +298,20 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
-    public async Task Fetch_PackagistResponse_UsesComposerPackageRepositoryMetadata()
+    public async Task Fetch_PackagistResponse_UsesRequestedComposerVersionMetadata()
     {
-        var handler = new SequenceJsonResponseHandler("""{ "package": { "repository": "https://github.com/Seldaek/monolog" } }""");
+        var handler = new SequenceJsonResponseHandler(
+            """
+            {
+              "package": {
+                "repository": "https://github.com/Seldaek/monolog",
+                "versions": {
+                  "3.8.1": { "license": ["GPL-3.0-only"] },
+                  "3.9.0": { "license": ["MIT", "Apache-2.0"] }
+                }
+              }
+            }
+            """);
         var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
 
         var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:composer/monolog/monolog@3.9.0", out var request);
@@ -309,6 +320,28 @@ public sealed class PackageMetadataTests
 
         await Assert.That(handler.RequestUris).IsEquivalentTo(["https://packagist.org/packages/monolog/monolog.json"]);
         await Assert.That(record.Source).IsEqualTo("packagist-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT OR Apache-2.0");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/Seldaek/monolog");
+    }
+
+    [Test]
+    public async Task Fetch_PackagistResponse_WithoutRequestedVersion_DoesNotUseOtherVersion()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            """
+            {
+              "package": {
+                "repository": "https://github.com/Seldaek/monolog",
+                "versions": {
+                  "3.8.1": { "license": ["GPL-3.0-only"] }
+                }
+              }
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("composer", "monolog", "monolog", "3.9.0", "pkg:composer/monolog/monolog@3.9.0"));
+
         await Assert.That(record.RawLicense).IsEmpty();
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/Seldaek/monolog");
     }
@@ -435,7 +468,7 @@ public sealed class PackageMetadataTests
         public override Uri CreateEndpoint(PackageMetadataRequest request)
             => new("https://registry.test/");
 
-        public override PackageMetadataResponse ParseResponse(JsonElement root)
+        public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
             => new("test-registry", root.GetProperty("license").GetString() ?? string.Empty, string.Empty);
     }
 

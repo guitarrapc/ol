@@ -20,7 +20,7 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
 
         return endpoint;
     }
-    public override PackageMetadataResponse ParseResponse(JsonElement root)
+    public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
     {
         var catalog = PackageMetadataJson.ReadElement(root, "catalogEntry");
         if (catalog.ValueKind != JsonValueKind.Object) catalog = root;

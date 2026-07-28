@@ -10,7 +10,7 @@ public sealed class CargoPackageMetadataProvider : PackageMetadataProvider
     public override string Ecosystem => "cargo";
     public override Uri CreateEndpoint(PackageMetadataRequest request)
         => new(BaseUri, string.Concat(Uri.EscapeDataString(request.Name), "/", Uri.EscapeDataString(request.Version)));
-    public override PackageMetadataResponse ParseResponse(JsonElement root)
+    public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
     {
         var version = PackageMetadataJson.ReadElement(root, "version");
         return new("cargo-registry", PackageMetadataJson.ReadString(version, "license"), PackageMetadataJson.ReadString(version, "repository"), string.Empty);

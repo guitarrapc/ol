@@ -48,8 +48,9 @@ public abstract class PackageMetadataProvider
     /// Projects a registry response into normalized metadata evidence.
     /// </summary>
     /// <param name="root">The root JSON response element.</param>
+    /// <param name="request">The package request associated with the response.</param>
     /// <returns>Normalized provider metadata.</returns>
-    public abstract PackageMetadataResponse ParseResponse(JsonElement root);
+    public abstract PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request);
 }
 
 /// <summary>

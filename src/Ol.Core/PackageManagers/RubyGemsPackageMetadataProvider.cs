@@ -39,7 +39,7 @@ public sealed class RubyGemsPackageMetadataProvider : PackageMetadataProvider
         return new(BaseUri, path);
     }
 
-    public override PackageMetadataResponse ParseResponse(JsonElement root)
+    public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
     {
         var license = ReadLicenses(root);
         var repository = PackageMetadataJson.ReadString(root, "source_code_uri");

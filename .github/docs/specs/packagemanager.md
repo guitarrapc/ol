@@ -88,7 +88,7 @@ Entries in `packages` and `packages-dev` become one Composer resolution context.
 
 Root and package `require` names resolve directly to a locked package name. A `provide` or `replace` name produces an edge only when exactly one locked package supplies it; multiple providers and missing targets remain unlinked rather than guessed. `php`, `hhvm`, `ext-*`, `lib-*`, and `composer-*` platform requirements never become package components. Proven root reachability determines direct/transitive classification, while locked packages without a proven path remain unknown.
 
-Composer license arrays are interpreted as disjunctive claims in listed order and classified as `dependency-input` evidence with `composer-lock` provenance. A package's lock-file `source.url` is retained as its repository hint. Packagist enrichment for `pkg:composer` uses the public package JSON API for repository metadata; the selected-version license remains supplied by the lock input because the Packagist package endpoint is not version-specific.
+Composer license arrays are interpreted as disjunctive claims in listed order and classified as `dependency-input` evidence with `composer-lock` provenance. A package's lock-file `source.url` is retained as its repository hint. Packagist enrichment for `pkg:composer` uses the public package JSON API, selects the exact requested entry from `package.versions`, and projects its license array as an ordered SPDX `OR` claim together with the package repository hint. It does not substitute metadata from another version when the requested entry is absent.
 
 ## Ruby Bundler resolved input
 

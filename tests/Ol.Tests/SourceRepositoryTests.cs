@@ -55,7 +55,7 @@ public sealed class SourceRepositoryTests
     {
         using var document = System.Text.Json.JsonDocument.Parse("""{ "license": "MIT", "repository": { "url": "https://github.com/owner/repository.git" }, "gitHead": "0123456789abcdef" }""");
 
-        var response = new NpmPackageMetadataProvider().ParseResponse(document.RootElement);
+        var response = new NpmPackageMetadataProvider().ParseResponse(document.RootElement, default);
 
         await Assert.That(response.RepositoryUrl).IsEqualTo("https://github.com/owner/repository.git");
         await Assert.That(response.RepositoryRef).IsEqualTo("0123456789abcdef");

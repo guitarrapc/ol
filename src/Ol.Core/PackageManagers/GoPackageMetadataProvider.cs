@@ -10,7 +10,7 @@ public sealed class GoPackageMetadataProvider : PackageMetadataProvider
     public override string Ecosystem => "golang";
     public override Uri CreateEndpoint(PackageMetadataRequest request)
         => new(BaseUri, string.Concat(PackageMetadataJson.EscapePath(request.Namespace.Length == 0 ? request.Name : string.Concat(request.Namespace, "/", request.Name)), "/@v/", Uri.EscapeDataString(request.Version), ".info"));
-    public override PackageMetadataResponse ParseResponse(JsonElement root)
+    public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
     {
         var origin = PackageMetadataJson.ReadElement(root, "Origin");
         return new("go-module-proxy", string.Empty, PackageMetadataJson.ReadString(origin, "URL"), PackageMetadataJson.ReadString(origin, "Ref"));

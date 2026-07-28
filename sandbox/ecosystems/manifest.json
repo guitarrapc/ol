@@ -35,7 +35,7 @@
       "ecosystem": "composer",
       "path": "sandbox/ecosystems/composer",
       "package": "monolog/monolog",
-      "metadataSource": "packagist-registry"
+      "metadataSource": "package-registry"
     },
     {
       "ecosystem": "gem",

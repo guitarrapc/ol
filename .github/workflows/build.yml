@@ -65,18 +65,21 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - if: ${{ matrix.ecosystem == 'npm' }}
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
       - if: ${{ matrix.ecosystem == 'golang' }}
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.25.x"
       - if: ${{ matrix.ecosystem == 'cargo' }}
-        name: Install Rust 1.85.0
-        run: |
-          rustup toolchain install 1.85.0 --profile minimal --no-self-update
-          rustup default 1.85.0
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+      - if: ${{ matrix.ecosystem == 'gem' }}
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
       - name: Prepare fixture repository
         shell: pwsh
         run: ./sandbox/ci/Prepare-Ecosystem.ps1 -Path $env:FIXTURE_PATH
@@ -112,6 +115,11 @@ jobs:
             Invoke-OlScan $env:FIXTURE_PATH composer-lock-report
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/composer-lock-report.json" -TextReport "$env:RUNNER_TEMP/composer-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/composer-lock-report.md" -Ecosystem composer -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat composer-lock
           }
+
+          if ($env:FIXTURE_ECOSYSTEM -eq "gem") {
+            Invoke-OlScan $env:FIXTURE_PATH bundler-lock-report
+            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/bundler-lock-report.json" -TextReport "$env:RUNNER_TEMP/bundler-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/bundler-lock-report.md" -Ecosystem gem -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat bundler-lock
+          }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ecosystem-${{ matrix.ecosystem }}
@@ -122,6 +130,7 @@ jobs:
             ${{ runner.temp }}/report.json
             ${{ runner.temp }}/nuget-assets-report.*
             ${{ runner.temp }}/composer-lock-report.*
+            ${{ runner.temp }}/bundler-lock-report.*
 
   self-scan:
     runs-on: ubuntu-24.04

@@ -13,7 +13,7 @@ public sealed class PyPiPackageMetadataProvider : PackageMetadataProvider
     public override Uri CreateEndpoint(PackageMetadataRequest request)
         => new(BaseUri, string.Concat(Uri.EscapeDataString(request.Name), "/", Uri.EscapeDataString(request.Version), "/json"));
 
-    public override PackageMetadataResponse ParseResponse(JsonElement root)
+    public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
     {
         var info = PackageMetadataJson.ReadElement(root, "info");
         var license = PackageMetadataJson.ReadString(info, "license_expression");

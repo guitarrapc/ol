@@ -68,11 +68,11 @@ public sealed class PackageMetadataRegistryClient
 
                 var followUpPayload = await followUpResponse.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
                 using var followUpDocument = JsonDocument.Parse(followUpPayload);
-                metadata = provider.ParseResponse(followUpDocument.RootElement);
+                metadata = provider.ParseResponse(followUpDocument.RootElement, request);
             }
             else
             {
-                metadata = provider.ParseResponse(document.RootElement);
+                metadata = provider.ParseResponse(document.RootElement, request);
             }
 
             return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), [], [], DateTimeOffset.UtcNow, metadata.RepositoryRef);

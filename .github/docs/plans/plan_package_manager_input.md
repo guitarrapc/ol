@@ -378,7 +378,7 @@ Pythonはpip 23.0以降stableと宣言された`pip inspect` JSON format version
 - rootの`require`/`require-dev`と各locked packageの`require`からedgeを作る。`provide`/`replace`はproviderが一意な場合だけ解決し、missingまたは複数providerを推測しない。
 - `php`、`hhvm`、`ext-*`、`lib-*`、`composer-*`はplatform requirementとしてcomponent化しない。`packages-dev`はsparse `dev` variant、`plugin-api-version`はcontext variantとして保持する。
 - package nameをlowercase `vendor/name`として検証し、locked versionとの`pkg:composer/{vendor}/{name}@{version}`をenrichment identityにする。lockのlicense arrayはlisted orderのSPDX `OR` dependency-input evidence、`source.url`はrepository hintとして保持する。
-- Packagist providerはversioned Composer purlを検証し、public package JSON APIからrepository metadataを取得する。選択versionのlicenseはversion非固有APIから推測せずlock evidenceを使う。
+- Packagist providerはversioned Composer purlを検証し、public package JSON APIの`package.versions`から要求versionと完全一致するlicense metadataを取得する。要求versionがなければ別versionから推測せず、lock evidenceだけを使う。
 - parser token/graph loopは`Utf8JsonReader`、source-backed `Utf8Slice`、pooled node/requirement/link/license/index/depth/edge bufferを使用し、LINQ、regex、transient string、per-edge collection allocationを持たない。
 - 2 component focused benchmarkではComposer pair ingestionが3.680 µs / 896 B、同じowned result floorが255.6 ns / 896 Bで、parser固有のmanaged allocationは0 Bだった。
 

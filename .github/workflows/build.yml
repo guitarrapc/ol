@@ -10,7 +10,7 @@ on:
 permissions: {}
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -22,8 +22,8 @@ jobs:
       - uses: guitarrapc/actions/.github/actions/setup-dotnet@9122a18b0dea07585a242b9eb6ed7886f8587c49 # v1.0.1
         with:
           dotnet-version: 10.0.x
-      - run: dotnet restore Ol.slnx
-      - run: dotnet test Ol.slnx -c Release --no-restore
+      - run: dotnet build -c Release
+      - run: dotnet test -c Release --no-build
 
   ecosystem-matrix:
     runs-on: ubuntu-24.04
@@ -178,7 +178,7 @@ jobs:
           path: ${{ runner.temp }}/live-self
 
   build-complete:
-    needs: [test, ecosystem-smoke, self-scan]
+    needs: [build, ecosystem-smoke, self-scan]
     permissions: {}
     runs-on: ubuntu-24.04
     timeout-minutes: 1

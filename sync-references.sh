@@ -7,17 +7,16 @@ REFERENCES_DIR="${ROOT_DIR}/.references"
 mkdir -p "${REFERENCES_DIR}"
 
 repo_specs=(
-  "licensee/licensed"
-  "google/go-licenses"
-  "oss-review-toolkit/ort"
-  "RSeidelsohn/license-checker-rseidelsohn"
-  "pivotal/LicenseFinder"
-  "raimon49/pip-licenses"
-  "sensslen/nuget-license"
   "aaronpowell/dotnet-delice"
+  "google/go-licenses"
+  "licensee/licensed"
   "madewithlove/license-checker-php"
+  "oss-review-toolkit/ort"
   "pivotal/LicenseFinder"
   "polarismesh/polaris-java"
+  "raimon49/pip-licenses"
+  "RSeidelsohn/license-checker-rseidelsohn"
+  "sensslen/nuget-license"
 )
 
 for spec in "${repo_specs[@]}"; do

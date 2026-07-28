@@ -1,13 +1,19 @@
 ﻿namespace Ol.Core.SourceRepository;
 
 /// <summary>Identifies a normalized GitHub repository license lookup.</summary>
+/// <remarks>
+/// <see cref="Repository"/> and <see cref="CacheKey"/> are derived once at construction. They were
+/// calculated properties, and enrichment reads them once per component for cache lookup, dedup, and
+/// evidence, so each read concatenated the same strings again. A <see langword="default"/> instance
+/// never reaches those reads: every consumer obtains a target from <see cref="TryCreate(string, string?, out SourceRepositoryTarget)"/>.
+/// </remarks>
 public readonly record struct SourceRepositoryTarget(string Owner, string Name, string Ref)
 {
     /// <summary>Gets the logical owner/repository reference.</summary>
-    public string Repository => string.Concat(Owner, "/", Name);
+    public string Repository { get; } = string.Concat(Owner, "/", Name);
 
     /// <summary>Gets the opaque-cache logical key.</summary>
-    public string CacheKey => string.Concat("github:", Repository, "@", Ref);
+    public string CacheKey { get; } = string.Concat("github:", Owner, "/", Name, "@", Ref);
 
     /// <summary>Normalizes common GitHub repository URL forms.</summary>
     public static bool TryCreate(string repositoryUrl, out SourceRepositoryTarget target)

@@ -139,12 +139,26 @@ A〜D は同じ 1 箇所（cache 読み取り）に集中しており、**cache 
 
 `SourceRepositoryCache.Read` は不在 file を `FileNotFoundException` / `DirectoryNotFoundException` で判定しており 1305 B/miss を払っていた。P0-1 で共有 helper に `File.Exists` の事前判定を入れ、両 cache の miss が 504 B になった。
 
-### P1-2: 計算プロパティを確定値に変える
+### P1-2: 計算プロパティを確定値に変え、正規化を dedup の後ろへ移す（実施済み）
 
-`SourceRepositoryTarget.Repository` / `CacheKey` は呼ぶたびに `string.Concat` する（144 B/回）。`PlanTargets` の dictionary キー、`Read`、`GetPath`、evidence で繰り返し呼ばれている。struct の構築時に 1 度だけ確定させる。
+着手前の計測で、当初の想定より大きな問題が見つかった。`SourceRepositoryService.PlanTargets` は **dedup する前に component ごとに `SourceRepositoryTarget.TryCreate` を呼んでいた**。64 component が同じ 1 repository を指していても 64 回正規化する。
 
-- 期待効果: **-150〜450 B / target**
-- リスク: 低。ただし `readonly record struct` のフィールド追加になるため equality の意味が変わらないことをテストで固定する
+| 操作 | B/op（実測） |
+|---|---:|
+| `SourceRepositoryTarget.TryCreate` | 488 |
+| `target.CacheKey`（計算プロパティ） | 144 |
+| **PlanTargets が component ごとに払っていた合計** | **632** |
+
+632 B × 64 component = 40.4 KB で、`EnrichDuplicateCachedTarget` 63.71 KB の 63% を占めていた。
+
+対応は 2 つ。
+
+1. `Repository` / `CacheKey` を構築時に 1 度だけ確定させる（計算プロパティを廃止）
+2. **dedup を 2 段にする。** 先に「供給された repository URL + ref」で重複を排除し、既に計画済みなら正規化そのものを飛ばす。正規化後の cache key による dedup は残す — 綴りの異なる URL（`git+https://...`、`git@github.com:...`、`.git` 付き）が同じ target に収束する必要があり、ここを落とすと GitHub への要求回数が増えるため
+
+**結果: `EnrichDuplicateCachedTarget` 63.71 KB → 27.18 KB（-57%）**。差分 36.5 KB は、40.4 KB から origin 索引 dictionary の約 3.3 KB と初回 1 回分の正規化を引いた値で説明できる。`EnrichmentFixedCost` と `E2E` は不変（単一 component 経路は `PlanTargets` を通らない）。
+
+dedup の品質が落ちていないことは、実装前に characterization test で固定した（綴り違い 3 種 → 1 target / 1 要求、同一 URL で ref 違い → 2 target、12 component で 2 repository → 2 target、12 component で同一の非対応 URL → 全件 unsupported）。
 
 ### P1-3: purl と repository URL の string 往復を排除する
 
@@ -194,6 +208,8 @@ P0-1 / P0-2 / P0-3 を実装した。`dotnet test` は 278 件すべて成功（
 | `E2E.ScanNuGetTextWithCachedMetadata` | 23.32 KB | **9.17 KB** | -61% |
 | `E2E.ScanNuGetJsonWithCachedMetadata` | 24.07 KB | **9.92 KB** | -59% |
 | `SourceRepositoryEnrichment.EnrichDuplicateCachedTarget` | 67.53 KB | **63.71 KB** | -6% |
+
+P1-2 実施後は `EnrichDuplicateCachedTarget` がさらに **27.18 KB**（実装前比 -60%）になった。詳細は [P1-2](#p1-2-計算プロパティを確定値に変え正規化を-dedup-の後ろへ移す実施済み) を参照。
 
 Mean は cache 読み取りが file I/O 律速であり、benchmark 設定が `IterationCount=1` のため実行ごとに 30〜55 μs の幅で揺れる。判断は Allocated で行った。
 

@@ -134,15 +134,17 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         CancellationToken cancellationToken)
     {
         var useLinearPlanning = components.Length <= LinearPlanningComponentLimit;
+        var originIndexes = useLinearPlanning ? null : new Dictionary<SourceRepositoryOrigin, int>(components.Length);
         var targetIndexes = useLinearPlanning ? null : new Dictionary<string, int>(components.Length, StringComparer.Ordinal);
         var targets = ArrayPool<SourceRepositoryTarget>.Shared.Rent(Math.Max(components.Length, 1));
+        var origins = ArrayPool<SourceRepositoryOrigin>.Shared.Rent(Math.Max(components.Length, 1));
         var results = ArrayPool<SourceRepositoryLookupResult>.Shared.Rent(Math.Max(components.Length, 1));
         var componentTargetIndexes = ArrayPool<int>.Shared.Rent(Math.Max(components.Length, 1));
         componentTargetIndexes.AsSpan(0, components.Length).Fill(-1);
         var targetCount = 0;
         try
         {
-            targetCount = PlanTargets(components, workspace, targets, componentTargetIndexes, targetIndexes, out var unplannedUnknownCount);
+            targetCount = PlanTargets(components, workspace, targets, origins, componentTargetIndexes, originIndexes, targetIndexes, out var unplannedUnknownCount);
 
             if (targetCount == 1)
             {
@@ -185,19 +187,33 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         finally
         {
             targets.AsSpan(0, components.Length).Clear();
+            origins.AsSpan(0, components.Length).Clear();
             results.AsSpan(0, components.Length).Clear();
             ArrayPool<SourceRepositoryTarget>.Shared.Return(targets);
+            ArrayPool<SourceRepositoryOrigin>.Shared.Return(origins);
             ArrayPool<SourceRepositoryLookupResult>.Shared.Return(results);
             ArrayPool<int>.Shared.Return(componentTargetIndexes);
         }
     }
 
-    /// <summary>Deduplicates every component's repository target. Synchronous so the workspace records cannot span an await.</summary>
+    /// <summary>
+    /// Deduplicates every component's repository target. Synchronous so the workspace records cannot span an await.
+    /// </summary>
+    /// <remarks>
+    /// Deduplication happens twice, and the order matters. The first pass keys on the supplied
+    /// repository URL and ref, which costs two string comparisons and lets a repeated repository skip
+    /// normalization entirely; normalizing per component parses a <see cref="Uri"/> and builds owner,
+    /// name, and cache-key strings for a result an earlier component already produced. The second pass
+    /// keys on the normalized cache key, because distinct spellings of one repository must still
+    /// collapse to a single target.
+    /// </remarks>
     private static int PlanTargets(
         ScanComponent[] components,
         PackageMetadataWorkspace workspace,
         Span<SourceRepositoryTarget> targets,
+        Span<SourceRepositoryOrigin> origins,
         Span<int> componentTargetIndexes,
+        Dictionary<SourceRepositoryOrigin, int>? originIndexes,
         Dictionary<string, int>? targetIndexes,
         out int unplannedUnknownCount)
     {
@@ -217,8 +233,23 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
             }
 
             var repositoryRef = metadata?.RepositoryRef ?? string.Empty;
+            var origin = new SourceRepositoryOrigin(repositoryUrl, repositoryRef);
+            if (TryGetPlannedOrigin(origins, originIndexes, origin, targetCount, out var plannedIndex))
+            {
+                if (plannedIndex < 0)
+                {
+                    components[i] = AddUnsupportedCandidate(components[i], repositoryUrl);
+                    unplannedUnknownCount++;
+                    continue;
+                }
+
+                componentTargetIndexes[i] = plannedIndex;
+                continue;
+            }
+
             if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out var target))
             {
+                originIndexes?.Add(origin, -1);
                 components[i] = AddUnsupportedCandidate(components[i], repositoryUrl);
                 unplannedUnknownCount++;
                 continue;
@@ -249,13 +280,46 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 targetIndex = targetCount;
                 targetIndexes?.Add(target.CacheKey, targetIndex);
                 targets[targetCount] = target;
+                origins[targetCount] = origin;
                 targetCount++;
             }
 
+            originIndexes?.Add(origin, targetIndex);
             componentTargetIndexes[i] = targetIndex;
         }
 
         return targetCount;
+    }
+
+    /// <summary>Finds a target already planned for one supplied repository URL and ref.</summary>
+    /// <remarks>
+    /// The linear path only records the first origin that produced each target, so a second spelling of
+    /// an already planned repository still normalizes once. That path is bounded by
+    /// <see cref="LinearPlanningComponentLimit"/> components.
+    /// </remarks>
+    private static bool TryGetPlannedOrigin(
+        ReadOnlySpan<SourceRepositoryOrigin> origins,
+        Dictionary<SourceRepositoryOrigin, int>? originIndexes,
+        in SourceRepositoryOrigin origin,
+        int targetCount,
+        out int targetIndex)
+    {
+        if (originIndexes is not null)
+        {
+            return originIndexes.TryGetValue(origin, out targetIndex);
+        }
+
+        for (var existingTargetIndex = 0; existingTargetIndex < targetCount; existingTargetIndex++)
+        {
+            if (origins[existingTargetIndex].Equals(origin))
+            {
+                targetIndex = existingTargetIndex;
+                return true;
+            }
+        }
+
+        targetIndex = -1;
+        return false;
     }
 
     private async Task<SourceRepositoryLookupResult> EnrichTargetAsync(SourceRepositoryTarget target, CancellationToken cancellationToken)
@@ -381,4 +445,9 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
     }
 
     private readonly record struct SourceRepositoryLookupResult(LicenseCandidate Candidate, bool CacheHit, bool CacheMiss, bool Requested, bool FetchError, bool Unknown);
+
+    /// <summary>Identifies the supplied repository reference a component was planned from, before normalization.</summary>
+    /// <param name="RepositoryUrl">The repository URL exactly as package metadata or the SBOM supplied it.</param>
+    /// <param name="RepositoryRef">The repository ref exactly as package metadata supplied it.</param>
+    private readonly record struct SourceRepositoryOrigin(string RepositoryUrl, string RepositoryRef);
 }

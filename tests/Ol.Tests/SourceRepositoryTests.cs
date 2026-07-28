@@ -223,6 +223,98 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Enrichment_EquivalentRepositoryUrlSpellings_PlanOneSharedTarget()
+    {
+        var urls = new[] { "https://github.com/owner/repository.git", "git+https://github.com/owner/repository", "git@github.com:owner/repository.git" };
+
+        var (summary, components, callCount) = await EnrichRepositoryUrlsAsync(urls);
+
+        await Assert.That(summary.TargetCount).IsEqualTo(1);
+        await Assert.That(summary.GitHubRequestCount).IsEqualTo(1);
+        await Assert.That(callCount).IsEqualTo(1);
+        for (var i = 0; i < components.Length; i++)
+        {
+            await Assert.That(components[i].License.ToString()).IsEqualTo("MIT");
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_SameRepositoryWithDifferentRefs_PlansOneTargetEach()
+    {
+        var urls = new[] { "https://github.com/owner/repository", "https://github.com/owner/repository" };
+
+        var (summary, _, callCount) = await EnrichRepositoryUrlsAsync(urls, ["v1", "v2"]);
+
+        await Assert.That(summary.TargetCount).IsEqualTo(2);
+        await Assert.That(callCount).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Enrichment_ManyComponentsSharingTwoRepositories_PlansTwoTargets()
+    {
+        // Above the linear-planning limit so the dictionary planning path is exercised.
+        var urls = new string[12];
+        for (var i = 0; i < urls.Length; i++)
+        {
+            urls[i] = i % 2 == 0 ? "https://github.com/owner/repository" : "https://github.com/owner/other.git";
+        }
+
+        var (summary, components, callCount) = await EnrichRepositoryUrlsAsync(urls);
+
+        await Assert.That(summary.TargetCount).IsEqualTo(2);
+        await Assert.That(callCount).IsEqualTo(2);
+        for (var i = 0; i < components.Length; i++)
+        {
+            await Assert.That(components[i].License.ToString()).IsEqualTo("MIT");
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_ManyComponentsSharingOneUnsupportedRepository_ReportsEachAsUnsupported()
+    {
+        // Above the linear-planning limit so a repeated unsupported URL is answered from the planning index.
+        var urls = new string[12];
+        Array.Fill(urls, "https://gitlab.test/owner/repository");
+
+        var (summary, components, callCount) = await EnrichRepositoryUrlsAsync(urls);
+
+        await Assert.That(summary.TargetCount).IsEqualTo(0);
+        await Assert.That(summary.UnknownCount).IsEqualTo(urls.Length);
+        await Assert.That(callCount).IsEqualTo(0);
+        for (var i = 0; i < components.Length; i++)
+        {
+            await Assert.That(components[i].Warnings).Contains("unsupported_source_repository");
+        }
+    }
+
+    private static async Task<(SourceRepositorySummary Summary, ScanComponent[] Components, int CallCount)> EnrichRepositoryUrlsAsync(string[] repositoryUrls, string[]? repositoryRefs = null)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-plan-{Guid.NewGuid():N}");
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var components = new ScanComponent[repositoryUrls.Length];
+        var workspace = new PackageMetadataWorkspace(repositoryUrls.Length);
+        for (var i = 0; i < repositoryUrls.Length; i++)
+        {
+            components[i] = new ScanComponent($"example{i}", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, $"pkg:npm/example{i}@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+            workspace.Records[i] = new PackageMetadataResolution($"pkg:npm/example{i}@1.0.0", repositoryUrls[i], repositoryRefs is null ? string.Empty : repositoryRefs[i]);
+        }
+
+        var handler = new SequenceResponseHandler(HttpStatusCode.OK);
+        using var httpClient = new HttpClient(handler);
+        var service = new SourceRepositoryService(index, new SourceRepositoryCache(Path.Combine(root, "source")), refresh: false, retryCount: 0, httpClient);
+        try
+        {
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            return (enrichment.Summary, enrichment.Components, handler.CallCount);
+        }
+        finally
+        {
+            workspace.Dispose();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Enrichment_WithRefresh_RefetchesAndOverwritesSourceCache()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-refresh-{Guid.NewGuid():N}");

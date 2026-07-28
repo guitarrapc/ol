@@ -23,7 +23,7 @@ The command and output rules below are user-facing consequences of those design 
 - v1 scans SBOM files through the common `--input` boundary.
 - v2 adds package manager and package registry metadata as automatic hints.
 - v3 adds source repository license hints.
-- A later phase adds allow-list policy checks and CI failure behavior.
+- The `check` command adds allow-list policy checks and CI failure behavior after factual evidence resolution.
 
 Each version must preserve the prior version's report fields unless a breaking version explicitly changes them. Specs under `.github/docs/specs/` should be updated as each version is implemented.
 

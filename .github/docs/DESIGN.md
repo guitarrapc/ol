@@ -52,7 +52,7 @@ These decisions are normative design constraints. A feature specification may sp
 
 ## System Model
 
-Ol is designed as the following target pipeline. Inventory, SBOM evidence, SPDX normalization, package metadata, source-repository evidence, reconciliation, and reporting are implemented; policy evaluation remains a planned stage.
+Ol is designed as the following pipeline. Inventory, SBOM evidence, SPDX normalization, package metadata, source-repository evidence, reconciliation, reporting, and policy evaluation.
 
 ```mermaid
 flowchart LR
@@ -161,11 +161,13 @@ The scanner resolves the full graph before any output filter is applied. SPDX `l
 
 Versioned purls plan lookups for supported package ecosystems. Registry clients normalize transport-specific responses into a common metadata record, after which license values pass through the same SPDX candidate factory and reconciler as SBOM evidence.
 
-The initial ecosystems are npm, NuGet, Cargo, and Go modules. Unsupported ecosystems and successful responses without license text produce explicit non-fatal evidence. Fetches are concurrent, bounded, retry only transient failures, and are cached by the package schema's canonical identity.
+See [package metadata evidence](specs/packagemanager.md) for the supported ecosystems.
 
-### Source repository evidence (implemented v3)
+Unsupported ecosystems and successful responses without license text produce explicit non-fatal evidence. Fetches are concurrent, bounded, retry only transient failures, and are cached by the package schema's canonical identity.
 
-Source evidence extends the same model rather than creating a separate result path. Repository identities come from existing SBOM or package metadata evidence. The initial GitHub integration uses the GitHub License API and does not attempt to outguess an unidentified license by parsing arbitrary license-file text.
+### Source repository evidence
+
+Source evidence extends the same model rather than creating a separate result path. Repository identities come from existing SBOM or package metadata evidence. Ol intentionally uses the GitHub License API as its GitHub source-evidence boundary. It does not crawl arbitrary repository contents, search for license files, or attempt to outguess an unidentified license by parsing arbitrary license-file text. This keeps source evidence bounded and explainable; repositories whose independently licensed subtrees require multi-license analysis are outside this source-evidence model and should supply that component-level evidence through the dependency input.
 
 Only `OL_GITHUB_TOKEN` is an authentication input. Authentication is restricted to the intended GitHub API host, and reports retain only the authentication mode.
 

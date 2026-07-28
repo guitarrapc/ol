@@ -2,6 +2,10 @@
 
 OpenSource License checker.
 
+ol consumes an SBOM or a supported resolved package-manager input, enriches its components with package metadata and source-repository license evidence, reconciles those claims through SPDX semantics, and produces explainable reports for review or policy checks. SBOM generation and ecosystem-specific dependency resolution remain the responsibility of ecosystem-native tools.
+
+Source-repository enrichment intentionally uses the GitHub License API as a bounded evidence source. ol does not crawl arbitrary repository contents or guess licenses from repository layout; component-level evidence for repositories with independently licensed subtrees should be supplied by the SBOM or other dependency input.
+
 ## Usage
 
 ```bash
@@ -70,13 +74,14 @@ Options:
 | SBOM | `cyclonedx` |
 | SBOM | `spdx` |
 | .NET | `nuget-assets` |
-| JavaScript | `npm-package-lock` |
-| JavaScript | `pnpm-lock` |
-| JavaScript | `yarn-classic-lock` |
-| JavaScript | `yarn-berry-lock` |
+| JavaScript (npm) | `npm-package-lock` |
+| JavaScript (pnpm) | `pnpm-lock` |
+| JavaScript (Yarn v1) | `yarn-classic-lock` |
+| JavaScript (Yarn v2+) | `yarn-berry-lock` |
 | Rust | `cargo-metadata` |
 | Go | `go-module-graph` |
 | Python | `pip-inspect` |
+| PHP | `composer-lock` |
 
 `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
 
@@ -327,12 +332,29 @@ ol scans the stable JSON format version 1 produced by `pip inspect`. Activate th
 
 ```bash
 python -m pip inspect --local > pip-inspect.json
-dotnet run --project src/Ol -- scan --input pip-inspect.json
+ol scan --input pip-inspect.json
 ```
 
 The installed distribution set is authoritative; ol does not resolve `requirements.txt`, `pyproject.toml`, Poetry, uv, or Pipenv declarations. `requested=true` distributions are direct dependencies and receive root edges. `requested=false` proves transitive classification only when `installer` is `pip`; other installers and a missing `requested` field remain unknown. Unconditional `requires_dist` entries produce package edges when the normalized target is installed. Entries with environment markers or extras do not produce edges because `pip inspect` does not record which extras activated them. The report context retains the Python version, implementation, `sys_platform`, machine architecture, and pip version supplied by the report.
 
 Distribution names use PyPA normalization for identity and `pkg:pypi` enrichment. A distribution with `direct_url` receives no PyPI purl and retains only `source=direct`; local paths and URLs are not reported. `license_expression` is preferred over legacy `license` metadata as input-supplied license evidence.
+
+### PHP / Composer
+
+For a canonical release or audit artifact, prefer generating CycloneDX JSON from the locked Composer project with the [CycloneDX PHP Composer plugin](https://github.com/CycloneDX/cyclonedx-php-composer), then scan that SBOM:
+
+```bash
+composer CycloneDX:make-sbom --output-format=JSON --output-file=bom.cdx.json
+ol scan --input bom.cdx.json
+```
+
+When an SBOM is unavailable, ol can scan a same-directory `composer.json` and `composer.lock` pair directly:
+
+```bash
+ol scan --input . --input-format composer-lock
+```
+
+The lockfile supplies the resolved production and development package sets. The manifest supplies only the root package identity and direct `require`/`require-dev` relationships; ol does not invoke Composer, resolve version constraints, or inspect `vendor/`. Package metadata is enriched from Packagist when available, and repository URLs from package metadata can lead to GitHub License API source evidence.
 
 ### Dependency files by ecosystem
 
@@ -349,10 +371,10 @@ ol does not resolve package manifests or version ranges itself. It consumes eith
 | Go modules | `go.mod`, `go.sum`, optional `go.work` | Paired `go list -m -json all` and `go mod graph` output | Generate `go-list-modules.json` and `go-mod-graph.txt` together, then pass both files or their directory. ol consumes Go's selected build list instead of running MVS itself. |
 | Java / JVM | `pom.xml`, Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Run the ecosystem build/resolution and use its CycloneDX generator or a polyglot generator. |
 | Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock`, `uv.lock` | `python -m pip inspect --local` JSON | Install or sync the intended environment, generate `pip-inspect.json`, then scan it directly. ol consumes installed distributions and does not choose markers, extras, or platform wheels. |
-| PHP / Composer | `composer.json`, `composer.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--input`. |
+| PHP / Composer | `composer.json`, `composer.lock` | Paired `composer.json` and `composer.lock`, or CycloneDX/SPDX JSON SBOM | Prefer an SBOM from the locked project. Alternatively, scan the directory containing the pair with `--input-format composer-lock`; ol consumes the lockfile without invoking Composer. |
 | Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--input`. |
 
-For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, `pip-inspect.json`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
+For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, `pip-inspect.json`, the paired Composer files `composer.json` plus `composer.lock`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
 
 ### Repositories with multiple package managers
 
@@ -384,10 +406,10 @@ popd
 pushd src/python
 python -m pip inspect --local > pip-inspect.json
 popd
-dotnet run --project src/Ol -- scan --input src/backend --input src/frontend --input src/rust --input src/go --input src/python --format json
+dotnet run --project src/Ol -- scan --input src/backend --input src/frontend --input src/rust --input src/go --input src/python --input src/php --format json
 ```
 
-ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, both Yarn lock formats, `cargo-metadata.json`, `pip-inspect.json`, and complete Go companion pairs. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.
+ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, both Yarn lock formats, `cargo-metadata.json`, `pip-inspect.json`, and complete Composer and Go companion pairs. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.
 
 ol intentionally rejects SBOM and package-manager inputs in the same report, and it does not accept multiple SBOM files as an implicit union. Combining them would double-count packages and make conflicting graph/evidence precedence ambiguous. To validate both paths in CI, produce two independent reports: a canonical SBOM report and a direct-lockfile report. The runnable mixed-manager example is under [sandbox/package-manager-inputs](sandbox/package-manager-inputs/README.md).
 

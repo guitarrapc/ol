@@ -18,12 +18,12 @@ The command and output rules below are user-facing consequences of those design 
 
 ## Version Roadmap
 
-`ol` evolves by widening the evidence sources used by `scan`.
+`ol` evolves by widening the dependency inputs and evidence sources used by `scan`.
 
-- v1 scans SBOM files only.
+- v1 scans SBOM files through the common `--input` boundary.
 - v2 adds package manager and package registry metadata as automatic hints.
 - v3 adds source repository license hints.
-- A later phase adds allow-list policy checks and CI failure behavior.
+- The `check` command adds allow-list policy checks and CI failure behavior after factual evidence resolution.
 
 Each version must preserve the prior version's report fields unless a breaking version explicitly changes them. Specs under `.github/docs/specs/` should be updated as each version is implemented.
 
@@ -51,30 +51,61 @@ The CLI option takes precedence over `OL_CACHE_DIR`. The unified environment roo
 Cache entry compatibility and category-specific JSON schemas are defined by [cache_format.md](cache_format.md). Cache JSON is an Ol-managed persistence contract and is distinct from the canonical scan report JSON.
 
 <a id="contract-scan-failures"></a>
+
 ### `ol scan`
 
-`scan` is the primary command. It lists components and their license status from the available evidence sources for the current version.
+`scan` is the primary command. It lists components and their license status from one or more resolved dependency inputs and the available evidence sources for the current version.
 
-v1 accepts SBOM input only:
+The input form detects a registered format from content by default:
 
 ```bash
-ol scan --sbom bom.json
+ol scan --input bom.json
+ol scan --input bom.spdx.json
+ol scan --input obj/project.assets.json
+ol scan --input src
+ol scan --input src --input tests
 ```
 
-Supported v1 SBOM formats:
+`--input` is repeatable and each value may name a file or directory. Overlapping inputs are deduplicated by resolved file path, then ordered by a non-absolute logical path before parsing and graph-index projection. A single file retains the existing single-document behavior. Multiple discovered documents must all be package-manager inputs; combining SBOM evidence documents with package-manager inventories is rejected because their license-evidence reconciliation is not a path-merging operation.
 
-- CycloneDX JSON
-- SPDX JSON
+Each registered input handler owns the exact file names that directory input discovers recursively. Discovery does not follow reparse points and does not determine single-document format; registered content signatures and bundle parsers remain authoritative. `nuget-assets` registers `project.assets.json`, `npm-package-lock` registers `package-lock.json`, `pnpm-lock` registers `pnpm-lock.yaml`, both Yarn handlers register `yarn.lock`, `cargo-metadata` registers `cargo-metadata.json`, `pip-inspect` registers `pip-inspect.json`, `go-module-graph` registers the companion names `go-list-modules.json` and `go-mod-graph.txt`, `composer-lock` registers the companion names `composer.json` and `composer.lock`, and `bundler-lock` registers `Gemfile.lock`. Complete companion sets in the same directory are parsed as one inventory; a missing companion is an input error. A future package-manager handler becomes part of the same directory and repeated-input collection by registering its own names and package-identity comparison. A directory containing no registered names is an input error. With explicit `--input-format`, only that handler's registered names are discovered.
 
-Unsupported v1 inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, lockfiles, and package manifests. Input format is detected from the file content rather than requiring a format flag.
+`--input-format` defaults to `auto`; explicitly specifying `auto` is equivalent to omitting the option. Registered format names are matched case-insensitively. An explicit non-auto format is an assertion and must agree with the detected document format.
+
+One or more `--input` options are required. `--input-format` asserts every discovered document.
+
+Currently supported dependency input formats:
+
+- `cyclonedx`: CycloneDX JSON
+- `spdx`: SPDX JSON
+- `nuget-assets`: NuGet `project.assets.json` version 3 or 4
+- `npm-package-lock`: npm `package-lock.json` lockfile version 2 or 3
+- `pnpm-lock`: pnpm `pnpm-lock.yaml` lockfile version 9.0
+- `yarn-classic-lock`: Yarn Classic `yarn.lock` version 1
+- `yarn-berry-lock`: Yarn Berry `yarn.lock` metadata version 8
+- `cargo-metadata`: `cargo metadata --format-version 1 --locked` JSON
+- `go-module-graph`: paired `go list -m -json all` and `go mod graph` output
+- `pip-inspect`: `python -m pip inspect --local` JSON format version 1
+- `composer-lock`: paired Composer root `composer.json` and resolved `composer.lock`
+- `bundler-lock`: Bundler resolved `Gemfile.lock`
+
+Unsupported inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, package manifests, and lockfile formats without a registered adapter. `ol` does not recursively query registries to reproduce package-manager dependency resolution; package-manager adapters consume already resolved graphs.
+
+Auto detection uses only deterministic, format-owned content signatures; file names and extensions are not evidence for single-document formats. JSON adapters use top-level property signatures. Cargo requires format version 1 plus top-level `packages`, `workspace_members`, `resolve`, `target_directory`, and `workspace_root` with their documented JSON types. pip inspect requires string format version `1`, `pip_version`, an `installed` array, and an `environment` object. pnpm requires top-level `lockfileVersion` and `importers`, Yarn Classic requires the version 1 header, Yarn Berry requires top-level `__metadata`, and Bundler requires a source section plus `PLATFORMS` and `DEPENDENCIES`. Multi-file handlers first associate their complete registered companion names within one directory, then validate every document through the format-owned bundle parser; names alone cannot make malformed content valid. Composer additionally requires the lock root to contain both `packages` and `packages-dev` arrays. Every required marker for one format must match. No match is an unsupported-input error and multiple matches are an ambiguous-input error; Ol never guesses by registration order. Known formats with unsupported versions are rejected explicitly.
 
 `scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns non-zero only when the scan itself cannot be performed or output cannot be written.
 
+The command boundary parses every supported input through the registered dependency-input adapter and then consumes a normalized inventory. Multiple package-manager inventories retain their contexts, occurrences, and edges while sharing report components according to the originating handler's package-identity comparison. Enrichment, reconciliation, filtering, grouping, sorting, and rendering do not dispatch on parser types. Explicit `--input-format` validation and directory discovery use the same registry as content detection.
+
+For a repository containing multiple package managers, auto-detected inputs with different registered formats produce one `package-manager/collection` inventory. Context and occurrence indexes are remapped into the collection without creating edges between input graphs. Component combination is format-scoped: identical canonical purls from different formats remain distinct graph evidence, while downstream package-metadata scheduling may deduplicate the same registry cache key. An explicit non-auto `--input-format` is therefore inappropriate for a mixed-format directory.
+
+A single repository-wide SBOM and a direct package-manager collection are alternative authoritative inputs, not layers to union. The CLI rejects SBOM/package-manager mixtures and multiple SBOM documents. Per-ecosystem SBOMs must be merged by an SBOM-aware tool before Ol scans the resulting document. CI may scan a canonical merged/polyglot SBOM and direct lockfiles as separate jobs and reports.
+
 Examples of whole-command failures:
 
-- SBOM file cannot be read.
-- SBOM format is unsupported.
-- SBOM is malformed enough that components cannot be extracted.
+- dependency input cannot be read.
+- input format is unsupported or does not match the input content.
+- input is malformed enough that components cannot be extracted.
 - SPDX data cannot be loaded.
 - stdout or `--out` cannot be written.
 
@@ -87,6 +118,7 @@ Examples of component-level problems:
 - Later versions cannot fetch source repository evidence for one component.
 
 <a id="contract-output-formats"></a>
+
 ## Output Formats
 
 `scan` supports these formats from v1:
@@ -98,22 +130,28 @@ Examples of component-level problems:
 Default format is `text`.
 
 ```bash
-ol scan --sbom bom.json --format text
-ol scan --sbom bom.json --format json
-ol scan --sbom bom.json --format markdown
+ol scan --input bom.json --format text
+ol scan --input bom.json --format json
+ol scan --input bom.json --format markdown
 ```
 
-`--out` writes the same format selected by `--format` to the given file. It does not suppress stdout.
+`--out` writes the same format selected by `--format` to the given file. It does not suppress stdout. Primary output and the file contain identical content and end with a line feed in every format.
 
 ```bash
-ol scan --sbom bom.json --format markdown --out licenses.md
+ol scan --input bom.json --format markdown --out licenses.md
 ```
 
 For human-readable `text` and `markdown` output, a labeled scan summary is separated from the report by a blank line and written to stderr. JSON already contains canonical summary, warning, cache, network, input, and SPDX metadata, so successful JSON output does not emit a duplicate stderr summary. This keeps redirected and interactive JSON output free from an unexpected second representation of the same information.
 
+The human-readable input summary identifies the registered input format. It does not require the downstream scan pipeline to retain an SBOM-specific report type.
+
+`--verbose` retains its verbose report columns and additionally writes `Detected input format: {kind}/{format}` to stderr after successful detection. The normal path does not construct this diagnostic text; logging work remains inside the verbose branch.
+
+The primary `text` report starts with `Input: {kind}/{format}`. Markdown uses the same value as inline code. This header remains present with `--quiet`; quiet suppresses stderr summary output, not primary report metadata.
+
 `--quiet` suppresses the human-readable stderr summary/progress output. It must not suppress the primary stdout result.
 
-`--skip-enrichment` renders only evidence already present in the SBOM. Package-registry and source-repository collection are not scheduled, and their report metadata counters are zero. This mode exists for deterministic report-contract snapshots and for environments that intentionally prohibit external evidence collection; it is not equivalent to a full license-resolution run.
+`--skip-enrichment` renders only evidence already present in the dependency input. Package-registry and source-repository collection are not scheduled, and their report metadata counters are zero. This mode exists for deterministic report-contract snapshots and for environments that intentionally prohibit external evidence collection; it is not equivalent to a full license-resolution run.
 
 ## Default Columns
 
@@ -132,6 +170,7 @@ NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS PURL
 `NAME`, `VERSION`, and `LICENSE` are intentionally placed first because they are the primary review fields. `PURL` is omitted from default output because it can make rows too wide.
 
 <a id="contract-component-status"></a>
+
 ## Component Status
 
 All versions use the same status vocabulary:
@@ -164,6 +203,7 @@ MIT, Apache-2.0 (?)
 The marker is display-only. JSON output preserves each claim in `licenseCandidates` and attaches its non-duplicated provenance as that candidate's typed `evidence` object.
 
 <a id="contract-dependency-type"></a>
+
 ## Dependency Type
 
 Reports distinguish component relationship when the SBOM contains enough information:
@@ -176,14 +216,15 @@ Reports distinguish component relationship when the SBOM contains enough informa
 The field is required in JSON and displayed in default `text` and `markdown` output. If the SBOM does not contain enough dependency graph information, the value is `unknown`.
 
 <a id="contract-dependency-filtering"></a>
+
 ## Dependency Filtering
 
 `--dependency` filters scan output by dependency type:
 
 ```bash
-ol scan --sbom bom.json --dependency direct
-ol scan --sbom bom.json --dependency root,direct
-ol scan --sbom bom.json --dependency transitive
+ol scan --input bom.json --dependency direct
+ol scan --input bom.json --dependency root,direct
+ol scan --input bom.json --dependency transitive
 ```
 
 Allowed values are:
@@ -210,7 +251,7 @@ ecosystem,name,version
 `--sort` accepts comma-separated keys:
 
 ```bash
-ol scan --sbom bom.json --sort status,ecosystem,name
+ol scan --input bom.json --sort status,ecosystem,name
 ```
 
 Normal sort keys:
@@ -226,7 +267,7 @@ Normal sort keys:
 `--sort-order` applies one direction to all selected keys:
 
 ```bash
-ol scan --sbom bom.json --sort status,name --sort-order desc
+ol scan --input bom.json --sort status,name --sort-order desc
 ```
 
 Allowed values are `asc` and `desc`. Default is `asc`.
@@ -238,9 +279,9 @@ The comma-separated `--sort` value must contain at least one key.
 `--group-by` switches the output view from component rows to aggregate rows. It accepts one or more comma-separated output fields:
 
 ```bash
-ol scan --sbom bom.json --group-by license
-ol scan --sbom bom.json --group-by ecosystem,license
-ol scan --sbom bom.json --group-by dependency,status
+ol scan --input bom.json --group-by license
+ol scan --input bom.json --group-by ecosystem,license
+ol scan --input bom.json --group-by dependency,status
 ```
 
 Groupable fields:
@@ -257,6 +298,7 @@ Grouped output includes `COUNT`. Grouped JSON output includes minimal component 
 The comma-separated `--group-by` value must contain at least one key. Grouped JSON retains the same top-level canonical status summary as component JSON.
 
 <a id="contract-json-report"></a>
+
 ## JSON Report
 
 JSON output is the canonical machine-readable report. It includes:
@@ -265,6 +307,7 @@ JSON output is the canonical machine-readable report. It includes:
 - input SBOM metadata
 - SPDX data metadata
 - network/cache metadata where applicable
+- the complete dependency inventory
 - component results or grouped results
 - summary
 - warnings
@@ -273,7 +316,20 @@ The canonical summary counts every component status, including `error`, so the s
 
 Top-level `schemaVersion` identifies the breaking report contract. Schema version 1 removes the duplicate component-level `evidence` array and makes candidate provenance subordinate to each `licenseCandidates` item. Consumers must reject or explicitly migrate unsupported schema versions rather than silently interpreting a newer report as an older shape.
 
-The current v1 report emits `metadata.input` and `metadata.spdx` as separate objects. `metadata.input.sbomRef` is the input basename, rather than an absolute local path. The SPDX object records its logical data reference, License List version, and SHA-256 hashes of the active `licenses.json` and `exceptions.json` files.
+The current schema v1 report emits `metadata.input` and `metadata.spdx` as separate objects. Generic input metadata contains:
+
+- `kind`: the stable input family, currently `sbom` or `package-manager`
+- `format`: the registered format name, currently `cyclonedx`, `spdx`, `nuget-assets`, `npm-package-lock`, `pnpm-lock`, `yarn-classic-lock`, `yarn-berry-lock`, `cargo-metadata`, `go-module-graph`, `pip-inspect`, `composer-lock`, or `bundler-lock`; a package-manager collection containing different formats reports `collection`
+- `sourceRef`: the input file or directory basename, or `{count} inputs` for repeated input, rather than an absolute local path
+- `sourceSha256`: the SHA-256 of the complete file input, or a deterministic aggregate over logical discovery paths and content hashes for directory or repeated input
+- `parser`: the stable parser identity
+- `specificationVersion`: the source format version when present
+
+Existing SBOM-specific fields remain additive compatibility aliases in schema v1: `sbomRef`, `sbomFormat`, `sbomSpecVersion`, and `sbomSha256`. A future non-SBOM input must not emit fabricated SBOM aliases. The SPDX metadata object records its logical data reference, License List version, and SHA-256 hashes of the active `licenses.json` and `exceptions.json` files.
+
+Top-level `inventory` is independent of the sorted or filtered report view. It contains input-order `contexts`, lightweight component identities, `occurrences`, and `edges`. Occurrence component indexes always address `inventory.components`; they never address the displayed top-level `components` or grouped rows. Multiple occurrences may address one component when the same package identity is resolved in more than one project, target framework, RID, workspace, or installed package path. An npm occurrence with input-supplied `dev`, `optional`, `devOptional`, `peer`, `os`, or `cpu` conditions has an additive `variant` string; occurrences without such conditions omit the field. An edge `fromOccurrenceIndex` of `-1` denotes the project or workspace root owned by that edge's context. Empty platform or architecture values remain empty rather than being inferred from the host.
+
+Absolute project origins retained internally for graph attribution are rendered as basenames. Relative logical origins may be retained. Canonical output never exposes an absolute local project path.
 
 SBOM files and SPDX data files encoded with a UTF-8 BOM are accepted.
 
@@ -284,6 +340,12 @@ SBOM input metadata includes a SHA-256 hash:
 ```json
 {
   "input": {
+    "kind": "sbom",
+    "format": "cyclonedx",
+    "sourceRef": "bom.json",
+    "sourceSha256": "...",
+    "parser": "cyclonedx-json",
+    "specificationVersion": "1.6",
     "sbomRef": "bom.json",
     "sbomFormat": "CycloneDX",
     "sbomSpecVersion": "1.6",
@@ -295,6 +357,8 @@ SBOM input metadata includes a SHA-256 hash:
 SPDX metadata is defined by [spdx.md](spdx.md) and is required in every JSON report.
 
 When v3 source repository enrichment is active, `metadata.sourceRepository` reports target, request, cache, error, and unknown counts. `targetCount` counts deduplicated repository/ref targets, while `unknownCount` counts components without source license evidence even when multiple components share one target. `metadata.network.githubAuth` reports only `ol_github_token` or `none`; it never includes a credential value.
+
+`metadata.packageMetadata.targetCount` counts deduplicated versioned package targets scheduled for cache or registry lookup. Component-oriented hit, miss, and outcome counts can be larger because one shared target result is projected to every matching occurrence.
 
 Each GitHub license candidate carries a typed `evidence` object in its `licenseCandidates` entry. It contains logical repository/ref, HTTP status, cache-key hash, and license path/SHA/key/name/URL. These provenance fields are metadata, not warnings, and never contain a cache path or token value.
 
@@ -308,6 +372,7 @@ v1 rejects a document that simultaneously presents CycloneDX and SPDX format mar
 Line numbers and JSON Pointers are not required in v1.
 
 <a id="contract-report-privacy"></a>
+
 ## Privacy and Security
 
 Reports must not contain:
@@ -319,9 +384,39 @@ Reports must not contain:
 Logical identifiers and hashes should be used where possible. Token presence may be reported as an auth mode, never as a value.
 
 <a id="contract-policy-checks"></a>
-## Future Policy Checks
 
-Allow-list enforcement is outside v1-v3 scan scope. A later phase may add `check` or equivalent policy behavior. That phase should consume scan evidence and fail closed for allow-list misses, unknowns, conflicts, ambiguous values, and invalid license expressions.
+## `ol check`
+
+`check` is the policy-enforcement command. It runs the same dependency-input, enrichment, and reconciliation pipeline as `scan` exactly once, then evaluates the completed in-memory result. Policy evaluation does not rescan inputs, repeat registry or source collection, or change `scan` exit behavior.
+
+The initial policy surface is limited to a required allow-list:
+
+```text
+ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+`--allow-licenses` is one comma-separated list of SPDX License Identifiers. Surrounding ASCII whitespace is ignored. Matching is case-insensitive and identifiers are normalized to the official casing from the active SPDX data. Empty entries, unknown identifiers, SPDX expressions, exception identifiers, natural-language names, and an empty list are invalid check options. Duplicate identifiers after normalization have no additional effect.
+
+`check` accepts the scan controls needed to produce the completed result: `--input`, `--input-format`, `--spdx-data`, `--cache-dir`, `--refresh`, `--skip-enrichment`, `--concurrency`, `--retry`, and `--verbose`. The initial command does not accept scan view or report controls such as `--dependency`, `--group-by`, `--sort`, `--format`, or `--out`; policy always evaluates every component in the completed result and emits one deterministic text result.
+
+For a component with status `matched`, the normalized SPDX expression is evaluated as a Boolean expression where an allowed license identifier is true and every other license identifier is false:
+
+- `AND` requires both operands to be true.
+- `OR` requires at least one operand to be true.
+- Parentheses preserve SPDX precedence.
+- `WITH` has the policy value of its base license. The exception remains part of the reported normalized expression but does not independently make a forbidden base license acceptable.
+
+For example, with `--allow-licenses MIT,Apache-2.0`, `MIT`, `MIT AND Apache-2.0`, and `MIT OR GPL-3.0-only` pass; `MIT AND GPL-3.0-only` and `GPL-3.0-only WITH Classpath-exception-2.0` fail.
+
+Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.
+
+`check` writes its pass result or complete violation list to stdout. Expected option, input, SPDX-data, whole-command evidence-pipeline, and output failures write a concise cause to stderr without a stack trace or partial policy result. A component-level registry or source failure remains evidence in the completed result and is evaluated as a policy violation when it leaves that component unresolved; it is not an exit-2 command failure. Exit codes are:
+
+- `0`: every component satisfies the allow-list.
+- `1`: one or more policy violations were found.
+- `2`: the check could not be completed because its configuration, input, evidence pipeline, or output failed.
+
+Policy files, deny-lists, per-package exceptions, dependency-scope policy, JSON/Markdown output, and evaluation of a previously serialized scan report are outside the initial `check --allow-licenses` scope.
 
 ## Lessons Learned
 

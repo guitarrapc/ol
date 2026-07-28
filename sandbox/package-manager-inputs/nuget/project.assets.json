@@ -1,0 +1,34 @@
+{
+  "version": 3,
+  "targets": {
+    "net10.0": {
+      "Direct.Package/1.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Shared.Package": "2.0.0"
+        }
+      },
+      "Shared.Package/2.0.0": {
+        "type": "package"
+      }
+    }
+  },
+  "libraries": {
+    "Direct.Package/1.0.0": { "type": "package", "path": "direct.package/1.0.0" },
+    "Shared.Package/2.0.0": { "type": "package", "path": "shared.package/2.0.0" }
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectName": "Sandbox.App",
+      "projectPath": "sandbox/Sandbox.App.csproj"
+    },
+    "frameworks": {
+      "net10.0": {
+        "dependencies": {
+          "Direct.Package": { "target": "Package", "version": "[1.0.0, )" }
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,9 @@
 ﻿using System.Net;
 using Ol.Core;
+using Ol.Core.GitHub;
+using Ol.Core.Licensing;
+using Ol.Core.PackageManagers;
+using Ol.Core.Spdx;
 
 namespace Ol.Tests;
 
@@ -51,7 +55,7 @@ public sealed class SourceRepositoryTests
     {
         using var document = System.Text.Json.JsonDocument.Parse("""{ "license": "MIT", "repository": { "url": "https://github.com/owner/repository.git" }, "gitHead": "0123456789abcdef" }""");
 
-        var response = new NpmPackageMetadataProvider().ParseResponse(document.RootElement);
+        var response = new NpmPackageMetadataProvider().ParseResponse(document.RootElement, default);
 
         await Assert.That(response.RepositoryUrl).IsEqualTo("https://github.com/owner/repository.git");
         await Assert.That(response.RepositoryRef).IsEqualTo("0123456789abcdef");
@@ -156,7 +160,7 @@ public sealed class SourceRepositoryTests
         var handler = new SequenceResponseHandler(HttpStatusCode.TooManyRequests, HttpStatusCode.OK);
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
 
-        var record = await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
+        var record = await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
 
         await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
         await Assert.That(handler.CallCount).IsEqualTo(2);
@@ -168,7 +172,7 @@ public sealed class SourceRepositoryTests
         var handler = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.ServiceUnavailable);
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
 
-        await Assert.That(async () => await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<SourceRepositoryFetchException>();
+        await Assert.That(async () => await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<SourceRepositoryFetchException>();
         await Assert.That(handler.CallCount).IsEqualTo(2);
     }
 
@@ -178,7 +182,7 @@ public sealed class SourceRepositoryTests
         var handler = new SequenceResponseHandler(HttpStatusCode.Forbidden, HttpStatusCode.OK);
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
 
-        await Assert.That(async () => await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<SourceRepositoryFetchException>();
+        await Assert.That(async () => await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<SourceRepositoryFetchException>();
         await Assert.That(handler.CallCount).IsEqualTo(1);
     }
 
@@ -188,7 +192,7 @@ public sealed class SourceRepositoryTests
         var handler = new TimeoutResponseHandler();
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
 
-        await Assert.That(async () => await SourceRepositoryFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<TaskCanceledException>();
+        await Assert.That(async () => await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1)).Throws<TaskCanceledException>();
         await Assert.That(handler.CallCount).IsEqualTo(2);
     }
 
@@ -202,7 +206,7 @@ public sealed class SourceRepositoryTests
         await metadataCache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("Apache-2.0", "apache-2.0", "Apache", "LICENSE", "old", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["Apache-2.0", "MIT"], []);
-        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create("sbom", "id", "NOASSERTION"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
         using var httpClient = new HttpClient(new GitHubResponseHandler(HttpStatusCode.OK, ReadGitHubLicenseFixture()));
         var service = new SourceRepositoryService(index, metadataCache, sourceCache, refresh: true, retryCount: 0, httpClient);
 
@@ -234,7 +238,7 @@ public sealed class SourceRepositoryTests
         Directory.CreateDirectory(sourceCache.Root);
         await File.WriteAllTextAsync(sourceCache.GetPath(target.CacheKey), "{ invalid json");
         var index = new SpdxLicenseIndex(["MIT"], []);
-        var component = new ScanComponent("example", "1.0.0", "MIT", "npm", DependencyType.Unknown, LicenseStatus.Matched, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create("sbom", "id", "MIT"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", "MIT", "npm", DependencyType.Unknown, LicenseStatus.Matched, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "MIT"u8, index), [], []);
         using var httpClient = new HttpClient(new SequenceResponseHandler(HttpStatusCode.Forbidden));
         var service = new SourceRepositoryService(index, metadataCache, sourceCache, refresh: false, retryCount: 1, httpClient);
 
@@ -266,7 +270,7 @@ public sealed class SourceRepositoryTests
         await metadataCache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
         await File.WriteAllTextAsync(invalidSourceRoot, "not a directory");
         var index = new SpdxLicenseIndex(["MIT"], []);
-        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create("sbom", "id", "NOASSERTION"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
         using var httpClient = new HttpClient(new GitHubResponseHandler(HttpStatusCode.OK, ReadGitHubLicenseFixture()));
         var service = new SourceRepositoryService(index, metadataCache, new SourceRepositoryCache(invalidSourceRoot), refresh: true, retryCount: 0, httpClient);
 

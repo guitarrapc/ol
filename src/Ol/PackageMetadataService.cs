@@ -1,5 +1,8 @@
 ﻿using System.Buffers;
 using Ol.Core;
+using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
+using Ol.Core.Spdx;
 
 internal readonly record struct PackageMetadataSummary(
     int SupportedComponentCount,
@@ -9,7 +12,8 @@ internal readonly record struct PackageMetadataSummary(
     int FetchErrorCount,
     int UnsupportedEcosystemCount,
     int Concurrency,
-    int RetryCount);
+    int RetryCount,
+    int TargetCount = 0);
 
 internal static class PackageMetadataPaths
 {
@@ -20,7 +24,7 @@ internal static class PackageMetadataPaths
 internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, PackageMetadataCache cache, bool refresh, int retryCount)
 {
     private static readonly HttpClient HttpClient = new();
-    private readonly PackageMetadataRegistryClient registryClient = new(HttpClient);
+    private readonly PackageMetadataRegistryClient registryClient = OlDefaults.CreatePackageMetadataRegistryClient(HttpClient);
 
     public async Task<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(ScanComponent[] components, int concurrency, CancellationToken cancellationToken = default)
     {
@@ -49,7 +53,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                     continue;
                 }
 
-                if (!PackageMetadataRequest.TryCreate(purl.ToString(), out var request))
+                if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request))
                 {
                     lookupByPurl.Add(purl, -1);
                     componentLookupIndexes[i] = -1;
@@ -97,7 +101,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                 unsupported += result.Unsupported ? 1 : 0;
             }
 
-            return (components, new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount));
+            return (components, new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount, lookupCount));
         }
         finally
         {
@@ -150,20 +154,20 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey)));
-        var error = LicenseCandidateFactory.CreateError($"{request.Ecosystem}-registry", "fetch", "package_metadata_fetch_failed", evidence);
+        var error = LicenseCandidateFactory.CreateError(LicenseCandidateSource.PackageRegistry, LicenseCandidateKind.Fetch, LicenseCandidateWarnings.PackageMetadataFetchFailed, evidence);
         return new PackageMetadataLookupResult(error, true, false, true, false, true, false);
     }
 
     private static PackageMetadataLookupResult CreateUnsupportedPurlResult(Utf8Slice purl)
     {
         var candidate = new LicenseCandidate(
-            "package-metadata",
-            "unsupported",
+            LicenseCandidateSource.PackageRegistry,
+            LicenseCandidateKind.Unsupported,
             purl,
             default,
             LicenseStatus.Unknown,
             false,
-            ["unsupported_package_metadata"],
+            LicenseCandidateWarnings.UnsupportedPackageMetadata,
             new LicenseEvidence(LicenseEvidenceKind.PackageRegistry));
         return new PackageMetadataLookupResult(candidate, true, false, false, false, false, true);
     }
@@ -186,17 +190,18 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(record.CacheKeySha256, record.FetchedAt));
-        var candidate = LicenseCandidateFactory.Create(record.Source, "license", Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex, evidence);
-        if (record.Warnings.Length == 0)
-        {
-            return candidate;
-        }
-
-        var warnings = new string[candidate.Warnings.Length + record.Warnings.Length];
-        candidate.Warnings.CopyTo(warnings, 0);
-        record.Warnings.CopyTo(warnings, candidate.Warnings.Length);
-        return candidate with { Warnings = warnings };
+        var candidate = LicenseCandidateFactory.Create(GetCandidateSource(record.Source), LicenseCandidateKind.License, Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex, evidence);
+        return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(record.Warnings) };
     }
+
+    private static LicenseCandidateSource GetCandidateSource(string source) => source switch
+    {
+        "npm-registry" => LicenseCandidateSource.NpmRegistry,
+        "nuget-registry" => LicenseCandidateSource.NuGetRegistry,
+        "cargo-registry" => LicenseCandidateSource.CargoRegistry,
+        "go-module-proxy" => LicenseCandidateSource.GoModuleProxy,
+        _ => LicenseCandidateSource.PackageRegistry,
+    };
 
     private readonly record struct PackageMetadataLookup(int Index, PackageMetadataRequest Request);
 

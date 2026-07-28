@@ -1,0 +1,17 @@
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      direct-package:
+        version: 1.0.0
+
+packages:
+  direct-package@1.0.0: {}
+  shared-package@2.0.0: {}
+
+snapshots:
+  direct-package@1.0.0:
+    dependencies:
+      shared-package: 2.0.0
+  shared-package@2.0.0: {}

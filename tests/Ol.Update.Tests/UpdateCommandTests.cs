@@ -9,7 +9,7 @@ public sealed class UpdateCommandTests
             """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "MIT" }, { "licenseId": "Apache-2.0" } ] }"""u8,
             """{ "exceptions": [ { "licenseExceptionId": "Classpath-exception-2.0" } ] }"""u8);
 
-        await Assert.That(generated).Contains("namespace Ol.Core;");
+        await Assert.That(generated).Contains("namespace Ol.Core.Generated;");
         await Assert.That(generated).Contains("\"3.27.0\"");
         await Assert.That(generated).Contains("\"MIT\"");
         await Assert.That(generated).Contains("\"Classpath-exception-2.0\"");

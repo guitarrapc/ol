@@ -1,6 +1,9 @@
 ﻿using System.Net;
 using System.Text.Json;
 using Ol.Core;
+using Ol.Core.Licensing;
+using Ol.Core.PackageManagers;
+using Ol.Core.Spdx;
 
 namespace Ol.Tests;
 
@@ -23,9 +26,22 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Fetch_RegistryRequest_SendsOlUserAgent()
+    {
+        var provider = new TestPackageMetadataProvider();
+        var providers = new PackageMetadataProviders([provider]);
+        var handler = new RequestHeaderHandler();
+        var client = new PackageMetadataRegistryClient(handler, providers);
+
+        await client.FetchAsync(new PackageMetadataRequest("test", "", "example", "1.0.0", "pkg:test/example@1.0.0"));
+
+        await Assert.That(handler.UserAgent).IsEqualTo("ol");
+    }
+
+    [Test]
     public async Task TryParse_ScopedNpmPurl_ProducesNormalizedPackageMetadataRequest()
     {
-        var parsed = PackageMetadataRequest.TryCreate("pkg:npm/%40scope/example@1.2.3?download_url=https%3A%2F%2Fexample.test", out var request);
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:npm/%40scope/example@1.2.3?download_url=https%3A%2F%2Fexample.test", out var request);
 
         await Assert.That(parsed).IsTrue();
         await Assert.That(request.Ecosystem).IsEqualTo("npm");
@@ -167,16 +183,16 @@ public sealed class PackageMetadataTests
             LicenseStatus.Unknown,
             "pkg:npm/example@1.0.0",
             "pkg:npm/example@1.0.0",
-            LicenseCandidateFactory.Create("sbom", "id", "NOASSERTION"u8, index),
+            LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index),
             [],
             []);
 
-        var result = LicenseReconciler.AddCandidate(component, LicenseCandidateFactory.Create("npm-registry", "license", "MIT"u8, index));
+        var result = LicenseReconciler.AddCandidate(component, LicenseCandidateFactory.Create(LicenseCandidateSource.NpmRegistry, LicenseCandidateKind.License, "MIT"u8, index));
 
         await Assert.That(result.Status).IsEqualTo(LicenseStatus.Matched);
         await Assert.That(result.License.ToString()).IsEqualTo("MIT");
         await Assert.That(result.CandidateCount).IsEqualTo(2);
-        await Assert.That(result.GetCandidate(1).Source).IsEqualTo("npm-registry");
+        await Assert.That(result.GetCandidate(1).Source).IsEqualTo(LicenseCandidateSource.NpmRegistry);
     }
 
     [Test]
@@ -209,7 +225,7 @@ public sealed class PackageMetadataTests
         var handler = new SequenceJsonResponseHandler(
             """{ "catalogEntry": "https://api.nuget.org/v3/catalog0/data/example.1.0.0.json" }""",
             """{ "licenseExpression": "MIT", "projectUrl": "https://github.com/example/project", "repository": { "commit": "abcdef" } }""");
-        var client = new PackageMetadataRegistryClient(handler);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
 
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
@@ -227,7 +243,7 @@ public sealed class PackageMetadataTests
     public async Task Fetch_NuGetRegistrationResponse_WithUntrustedCatalogEntryUrl_DoesNotFollowIt()
     {
         var handler = new SequenceJsonResponseHandler("""{ "catalogEntry": "https://example.test/private.json" }""");
-        var client = new PackageMetadataRegistryClient(handler);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
 
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
@@ -239,11 +255,11 @@ public sealed class PackageMetadataTests
     public async Task Providers_ParseResponse_WithNonObjectRoot_ReturnUnknownMetadataWithoutThrowing()
     {
         using var document = JsonDocument.Parse("\"unexpected\"");
-        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider()];
+        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider(), new PackagistPackageMetadataProvider(), new RubyGemsPackageMetadataProvider()];
 
         for (var i = 0; i < providers.Length; i++)
         {
-            var response = providers[i].ParseResponse(document.RootElement);
+            var response = providers[i].ParseResponse(document.RootElement, default);
 
             await Assert.That(response.RawLicense).IsEmpty();
             await Assert.That(response.RepositoryUrl).IsEmpty();
@@ -268,6 +284,94 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Fetch_PyPiResponse_UsesReleaseSpecificMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler("""{ "info": { "license_expression": "MIT", "license": "Legacy", "project_urls": { "Source": "https://github.com/example/python" } } }""");
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("pypi", "", "example", "1.0.0", "pkg:pypi/example@1.0.0"));
+
+        await Assert.That(handler.RequestUris).IsEquivalentTo(["https://pypi.org/pypi/example/1.0.0/json"]);
+        await Assert.That(record.Source).IsEqualTo("pypi-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/python");
+    }
+
+    [Test]
+    public async Task Fetch_PackagistResponse_UsesRequestedComposerVersionMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            """
+            {
+              "package": {
+                "repository": "https://github.com/Seldaek/monolog",
+                "versions": {
+                  "3.8.1": { "license": ["GPL-3.0-only"] },
+                  "3.9.0": { "license": ["MIT", "Apache-2.0"] }
+                }
+              }
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:composer/monolog/monolog@3.9.0", out var request);
+        await Assert.That(parsed).IsTrue();
+        var record = await client.FetchAsync(request);
+
+        await Assert.That(handler.RequestUris).IsEquivalentTo(["https://packagist.org/packages/monolog/monolog.json"]);
+        await Assert.That(record.Source).IsEqualTo("packagist-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT OR Apache-2.0");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/Seldaek/monolog");
+    }
+
+    [Test]
+    public async Task Fetch_PackagistResponse_WithoutRequestedVersion_DoesNotUseOtherVersion()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            """
+            {
+              "package": {
+                "repository": "https://github.com/Seldaek/monolog",
+                "versions": {
+                  "3.8.1": { "license": ["GPL-3.0-only"] }
+                }
+              }
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("composer", "monolog", "monolog", "3.9.0", "pkg:composer/monolog/monolog@3.9.0"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/Seldaek/monolog");
+    }
+
+    [Test]
+    public async Task Fetch_RubyGemsVersionResponse_UsesVersionAndPlatformSpecificMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler("""{ "licenses": ["MIT", "Apache-2.0"], "source_code_uri": "https://github.com/example/gem" }""");
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:gem/example@1.2.3?platform=java", out var request);
+        await Assert.That(parsed).IsTrue();
+        await Assert.That(request.CacheKey).IsEqualTo("pkg:gem/example@1.2.3?platform=java");
+        var record = await client.FetchAsync(request);
+
+        await Assert.That(handler.RequestUris).IsEquivalentTo(["https://rubygems.org/api/v2/rubygems/example/versions/1.2.3.json?platform=java"]);
+        await Assert.That(record.Source).IsEqualTo("rubygems-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT OR Apache-2.0");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/gem");
+    }
+
+    [Test]
+    public async Task TryCreate_RubyGemsPurlWithUnsupportedQualifier_RejectsRequest()
+    {
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:gem/example@1.2.3?repository_url=example.test", out _);
+
+        await Assert.That(parsed).IsFalse();
+    }
+
+    [Test]
     public async Task RetryClassifier_TransientAndPermanentResponses_AreClassifiedCorrectly()
     {
         await Assert.That(PackageMetadataRegistryClient.IsTransient(HttpStatusCode.TooManyRequests)).IsTrue();
@@ -280,7 +384,7 @@ public sealed class PackageMetadataTests
     public async Task FetchScheduler_TransientFailureThenSuccess_RetriesAndReturnsRecord()
     {
         var handler = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.OK);
-        var client = new PackageMetadataRegistryClient(handler);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
         var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
 
         var record = await PackageMetadataFetchScheduler.FetchAsync(client, request, retryCount: 1);
@@ -296,8 +400,8 @@ public sealed class PackageMetadataTests
         var unavailable = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.ServiceUnavailable);
         var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
 
-        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(new PackageMetadataRegistryClient(notFound), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
-        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(new PackageMetadataRegistryClient(unavailable), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
+        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(OlDefaults.CreatePackageMetadataRegistryClient(notFound), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
+        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(OlDefaults.CreatePackageMetadataRegistryClient(unavailable), request, retryCount: 1)).Throws<PackageMetadataFetchException>();
         await Assert.That(notFound.CallCount).IsEqualTo(1);
         await Assert.That(unavailable.CallCount).IsEqualTo(2);
     }
@@ -314,7 +418,7 @@ public sealed class PackageMetadataTests
     }
 
     private static PackageMetadataRegistryClient CreateClient(string body)
-        => new(new StaticResponseHandler(body));
+        => OlDefaults.CreatePackageMetadataRegistryClient(new StaticResponseHandler(body));
 
     private static string CreatePackageCacheJson(int schemaVersion = 1)
     {
@@ -364,7 +468,7 @@ public sealed class PackageMetadataTests
         public override Uri CreateEndpoint(PackageMetadataRequest request)
             => new("https://registry.test/");
 
-        public override PackageMetadataResponse ParseResponse(JsonElement root)
+        public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
             => new("test-registry", root.GetProperty("license").GetString() ?? string.Empty, string.Empty);
     }
 
@@ -372,6 +476,17 @@ public sealed class PackageMetadataTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+    }
+
+    private sealed class RequestHeaderHandler : HttpMessageHandler
+    {
+        public string UserAgent { get; private set; } = string.Empty;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            UserAgent = request.Headers.UserAgent.ToString();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{ "license": "MIT" }""") });
+        }
     }
 
     private sealed class SequenceResponseHandler(params HttpStatusCode[] statuses) : HttpMessageHandler

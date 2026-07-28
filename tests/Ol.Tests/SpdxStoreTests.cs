@@ -1,4 +1,4 @@
-﻿using Ol.Core;
+﻿using Ol.Core.Spdx;
 
 namespace Ol.Tests;
 

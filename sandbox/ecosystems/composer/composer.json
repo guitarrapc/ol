@@ -1,0 +1,6 @@
+{
+  "name": "ol-fixture/composer",
+  "require": {
+    "monolog/monolog": "3.9.0"
+  }
+}

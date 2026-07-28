@@ -1,0 +1,40 @@
+﻿namespace Ol.Core.Licensing;
+
+/// <summary>
+/// Describes the license classification result for a component.
+/// </summary>
+public enum LicenseStatus
+{
+    /// <summary>Available evidence yields a single valid license expression.</summary>
+    Matched,
+
+    /// <summary>Available evidence yields multiple different valid license expressions.</summary>
+    Conflict,
+
+    /// <summary>No usable license information is available.</summary>
+    Unknown,
+
+    /// <summary>License text exists but cannot be normalized without guessing.</summary>
+    Ambiguous,
+
+    /// <summary>A claimed SPDX expression is invalid.</summary>
+    Invalid,
+
+    /// <summary>Evidence could not be collected or processed.</summary>
+    Error,
+}
+
+/// <summary>Provides stable UTF-8 license status identifiers without string allocation.</summary>
+public static class LicenseStatusIdentifiers
+{
+    public static ReadOnlySpan<byte> ToUtf8(this LicenseStatus value) => value switch
+    {
+        LicenseStatus.Matched => "matched"u8,
+        LicenseStatus.Conflict => "conflict"u8,
+        LicenseStatus.Unknown => "unknown"u8,
+        LicenseStatus.Ambiguous => "ambiguous"u8,
+        LicenseStatus.Invalid => "invalid"u8,
+        LicenseStatus.Error => "error"u8,
+        _ => default,
+    };
+}

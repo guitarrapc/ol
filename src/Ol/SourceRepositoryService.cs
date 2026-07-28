@@ -1,5 +1,10 @@
-using System.Buffers;
+﻿using System.Buffers;
 using Ol.Core;
+using Ol.Core.GitHub;
+using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
+using Ol.Core.SourceRepository;
+using Ol.Core.Spdx;
 
 internal readonly record struct SourceRepositorySummary(int TargetCount, int GitHubRequestCount, int CacheHitCount, int CacheMissCount, int FetchErrorCount, int UnknownCount, string AuthMode, int Concurrency, int RetryCount);
 
@@ -30,7 +35,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
             for (var i = 0; i < components.Length; i++)
             {
                 PackageMetadataRecord? metadata = null;
-                if (PackageMetadataRequest.TryCreate(components[i].Purl.ToString(), out var request))
+                if (OlDefaults.TryCreatePackageMetadataRequest(components[i].Purl.ToString(), out var request))
                 {
                     if (!metadataRecords.TryGetValue(request.CacheKey, out metadata))
                     {
@@ -43,13 +48,13 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 if (repositoryUrl.Length == 0)
                 {
                     components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate(
-                        "source-repository",
-                        "unavailable",
+                        LicenseCandidateSource.SourceRepository,
+                        LicenseCandidateKind.Unavailable,
                         default,
                         default,
                         LicenseStatus.Unknown,
                         false,
-                        ["source_repository_unavailable"],
+                        LicenseCandidateWarnings.SourceRepositoryUnavailable,
                         new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
                     unplannedUnknownCount++;
                     continue;
@@ -59,13 +64,13 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out var target))
                 {
                     components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate(
-                        "source-repository",
-                        "unsupported",
+                        LicenseCandidateSource.SourceRepository,
+                        LicenseCandidateKind.Unsupported,
                         Utf8Slice.FromString(repositoryUrl),
                         default,
                         LicenseStatus.Unknown,
                         false,
-                        ["unsupported_source_repository"],
+                        LicenseCandidateWarnings.UnsupportedSourceRepository,
                         new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
                     unplannedUnknownCount++;
                     continue;
@@ -137,7 +142,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         try
         {
             var githubClient = new GitHubLicenseApiClient(httpClient, authentication);
-            var record = await SourceRepositoryFetchScheduler.FetchAsync(githubClient, target, retryCount, cancellationToken).ConfigureAwait(false);
+            var record = await GitHubLicenseFetchScheduler.FetchAsync(githubClient, target, retryCount, cancellationToken).ConfigureAwait(false);
             if (cacheWasInvalid)
             {
                 record = record with { Warnings = [.. record.Warnings, "source_repository_cache_invalid"] };
@@ -156,20 +161,14 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
     private SourceRepositoryLookupResult CreateResult(SourceRepositoryRecord record, bool cacheHit, bool cacheMiss, bool requested)
     {
         var raw = record.License?.SpdxId ?? "NOASSERTION";
-        var candidate = LicenseCandidateFactory.Create("github-license-api", "license", Utf8Slice.FromString(raw), spdxLicenseIndex);
+        var candidate = LicenseCandidateFactory.Create(LicenseCandidateSource.GitHubLicenseApi, LicenseCandidateKind.License, Utf8Slice.FromString(raw), spdxLicenseIndex);
         var unknown = record.Errors.Length == 0 && candidate.Status == LicenseStatus.Unknown;
         if (record.Errors.Length != 0)
         {
-            candidate = LicenseCandidateFactory.CreateError("github-license-api", "fetch", record.Errors[0]);
+            candidate = LicenseCandidateFactory.CreateError(LicenseCandidateSource.GitHubLicenseApi, LicenseCandidateKind.Fetch, LicenseCandidateIdentifiers.ParseWarning(record.Errors[0]));
         }
 
-        if (record.Warnings.Length != 0)
-        {
-            var warnings = new string[candidate.Warnings.Length + record.Warnings.Length];
-            candidate.Warnings.CopyTo(warnings, 0);
-            record.Warnings.CopyTo(warnings, candidate.Warnings.Length);
-            candidate = candidate with { Warnings = warnings };
-        }
+        candidate = candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(record.Warnings) };
 
         var license = record.License;
         candidate = candidate with

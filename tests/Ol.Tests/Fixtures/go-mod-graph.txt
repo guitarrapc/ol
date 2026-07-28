@@ -1,0 +1,8 @@
+example.com/app example.com/direct@v1.2.0
+example.com/app example.com/local@v0.5.0
+example.com/app example.com/forked@v1.0.0
+example.com/app example.com/retracted@v1.0.0
+example.com/app go@1.25.0
+example.com/direct@v1.0.0 example.com/transitive@v0.0.0-20250101120000-abcdef123456
+example.com/direct@v1.2.0 example.com/transitive@v0.0.0-20250101120000-abcdef123456
+example.com/direct@v1.2.0 go@1.20

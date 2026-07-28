@@ -1,0 +1,500 @@
+﻿using System.Text;
+using BenchmarkDotNet.Attributes;
+using Ol.Core;
+using Ol.Core.Licensing;
+using Ol.Core.Spdx;
+
+[DisassemblyDiagnoser(maxDepth: 1)]
+public class DependencyInputScannerBenchmark
+{
+    private readonly byte[] cycloneDx = Encoding.UTF8.GetBytes(
+        """
+        {
+          "bomFormat": "CycloneDX",
+          "components": [
+            {
+              "name": "left-pad",
+              "version": "1.3.0",
+              "purl": "pkg:npm/left-pad@1.3.0",
+              "licenses": [
+                { "license": { "id": "MIT" } }
+              ]
+            }
+          ]
+        }
+        """);
+
+    private readonly byte[] cycloneDxUnknown = Encoding.UTF8.GetBytes(
+        """
+        {
+          "bomFormat": "CycloneDX",
+          "components": [
+            { "name": "unknown", "licenses": [ { "license": { "id": "NOASSERTION" } } ] }
+          ]
+        }
+        """);
+
+    private readonly byte[] cycloneDxExpression = Encoding.UTF8.GetBytes(
+        """
+        {
+          "bomFormat": "CycloneDX",
+          "components": [
+            { "name": "expression", "licenses": [ { "license": { "expression": "mit OR (apache-2.0 WITH classpath-exception-2.0)" } } ] }
+          ]
+        }
+        """);
+
+    private readonly byte[] nugetAssets = Encoding.UTF8.GetBytes(
+        """
+        {
+          "version": 3,
+          "targets": {
+            "net8.0": {
+              "Direct.Package/1.0.0": { "type": "package", "dependencies": { "Shared.Package": "2.0.0" } },
+              "Shared.Package/2.0.0": { "type": "package" }
+            }
+          },
+          "libraries": {
+            "Direct.Package/1.0.0": { "type": "package" },
+            "Shared.Package/2.0.0": { "type": "package" }
+          },
+          "project": {
+            "version": "1.0.0",
+            "restore": { "projectName": "App", "projectPath": "src/App/App.csproj" },
+            "frameworks": { "net8.0": { "dependencies": { "Direct.Package": { "target": "Package" } } } }
+          }
+        }
+        """);
+
+    private readonly byte[] npmPackageLock = Encoding.UTF8.GetBytes(
+        """
+        {
+          "name": "app",
+          "lockfileVersion": 3,
+          "packages": {
+            "": { "name": "app", "dependencies": { "left-pad": "1.3.0" } },
+            "node_modules/left-pad": { "version": "1.3.0", "dependencies": { "native-addon": "2.0.0" } },
+            "node_modules/native-addon": { "version": "2.0.0", "optional": true, "os": ["linux"], "cpu": ["x64"] }
+          }
+        }
+        """);
+
+    private readonly byte[] pnpmLock = Encoding.UTF8.GetBytes(
+        """
+        lockfileVersion: '9.0'
+        importers:
+          .:
+            dependencies:
+              left-pad:
+                version: 1.3.0
+        packages:
+          left-pad@1.3.0: {}
+        snapshots:
+          left-pad@1.3.0: {}
+        """);
+
+    private readonly byte[] yarnClassicLock = Encoding.UTF8.GetBytes(
+        """
+        # yarn lockfile v1
+        left-pad@^1.3.0:
+          version "1.3.0"
+        """);
+
+    private readonly byte[] yarnBerryLock = Encoding.UTF8.GetBytes(
+        """
+        __metadata:
+          version: 8
+        "app@workspace:.":
+          version: 0.0.0-use.local
+          resolution: "app@workspace:."
+          dependencies:
+            left-pad: "npm:^1.3.0"
+        "left-pad@npm:^1.3.0":
+          version: 1.3.0
+          resolution: "left-pad@npm:1.3.0"
+        """);
+
+    private readonly byte[] cargoMetadata = Encoding.UTF8.GetBytes(
+        """
+        {
+          "packages": [
+            { "name": "app", "version": "0.1.0", "id": "path+file:///app#app@0.1.0", "source": null },
+            { "name": "itoa", "version": "1.0.0", "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "source": "registry+https://github.com/rust-lang/crates.io-index" }
+          ],
+          "workspace_members": [ "path+file:///app#app@0.1.0" ],
+          "resolve": {
+            "nodes": [
+              { "id": "path+file:///app#app@0.1.0", "deps": [ { "name": "itoa", "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "dep_kinds": [ { "kind": null, "target": null } ] } ], "features": [ "default" ] },
+              { "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0", "deps": [], "features": [] }
+            ]
+          },
+          "target_directory": "/app/target",
+          "version": 1,
+          "workspace_root": "/app"
+        }
+        """);
+
+    private readonly byte[][] goModuleGraph =
+    [
+        Encoding.UTF8.GetBytes(
+            """
+            { "Path": "example.com/app", "Main": true, "GoVersion": "1.25" }
+            { "Path": "github.com/google/uuid", "Version": "v1.6.0" }
+            """),
+        Encoding.UTF8.GetBytes(
+            """
+            example.com/app github.com/google/uuid@v1.6.0
+            example.com/app go@1.25
+            """),
+    ];
+
+    private readonly byte[] pipInspect = Encoding.UTF8.GetBytes(
+        """
+        {
+          "version": "1",
+          "pip_version": "25.1",
+          "installed": [
+            { "metadata": { "name": "requests", "version": "2.32.4", "requires_dist": [ "urllib3<3" ] }, "installer": "pip", "requested": true },
+            { "metadata": { "name": "urllib3", "version": "2.5.0" }, "installer": "pip", "requested": false }
+          ],
+          "environment": {
+            "implementation_name": "cpython",
+            "platform_machine": "x86_64",
+            "python_full_version": "3.12.3",
+            "sys_platform": "linux"
+          }
+        }
+        """);
+
+    private readonly byte[][] composerLock =
+    [
+        Encoding.UTF8.GetBytes(
+            """
+            {
+              "name": "example/app",
+              "require": { "monolog/monolog": "^3.0" }
+            }
+            """),
+        Encoding.UTF8.GetBytes(
+            """
+            {
+              "packages": [
+                { "name": "monolog/monolog", "version": "3.9.0", "require": { "psr/log": "^3.0" }, "license": [ "MIT" ] },
+                { "name": "psr/log", "version": "3.0.2", "license": [ "MIT" ] }
+              ],
+              "packages-dev": [],
+              "plugin-api-version": "2.6.0"
+            }
+            """),
+    ];
+
+    private readonly byte[] bundlerLock = Encoding.UTF8.GetBytes(
+        """
+        GEM
+          remote: https://rubygems.org/
+          specs:
+            rack (3.1.8)
+
+        PLATFORMS
+          ruby
+
+        DEPENDENCIES
+          rack
+
+        BUNDLED WITH
+           2.6.5
+        """);
+
+    private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
+    private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
+    private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
+    private readonly Utf8Slice projectOrigin = "src/App/App.csproj";
+    private readonly Utf8Slice target = "net8.0";
+    private readonly Utf8Slice directName = "Direct.Package";
+    private readonly Utf8Slice directVersion = "1.0.0";
+    private readonly Utf8Slice directSourceId = "Direct.Package/1.0.0";
+    private readonly Utf8Slice sharedName = "Shared.Package";
+    private readonly Utf8Slice sharedVersion = "2.0.0";
+    private readonly Utf8Slice sharedSourceId = "Shared.Package/2.0.0";
+    private readonly Utf8Slice npmRoot = "app";
+    private readonly Utf8Slice npmDirectName = "left-pad";
+    private readonly Utf8Slice npmDirectVersion = "1.3.0";
+    private readonly Utf8Slice npmDirectSourceId = "node_modules/left-pad";
+    private readonly Utf8Slice npmNativeName = "native-addon";
+    private readonly Utf8Slice npmNativeVersion = "2.0.0";
+    private readonly Utf8Slice npmNativeSourceId = "node_modules/native-addon";
+    private readonly Utf8Slice cargoRoot = "app";
+    private readonly Utf8Slice cargoName = "itoa";
+    private readonly Utf8Slice cargoVersion = "1.0.0";
+    private readonly Utf8Slice cargoSourceId = "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.0";
+    private readonly Utf8Slice goRoot = "example.com/app";
+    private readonly Utf8Slice goName = "github.com/google/uuid";
+    private readonly Utf8Slice goVersion = "v1.6.0";
+    private readonly Utf8Slice goSourceId = "github.com/google/uuid@v1.6.0";
+    private readonly Utf8Slice pythonRoot = "pip-environment";
+    private readonly Utf8Slice pythonTarget = "3.12.3";
+    private readonly Utf8Slice pythonRuntime = "cpython";
+    private readonly Utf8Slice pythonPlatform = "linux";
+    private readonly Utf8Slice pythonArchitecture = "x86_64";
+    private readonly Utf8Slice pythonRequestsName = "requests";
+    private readonly Utf8Slice pythonRequestsVersion = "2.32.4";
+    private readonly Utf8Slice pythonUrllibName = "urllib3";
+    private readonly Utf8Slice pythonUrllibVersion = "2.5.0";
+    private readonly Utf8Slice composerRoot = "example/app";
+    private readonly Utf8Slice composerMonologName = "monolog/monolog";
+    private readonly Utf8Slice composerMonologVersion = "3.9.0";
+    private readonly Utf8Slice composerPsrLogName = "psr/log";
+    private readonly Utf8Slice composerPsrLogVersion = "3.0.2";
+    private readonly Utf8Slice composerLicense = "MIT";
+    private readonly Utf8Slice bundlerRoot = "Gemfile.lock";
+    private readonly Utf8Slice bundlerPlatform = "ruby";
+    private readonly Utf8Slice bundlerRackName = "rack";
+    private readonly Utf8Slice bundlerRackVersion = "3.1.8";
+
+    [Benchmark]
+    public DependencyInventory ScanCycloneDx()
+    {
+        return DependencyInputScanner.Scan(cycloneDx, spdx);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanCycloneDxInventory()
+    {
+        return DependencyInputScanner.Scan(cycloneDx, spdx);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanNuGetAssetsInventory()
+    {
+        return DependencyInputScanner.Scan(nugetAssets, spdx, expectedFormat: ScanInputFormat.NuGetAssets);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanNpmPackageLockInventory()
+    {
+        return DependencyInputScanner.Scan(npmPackageLock, spdx, expectedFormat: ScanInputFormat.NpmPackageLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanPnpmLockInventory()
+    {
+        return DependencyInputScanner.Scan(pnpmLock, spdx, expectedFormat: ScanInputFormat.PnpmLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanYarnClassicLockInventory()
+    {
+        return DependencyInputScanner.Scan(yarnClassicLock, spdx, expectedFormat: ScanInputFormat.YarnClassicLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanYarnBerryLockInventory()
+    {
+        return DependencyInputScanner.Scan(yarnBerryLock, spdx, expectedFormat: ScanInputFormat.YarnBerryLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanCargoMetadataInventory()
+    {
+        return DependencyInputScanner.Scan(cargoMetadata, spdx, expectedFormat: ScanInputFormat.CargoMetadata);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanGoModuleGraphInventory()
+    {
+        return DependencyInputScanner.ScanBundle(goModuleGraph, spdx, ScanInputFormat.GoModuleGraph);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanPipInspectInventory()
+    {
+        return DependencyInputScanner.Scan(pipInspect, spdx, expectedFormat: ScanInputFormat.PipInspect);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanComposerLockInventory()
+    {
+        return DependencyInputScanner.ScanBundle(composerLock, spdx, ScanInputFormat.ComposerLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanBundlerLockInventory()
+    {
+        return DependencyInputScanner.Scan(bundlerLock, spdx, expectedFormat: ScanInputFormat.BundlerLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory DetectNuGetSingleMarker()
+    {
+        return DependencyInputScanner.Scan(nugetAssets, spdx, singleMarkerDetectionRegistry);
+    }
+
+    [Benchmark]
+    public DependencyInventory DetectNuGetSignature()
+    {
+        return DependencyInputScanner.Scan(nugetAssets, spdx, signatureDetectionRegistry);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateNuGetInventoryResultFloor()
+    {
+        var components = new ScanComponent[2];
+        components[0] = new ScanComponent(directName, directVersion, default, "nuget", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:nuget/Direct.Package@1.0.0"u8.ToArray()), directSourceId, default, [], []);
+        components[1] = new ScanComponent(sharedName, sharedVersion, default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:nuget/Shared.Package@2.0.0"u8.ToArray()), sharedSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(projectOrigin, target, default, default, default, default)],
+            components,
+            [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateNpmInventoryResultFloor()
+    {
+        var components = new ScanComponent[2];
+        components[0] = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, [], []);
+        components[1] = new ScanComponent(npmNativeName, npmNativeVersion, default, "npm", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/native-addon@2.0.0"u8.ToArray()), npmNativeSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(npmRoot, default, default, default, default, default)],
+            components,
+            [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
+            [new DependencyOccurrenceVariant(1, Utf8Slice.FromOwnedBytes("optional;os=linux;cpu=x64"u8.ToArray()))]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateSingleNpmInventoryResultFloor()
+    {
+        var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(npmRoot, default, default, default, default, default)],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateYarnClassicInventoryResultFloor()
+    {
+        var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("yarn.lock"u8.ToArray()), default, default, default, default, default)],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            []);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateCargoInventoryResultFloor()
+    {
+        var component = new ScanComponent(cargoName, cargoVersion, default, "cargo", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:cargo/itoa@1.0.0"u8.ToArray()), cargoSourceId, default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(cargoRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("features=default"u8.ToArray()))],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
+            [new DependencyOccurrenceVariant(0, Utf8Slice.FromOwnedBytes("source=registry"u8.ToArray()))]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateGoModuleGraphInventoryResultFloor()
+    {
+        var component = new ScanComponent(goName, goVersion, default, "golang", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:golang/github.com/google/uuid@v1.6.0"u8.ToArray()), Utf8Slice.FromOwnedBytes(goSourceId.Span.ToArray()), default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(goRoot, default, default, default, default, default)],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
+            []);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreatePipInspectInventoryResultFloor()
+    {
+        var components = new ScanComponent[2];
+        components[0] = new ScanComponent(pythonRequestsName, pythonRequestsVersion, default, "pypi", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:pypi/requests@2.32.4"u8.ToArray()), Utf8Slice.FromOwnedBytes("requests@2.32.4"u8.ToArray()), default, [], []);
+        components[1] = new ScanComponent(pythonUrllibName, pythonUrllibVersion, default, "pypi", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:pypi/urllib3@2.5.0"u8.ToArray()), Utf8Slice.FromOwnedBytes("urllib3@2.5.0"u8.ToArray()), default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(pythonRoot, pythonTarget, pythonRuntime, pythonPlatform, pythonArchitecture, Utf8Slice.FromOwnedBytes("pip=25.1"u8.ToArray()))],
+            components,
+            [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
+            []);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateComposerLockInventoryResultFloor()
+    {
+        var components = new ScanComponent[2];
+        components[0] = new ScanComponent(composerMonologName, composerMonologVersion, composerLicense, "composer", DependencyType.Direct, LicenseStatus.Matched, Utf8Slice.FromOwnedBytes("pkg:composer/monolog/monolog@3.9.0"u8.ToArray()), Utf8Slice.FromOwnedBytes("monolog/monolog@3.9.0"u8.ToArray()), default, [], []);
+        components[1] = new ScanComponent(composerPsrLogName, composerPsrLogVersion, composerLicense, "composer", DependencyType.Transitive, LicenseStatus.Matched, Utf8Slice.FromOwnedBytes("pkg:composer/psr/log@3.0.2"u8.ToArray()), Utf8Slice.FromOwnedBytes("psr/log@3.0.2"u8.ToArray()), default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(composerRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("plugin-api=2.6.0"u8.ToArray()))],
+            components,
+            [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
+            []);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateBundlerLockInventoryResultFloor()
+    {
+        var component = new ScanComponent(
+            bundlerRackName,
+            bundlerRackVersion,
+            default,
+            "gem",
+            DependencyType.Direct,
+            LicenseStatus.Unknown,
+            Utf8Slice.FromOwnedBytes("pkg:gem/rack@3.1.8"u8.ToArray()),
+            Utf8Slice.FromOwnedBytes("rack@3.1.8"u8.ToArray()),
+            default,
+            [],
+            []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(bundlerRoot, default, default, bundlerPlatform, default, Utf8Slice.FromOwnedBytes("bundler=2.6.5"u8.ToArray()))],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
+            []);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanCycloneDxUnknownLicense()
+    {
+        return DependencyInputScanner.Scan(cycloneDxUnknown, spdx);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanCycloneDxExpression()
+    {
+        return DependencyInputScanner.Scan(cycloneDxExpression, spdx);
+    }
+
+    private static DependencyInputRegistry CreateDetectionRegistry(bool useNuGetSignature)
+    {
+        var nugetMarkers = useNuGetSignature
+            ? new DependencyInputMarker[]
+            {
+                new("version"u8.ToArray(), DependencyInputMarkerValueKind.Number),
+                new("targets"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+                new("libraries"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+                new("project"u8.ToArray(), DependencyInputMarkerValueKind.Object),
+            }
+            : [new("targets"u8.ToArray(), DependencyInputMarkerValueKind.Object)];
+        return new DependencyInputRegistry([
+            new(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, new(new DependencyInputMarker[] { new("bomFormat"u8.ToArray(), DependencyInputMarkerValueKind.StringEquals, "CycloneDX"u8.ToArray()) }), static (_, _, _, _) => default),
+            new(ScanInputKind.Sbom, ScanInputFormat.Spdx, new(new DependencyInputMarker[] { new("spdxVersion"u8.ToArray(), DependencyInputMarkerValueKind.String) }), static (_, _, _, _) => default),
+            new(ScanInputKind.PackageManager, ScanInputFormat.NuGetAssets, new(nugetMarkers), static (_, _, _, _) => default),
+        ]);
+    }
+}

@@ -1,0 +1,178 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Ol.slnx
+      - run: dotnet test Ol.slnx -c Release --no-restore
+
+  ecosystem-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - id: matrix
+        shell: pwsh
+        run: |
+          $manifest = Get-Content -Raw sandbox/ecosystems/manifest.json | ConvertFrom-Json
+          $matrix = @{ include = @($manifest.ecosystems) } | ConvertTo-Json -Compress -Depth 4
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
+
+  ecosystem-smoke:
+    needs: ecosystem-matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.ecosystem-matrix.outputs.matrix) }}
+    env:
+      FIXTURE_ECOSYSTEM: ${{ matrix.ecosystem }}
+      FIXTURE_PATH: ${{ matrix.path }}
+      FIXTURE_PACKAGE: ${{ matrix.package }}
+      FIXTURE_METADATA_SOURCE: ${{ matrix.metadataSource }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - if: ${{ matrix.ecosystem == 'npm' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - if: ${{ matrix.ecosystem == 'golang' }}
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.25.x"
+      - if: ${{ matrix.ecosystem == 'cargo' }}
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+      - if: ${{ matrix.ecosystem == 'gem' }}
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+      - name: Prepare fixture repository
+        shell: pwsh
+        run: ./sandbox/ci/Prepare-Ecosystem.ps1 -Path $env:FIXTURE_PATH
+      - id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+      - name: Generate CycloneDX SBOM
+        shell: pwsh
+        run: '& "${{ steps.syft.outputs.cmd }}" "dir:$env:FIXTURE_PATH" -o "cyclonedx-json=$env:RUNNER_TEMP/ecosystem.cdx.json"'
+      - run: dotnet restore Ol.slnx
+      - run: dotnet build src/Ol/Ol.csproj -c Release --no-restore
+      - name: Scan fixture repository
+        shell: pwsh
+        env:
+          OL_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ol = "src/Ol/bin/Release/net10.0/ol.dll"
+          function Invoke-OlScan([string] $InputPath, [string] $ReportPrefix) {
+            dotnet $ol scan --input $InputPath --format text --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/$ReportPrefix.txt" | Out-Null
+            dotnet $ol scan --input $InputPath --format markdown --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/$ReportPrefix.md" | Out-Null
+            dotnet $ol scan --input $InputPath --format json --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/$ReportPrefix.json" | Out-Null
+          }
+
+          Invoke-OlScan "$env:RUNNER_TEMP/ecosystem.cdx.json" report
+          ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/report.json" -TextReport "$env:RUNNER_TEMP/report.txt" -MarkdownReport "$env:RUNNER_TEMP/report.md" -Ecosystem $env:FIXTURE_ECOSYSTEM -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind sbom -InputFormat cyclonedx
+
+          if ($env:FIXTURE_ECOSYSTEM -eq "nuget") {
+            $assets = Join-Path $env:FIXTURE_PATH "obj/project.assets.json"
+            Invoke-OlScan $assets nuget-assets-report
+            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/nuget-assets-report.json" -TextReport "$env:RUNNER_TEMP/nuget-assets-report.txt" -MarkdownReport "$env:RUNNER_TEMP/nuget-assets-report.md" -Ecosystem nuget -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat nuget-assets
+          }
+
+          if ($env:FIXTURE_ECOSYSTEM -eq "composer") {
+            Invoke-OlScan $env:FIXTURE_PATH composer-lock-report
+            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/composer-lock-report.json" -TextReport "$env:RUNNER_TEMP/composer-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/composer-lock-report.md" -Ecosystem composer -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat composer-lock
+          }
+
+          if ($env:FIXTURE_ECOSYSTEM -eq "gem") {
+            Invoke-OlScan $env:FIXTURE_PATH bundler-lock-report
+            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/bundler-lock-report.json" -TextReport "$env:RUNNER_TEMP/bundler-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/bundler-lock-report.md" -Ecosystem gem -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat bundler-lock
+          }
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ecosystem-${{ matrix.ecosystem }}
+          path: |
+            ${{ runner.temp }}/ecosystem.cdx.json
+            ${{ runner.temp }}/report.txt
+            ${{ runner.temp }}/report.md
+            ${{ runner.temp }}/report.json
+            ${{ runner.temp }}/nuget-assets-report.*
+            ${{ runner.temp }}/composer-lock-report.*
+            ${{ runner.temp }}/bundler-lock-report.*
+
+  self-scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Ol.slnx
+      - run: dotnet build Ol.slnx -c Release --no-restore
+      - name: Generate live self-scan
+        shell: pwsh
+        run: ./sandbox/Update-SelfScan.ps1 -NoBuild -OutputDirectory "$env:RUNNER_TEMP/live-self"
+      - name: Verify live self-scan
+        shell: pwsh
+        run: |
+          $output = "$env:RUNNER_TEMP/live-self"
+          ./sandbox/ci/Assert-SelfScan.ps1 -Sbom "$output/ol.cdx.json" -Report "$output/ol.json"
+          ./sandbox/ci/New-DependencyPolicyInput.ps1 -Sbom "$output/ol.cdx.json" -Output "$output/dependencies.cdx.json"
+          dotnet src/Ol/bin/Release/net10.0/ol.dll check --input "$output/dependencies.cdx.json" --allow-licenses MIT --skip-enrichment
+          if ($LASTEXITCODE -ne 0) {
+            throw "Live self-scan license policy failed."
+          }
+      - name: Regenerate golden self-scan reports
+        shell: pwsh
+        run: ./sandbox/Update-SelfScan.ps1 -NoBuild -ReportsOnly
+      - name: Verify committed self-scan report snapshots
+        shell: pwsh
+        run: |
+          $status = @(git status --porcelain -- sandbox/self/ol.txt sandbox/self/ol.md sandbox/self/ol.json)
+          if ($status.Count -ne 0) {
+            $status
+            git diff -- sandbox/self/ol.txt sandbox/self/ol.md sandbox/self/ol.json
+            throw "Regenerate and commit the updated self-scan report snapshots."
+          }
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: ol-live-self-scan
+          path: ${{ runner.temp }}/live-self

@@ -1,0 +1,54 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+  .:
+    dependencies:
+      direct-package:
+        specifier: ^1.0.0
+        version: 1.0.0(peer-package@2.0.0)
+      workspace-a:
+        specifier: workspace:*
+        version: link:packages/a
+    optionalDependencies:
+      optional-native:
+        specifier: 3.0.0
+        version: 3.0.0
+    devDependencies:
+      dev-tool:
+        specifier: 4.0.0
+        version: 4.0.0
+  packages/a:
+    dependencies:
+      shared-package:
+        specifier: 5.0.0
+        version: 5.0.0
+
+packages:
+  direct-package@1.0.0:
+    resolution: {integrity: sha512-direct}
+    peerDependencies:
+      peer-package: ^2.0.0
+  peer-package@2.0.0:
+    resolution: {integrity: sha512-peer}
+  shared-package@5.0.0:
+    resolution: {integrity: sha512-shared}
+  optional-native@3.0.0:
+    resolution: {integrity: sha512-optional}
+    os: [linux]
+    cpu: [x64]
+  dev-tool@4.0.0:
+    resolution: {integrity: sha512-dev}
+
+snapshots:
+  direct-package@1.0.0(peer-package@2.0.0):
+    dependencies:
+      peer-package: 2.0.0
+      shared-package: 5.0.0
+  peer-package@2.0.0: {}
+  shared-package@5.0.0: {}
+  optional-native@3.0.0: {}
+  dev-tool@4.0.0: {}

@@ -17,3 +17,23 @@ public enum DependencyType
     /// <summary>The component is reachable transitively from the SBOM root component.</summary>
     Transitive,
 }
+
+internal static class DependencyTypes
+{
+    public static DependencyType Merge(DependencyType left, DependencyType right)
+    {
+        if (left == DependencyType.Root || right == DependencyType.Root)
+        {
+            return DependencyType.Root;
+        }
+
+        if (left == DependencyType.Direct || right == DependencyType.Direct)
+        {
+            return DependencyType.Direct;
+        }
+
+        return left == DependencyType.Transitive || right == DependencyType.Transitive
+            ? DependencyType.Transitive
+            : DependencyType.Unknown;
+    }
+}

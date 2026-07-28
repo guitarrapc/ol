@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <Content Include="..\..\data\mock\github-license-api-license.json" Link="Fixtures\github-license-api-license.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fixtures\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -10,6 +10,8 @@ This v3 specification derives from the [Ol design](../DESIGN.md), especially the
 
 Source repository results are therefore additional attributable evidence, not a replacement for SBOM or package metadata. The GitHub API boundary, explicit authentication variable, opaque cache names, and refusal to infer a license from unidentified content follow from the need for explainable results without exposing credentials or converting uncertainty into a guessed conclusion.
 
+Using the GitHub License API is an intentional product boundary, not a temporary substitute for a generic repository crawler. Ol does not enumerate arbitrary repository trees or search repository contents for license files. A repository whose independently licensed subtrees require multi-license analysis is outside this source-evidence model; that component-level evidence should be supplied by the SBOM or other dependency input rather than guessed from repository layout.
+
 ## Version Scope
 
 v1 uses SBOM evidence only.
@@ -20,7 +22,7 @@ v3 adds source repository hints.
 
 ## GitHub Source License Hint
 
-For GitHub repositories, v3 uses the GitHub License API as the primary source repository hint:
+For GitHub repositories, v3 uses the GitHub License API as the supported source repository hint:
 
 ```text
 GET /repos/{owner}/{repo}/license?ref=<ref>
@@ -28,9 +30,9 @@ GET /repos/{owner}/{repo}/license?ref=<ref>
 
 > API Ref: https://docs.github.com/ja/rest/licenses/licenses?apiVersion=2026-03-10#get-the-license-for-a-repository
 
-This endpoint is preferred over manually probing `LICENSE`, `COPYING`, and `NOTICE` paths because it returns GitHub's license detection result and SPDX candidate in one request.
+This endpoint is used instead of manually probing `LICENSE`, `COPYING`, and `NOTICE` paths because it returns GitHub's license detection result and SPDX candidate in one bounded request.
 
-Initial v3 does not perform recursive repository search and does not use the Contents API as a fallback for license file discovery.
+Ol does not perform recursive repository search and does not use the Contents API as a fallback for license file discovery.
 
 <a id="contract-source-evidence"></a>
 ## Evidence Semantics
@@ -43,7 +45,7 @@ GitHub License API results are interpreted as source repository evidence:
 - HTTP 403, 429, and 5xx become error evidence.
 - missing repository URLs become `source_repository_unavailable` evidence, and non-GitHub or invalid repository URLs become `unsupported_source_repository` evidence.
 
-The API response body content is not parsed for custom license detection in initial v3. If GitHub does not identify a license, `ol` does not try to outguess it.
+The API response body content is not parsed for custom license detection. If GitHub does not identify a license, `ol` does not try to outguess it.
 
 Evidence may include:
 

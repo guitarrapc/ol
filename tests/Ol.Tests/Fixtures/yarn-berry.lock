@@ -1,0 +1,31 @@
+__metadata:
+  version: 8
+  cacheKey: 10c0
+
+"app@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "app@workspace:."
+  dependencies:
+    direct-package: "npm:^1.0.0"
+    peer-package: "npm:^3.0.0"
+    workspace-a: "workspace:packages/a"
+
+"workspace-a@workspace:packages/a":
+  version: 0.0.0-use.local
+  resolution: "workspace-a@workspace:packages/a"
+  dependencies:
+    shared-package: "npm:^2.0.0"
+
+"direct-package@npm:^1.0.0":
+  version: 1.0.1
+  resolution: "direct-package@npm:1.0.1"
+  dependencies:
+    shared-package: "npm:^2.0.0"
+
+"shared-package@npm:^2.0.0":
+  version: 2.1.0
+  resolution: "shared-package@npm:2.1.0"
+
+"peer-package@virtual:abc123#npm:^3.0.0":
+  version: 3.0.0
+  resolution: "peer-package@virtual:abc123#npm:3.0.0"

@@ -1,0 +1,13 @@
+{
+  "Path": "example.com/ol-go-sample",
+  "Main": true,
+  "Dir": "/sample",
+  "GoMod": "/sample/go.mod",
+  "GoVersion": "1.25"
+}
+{
+  "Path": "github.com/google/uuid",
+  "Version": "v1.6.0",
+  "Time": "2024-01-23T18:54:04Z",
+  "Indirect": false
+}

@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Ol.Update": {
+      "commandName": "Project"
+    },
+    "generate": {
+      "commandName": "Project",
+      "commandLineArgs": "generate"
+    }
+  }
+}

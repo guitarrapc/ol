@@ -1,5 +1,7 @@
-using BenchmarkDotNet.Attributes;
+﻿using BenchmarkDotNet.Attributes;
 using Ol.Core;
+using Ol.Core.Licensing;
+using Ol.Core.Spdx;
 
 /// <summary>Measures deterministic projection of one cached source result to duplicate package components.</summary>
 public class SourceRepositoryEnrichmentBenchmark : IDisposable
@@ -18,7 +20,7 @@ public class SourceRepositoryEnrichmentBenchmark : IDisposable
         var target = new SourceRepositoryTarget("owner", "repository", "default");
         sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, System.Net.HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty), [], [])).GetAwaiter().GetResult();
         var index = new SpdxLicenseIndex(["MIT"], []);
-        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create("sbom", "id", "NOASSERTION"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
         components = new ScanComponent[ComponentCount];
         Array.Fill(components, component);
         service = new SourceRepositoryService(index, metadataCache, sourceCache, refresh: false, retryCount: 0);

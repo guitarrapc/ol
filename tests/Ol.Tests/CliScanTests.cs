@@ -1,13 +1,231 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using Ol.Core;
 
 namespace Ol.Tests;
 
 public sealed class CliScanTests
 {
     private static readonly SemaphoreSlim CliGate = new(1, 1);
+
+    [Test]
+    public async Task Scan_Help_DoesNotAdvertiseRemovedSbomOption()
+    {
+        var root = FindRepositoryRoot();
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--help");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).IsEmpty();
+        await Assert.That(stdout).Contains("--input <string[]?>");
+        await Assert.That(stdout).DoesNotContain("--sbom");
+    }
+
+    [Test]
+    public async Task Scan_WithRemovedSbomOption_ReturnsUnknownOptionError()
+    {
+        var root = FindRepositoryRoot();
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", "removed.json");
+
+        await Assert.That(exitCode).IsEqualTo(1);
+        await Assert.That(stdout.Trim()).IsEqualTo("Argument '--sbom' is not recognized.");
+        await Assert.That(stderr).IsEmpty();
+    }
+
+    [Test]
+    public async Task Scan_WithInputFormatOmitted_AutoDetectsCycloneDx()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cyclonedx");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithVerbose_AutoDetectionWritesDetectedFormatToStderr()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--skip-enrichment", "--verbose");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr.Trim()).IsEqualTo("Detected input format: sbom/cyclonedx");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitAutoInputFormat_AutoDetectsNuGetAssets()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "auto", "--format", "json", "--skip-enrichment");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).IsEmpty();
+        using var report = JsonDocument.Parse(stdout);
+        await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("nuget-assets");
+    }
+
+    [Test]
+    public async Task Scan_WithAutoInputFormatThatIsAmbiguousOrUnknown_ReturnsConciseError()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        var cases = new[]
+        {
+            (Input: """{ "bomFormat": "CycloneDX", "spdxVersion": "SPDX-2.3", "components": [], "packages": [] }""", Message: "Ambiguous dependency input format: multiple registered format signatures matched."),
+            (Input: """{ "targets": {} }""", Message: "Unsupported dependency input format: no registered format signature matched."),
+        };
+
+        try
+        {
+            foreach (var item in cases)
+            {
+                await File.WriteAllTextAsync(inputPath, item.Input, Encoding.UTF8);
+                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment");
+
+                await Assert.That(exitCode).IsEqualTo(1);
+                await Assert.That(stdout).IsEmpty();
+                await Assert.That(stderr.Trim()).IsEqualTo($"Unable to scan input: {item.Message}");
+            }
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitCycloneDxInput_EmitsGenericAndLegacyInputMetadata()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "cyclonedx", "--format", "json", "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("sbom");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("cyclonedx");
+            await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo(Path.GetFileName(inputPath));
+            await Assert.That(input.GetProperty("sourceSha256").GetString()!.Length).IsEqualTo(64);
+            await Assert.That(input.GetProperty("parser").GetString()).IsEqualTo("cyclonedx-json");
+            await Assert.That(input.GetProperty("specificationVersion").GetString()).IsEqualTo("1.6");
+            await Assert.That(input.GetProperty("sbomRef").GetString()).IsEqualTo(Path.GetFileName(inputPath));
+            await Assert.That(input.GetProperty("sbomFormat").GetString()).IsEqualTo("CycloneDX");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitSpdxInput_AcceptsMatchingFormat()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "spdxVersion": "SPDX-2.3", "packages": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "spdx", "--format", "json", "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("spdx");
+            await Assert.That(input.GetProperty("parser").GetString()).IsEqualTo("spdx-json");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithInvalidInputSelection_ReturnsConciseError()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var cases = new[]
+            {
+                (Arguments: Array.Empty<string>(), Message: "--input must be specified."),
+                (Arguments: new[] { "--input", inputPath, "--input-format", "unknown" }, Message: "Unsupported input format: unknown"),
+            };
+
+            foreach (var item in cases)
+            {
+                var arguments = new string[item.Arguments.Length + 2];
+                arguments[0] = "scan";
+                arguments[1] = "--skip-enrichment";
+                item.Arguments.CopyTo(arguments, 2);
+                var (exitCode, stdout, stderr) = await RunOlAsync(root, arguments);
+
+                await Assert.That(exitCode).IsEqualTo(1);
+                await Assert.That(stdout).IsEmpty();
+                await Assert.That(stderr.Trim()).IsEqualTo($"Invalid scan input: {item.Message}");
+            }
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitFormatThatDoesNotMatchContent_RejectsInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "spdxVersion": "SPDX-2.3", "packages": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "cyclonedx", "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Input format cyclonedx does not match the detected spdx format.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
 
     [Test]
     public async Task Scan_WithCachedGitHubSourceEvidence_FillsUnknownLicenseAndReportsSafeAuthMode()
@@ -25,7 +243,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -69,7 +287,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--sbom", sbomPath, "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -114,7 +332,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, stderr) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -175,7 +393,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--refresh");
+            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--input", sbomPath, "--format", "json", "--refresh");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -218,12 +436,12 @@ public sealed class CliScanTests
                         }
                         """,
                 Encoding.UTF8);
-        await File.WriteAllTextAsync(spdxDirectory + "\\licenses.json", """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "GPL-2.0", "isDeprecatedLicenseId": true }, { "licenseId": "MIT", "isDeprecatedLicenseId": false } ] }""", Encoding.UTF8);
-        await File.WriteAllTextAsync(spdxDirectory + "\\exceptions.json", """{ "licenseListVersion": "3.27.0", "exceptions": [] }""", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "licenses.json"), """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "GPL-2.0", "isDeprecatedLicenseId": true }, { "licenseId": "MIT", "isDeprecatedLicenseId": false } ] }""", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "exceptions.json"), """{ "licenseListVersion": "3.27.0", "exceptions": [] }""", Encoding.UTF8);
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--spdx-data", spdxDirectory);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--spdx-data", spdxDirectory);
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -278,7 +496,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--dependency", "direct");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--dependency", "direct");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).Contains("direct");
@@ -325,7 +543,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -359,7 +577,7 @@ public sealed class CliScanTests
         {
             foreach (var format in new[] { "text", "markdown" })
             {
-                var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", format);
+                var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", format);
 
                 await Assert.That(exitCode).IsEqualTo(0);
                 await Assert.That(stderr).StartsWith($"{Environment.NewLine}Scan summary{Environment.NewLine}");
@@ -369,7 +587,7 @@ public sealed class CliScanTests
                 await Assert.That(stderr).Contains("  Input:");
             }
 
-            var (quietExitCode, _, quietStderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "text", "--quiet");
+            var (quietExitCode, _, quietStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "text", "--quiet");
             await Assert.That(quietExitCode).IsEqualTo(0);
             await Assert.That(quietStderr).IsEmpty();
         }
@@ -399,12 +617,12 @@ public sealed class CliScanTests
             }
             """,
             Encoding.UTF8);
-        await File.WriteAllTextAsync(spdxDirectory + "\\licenses.json", """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "MIT", "isDeprecatedLicenseId": false } ] }""", Encoding.UTF8);
-        await File.WriteAllTextAsync(spdxDirectory + "\\exceptions.json", """{ "licenseListVersion": "3.27.0", "exceptions": [] }""", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "licenses.json"), """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "MIT", "isDeprecatedLicenseId": false } ] }""", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "exceptions.json"), """{ "licenseListVersion": "3.27.0", "exceptions": [] }""", Encoding.UTF8);
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--spdx-data", spdxDirectory);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--spdx-data", spdxDirectory);
 
             if (exitCode != 0)
             {
@@ -450,13 +668,51 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "markdown", "--out", outPath);
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "markdown", "--out", outPath);
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(File.Exists(outPath)).IsTrue();
             var fileText = await File.ReadAllTextAsync(outPath);
             await Assert.That(stdout).Contains("| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |");
             await Assert.That(stdout).IsEqualTo(fileText);
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+            File.Delete(outPath);
+        }
+    }
+
+    [Test]
+    [Arguments("text", "txt")]
+    [Arguments("markdown", "md")]
+    [Arguments("json", "json")]
+    public async Task Scan_WithOutFile_TerminatesEveryFormatWithLineFeed(string format, string extension)
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-newline-{Guid.NewGuid():N}.json");
+        var outPath = Path.Combine(Path.GetTempPath(), $"ol-newline-{Guid.NewGuid():N}.{extension}");
+        await File.WriteAllTextAsync(
+            sbomPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                { "name": "a", "version": "1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", format, "--skip-enrichment", "--quiet", "--out", outPath);
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            var fileText = await File.ReadAllTextAsync(outPath);
+            await Assert.That(fileText.EndsWith('\n')).IsTrue();
+            await Assert.That(stdout).IsEqualTo(fileText);
+            await Assert.That(stderr).IsEmpty();
         }
         finally
         {
@@ -486,7 +742,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--group-by", "license");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--group-by", "license");
             if (exitCode != 0)
             {
                 throw new InvalidOperationException($"ol exited with {exitCode}. stdout: {stdout} stderr: {stderr}");
@@ -498,7 +754,7 @@ public sealed class CliScanTests
             await Assert.That(stdout).Contains("MIT 2");
             await Assert.That(stderr).Contains("License results: 3 displayed components");
 
-            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--group-by", "license", "--format", "json", "--skip-enrichment");
+            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--group-by", "license", "--format", "json", "--skip-enrichment");
 
             await Assert.That(jsonExitCode).IsEqualTo(0);
             await Assert.That(jsonStderr).IsEmpty();
@@ -540,7 +796,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--sbom", sbomPath, "--format", "json", "--sort", "ECOSYSTEM,NAME", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, _) = await RunOlWithCacheAsync(root, cacheRoot, "scan", "--input", sbomPath, "--format", "json", "--sort", "ECOSYSTEM,NAME", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -576,7 +832,7 @@ public sealed class CliScanTests
         try
         {
             var environment = new Dictionary<string, string?> { ["OL_GITHUB_TOKEN"] = token };
-            var (exitCode, stdout, _) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, _) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).DoesNotContain(token);
@@ -621,7 +877,7 @@ public sealed class CliScanTests
         {
             const string ignoredGitHubToken = "github-token-must-not-appear";
             var environment = new Dictionary<string, string?> { ["OL_GITHUB_TOKEN"] = null, ["GITHUB_TOKEN"] = ignoredGitHubToken };
-            var (exitCode, stdout, stderr) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--sbom", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, stderr) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -655,7 +911,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--sbom", sbomPath, "--format", "json");
+            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "json");
 
             await Assert.That(jsonExitCode).IsEqualTo(0);
             await Assert.That(jsonStderr).IsEmpty();
@@ -663,7 +919,7 @@ public sealed class CliScanTests
             await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("status").GetString()).IsEqualTo("error");
             await Assert.That(report.RootElement.GetProperty("summary").GetProperty("error").GetInt32()).IsEqualTo(1);
 
-            var (textExitCode, _, textStderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--sbom", sbomPath, "--format", "text");
+            var (textExitCode, _, textStderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "text");
 
             await Assert.That(textExitCode).IsEqualTo(0);
             await Assert.That(textStderr).Contains("1 error");
@@ -710,7 +966,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--cache-dir", cacheDirectory, "--concurrency", "1", "--retry", "0");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--cache-dir", cacheDirectory, "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -738,7 +994,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--format", "json", "--skip-enrichment", "--cache-dir", unusedCacheFile);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--skip-enrichment", "--cache-dir", unusedCacheFile);
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -825,7 +1081,7 @@ public sealed class CliScanTests
 
             foreach (var item in cases)
             {
-                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment", item.Option, item.Value);
+                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", item.Option, item.Value);
 
                 await Assert.That(exitCode).IsEqualTo(1);
                 await Assert.That(stdout).IsEmpty();
@@ -847,11 +1103,11 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment");
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
-            await Assert.That(stderr).StartsWith("Unable to scan SBOM:");
+            await Assert.That(stderr).StartsWith("Unable to scan input:");
             await Assert.That(stderr).DoesNotContain("   at ");
         }
         finally
@@ -872,7 +1128,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
@@ -880,7 +1136,7 @@ public sealed class CliScanTests
 
             await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "licenses.json"), "{}", Encoding.UTF8);
             await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "exceptions.json"), """{ "exceptions": [] }""", Encoding.UTF8);
-            var (invalidExitCode, invalidStdout, invalidStderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
+            var (invalidExitCode, invalidStdout, invalidStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
 
             await Assert.That(invalidExitCode).IsEqualTo(1);
             await Assert.That(invalidStdout).IsEmpty();
@@ -905,7 +1161,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", sbomPath, "--skip-enrichment", "--out", outDirectory);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", "--out", outDirectory);
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
@@ -915,6 +1171,434 @@ public sealed class CliScanTests
         finally
         {
             Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithNuGetAssetsAndSkipEnrichment_AcceptsRegisteredInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        using var report = JsonDocument.Parse(stdout);
+        var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+        await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+        await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("nuget-assets");
+        await Assert.That(input.TryGetProperty("sbomRef", out _)).IsFalse();
+        await Assert.That(report.RootElement.GetProperty("components").EnumerateArray().Any(static component => component.GetProperty("purl").GetString() == "pkg:nuget/Native.Package@4.0.0")).IsTrue();
+        await Assert.That(stderr).IsEmpty();
+    }
+
+    [Test]
+    public async Task Scan_WithNpmPackageLockDirectoryAndSkipEnrichment_PreservesInventoryVariants()
+    {
+        var root = FindRepositoryRoot();
+        var inputDirectory = Path.Combine(AppContext.BaseDirectory, "Fixtures");
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputDirectory, "--input-format", "npm-package-lock", "--skip-enrichment", "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).IsEmpty();
+        using var report = JsonDocument.Parse(stdout);
+        var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+        await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+        await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("npm-package-lock");
+        await Assert.That(input.GetProperty("specificationVersion").GetString()).IsEqualTo("3");
+        await Assert.That(input.TryGetProperty("sbomRef", out _)).IsFalse();
+        var inventory = report.RootElement.GetProperty("inventory");
+        await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
+        await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(7);
+        await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(9);
+        await Assert.That(inventory.GetProperty("occurrences").EnumerateArray().Any(static occurrence => occurrence.TryGetProperty("variant", out var variant) && variant.GetString() == "optional;os=linux,!win32;cpu=x64")).IsTrue();
+        await Assert.That(stdout).DoesNotContain("node_modules/workspace-a\"");
+    }
+
+    [Test]
+    public async Task Scan_WithGoResolvedPairDirectory_CombinesCompanionFilesAsOneInput()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-go-module-graph-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "go-list-modules.json"), Path.Combine(temporaryDirectory, "go-list-modules.json"));
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "go-mod-graph.txt"), Path.Combine(temporaryDirectory, "go-mod-graph.txt"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("go-module-graph");
+            await Assert.That(report.RootElement.GetProperty("inventory").GetProperty("components").GetArrayLength()).IsEqualTo(5);
+            await Assert.That(stdout).DoesNotContain("/private/repo/local");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithIncompleteGoResolvedPair_ReturnsCompanionError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-go-module-graph-incomplete-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "go-list-modules.json"), Path.Combine(temporaryDirectory, "go-list-modules.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("requires companion file go-mod-graph.txt in the same directory");
+            await Assert.That(stderr).DoesNotContain("   at ");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithComposerResolvedPairDirectory_CombinesCompanionFilesAsOneInput()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-composer-lock-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "composer.json"), Path.Combine(temporaryDirectory, "composer.json"));
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "composer.lock"), Path.Combine(temporaryDirectory, "composer.lock"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("composer-lock");
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(5);
+            await Assert.That(inventory.GetProperty("edges").GetArrayLength()).IsEqualTo(5);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithPipInspect_ReportsResolvedEnvironmentWithoutPrivatePaths()
+    {
+        var root = FindRepositoryRoot();
+        var input = Path.Combine(AppContext.BaseDirectory, "Fixtures", "pip-inspect.json");
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", input, "--skip-enrichment", "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).IsEmpty();
+        using var report = JsonDocument.Parse(stdout);
+        var metadata = report.RootElement.GetProperty("metadata").GetProperty("input");
+        await Assert.That(metadata.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+        await Assert.That(metadata.GetProperty("format").GetString()).IsEqualTo("pip-inspect");
+        await Assert.That(report.RootElement.GetProperty("inventory").GetProperty("components").GetArrayLength()).IsEqualTo(5);
+        await Assert.That(stdout).DoesNotContain("C:/private/project");
+        await Assert.That(stdout).DoesNotContain("file:///");
+    }
+
+    [Test]
+    public async Task Scan_WithBundlerLockDirectory_ReportsPlatformContextsWithoutPrivateSources()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-bundler-lock-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Gemfile.lock"), Path.Combine(temporaryDirectory, "Gemfile.lock"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var metadata = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(metadata.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+            await Assert.That(metadata.GetProperty("format").GetString()).IsEqualTo("bundler-lock");
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(7);
+            await Assert.That(stdout).DoesNotContain("vendor/local-gem");
+            await Assert.That(stdout).DoesNotContain("github.com/example/private-gem");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithRepeatedNpmPackageLocks_CombinesSparseVariantIndexes()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-npm-directory-{Guid.NewGuid():N}");
+        var firstDirectory = Path.Combine(temporaryDirectory, "First");
+        var secondDirectory = Path.Combine(temporaryDirectory, "Second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        var fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "package-lock.json");
+        File.Copy(fixture, Path.Combine(firstDirectory, "package-lock.json"));
+        File.Copy(fixture, Path.Combine(secondDirectory, "package-lock.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--input-format", "npm-package-lock", "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(7);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(18);
+            await Assert.That(inventory.GetProperty("occurrences").EnumerateArray().Count(static occurrence => occurrence.TryGetProperty("variant", out _))).IsEqualTo(6);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectory_CombinesNestedNuGetAssetsWithoutDuplicateComponents()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-nuget-directory-{Guid.NewGuid():N}");
+        var firstDirectory = Path.Combine(temporaryDirectory, "First", "obj");
+        var secondDirectory = Path.Combine(temporaryDirectory, "Second", "obj");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        var fixture = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(firstDirectory, "project.assets.json"), fixture, Encoding.UTF8);
+        await File.WriteAllTextAsync(
+            Path.Combine(secondDirectory, "project.assets.json"),
+            fixture.Replace("/private/src/App/App.csproj", "/private/src/Second/Second.csproj", StringComparison.Ordinal),
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("nuget-assets");
+            await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo(Path.GetFileName(temporaryDirectory));
+            await Assert.That(input.GetProperty("sourceSha256").GetString()!.Length).IsEqualTo(64);
+            await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(12);
+            await Assert.That(inventory.GetProperty("edges").GetArrayLength()).IsEqualTo(10);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithRepeatedInputs_CombinesBothDirectories()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-repeated-input-{Guid.NewGuid():N}");
+        var firstDirectory = Path.Combine(temporaryDirectory, "First,WithComma");
+        var secondDirectory = Path.Combine(temporaryDirectory, "Second");
+        Directory.CreateDirectory(Path.Combine(firstDirectory, "obj"));
+        Directory.CreateDirectory(Path.Combine(secondDirectory, "obj"));
+        var fixture = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(firstDirectory, "obj", "project.assets.json"), fixture, Encoding.UTF8);
+        await File.WriteAllTextAsync(
+            Path.Combine(secondDirectory, "obj", "project.assets.json"),
+            fixture.Replace("/private/src/App/App.csproj", "/private/src/Second/Second.csproj", StringComparison.Ordinal),
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo("2 inputs");
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(12);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryWithoutNuGetAssets_ReturnsConciseError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-empty-nuget-directory-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: No registered dependency input files were found in the input directories.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithOverlappingRepeatedDirectories_ScansEachFileOnce()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-overlapping-input-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project");
+        Directory.CreateDirectory(Path.Combine(projectDirectory, "obj"));
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "obj", "project.assets.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--input", projectDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(6);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithRepeatedSbomAndPackageManagerInput_RejectsMixedCollection()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-mixed-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
+        var assetsPath = Path.Combine(temporaryDirectory, "project.assets.json");
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [] }""", Encoding.UTF8);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"), assetsPath);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--input", assetsPath, "--skip-enrichment");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Multiple inputs must all be package-manager inputs.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithNuGetAssetsJson_PreservesDeterministicInventoryGraph()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+
+        var first = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "json");
+        var second = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "json");
+
+        await Assert.That(first.ExitCode).IsEqualTo(0);
+        await Assert.That(second.ExitCode).IsEqualTo(0);
+        await Assert.That(first.Stdout).IsEqualTo(second.Stdout);
+        using var report = JsonDocument.Parse(first.Stdout);
+        var inventory = report.RootElement.GetProperty("inventory");
+        await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
+        await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+        await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(6);
+        await Assert.That(inventory.GetProperty("edges").GetArrayLength()).IsEqualTo(5);
+        var winContext = inventory.GetProperty("contexts")[1];
+        await Assert.That(winContext.GetProperty("projectOrigin").GetString()).IsEqualTo("App.csproj");
+        await Assert.That(first.Stdout).DoesNotContain("/private/src");
+        await Assert.That(winContext.GetProperty("target").GetString()).IsEqualTo("net8.0");
+        await Assert.That(winContext.GetProperty("runtime").GetString()).IsEqualTo("win-x64");
+        await Assert.That(winContext.GetProperty("platform").GetString()).IsEmpty();
+        await Assert.That(winContext.GetProperty("architecture").GetString()).IsEmpty();
+        await Assert.That(inventory.GetProperty("occurrences")[1].GetProperty("componentIndex").GetInt32()).IsEqualTo(1);
+        await Assert.That(inventory.GetProperty("edges")[0].GetProperty("fromOccurrenceIndex").GetInt32()).IsEqualTo(-1);
+    }
+
+    [Test]
+    public async Task Scan_WithNuGetAssetsHumanFormats_DisplaysInputKindAndFormat()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+
+        var text = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "text", "--quiet");
+        var markdown = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "markdown", "--quiet");
+
+        await Assert.That(text.ExitCode).IsEqualTo(0);
+        await Assert.That(text.Stdout).StartsWith("Input: package-manager/nuget-assets");
+        await Assert.That(markdown.ExitCode).IsEqualTo(0);
+        await Assert.That(markdown.Stdout).StartsWith("Input: `package-manager/nuget-assets`");
+    }
+
+    [Test]
+    public async Task Scan_WithNuGetAssetsAndCachedMetadata_ReusesNuGetEnrichment()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-nuget-assets-{Guid.NewGuid():N}");
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+        var cache = new PackageMetadataCache(Path.Combine(temporaryDirectory, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Direct.Package@1.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Shared.Package@2.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Native.Package@4.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Project.Transitive@3.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--cache-dir", temporaryDirectory, "--format", "json", "--concurrency", "1", "--retry", "0");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var metadata = report.RootElement.GetProperty("metadata").GetProperty("packageMetadata");
+            await Assert.That(metadata.GetProperty("targetCount").GetInt32()).IsEqualTo(4);
+            await Assert.That(metadata.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(4);
+            await Assert.That(metadata.GetProperty("cacheMissCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(report.RootElement.GetProperty("components").EnumerateArray().Where(static component => component.GetProperty("ecosystem").GetString() == "nuget").All(static component => component.GetProperty("license").GetString() == "MIT")).IsTrue();
+            await Assert.That(stderr).IsEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory)) Directory.Delete(temporaryDirectory, recursive: true);
         }
     }
 
@@ -956,7 +1640,7 @@ public sealed class CliScanTests
                 }
             }
 
-            startInfo.ArgumentList.Add(Path.Combine(root, "src", "Ol", "bin", "Debug", "net10.0", "ol.dll"));
+            startInfo.ArgumentList.Add(CliTestAssembly.ResolveOlDllPath(AppContext.BaseDirectory));
             for (var i = 0; i < args.Length; i++)
             {
                 startInfo.ArgumentList.Add(args[i]);
@@ -975,17 +1659,21 @@ public sealed class CliScanTests
         }
     }
 
-    private static string FindRepositoryRoot()
+    private static string FindRepositoryRoot(
+        [System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
+        foreach (var startDirectory in new[] { AppContext.BaseDirectory, Path.GetDirectoryName(sourceFilePath)! })
         {
-            if (File.Exists(Path.Combine(directory.FullName, "Ol.slnx")))
+            var directory = new DirectoryInfo(startDirectory);
+            while (directory is not null)
             {
-                return directory.FullName;
-            }
+                if (File.Exists(Path.Combine(directory.FullName, "Ol.slnx")))
+                {
+                    return directory.FullName;
+                }
 
-            directory = directory.Parent;
+                directory = directory.Parent;
+            }
         }
 
         throw new DirectoryNotFoundException("Could not find repository root.");

@@ -16,16 +16,24 @@ internal static class SourceRepositoryPaths
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ol", "cache", "source-repository");
 }
 
-internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex, PackageMetadataCache metadataCache, SourceRepositoryCache sourceCache, bool refresh, int retryCount, HttpClient? client = null)
+internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex, SourceRepositoryCache sourceCache, bool refresh, int retryCount, HttpClient? client = null)
 {
     private static readonly HttpClient SharedHttpClient = new();
     private readonly HttpClient httpClient = client ?? SharedHttpClient;
     private readonly GitHubAuthentication authentication = GitHubAuthentication.FromEnvironment();
 
-    public async Task<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichAsync(ScanComponent[] components, int concurrency, CancellationToken cancellationToken = default)
+    public async Task<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichAsync(
+        ScanComponent[] components,
+        ReadOnlyMemory<PackageMetadataRecord?> recordsByComponent,
+        int concurrency,
+        CancellationToken cancellationToken = default)
     {
+        if (recordsByComponent.Length < components.Length)
+        {
+            throw new ArgumentException("Package metadata records must correspond to every component.", nameof(recordsByComponent));
+        }
+
         var targetIndexes = new Dictionary<string, int>(components.Length, StringComparer.Ordinal);
-        var metadataRecords = new Dictionary<string, PackageMetadataRecord?>(components.Length, StringComparer.Ordinal);
         var targets = ArrayPool<SourceRepositoryTarget>.Shared.Rent(Math.Max(components.Length, 1));
         var results = ArrayPool<SourceRepositoryLookupResult>.Shared.Rent(Math.Max(components.Length, 1));
         var componentTargetIndexes = ArrayPool<int>.Shared.Rent(Math.Max(components.Length, 1));
@@ -36,16 +44,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
             var unplannedUnknownCount = 0;
             for (var i = 0; i < components.Length; i++)
             {
-                PackageMetadataRecord? metadata = null;
-                if (OlDefaults.TryCreatePackageMetadataRequest(components[i].Purl.ToString(), out var request))
-                {
-                    if (!metadataRecords.TryGetValue(request.CacheKey, out metadata))
-                    {
-                        metadata = await metadataCache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false);
-                        metadataRecords.Add(request.CacheKey, metadata);
-                    }
-                }
-
+                var metadata = recordsByComponent.Span[i];
                 var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[i]);
                 if (repositoryUrl.Length == 0)
                 {

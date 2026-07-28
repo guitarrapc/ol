@@ -3,12 +3,27 @@ using System.Text.Json;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.PackageManagers;
+using Ol.Core.PackageMetadata;
 using Ol.Core.Spdx;
+using Ol.Internals;
 
 namespace Ol.Tests;
 
 public sealed class PackageMetadataTests
 {
+    [Test]
+    public async Task Enrichment_WithInsufficientMetadataWorkspace_RejectsCallerBuffer()
+    {
+        var service = new PackageMetadataService(
+            new SpdxLicenseIndex(["MIT"], []),
+            new PackageMetadataCache(Path.GetTempPath()),
+            refresh: false,
+            retryCount: 0);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, default, default, default, [], []);
+
+        await Assert.That(async () => await service.EnrichAsync([component], Memory<PackageMetadataRecord?>.Empty, concurrency: 1)).Throws<ArgumentException>();
+    }
+
     [Test]
     public async Task Fetch_RegisteredProvider_ParsesItsPurlAndOwnResponseWithoutCentralSwitches()
     {

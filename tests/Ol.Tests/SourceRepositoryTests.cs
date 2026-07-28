@@ -198,22 +198,46 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Enrichment_WithSuppliedPackageMetadata_UsesRepositoryWithoutCacheRead()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-metadata-{Guid.NewGuid():N}");
+        var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
+        var target = new SourceRepositoryTarget("owner", "repository", "default");
+        await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty), [], []));
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        PackageMetadataRecord?[] metadata = [new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], [])];
+        var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
+
+        try
+        {
+            var enrichment = await service.EnrichAsync([component], metadata, concurrency: 1);
+
+            await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
+            await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Enrichment_WithRefresh_RefetchesAndOverwritesSourceCache()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-refresh-{Guid.NewGuid():N}");
-        var metadataCache = new PackageMetadataCache(Path.Combine(root, "package"));
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
-        await metadataCache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
+        PackageMetadataRecord?[] metadata = [new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], [])];
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("Apache-2.0", "apache-2.0", "Apache", "LICENSE", "old", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["Apache-2.0", "MIT"], []);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
         using var httpClient = new HttpClient(new GitHubResponseHandler(HttpStatusCode.OK, ReadGitHubLicenseFixture()));
-        var service = new SourceRepositoryService(index, metadataCache, sourceCache, refresh: true, retryCount: 0, httpClient);
+        var service = new SourceRepositoryService(index, sourceCache, refresh: true, retryCount: 0, httpClient);
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], metadata, concurrency: 1);
             var cached = await sourceCache.TryReadAsync(target.CacheKey);
 
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
@@ -232,20 +256,19 @@ public sealed class SourceRepositoryTests
     public async Task Enrichment_WithCorruptCacheAndFetchFailure_PreservesAuditWarningsAndValidSbom()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-invalid-{Guid.NewGuid():N}");
-        var metadataCache = new PackageMetadataCache(Path.Combine(root, "package"));
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
-        await metadataCache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
+        PackageMetadataRecord?[] metadata = [new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], [])];
         Directory.CreateDirectory(sourceCache.Root);
         await File.WriteAllTextAsync(sourceCache.GetPath(target.CacheKey), "{ invalid json");
         var index = new SpdxLicenseIndex(["MIT"], []);
         var component = new ScanComponent("example", "1.0.0", "MIT", "npm", DependencyType.Unknown, LicenseStatus.Matched, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "MIT"u8, index), [], []);
         using var httpClient = new HttpClient(new SequenceResponseHandler(HttpStatusCode.Forbidden));
-        var service = new SourceRepositoryService(index, metadataCache, sourceCache, refresh: false, retryCount: 1, httpClient);
+        var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 1, httpClient);
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], metadata, concurrency: 1);
             var warnings = enrichment.Components[0].Warnings;
             var cached = await sourceCache.TryReadAsync(target.CacheKey);
 
@@ -266,18 +289,18 @@ public sealed class SourceRepositoryTests
     public async Task Enrichment_WithCacheWriteFailure_KeepsFetchedLicenseAsComponentEvidence()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-write-failure-{Guid.NewGuid():N}");
-        var metadataCache = new PackageMetadataCache(Path.Combine(root, "package"));
         var invalidSourceRoot = Path.Combine(root, "source-is-a-file");
-        await metadataCache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
+        PackageMetadataRecord?[] metadata = [new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], [])];
+        Directory.CreateDirectory(root);
         await File.WriteAllTextAsync(invalidSourceRoot, "not a directory");
         var index = new SpdxLicenseIndex(["MIT"], []);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
         using var httpClient = new HttpClient(new GitHubResponseHandler(HttpStatusCode.OK, ReadGitHubLicenseFixture()));
-        var service = new SourceRepositoryService(index, metadataCache, new SourceRepositoryCache(invalidSourceRoot), refresh: true, retryCount: 0, httpClient);
+        var service = new SourceRepositoryService(index, new SourceRepositoryCache(invalidSourceRoot), refresh: true, retryCount: 0, httpClient);
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], metadata, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");

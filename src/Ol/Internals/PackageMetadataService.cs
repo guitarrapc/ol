@@ -28,8 +28,17 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
     private static readonly HttpClient HttpClient = new();
     private readonly PackageMetadataRegistryClient registryClient = OlDefaults.CreatePackageMetadataRegistryClient(HttpClient);
 
-    public async Task<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(ScanComponent[] components, int concurrency, CancellationToken cancellationToken = default)
+    public async Task<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(
+        ScanComponent[] components,
+        Memory<PackageMetadataRecord?> recordsByComponent,
+        int concurrency,
+        CancellationToken cancellationToken = default)
     {
+        if (recordsByComponent.Length < components.Length)
+        {
+            throw new ArgumentException("Package metadata workspace must correspond to every component.", nameof(recordsByComponent));
+        }
+
         var initialLookupCapacity = Math.Clamp(components.Length, 1, 16);
         var lookupByCacheKey = new Dictionary<string, int>(initialLookupCapacity, StringComparer.Ordinal);
         var lookupByPurl = new Dictionary<Utf8Slice, int>(initialLookupCapacity);
@@ -94,6 +103,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                 var result = lookupIndex >= 0
                     ? lookupResults[lookupIndex]
                     : components[i].Purl.IsEmpty ? default : CreateUnsupportedPurlResult(components[i].Purl);
+                recordsByComponent.Span[i] = result.Record;
                 components[i] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];
                 supported += result.Supported ? 1 : 0;
                 hits += result.CacheHit ? 1 : 0;
@@ -103,7 +113,9 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                 unsupported += result.Unsupported ? 1 : 0;
             }
 
-            return (components, new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount, lookupCount));
+            return (
+                components,
+                new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount, lookupCount));
         }
         finally
         {
@@ -123,7 +135,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
             var cached = await cache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false);
             if (cached is { } record)
             {
-                return new PackageMetadataLookupResult(CreateMetadataCandidate(record), true, true, false, false, false, false);
+                return new PackageMetadataLookupResult(record, CreateMetadataCandidate(record), true, true, false, false, false, false);
             }
         }
 
@@ -131,7 +143,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         {
             var record = await PackageMetadataFetchScheduler.FetchAsync(registryClient, request, retryCount, cancellationToken).ConfigureAwait(false);
             await cache.WriteAsync(record, cancellationToken).ConfigureAwait(false);
-            return new PackageMetadataLookupResult(CreateMetadataCandidate(record), true, false, true, refresh, false, false);
+            return new PackageMetadataLookupResult(record, CreateMetadataCandidate(record), true, false, true, refresh, false, false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -157,7 +169,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey)));
         var error = LicenseCandidateFactory.CreateError(LicenseCandidateSource.PackageRegistry, LicenseCandidateKind.Fetch, LicenseCandidateWarnings.PackageMetadataFetchFailed, evidence);
-        return new PackageMetadataLookupResult(error, true, false, true, false, true, false);
+        return new PackageMetadataLookupResult(null, error, true, false, true, false, true, false);
     }
 
     private static PackageMetadataLookupResult CreateUnsupportedPurlResult(Utf8Slice purl)
@@ -171,7 +183,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
             false,
             LicenseCandidateWarnings.UnsupportedPackageMetadata,
             new LicenseEvidence(LicenseEvidenceKind.PackageRegistry));
-        return new PackageMetadataLookupResult(candidate, true, false, false, false, false, true);
+        return new PackageMetadataLookupResult(null, candidate, true, false, false, false, false, true);
     }
 
     private static void EnsureLookupCapacity(ref PackageMetadataLookup[] lookups, int lookupCount)
@@ -207,10 +219,10 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
 
     private readonly record struct PackageMetadataLookup(int Index, PackageMetadataRequest Request);
 
-    private readonly record struct PackageMetadataLookupResult(LicenseCandidate Candidate, bool HasCandidate, bool Supported, bool CacheHit, bool CacheMiss, bool Refreshed, bool FetchError, bool Unsupported)
+    private readonly record struct PackageMetadataLookupResult(PackageMetadataRecord? Record, LicenseCandidate Candidate, bool HasCandidate, bool Supported, bool CacheHit, bool CacheMiss, bool Refreshed, bool FetchError, bool Unsupported)
     {
-        public PackageMetadataLookupResult(LicenseCandidate candidate, bool supported, bool cacheHit, bool cacheMiss, bool refreshed, bool fetchError, bool unsupported)
-            : this(candidate, true, supported, cacheHit, cacheMiss, refreshed, fetchError, unsupported)
+        public PackageMetadataLookupResult(PackageMetadataRecord? record, LicenseCandidate candidate, bool supported, bool cacheHit, bool cacheMiss, bool refreshed, bool fetchError, bool unsupported)
+            : this(record, candidate, true, supported, cacheHit, cacheMiss, refreshed, fetchError, unsupported)
         {
         }
     }

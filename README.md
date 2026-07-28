@@ -38,14 +38,6 @@ Options:
   --retry <int>                 Reserved package metadata retry count. [Default: 1]
 ```
 
-Use `check` in CI to fail when a resolved dependency has a forbidden or unresolved license:
-
-```bash
-ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
-```
-
-The command returns `0` when every component satisfies the allow-list, `1` for policy violations, and `2` when the check cannot be completed.
-
 ```bash
 $ ol scan --help
 Usage: scan [options...] [-h|--help] [--version]
@@ -93,6 +85,58 @@ Use an isolated cache root when a build or CI job must not share the user cache:
 ```bash
 dotnet run --project src/ol -- scan --input sandbox/sbom/cyclonedx-sample.json --cache-dir .tmp/ol-cache
 ```
+
+## Check licenses
+
+Use `check` in CI to allow only selected SPDX License Identifiers. `check` runs the same input detection and license enrichment as `scan`, evaluates every resolved component, and reports all violations.
+
+Check a lockfile, package-manager output, SBOM, or directory:
+
+```bash
+ol check --input . --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
+ol check --input package-lock.json --allow-licenses MIT,ISC
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0
+```
+
+`--allow-licenses` is a required comma-separated list of SPDX License Identifiers. Matching is case-insensitive and normalized to official SPDX casing. Natural-language names, SPDX expressions, exception identifiers, unknown identifiers, and empty entries are rejected as configuration errors.
+
+SPDX expressions found in dependencies are evaluated using SPDX semantics:
+
+| Dependency expression | `--allow-licenses MIT,Apache-2.0` |
+| --- | --- |
+| `MIT` | Pass |
+| `MIT AND Apache-2.0` | Pass |
+| `MIT OR GPL-3.0-only` | Pass |
+| `MIT AND GPL-3.0-only` | Violation |
+| `GPL-2.0-only WITH Classpath-exception-2.0` | Violation |
+
+`OR` passes when at least one choice is allowed, while `AND` requires every license. `WITH` uses the allow status of its base license. Components with `unknown`, `conflict`, `ambiguous`, `invalid`, or `error` license status fail closed.
+
+Example violation output:
+
+```text
+License check failed: 2 violations.
+
+Package      Version  Ecosystem  Purl                         License/Status  Reason
+example-lib  1.2.3    npm        pkg:npm/example-lib@1.2.3    GPL-3.0-only   license is not allowed
+unknown-lib  2.0.0    nuget      pkg:nuget/unknown-lib@2.0.0  unknown        license is unresolved
+```
+
+Exit codes are suitable for CI:
+
+| Exit code | Meaning |
+| ---: | --- |
+| `0` | Every component satisfies the allow-list. |
+| `1` | One or more policy violations were found. |
+| `2` | The check could not be completed because of invalid configuration, input, evidence collection, or output. |
+
+Use only evidence already present in the input when network enrichment is intentionally disabled:
+
+```bash
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0 --skip-enrichment
+```
+
+Because unresolved licenses fail closed, `--skip-enrichment` can produce violations that a full enriched check would resolve.
 
 ## Scan dependencies
 

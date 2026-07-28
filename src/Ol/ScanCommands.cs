@@ -1,4 +1,6 @@
 ﻿using System.Security.Cryptography;
+using System.Buffers;
+using System.Buffers.Text;
 using System.Text;
 using System.Text.Json;
 using ConsoleAppFramework;
@@ -130,42 +132,65 @@ internal sealed class ScanCommands
             return 0;
         }
 
-        var inputDescriptor = scanResult.Inventory.Input;
-        var text = groups is null
-            ? format switch
+        if (format == ReportFormat.Text)
+        {
+            if (outFile is { Length: > 0 })
             {
-                ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
-                ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
-                _ => throw new ArgumentOutOfRangeException(nameof(format)),
+                try
+                {
+                    using var output = File.Create(outFile);
+                    WriteText(output, scanResult.Inventory.Input, components, groups, groupBy, verbose);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                {
+                    Console.Error.WriteLine($"Unable to write report: {exception.Message}");
+                    return 1;
+                }
             }
-            : RenderGrouped(format, groups, groupBy!);
-        text = ReportRenderer.RenderInputHeader(format, inputDescriptor) + text;
-        if (!text.EndsWith('\n'))
-        {
-            text += '\n';
-        }
 
-        if (outFile is { Length: > 0 })
-        {
             try
             {
-                File.WriteAllText(outFile, text, Encoding.UTF8);
+                WriteText(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory.Input, components, groups, groupBy, verbose);
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            catch (IOException exception)
             {
                 Console.Error.WriteLine($"Unable to write report: {exception.Message}");
                 return 1;
             }
         }
+        else
+        {
+            var text = groups is null
+                ? ReportRenderer.RenderMarkdown(components, verbose)
+                : ReportRenderer.RenderMarkdown(groups, groupBy!);
+            text = ReportRenderer.RenderInputHeader(format, scanResult.Inventory.Input) + text;
+            if (!text.EndsWith('\n'))
+            {
+                text += '\n';
+            }
 
-        try
-        {
-            Console.Write(text);
-        }
-        catch (IOException exception)
-        {
-            Console.Error.WriteLine($"Unable to write report: {exception.Message}");
-            return 1;
+            if (outFile is { Length: > 0 })
+            {
+                try
+                {
+                    File.WriteAllText(outFile, text, Encoding.UTF8);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                {
+                    Console.Error.WriteLine($"Unable to write report: {exception.Message}");
+                    return 1;
+                }
+            }
+
+            try
+            {
+                Console.Write(text);
+            }
+            catch (IOException exception)
+            {
+                Console.Error.WriteLine($"Unable to write report: {exception.Message}");
+                return 1;
+            }
         }
 
         if (!quiet)
@@ -195,14 +220,23 @@ internal sealed class ScanCommands
         return 0;
     }
 
-    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy)
+    private static void WriteText(
+        Stream output,
+        ScanInputDescriptor input,
+        ReadOnlySpan<ScanComponent> components,
+        GroupRow[]? groups,
+        string? groupBy,
+        bool verbose)
     {
-        return format switch
+        using var buffer = new PooledStreamBufferWriter(output);
+        if (groups is null)
         {
-            ReportFormat.Text => ReportRenderer.RenderText(groups, groupBy),
-            ReportFormat.Markdown => ReportRenderer.RenderMarkdown(groups, groupBy),
-            _ => throw new ArgumentOutOfRangeException(nameof(format)),
-        };
+            ReportRenderer.WriteText(buffer, input, components, verbose);
+        }
+        else
+        {
+            ReportRenderer.WriteText(buffer, input, groups, groupBy!);
+        }
     }
 
     private static void WriteJson(
@@ -974,34 +1008,39 @@ internal static class ReportRenderer
             ? $"Input: `{input.Kind.Name}/{input.Format.Name}`{Environment.NewLine}{Environment.NewLine}"
             : $"Input: {input.Kind.Name}/{input.Format.Name}{Environment.NewLine}{Environment.NewLine}";
 
-    public static string RenderText(ReadOnlySpan<ScanComponent> components, bool verbose)
+    public static void WriteText(
+        IBufferWriter<byte> writer,
+        ScanInputDescriptor input,
+        ReadOnlySpan<ScanComponent> components,
+        bool verbose)
     {
-        var builder = new StringBuilder();
-        builder.AppendLine(verbose ? "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS PURL" : "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS");
+        WriteInputHeader(writer, input);
+        WriteUtf8(writer, verbose
+            ? "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS PURL"u8
+            : "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS"u8);
+        WriteNewLine(writer);
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
-            builder.Append(Display(component.Name));
-            builder.Append(' ');
-            builder.Append(Display(component.Version));
-            builder.Append(' ');
-            builder.Append(Display(component.License));
-            builder.Append(' ');
-            builder.Append(Display(component.Ecosystem));
-            builder.Append(' ');
-            builder.Append(component.DependencyType.ToString().ToLowerInvariant());
-            builder.Append(' ');
-            builder.Append(component.Status.ToString().ToLowerInvariant());
+            WriteDisplay(writer, component.Name);
+            WriteUtf8(writer, " "u8);
+            WriteDisplay(writer, component.Version);
+            WriteUtf8(writer, " "u8);
+            WriteDisplay(writer, component.License);
+            WriteUtf8(writer, " "u8);
+            WriteDisplay(writer, component.Ecosystem);
+            WriteUtf8(writer, " "u8);
+            WriteUtf8(writer, GetDependencyTypeUtf8(component.DependencyType));
+            WriteUtf8(writer, " "u8);
+            WriteUtf8(writer, component.Status.ToUtf8());
             if (verbose)
             {
-                builder.Append(' ');
-                builder.Append(Display(component.Purl));
+                WriteUtf8(writer, " "u8);
+                WriteDisplay(writer, component.Purl);
             }
 
-            builder.AppendLine();
+            WriteNewLine(writer);
         }
-
-        return builder.ToString();
     }
 
     public static string RenderMarkdown(ReadOnlySpan<ScanComponent> components, bool verbose)
@@ -1036,30 +1075,48 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static string RenderText(ReadOnlySpan<GroupRow> groups, string groupBy)
+    public static void WriteText(
+        IBufferWriter<byte> writer,
+        ScanInputDescriptor input,
+        ReadOnlySpan<GroupRow> groups,
+        string groupBy)
     {
-        var headers = groupBy.ToUpperInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var builder = new StringBuilder();
-        builder.AppendJoin(' ', headers);
-        builder.AppendLine(" COUNT");
+        WriteInputHeader(writer, input);
+        var headerCount = GetGroupFieldCount(groupBy);
+        for (var i = 0; i < headerCount; i++)
+        {
+            if (i != 0)
+            {
+                WriteUtf8(writer, " "u8);
+            }
+
+            WriteUtf8(writer, GetGroupHeaderUtf8(groupBy, i));
+        }
+
+        WriteUtf8(writer, " COUNT"u8);
+        WriteNewLine(writer);
         for (var i = 0; i < groups.Length; i++)
         {
             for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
             {
                 if (valueIndex != 0)
                 {
-                    builder.Append(' ');
+                    WriteUtf8(writer, " "u8);
                 }
 
-                builder.Append(Display(groups[i].Values[valueIndex]));
+                WriteDisplay(writer, groups[i].Values[valueIndex]);
             }
 
-            builder.Append(' ');
-            builder.Append(groups[i].Count);
-            builder.AppendLine();
-        }
+            WriteUtf8(writer, " "u8);
+            var destination = writer.GetSpan(11);
+            if (!Utf8Formatter.TryFormat(groups[i].Count, destination, out var bytesWritten))
+            {
+                throw new InvalidOperationException("Unable to format group count.");
+            }
 
-        return builder.ToString();
+            writer.Advance(bytesWritten);
+            WriteNewLine(writer);
+        }
     }
 
     public static string RenderMarkdown(ReadOnlySpan<GroupRow> groups, string groupBy)
@@ -1175,6 +1232,84 @@ internal static class ReportRenderer
         WriteSummary(writer, ScanSummary.Create(groups));
         WriteWarnings(writer, groups);
         writer.WriteEndObject();
+    }
+
+    private static void WriteInputHeader(IBufferWriter<byte> writer, ScanInputDescriptor input)
+    {
+        WriteUtf8(writer, "Input: "u8);
+        WriteUtf8(writer, input.Kind.Name);
+        WriteUtf8(writer, "/"u8);
+        WriteUtf8(writer, input.Format.Name);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
+    }
+
+    private static void WriteDisplay(IBufferWriter<byte> writer, string value)
+    {
+        if (value.Length == 0)
+        {
+            WriteUtf8(writer, "-"u8);
+        }
+        else
+        {
+            WriteUtf8(writer, value);
+        }
+    }
+
+    private static void WriteDisplay(IBufferWriter<byte> writer, Utf8Slice value)
+    {
+        WriteUtf8(writer, value.IsEmpty ? "-"u8 : value.Span);
+    }
+
+    private static void WriteNewLine(IBufferWriter<byte> writer)
+        => WriteUtf8(writer, Environment.NewLine);
+
+    private static void WriteUtf8(IBufferWriter<byte> writer, ReadOnlySpan<byte> value)
+    {
+        value.CopyTo(writer.GetSpan(value.Length));
+        writer.Advance(value.Length);
+    }
+
+    private static void WriteUtf8(IBufferWriter<byte> writer, string value)
+    {
+        var byteCount = Encoding.UTF8.GetByteCount(value);
+        var destination = writer.GetSpan(byteCount);
+        writer.Advance(Encoding.UTF8.GetBytes(value, destination));
+    }
+
+    private static int GetGroupFieldCount(string groupBy)
+    {
+        var value = groupBy.AsSpan();
+        var count = 0;
+        var start = 0;
+        for (var i = 0; i <= value.Length; i++)
+        {
+            if (i < value.Length && value[i] != ',')
+            {
+                continue;
+            }
+
+            if (!TrimAsciiWhitespace(value[start..i]).IsEmpty)
+            {
+                count++;
+            }
+
+            start = i + 1;
+        }
+
+        return count;
+    }
+
+    private static ReadOnlySpan<byte> GetGroupHeaderUtf8(string groupBy, int targetIndex)
+    {
+        var propertyName = GetGroupPropertyNameUtf8(groupBy, targetIndex);
+        if (propertyName.SequenceEqual("name"u8)) return "NAME"u8;
+        if (propertyName.SequenceEqual("version"u8)) return "VERSION"u8;
+        if (propertyName.SequenceEqual("license"u8)) return "LICENSE"u8;
+        if (propertyName.SequenceEqual("ecosystem"u8)) return "ECOSYSTEM"u8;
+        if (propertyName.SequenceEqual("dependency"u8)) return "DEPENDENCY"u8;
+        if (propertyName.SequenceEqual("status"u8)) return "STATUS"u8;
+        throw new ArgumentOutOfRangeException(nameof(targetIndex));
     }
 
     private static void AppendMarkdownValue(StringBuilder builder, string value)

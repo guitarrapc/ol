@@ -55,7 +55,7 @@ try {
             default { $format }
         }
         $report = Join-Path $output "ol.$extension"
-        dotnet $ol scan --input $sbom --format $format --skip-enrichment --quiet --out $report | Out-Null
+        dotnet $ol scan --input $sbom --format $format --skip-enrichment --quiet --concurrency 4 --out $report | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Ol $format self-scan failed." }
     }
 }

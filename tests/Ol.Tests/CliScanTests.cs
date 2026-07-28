@@ -684,6 +684,44 @@ public sealed class CliScanTests
     }
 
     [Test]
+    [Arguments("text", "txt")]
+    [Arguments("markdown", "md")]
+    [Arguments("json", "json")]
+    public async Task Scan_WithOutFile_TerminatesEveryFormatWithLineFeed(string format, string extension)
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-newline-{Guid.NewGuid():N}.json");
+        var outPath = Path.Combine(Path.GetTempPath(), $"ol-newline-{Guid.NewGuid():N}.{extension}");
+        await File.WriteAllTextAsync(
+            sbomPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "components": [
+                { "name": "a", "version": "1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", format, "--skip-enrichment", "--quiet", "--out", outPath);
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            var fileText = await File.ReadAllTextAsync(outPath);
+            await Assert.That(fileText.EndsWith('\n')).IsTrue();
+            await Assert.That(stdout).IsEqualTo(fileText);
+            await Assert.That(stderr).IsEmpty();
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+            File.Delete(outPath);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithGroupByLicense_RendersGroupedRowsAndCanonicalJsonSummary()
     {
         var root = FindRepositoryRoot();

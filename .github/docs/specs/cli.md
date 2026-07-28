@@ -133,7 +133,7 @@ ol scan --input bom.json --format json
 ol scan --input bom.json --format markdown
 ```
 
-`--out` writes the same format selected by `--format` to the given file. It does not suppress stdout.
+`--out` writes the same format selected by `--format` to the given file. It does not suppress stdout. Primary output and the file contain identical content and end with a line feed in every format.
 
 ```bash
 ol scan --input bom.json --format markdown --out licenses.md

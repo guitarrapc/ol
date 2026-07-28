@@ -102,6 +102,10 @@ internal sealed class ScanCommands
         {
             text = ReportRenderer.RenderInputHeader(format, inputDescriptor) + text;
         }
+        if (!text.EndsWith('\n'))
+        {
+            text += '\n';
+        }
 
         if (outFile is { Length: > 0 })
         {

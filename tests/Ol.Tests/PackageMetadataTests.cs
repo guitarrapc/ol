@@ -35,8 +35,7 @@ public sealed class PackageMetadataTests
 
         await client.FetchAsync(new PackageMetadataRequest("test", "", "example", "1.0.0", "pkg:test/example@1.0.0"));
 
-        await Assert.That(handler.UserAgent).Contains("ol");
-        await Assert.That(handler.UserAgent).Contains("github.com/guitarrapc/ol");
+        await Assert.That(handler.UserAgent).IsEqualTo("ol");
     }
 
     [Test]

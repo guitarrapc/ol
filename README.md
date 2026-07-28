@@ -328,7 +328,16 @@ ol scan --input .
 
 ### Python
 
-ol scans the stable JSON format version 1 produced by `pip inspect`. Activate the exact virtual environment used by the build or deployment, then capture its installed distributions and environment:
+For a canonical release or audit artifact, prefer generating CycloneDX JSON from the exact Python environment used by the build or deployment with the [CycloneDX Python SBOM generator](https://github.com/CycloneDX/cyclonedx-python), then scan that SBOM:
+
+```bash
+cyclonedx-py environment .venv --output-format JSON --output-file bom.cdx.json
+ol scan --input bom.cdx.json
+```
+
+The generator also supports Poetry, Pipenv, and pip requirements inputs. Using the installed environment provides the strongest inventory of the packages actually selected for the build.
+
+When an SBOM is unavailable, ol can scan the stable JSON format version 1 produced by `pip inspect`. Activate the exact virtual environment, then capture its installed distributions and environment:
 
 ```bash
 python -m pip inspect --local > pip-inspect.json
@@ -370,7 +379,7 @@ ol does not resolve package manifests or version ranges itself. It consumes eith
 | Rust / Cargo | `Cargo.toml`, `Cargo.lock` | `cargo metadata --format-version 1 --locked` JSON | Generate `cargo-metadata.json` using the build's feature/target selection, then scan it with `--input`. ol does not resolve `Cargo.toml` or `Cargo.lock` itself. |
 | Go modules | `go.mod`, `go.sum`, optional `go.work` | Paired `go list -m -json all` and `go mod graph` output | Generate `go-list-modules.json` and `go-mod-graph.txt` together, then pass both files or their directory. ol consumes Go's selected build list instead of running MVS itself. |
 | Java / JVM | `pom.xml`, Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Run the ecosystem build/resolution and use its CycloneDX generator or a polyglot generator. |
-| Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock`, `uv.lock` | `python -m pip inspect --local` JSON | Install or sync the intended environment, generate `pip-inspect.json`, then scan it directly. ol consumes installed distributions and does not choose markers, extras, or platform wheels. |
+| Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock`, `uv.lock` | CycloneDX/SPDX JSON SBOM, or `python -m pip inspect --local` JSON | Prefer an SBOM generated from the intended environment. Alternatively, generate `pip-inspect.json` and scan it directly; ol consumes installed distributions and does not choose markers, extras, or platform wheels. |
 | PHP / Composer | `composer.json`, `composer.lock` | Paired `composer.json` and `composer.lock`, or CycloneDX/SPDX JSON SBOM | Prefer an SBOM from the locked project. Alternatively, scan the directory containing the pair with `--input-format composer-lock`; ol consumes the lockfile without invoking Composer. |
 | Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--input`. |
 

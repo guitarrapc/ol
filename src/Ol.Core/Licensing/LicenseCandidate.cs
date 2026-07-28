@@ -1,4 +1,6 @@
-﻿namespace Ol.Core.Licensing;
+﻿using System.Text.Json;
+
+namespace Ol.Core.Licensing;
 
 /// <summary>
 /// Represents one license value extracted from an evidence source.
@@ -86,6 +88,44 @@ public static class LicenseCandidateIdentifiers
     {
         var result = LicenseCandidateWarnings.None;
         for (var i = 0; i < values.Length; i++) result |= ParseWarning(values[i]);
+        return result;
+    }
+
+    /// <summary>Parses one UTF-8 warning identifier without decoding it.</summary>
+    public static LicenseCandidateWarnings ParseWarning(ReadOnlySpan<byte> value)
+    {
+        if (value.SequenceEqual("deprecated_spdx_identifier"u8)) return LicenseCandidateWarnings.DeprecatedSpdxIdentifier;
+        if (value.SequenceEqual("package_metadata_fetch_failed"u8)) return LicenseCandidateWarnings.PackageMetadataFetchFailed;
+        if (value.SequenceEqual("unsupported_package_metadata"u8)) return LicenseCandidateWarnings.UnsupportedPackageMetadata;
+        if (value.SequenceEqual("source_repository_cache_invalid"u8)) return LicenseCandidateWarnings.SourceRepositoryCacheInvalid;
+        if (value.SequenceEqual("source_repository_cache_write_failed"u8)) return LicenseCandidateWarnings.SourceRepositoryCacheWriteFailed;
+        if (value.SequenceEqual("source_repository_fetch_failed"u8)) return LicenseCandidateWarnings.SourceRepositoryFetchFailed;
+        if (value.SequenceEqual("source_repository_unavailable"u8)) return LicenseCandidateWarnings.SourceRepositoryUnavailable;
+        if (value.SequenceEqual("unsupported_source_repository"u8)) return LicenseCandidateWarnings.UnsupportedSourceRepository;
+        return LicenseCandidateWarnings.None;
+    }
+
+    /// <summary>Parses every warning identifier in raw JSON string-array text without decoding it.</summary>
+    /// <param name="utf8JsonArray">The JSON array text, as retained by a cache entry.</param>
+    /// <returns>The combined warnings. Unknown identifiers contribute nothing.</returns>
+    /// <remarks>
+    /// Warning identifiers are unescaped ASCII, so an escaped value cannot name a known warning and is
+    /// skipped rather than decoded.
+    /// </remarks>
+    public static LicenseCandidateWarnings ParseWarnings(ReadOnlySpan<byte> utf8JsonArray)
+    {
+        if (utf8JsonArray.IsEmpty) return LicenseCandidateWarnings.None;
+
+        var reader = new Utf8JsonReader(utf8JsonArray);
+        var result = LicenseCandidateWarnings.None;
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.String && !reader.ValueIsEscaped)
+            {
+                result |= ParseWarning(reader.ValueSpan);
+            }
+        }
+
         return result;
     }
 

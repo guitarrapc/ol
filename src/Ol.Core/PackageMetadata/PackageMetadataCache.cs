@@ -1,6 +1,4 @@
-﻿using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Ol.Core.PackageMetadata;
@@ -21,60 +19,259 @@ public sealed class PackageMetadataCache(string root)
     /// </summary>
     /// <param name="cacheKey">The logical package metadata cache key.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The cache entry, or <see langword="null"/> when it is absent or corrupt.</returns>
-    public async Task<PackageMetadataRecord?> TryReadAsync(string cacheKey, CancellationToken cancellationToken = default)
+    /// <returns>The cache entry, which the caller must dispose. Absent or corrupt entries are not hits.</returns>
+    public async Task<PackageMetadataCacheEntry> TryReadAsync(string cacheKey, CancellationToken cancellationToken = default)
     {
-        var path = GetPath(cacheKey);
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
-        try
-        {
-            await using var stream = File.OpenRead(path);
-            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (!IsValidVersion1(document.RootElement, cacheKey))
-            {
-                return null;
-            }
-
-            return document.RootElement.Deserialize(PackageMetadataJsonContext.Default.PackageMetadataRecord);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
+        var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey);
+        var (content, length) = await CacheFile.RentContentAsync(CacheFile.BuildPath(Root, cacheKeySha256), cancellationToken).ConfigureAwait(false);
+        return length < 0 ? default : Parse(content, length, cacheKey, cacheKeySha256);
     }
 
     /// <summary>
     /// Reads a cache entry by its logical key without asynchronous file access.
     /// </summary>
     /// <param name="cacheKey">The logical package metadata cache key.</param>
-    /// <returns>The cache entry, or <see langword="null"/> when it is absent or corrupt.</returns>
-    public PackageMetadataRecord? TryRead(string cacheKey)
+    /// <returns>The cache entry, which the caller must dispose. Absent or corrupt entries are not hits.</returns>
+    public PackageMetadataCacheEntry TryRead(string cacheKey)
     {
-        var path = GetPath(cacheKey);
-        if (!File.Exists(path))
+        var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey);
+        return CacheFile.TryRentContent(CacheFile.BuildPath(Root, cacheKeySha256), out var content, out var length)
+            ? Parse(content, length, cacheKey, cacheKeySha256)
+            : default;
+    }
+
+    /// <summary>Validates and captures one entry in a single pass, without materializing discarded text.</summary>
+    /// <remarks>
+    /// The entry adopts <paramref name="content"/> only when it is a hit, so a rejected entry returns
+    /// its buffer here and a hit returns it from <see cref="PackageMetadataCacheEntry.Dispose"/>.
+    /// </remarks>
+    private static PackageMetadataCacheEntry Parse(byte[] content, int length, string cacheKey, string cacheKeySha256)
+    {
+        if (TryParseVersion1(content, length, cacheKey, cacheKeySha256, out var entry))
         {
-            return null;
+            return entry;
         }
 
+        CacheFile.Return(content);
+        return default;
+    }
+
+    private static bool TryParseVersion1(byte[] content, int length, string cacheKey, string cacheKeySha256, out PackageMetadataCacheEntry entry)
+    {
+        entry = default;
+        var reader = new Utf8JsonReader(content.AsSpan(0, length));
+        var present = CacheField.None;
+        Utf8Slice source = default;
+        Utf8Slice rawLicense = default;
+        Utf8Slice warnings = default;
+        var repositoryUrl = string.Empty;
+        var repositoryRef = string.Empty;
+        var fetchedAt = default(DateTimeOffset);
         try
         {
-            using var stream = File.OpenRead(path);
-            using var document = JsonDocument.Parse(stream);
-            if (!IsValidVersion1(document.RootElement, cacheKey))
+            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
             {
-                return null;
+                return false;
             }
 
-            return document.RootElement.Deserialize(PackageMetadataJsonContext.Default.PackageMetadataRecord);
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                {
+                    return false;
+                }
+
+                if (reader.ValueTextEquals("SchemaVersion"u8))
+                {
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out var version) || version != 1)
+                    {
+                        return false;
+                    }
+
+                    present |= CacheField.SchemaVersion;
+                }
+                else if (reader.ValueTextEquals("CacheKey"u8))
+                {
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(cacheKey))
+                    {
+                        return false;
+                    }
+
+                    present |= CacheField.CacheKey;
+                }
+                else if (reader.ValueTextEquals("CacheKeySha256"u8))
+                {
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(cacheKeySha256))
+                    {
+                        return false;
+                    }
+
+                    present |= CacheField.CacheKeySha256;
+                }
+                else if (reader.ValueTextEquals("Source"u8))
+                {
+                    if (!TryCapture(content, ref reader, out source))
+                    {
+                        return false;
+                    }
+
+                    present |= CacheField.Source;
+                }
+                else if (reader.ValueTextEquals("RawLicense"u8))
+                {
+                    if (!TryCapture(content, ref reader, out rawLicense))
+                    {
+                        return false;
+                    }
+
+                    present |= CacheField.RawLicense;
+                }
+                else if (reader.ValueTextEquals("RepositoryUrl"u8))
+                {
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.String)
+                    {
+                        return false;
+                    }
+
+                    repositoryUrl = reader.GetString()!;
+                    if (!IsSafeRepositoryReference(repositoryUrl))
+                    {
+                        return false;
+                    }
+
+                    present |= CacheField.RepositoryUrl;
+                }
+                else if (reader.ValueTextEquals("RepositoryRef"u8))
+                {
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.String)
+                    {
+                        return false;
+                    }
+
+                    repositoryRef = reader.GetString()!;
+                    if (!IsSafeRepositoryRef(repositoryRef))
+                    {
+                        return false;
+                    }
+                }
+                else if (reader.ValueTextEquals("FetchedAt"u8))
+                {
+                    if (!reader.Read()
+                        || reader.TokenType != JsonTokenType.String
+                        || !HasExplicitUtcOffset(reader.ValueSpan)
+                        || !reader.TryGetDateTimeOffset(out fetchedAt)
+                        || fetchedAt.Offset != TimeSpan.Zero)
+                    {
+                        return false;
+                    }
+
+                    present |= CacheField.FetchedAt;
+                }
+                else if (reader.ValueTextEquals("Warnings"u8))
+                {
+                    if (!TryCaptureStringArray(content, ref reader, out warnings))
+                    {
+                        return false;
+                    }
+
+                    present |= CacheField.Warnings;
+                }
+                else if (reader.ValueTextEquals("Errors"u8))
+                {
+                    if (!TryCaptureStringArray(content, ref reader, out _))
+                    {
+                        return false;
+                    }
+
+                    present |= CacheField.Errors;
+                }
+                else
+                {
+                    reader.Read();
+                    reader.Skip();
+                }
+            }
         }
         catch (JsonException)
         {
-            return null;
+            return false;
         }
+
+        if (present != CacheField.Required)
+        {
+            return false;
+        }
+
+        entry = new PackageMetadataCacheEntry(content, cacheKeySha256, source, rawLicense, warnings, repositoryUrl, repositoryRef, fetchedAt);
+        return true;
+    }
+
+    /// <summary>Captures a string value as a slice of the entry buffer, copying only escaped text.</summary>
+    private static bool TryCapture(byte[] content, ref Utf8JsonReader reader, out Utf8Slice value)
+    {
+        value = default;
+        if (!reader.Read() || reader.TokenType != JsonTokenType.String)
+        {
+            return false;
+        }
+
+        if (reader.ValueIsEscaped)
+        {
+            value = Utf8Slice.FromString(reader.GetString()!);
+            return true;
+        }
+
+        var span = reader.ValueSpan;
+        if (span.Length != 0)
+        {
+            value = new Utf8Slice(content, (int)reader.TokenStartIndex + 1, span.Length);
+        }
+
+        return true;
+    }
+
+    /// <summary>Validates a string array and captures its raw JSON text as a slice of the entry buffer.</summary>
+    private static bool TryCaptureStringArray(byte[] content, ref Utf8JsonReader reader, out Utf8Slice value)
+    {
+        value = default;
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartArray)
+        {
+            return false;
+        }
+
+        var start = (int)reader.TokenStartIndex;
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.String)
+            {
+                return false;
+            }
+        }
+
+        if (reader.TokenType != JsonTokenType.EndArray)
+        {
+            return false;
+        }
+
+        value = new Utf8Slice(content, start, (int)reader.TokenStartIndex + 1 - start);
+        return true;
+    }
+
+    /// <summary>Tracks which required properties a version 1 entry supplied. <c>RepositoryRef</c> is optional.</summary>
+    [Flags]
+    private enum CacheField : ushort
+    {
+        None = 0,
+        SchemaVersion = 1 << 0,
+        CacheKey = 1 << 1,
+        CacheKeySha256 = 1 << 2,
+        Source = 1 << 3,
+        RawLicense = 1 << 4,
+        RepositoryUrl = 1 << 5,
+        FetchedAt = 1 << 6,
+        Warnings = 1 << 7,
+        Errors = 1 << 8,
+        Required = SchemaVersion | CacheKey | CacheKeySha256 | Source | RawLicense | RepositoryUrl | FetchedAt | Warnings | Errors,
     }
 
     /// <summary>
@@ -133,44 +330,17 @@ public sealed class PackageMetadataCache(string root)
     /// </summary>
     /// <param name="cacheKey">The logical package metadata cache key.</param>
     /// <returns>The cache file path.</returns>
-    public string GetPath(string cacheKey) => Path.Combine(Root, string.Concat(GetCacheKeySha256(cacheKey), ".json"));
+    public string GetPath(string cacheKey) => CacheFile.BuildPath(Root, CacheFile.GetCacheKeySha256(cacheKey));
 
     /// <summary>
     /// Calculates the cache key hash used for cache file names and report metadata.
     /// </summary>
     /// <param name="cacheKey">The logical package metadata cache key.</param>
     /// <returns>The lower-case SHA-256 cache key hash.</returns>
-    public static string GetCacheKeySha256(string cacheKey) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheKey))).ToLowerInvariant();
+    public static string GetCacheKeySha256(string cacheKey) => CacheFile.GetCacheKeySha256(cacheKey);
 
-    private static bool IsValidVersion1(JsonElement root, string requestedCacheKey)
-    {
-        if (root.ValueKind != JsonValueKind.Object
-            || !root.TryGetProperty("SchemaVersion", out var schemaVersion)
-            || !schemaVersion.TryGetInt32(out var version)
-            || version != 1
-            || !TryGetString(root, "CacheKey", out var cacheKey)
-            || !string.Equals(cacheKey, requestedCacheKey, StringComparison.Ordinal)
-            || !TryGetString(root, "CacheKeySha256", out var cacheKeySha256)
-            || !string.Equals(cacheKeySha256, GetCacheKeySha256(cacheKey), StringComparison.Ordinal)
-            || !TryGetString(root, "Source", out _)
-            || !TryGetString(root, "RawLicense", out _)
-            || !TryGetString(root, "RepositoryUrl", out var repositoryUrl)
-            || !IsSafeRepositoryReference(repositoryUrl)
-            || root.TryGetProperty("RepositoryRef", out var repositoryRef)
-                && (repositoryRef.ValueKind != JsonValueKind.String || !IsSafeRepositoryRef(repositoryRef.GetString()!))
-            || !TryGetString(root, "FetchedAt", out var fetchedAtText)
-            || !HasExplicitUtcOffset(fetchedAtText)
-            || !root.GetProperty("FetchedAt").TryGetDateTimeOffset(out var fetchedAt)
-            || fetchedAt.Offset != TimeSpan.Zero)
-        {
-            return false;
-        }
-
-        return IsStringArray(root, "Warnings") && IsStringArray(root, "Errors");
-    }
-
-    private static bool HasExplicitUtcOffset(string value)
-        => value.EndsWith('Z') || value.EndsWith("+00:00", StringComparison.Ordinal);
+    private static bool HasExplicitUtcOffset(ReadOnlySpan<byte> value)
+        => value.EndsWith("Z"u8) || value.EndsWith("+00:00"u8);
 
     private static bool IsSafeRepositoryReference(string value)
     {
@@ -222,35 +392,6 @@ public sealed class PackageMetadataCache(string root)
         return at > 0 && value.AsSpan(at + 1).Contains(':');
     }
 
-    private static bool TryGetString(JsonElement root, string propertyName, out string value)
-    {
-        if (root.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String)
-        {
-            value = property.GetString()!;
-            return true;
-        }
-
-        value = string.Empty;
-        return false;
-    }
-
-    private static bool IsStringArray(JsonElement root, string propertyName)
-    {
-        if (!root.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.Array)
-        {
-            return false;
-        }
-
-        foreach (var item in property.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.String)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
 }
 
 /// <summary>

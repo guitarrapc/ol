@@ -206,7 +206,7 @@ public sealed class SourceRepositoryTests
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["MIT"], []);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
-        using var workspace = CreateWorkspace(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
+        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
 
         try
@@ -228,7 +228,7 @@ public sealed class SourceRepositoryTests
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-refresh-{Guid.NewGuid():N}");
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
-        using var workspace = CreateWorkspace(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
+        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("Apache-2.0", "apache-2.0", "Apache", "LICENSE", "old", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["Apache-2.0", "MIT"], []);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
@@ -258,7 +258,7 @@ public sealed class SourceRepositoryTests
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-invalid-{Guid.NewGuid():N}");
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
-        using var workspace = CreateWorkspace(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
+        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         Directory.CreateDirectory(sourceCache.Root);
         await File.WriteAllTextAsync(sourceCache.GetPath(target.CacheKey), "{ invalid json");
         var index = new SpdxLicenseIndex(["MIT"], []);
@@ -290,7 +290,7 @@ public sealed class SourceRepositoryTests
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-write-failure-{Guid.NewGuid():N}");
         var invalidSourceRoot = Path.Combine(root, "source-is-a-file");
-        using var workspace = CreateWorkspace(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
+        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         Directory.CreateDirectory(root);
         await File.WriteAllTextAsync(invalidSourceRoot, "not a directory");
         var index = new SpdxLicenseIndex(["MIT"], []);
@@ -360,6 +360,96 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Cache_GetPath_RootSeparatorVariants_MatchesCombinedHashName()
+    {
+        const string cacheKey = "github:owner/repository@default";
+        var fileName = string.Concat(SourceRepositoryCache.GetCacheKeySha256(cacheKey), ".json");
+        var directory = Path.Combine(Path.GetTempPath(), "ol-source-cache-path");
+
+        await Assert.That(new SourceRepositoryCache(directory).GetPath(cacheKey)).IsEqualTo(Path.Combine(directory, fileName));
+        await Assert.That(new SourceRepositoryCache(directory + Path.DirectorySeparatorChar).GetPath(cacheKey)).IsEqualTo(Path.Combine(directory + Path.DirectorySeparatorChar, fileName));
+        await Assert.That(new SourceRepositoryCache(string.Empty).GetPath(cacheKey)).IsEqualTo(fileName);
+    }
+
+    [Test]
+    public async Task Cache_Read_EmptyEntryFile_ReportsInvalid()
+    {
+        await AssertSyncReadMatchesAsync(string.Empty, SourceRepositoryCacheReadStatus.Invalid);
+    }
+
+    [Test]
+    public async Task Cache_Read_MissingRequiredProperties_ReportsInvalid()
+    {
+        // Renaming a property removes it without depending on the fixture's line endings.
+        foreach (var required in new[] { "SchemaVersion", "CacheKeySha256", "AuthMode", "Repository", "Ref", "HttpStatus", "License", "Warnings", "Errors", "FetchedAt" })
+        {
+            var json = CreateSourceCacheJson().Replace($"\"{required}\":", $"\"Absent{required}\":", StringComparison.Ordinal);
+
+            await AssertSyncReadMatchesAsync(json, SourceRepositoryCacheReadStatus.Invalid);
+        }
+    }
+
+    [Test]
+    public async Task Cache_Read_UnknownSchemaVersionOrMismatchedKeyHash_ReportsInvalid()
+    {
+        await AssertSyncReadMatchesAsync(CreateSourceCacheJson().Replace("\"SchemaVersion\": 1", "\"SchemaVersion\": 2", StringComparison.Ordinal), SourceRepositoryCacheReadStatus.Invalid);
+        await AssertSyncReadMatchesAsync(CreateSourceCacheJson().Replace(SourceRepositoryCache.GetCacheKeySha256("github:owner/repository@default"), new string('0', 64), StringComparison.Ordinal), SourceRepositoryCacheReadStatus.Invalid);
+    }
+
+    [Test]
+    public async Task Cache_Read_UnsupportedAuthModeOrEmptyTarget_ReportsInvalid()
+    {
+        await AssertSyncReadMatchesAsync(CreateSourceCacheJson().Replace("\"AuthMode\": \"none\"", "\"AuthMode\": \"github_token\"", StringComparison.Ordinal), SourceRepositoryCacheReadStatus.Invalid);
+        await AssertSyncReadMatchesAsync(CreateSourceCacheJson().Replace("\"Repository\": \"owner/repository\"", "\"Repository\": \"\"", StringComparison.Ordinal), SourceRepositoryCacheReadStatus.Invalid);
+        await AssertSyncReadMatchesAsync(CreateSourceCacheJson().Replace("\"Ref\": \"default\"", "\"Ref\": \"\"", StringComparison.Ordinal), SourceRepositoryCacheReadStatus.Invalid);
+        await AssertSyncReadMatchesAsync(CreateSourceCacheJson().Replace("\"FetchedAt\": \"2026-07-08T00:00:00+00:00\"", "\"FetchedAt\": \"2026-07-08T00:00:00+09:00\"", StringComparison.Ordinal), SourceRepositoryCacheReadStatus.Invalid);
+    }
+
+    [Test]
+    public async Task Cache_Read_LicenseAndWarningsContent_IsRetained()
+    {
+        const string cacheKey = "github:owner/repository@default";
+        var json = CreateSourceCacheJson()
+            .Replace("\"License\": null", "\"License\": { \"SpdxId\": \"MIT\", \"Key\": \"mit\", \"Name\": \"MIT License\", \"Path\": \"LICENSE\", \"Sha\": \"abc\", \"HtmlUrl\": \"https://example.test/LICENSE\" }", StringComparison.Ordinal)
+            .Replace("\"Warnings\": []", "\"Warnings\": [\"source_repository_cache_invalid\"]", StringComparison.Ordinal);
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new SourceRepositoryCache(root);
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
+
+            var read = cache.Read(cacheKey);
+
+            await Assert.That(read.Status).IsEqualTo(SourceRepositoryCacheReadStatus.Hit);
+            await Assert.That(read.Record!.Value.Repository).IsEqualTo("owner/repository");
+            await Assert.That(read.Record.Value.Ref).IsEqualTo("default");
+            await Assert.That(read.Record.Value.AuthMode).IsEqualTo("none");
+            await Assert.That(read.Record.Value.HttpStatus).IsEqualTo(HttpStatusCode.OK);
+            await Assert.That(read.Record.Value.License!.Value.SpdxId).IsEqualTo("MIT");
+            await Assert.That(read.Record.Value.License.Value.Key).IsEqualTo("mit");
+            await Assert.That(read.Record.Value.License.Value.Name).IsEqualTo("MIT License");
+            await Assert.That(read.Record.Value.License.Value.Path).IsEqualTo("LICENSE");
+            await Assert.That(read.Record.Value.License.Value.Sha).IsEqualTo("abc");
+            await Assert.That(read.Record.Value.License.Value.HtmlUrl).IsEqualTo("https://example.test/LICENSE");
+            await Assert.That(read.Record.Value.Warnings).IsEquivalentTo(new[] { "source_repository_cache_invalid" });
+            await Assert.That(read.Record.Value.Errors).IsEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Cache_Read_UnknownProperty_RemainsCompatibleHit()
+    {
+        var json = CreateSourceCacheJson().Replace("\"Warnings\": []", "\"Unknown\": { \"nested\": [1, 2] },\n  \"Warnings\": []", StringComparison.Ordinal);
+
+        await AssertSyncReadMatchesAsync(json, SourceRepositoryCacheReadStatus.Hit);
+    }
+
+    [Test]
     public async Task Cache_Read_MissingCacheRoot_ReportsMissingWithoutThrowing()
     {
         var cache = new SourceRepositoryCache(Path.Combine(Path.GetTempPath(), $"ol-source-cache-{Guid.NewGuid():N}"));
@@ -367,10 +457,10 @@ public sealed class SourceRepositoryTests
         await Assert.That(cache.Read("github:owner/repository@default").Status).IsEqualTo(SourceRepositoryCacheReadStatus.Missing);
     }
 
-    private static PackageMetadataWorkspace CreateWorkspace(PackageMetadataRecord? record)
+    private static PackageMetadataWorkspace CreateWorkspace(PackageMetadataResolution? resolution)
     {
         var workspace = new PackageMetadataWorkspace(1);
-        workspace.Records[0] = record;
+        workspace.Records[0] = resolution;
         return workspace;
     }
 
@@ -389,8 +479,8 @@ public sealed class SourceRepositoryTests
 
             await Assert.That(read.Status).IsEqualTo(expected);
             await Assert.That(read.Status).IsEqualTo(readAsync.Status);
-            await Assert.That(read.Record.HasValue).IsFalse();
-            await Assert.That(readAsync.Record.HasValue).IsFalse();
+            await Assert.That(read.Record.HasValue).IsEqualTo(expected == SourceRepositoryCacheReadStatus.Hit);
+            await Assert.That(readAsync.Record.HasValue).IsEqualTo(expected == SourceRepositoryCacheReadStatus.Hit);
         }
         finally
         {
@@ -401,7 +491,9 @@ public sealed class SourceRepositoryTests
     private static string CreateSourceCacheJson(string cacheKey = "github:owner/repository@default", string source = "github-license-api")
         => $$"""
             {
+              "SchemaVersion": 1,
               "CacheKey": "{{cacheKey}}",
+              "CacheKeySha256": "{{SourceRepositoryCache.GetCacheKeySha256("github:owner/repository@default")}}",
               "Source": "{{source}}",
               "AuthMode": "none",
               "Repository": "owner/repository",

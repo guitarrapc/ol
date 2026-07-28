@@ -28,7 +28,7 @@ public sealed class PackageMetadataTests
     public async Task MetadataWorkspace_AfterDisposal_RejectsAccessInsteadOfReadingReturnedRental()
     {
         var workspace = new PackageMetadataWorkspace(2);
-        SetFirstRecord(workspace, new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+        SetFirstRecord(workspace, new PackageMetadataResolution("pkg:npm/example@1.0.0", string.Empty, string.Empty));
 
         await Assert.That(GetRecordCount(workspace)).IsEqualTo(2);
 
@@ -53,7 +53,7 @@ public sealed class PackageMetadataTests
 
     private static int GetRecordCount(PackageMetadataWorkspace workspace) => workspace.Records.Length;
 
-    private static void SetFirstRecord(PackageMetadataWorkspace workspace, PackageMetadataRecord? record) => workspace.Records[0] = record;
+    private static void SetFirstRecord(PackageMetadataWorkspace workspace, PackageMetadataResolution? resolution) => workspace.Records[0] = resolution;
 
     [Test]
     public async Task Fetch_RegisteredProvider_ParsesItsPurlAndOwnResponseWithoutCentralSwitches()
@@ -109,11 +109,11 @@ public sealed class PackageMetadataTests
             var cache = new PackageMetadataCache(root);
             await cache.WriteAsync(record);
 
-            var read = await cache.TryReadAsync(request.CacheKey);
+            using var read = await cache.TryReadAsync(request.CacheKey);
 
-            await Assert.That(read.HasValue).IsTrue();
-            await Assert.That(read!.Value.CacheKey).IsEqualTo(request.CacheKey);
-            await Assert.That(read.Value.RawLicense).IsEqualTo("MIT");
+            await Assert.That(read.IsHit).IsTrue();
+            await Assert.That(read.CacheKeySha256).IsEqualTo(PackageMetadataCache.GetCacheKeySha256(request.CacheKey));
+            await Assert.That(read.RawLicense.ToString()).IsEqualTo("MIT");
             await Assert.That(Directory.GetFiles(root, "*.json")[0]).DoesNotContain("example");
 
             using var document = JsonDocument.Parse(await File.ReadAllBytesAsync(cache.GetPath(request.CacheKey)));
@@ -183,6 +183,68 @@ public sealed class PackageMetadataTests
         var json = CreatePackageCacheJson().Replace("pkg:npm/example@1.0.0", "pkg:npm/other@1.0.0", StringComparison.Ordinal);
 
         await AssertCacheEntryIsMiss(json);
+    }
+
+    [Test]
+    public async Task Cache_MissingRequiredErrors_TreatsEntryAsMiss()
+    {
+        var json = CreatePackageCacheJson().Replace("\n  \"Errors\": [],", string.Empty, StringComparison.Ordinal);
+
+        await AssertCacheEntryIsMiss(json);
+    }
+
+    [Test]
+    public async Task Cache_UnsafeRepositoryUrl_TreatsEntryAsMiss()
+    {
+        var credentials = CreatePackageCacheJson().Replace("https://example.test/repository", "https://user:secret@example.test/repository", StringComparison.Ordinal);
+        var localPath = CreatePackageCacheJson().Replace("https://example.test/repository", "file:///tmp/repository", StringComparison.Ordinal);
+
+        await AssertCacheEntryIsMiss(credentials);
+        await AssertCacheEntryIsMiss(localPath);
+    }
+
+    [Test]
+    public async Task Cache_UnknownProperty_RemainsCompatibleHit()
+    {
+        var json = CreatePackageCacheJson().Replace("\"Warnings\": []", "\"Unknown\": { \"nested\": [1, 2] },\n  \"Warnings\": []", StringComparison.Ordinal);
+
+        await AssertCacheEntryRawLicense(json, "MIT");
+    }
+
+    [Test]
+    public async Task Cache_EscapedLicenseValue_IsUnescaped()
+    {
+        var json = CreatePackageCacheJson().Replace("\"RawLicense\": \"MIT\"", "\"RawLicense\": \"MIT \\u0026 Apache-2.0\"", StringComparison.Ordinal);
+
+        await AssertCacheEntryRawLicense(json, "MIT & Apache-2.0");
+    }
+
+    [Test]
+    public async Task Enrichment_CachedEntryWithWarnings_RetainsThemOnTheComponent()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:npm/example@1.0.0";
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            await cache.WriteAsync(new PackageMetadataRecord(purl, "npm-registry", "MIT", string.Empty, ["package_metadata_fetch_failed"], []));
+            var index = new SpdxLicenseIndex(["MIT"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(enrichment.Components[0].Warnings).Contains("package_metadata_fetch_failed");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 
     [Test]
@@ -473,15 +535,18 @@ public sealed class PackageMetadataTests
             var cache = new PackageMetadataCache(root);
             await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "https://example.test/repository", [], [], DateTimeOffset.UtcNow, "0123456789abcdef"));
 
-            var read = cache.TryRead(cacheKey);
-            var readAsync = await cache.TryReadAsync(cacheKey);
+            using var read = cache.TryRead(cacheKey);
+            using var readAsync = await cache.TryReadAsync(cacheKey);
 
-            await Assert.That(read.HasValue).IsTrue();
-            await Assert.That(read!.Value.CacheKey).IsEqualTo(readAsync!.Value.CacheKey);
-            await Assert.That(read.Value.RawLicense).IsEqualTo(readAsync.Value.RawLicense);
-            await Assert.That(read.Value.RepositoryUrl).IsEqualTo(readAsync.Value.RepositoryUrl);
-            await Assert.That(read.Value.RepositoryRef).IsEqualTo(readAsync.Value.RepositoryRef);
-            await Assert.That(read.Value.FetchedAt).IsEqualTo(readAsync.Value.FetchedAt);
+            await Assert.That(read.IsHit).IsTrue();
+            await Assert.That(read.CacheKeySha256).IsEqualTo(readAsync.CacheKeySha256);
+            await Assert.That(read.Source.ToString()).IsEqualTo(readAsync.Source.ToString());
+            await Assert.That(read.RawLicense.ToString()).IsEqualTo(readAsync.RawLicense.ToString());
+            await Assert.That(read.RepositoryUrl).IsEqualTo(readAsync.RepositoryUrl);
+            await Assert.That(read.RepositoryRef).IsEqualTo(readAsync.RepositoryRef);
+            await Assert.That(read.FetchedAt).IsEqualTo(readAsync.FetchedAt);
+            await Assert.That(read.RawLicense.ToString()).IsEqualTo("MIT");
+            await Assert.That(read.RepositoryRef).IsEqualTo("0123456789abcdef");
         }
         finally
         {
@@ -502,11 +567,31 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Cache_GetPath_RootSeparatorVariants_MatchesCombinedHashName()
+    {
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var fileName = string.Concat(PackageMetadataCache.GetCacheKeySha256(cacheKey), ".json");
+        var directory = Path.Combine(Path.GetTempPath(), "ol-package-cache-path");
+
+        await Assert.That(new PackageMetadataCache(directory).GetPath(cacheKey)).IsEqualTo(Path.Combine(directory, fileName));
+        await Assert.That(new PackageMetadataCache(directory + Path.DirectorySeparatorChar).GetPath(cacheKey)).IsEqualTo(Path.Combine(directory + Path.DirectorySeparatorChar, fileName));
+        await Assert.That(new PackageMetadataCache(string.Empty).GetPath(cacheKey)).IsEqualTo(fileName);
+    }
+
+    [Test]
+    public async Task Cache_TryRead_EmptyEntryFile_ReportsMiss()
+    {
+        await AssertSyncReadMatchesAsyncMiss(string.Empty);
+    }
+
+    [Test]
     public async Task Cache_TryRead_MissingCacheRoot_ReportsMissWithoutThrowing()
     {
         var cache = new PackageMetadataCache(Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}"));
 
-        await Assert.That(cache.TryRead("pkg:npm/example@1.0.0").HasValue).IsFalse();
+        using var read = cache.TryRead("pkg:npm/example@1.0.0");
+
+        await Assert.That(read.IsHit).IsFalse();
     }
 
     [Test]
@@ -565,7 +650,7 @@ public sealed class PackageMetadataTests
         await Assert.That(GetRecord(emptyWorkspace, 0).HasValue).IsFalse();
     }
 
-    private static PackageMetadataRecord? GetRecord(PackageMetadataWorkspace workspace, int index) => workspace.Records[index];
+    private static PackageMetadataResolution? GetRecord(PackageMetadataWorkspace workspace, int index) => workspace.Records[index];
 
     private static ScanComponent CreateEnrichmentComponent(SpdxLicenseIndex index, Utf8Slice purl)
         => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
@@ -583,11 +668,11 @@ public sealed class PackageMetadataTests
                 await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
             }
 
-            var read = cache.TryRead(cacheKey);
-            var readAsync = await cache.TryReadAsync(cacheKey);
+            using var read = cache.TryRead(cacheKey);
+            using var readAsync = await cache.TryReadAsync(cacheKey);
 
-            await Assert.That(read.HasValue).IsFalse();
-            await Assert.That(readAsync.HasValue).IsFalse();
+            await Assert.That(read.IsHit).IsFalse();
+            await Assert.That(readAsync.IsHit).IsFalse();
         }
         finally
         {
@@ -619,6 +704,30 @@ public sealed class PackageMetadataTests
             """;
     }
 
+    private static async Task AssertCacheEntryRawLicense(string json, string expected)
+    {
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
+
+            using var read = await cache.TryReadAsync(cacheKey);
+
+            await Assert.That(read.IsHit).IsTrue();
+            await Assert.That(read.RawLicense.ToString()).IsEqualTo(expected);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     private static async Task AssertCacheEntryIsMiss(string json)
     {
         const string cacheKey = "pkg:npm/example@1.0.0";
@@ -629,9 +738,9 @@ public sealed class PackageMetadataTests
             Directory.CreateDirectory(root);
             await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
 
-            var read = await cache.TryReadAsync(cacheKey);
+            using var read = await cache.TryReadAsync(cacheKey);
 
-            await Assert.That(read.HasValue).IsFalse();
+            await Assert.That(read.IsHit).IsFalse();
         }
         finally
         {

@@ -71,10 +71,13 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
             return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateUnsupportedPurlResult(purl), concurrency, lookupCount: 0));
         }
 
-        if (!refresh && cache.TryRead(request.CacheKey) is { } cachedRecord)
+        if (!refresh)
         {
-            var cacheHit = new PackageMetadataLookupResult(cachedRecord, CreateMetadataCandidate(cachedRecord), true, true, false, false, false, false);
-            return ValueTask.FromResult(ApplySingleLookup(components, workspace, cacheHit, concurrency, lookupCount: 1));
+            using var entry = cache.TryRead(request.CacheKey);
+            if (entry.IsHit)
+            {
+                return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateCacheHit(request, entry), concurrency, lookupCount: 1));
+            }
         }
 
         return FetchSingleLookupAsync(components, workspace, request, concurrency, cancellationToken);
@@ -98,7 +101,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         int concurrency,
         int lookupCount)
     {
-        workspace.Records[0] = result.Record;
+        workspace.Records[0] = result.Resolution;
         components[0] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[0], result.Candidate) : components[0];
         return (
             components,
@@ -257,7 +260,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
             var result = lookupIndex >= 0
                 ? lookupResults[lookupIndex]
                 : components[i].Purl.IsEmpty ? default : CreateUnsupportedPurlResult(components[i].Purl);
-            records[i] = result.Record;
+            records[i] = result.Resolution;
             components[i] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];
             supported += result.Supported ? 1 : 0;
             hits += result.CacheHit ? 1 : 0;
@@ -274,15 +277,27 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
     {
         if (!refresh)
         {
-            var cached = await cache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false);
-            if (cached is { } record)
+            using var entry = await cache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false);
+            if (entry.IsHit)
             {
-                return new PackageMetadataLookupResult(record, CreateMetadataCandidate(record), true, true, false, false, false, false);
+                return CreateCacheHit(request, entry);
             }
         }
 
         return await FetchLookupAsync(request, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>Projects a cache entry before its pooled buffer is returned.</summary>
+    private PackageMetadataLookupResult CreateCacheHit(PackageMetadataRequest request, in PackageMetadataCacheEntry entry)
+        => new(
+            new PackageMetadataResolution(request.CacheKey, entry.RepositoryUrl, entry.RepositoryRef),
+            CreateMetadataCandidate(entry),
+            true,
+            true,
+            false,
+            false,
+            false,
+            false);
 
     private async Task<PackageMetadataLookupResult> FetchLookupAsync(PackageMetadataRequest request, CancellationToken cancellationToken)
     {
@@ -290,7 +305,8 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         {
             var record = await PackageMetadataFetchScheduler.FetchAsync(registryClient, request, retryCount, cancellationToken).ConfigureAwait(false);
             await cache.WriteAsync(record, cancellationToken).ConfigureAwait(false);
-            return new PackageMetadataLookupResult(record, CreateMetadataCandidate(record), true, false, true, refresh, false, false);
+            var resolution = new PackageMetadataResolution(record.CacheKey, record.RepositoryUrl, record.RepositoryRef);
+            return new PackageMetadataLookupResult(resolution, CreateMetadataCandidate(record), true, false, true, refresh, false, false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -346,6 +362,16 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         lookups = expanded;
     }
 
+    /// <summary>Creates the candidate for a cached entry without decoding its UTF-8 values.</summary>
+    private LicenseCandidate CreateMetadataCandidate(in PackageMetadataCacheEntry entry)
+    {
+        var evidence = new LicenseEvidence(
+            LicenseEvidenceKind.PackageRegistry,
+            PackageRegistry: new PackageRegistryEvidence(entry.CacheKeySha256, entry.FetchedAt));
+        var candidate = LicenseCandidateFactory.Create(GetCandidateSource(entry.Source.Span), LicenseCandidateKind.License, entry.RawLicense.Span, spdxLicenseIndex, evidence);
+        return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span) };
+    }
+
     private LicenseCandidate CreateMetadataCandidate(PackageMetadataRecord record)
     {
         var evidence = new LicenseEvidence(
@@ -364,12 +390,21 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         _ => LicenseCandidateSource.PackageRegistry,
     };
 
+    private static LicenseCandidateSource GetCandidateSource(ReadOnlySpan<byte> source)
+    {
+        if (source.SequenceEqual("npm-registry"u8)) return LicenseCandidateSource.NpmRegistry;
+        if (source.SequenceEqual("nuget-registry"u8)) return LicenseCandidateSource.NuGetRegistry;
+        if (source.SequenceEqual("cargo-registry"u8)) return LicenseCandidateSource.CargoRegistry;
+        if (source.SequenceEqual("go-module-proxy"u8)) return LicenseCandidateSource.GoModuleProxy;
+        return LicenseCandidateSource.PackageRegistry;
+    }
+
     private readonly record struct PackageMetadataLookup(int Index, PackageMetadataRequest Request);
 
-    private readonly record struct PackageMetadataLookupResult(PackageMetadataRecord? Record, LicenseCandidate Candidate, bool HasCandidate, bool Supported, bool CacheHit, bool CacheMiss, bool Refreshed, bool FetchError, bool Unsupported)
+    private readonly record struct PackageMetadataLookupResult(PackageMetadataResolution? Resolution, LicenseCandidate Candidate, bool HasCandidate, bool Supported, bool CacheHit, bool CacheMiss, bool Refreshed, bool FetchError, bool Unsupported)
     {
-        public PackageMetadataLookupResult(PackageMetadataRecord? record, LicenseCandidate candidate, bool supported, bool cacheHit, bool cacheMiss, bool refreshed, bool fetchError, bool unsupported)
-            : this(record, candidate, true, supported, cacheHit, cacheMiss, refreshed, fetchError, unsupported)
+        public PackageMetadataLookupResult(PackageMetadataResolution? resolution, LicenseCandidate candidate, bool supported, bool cacheHit, bool cacheMiss, bool refreshed, bool fetchError, bool unsupported)
+            : this(resolution, candidate, true, supported, cacheHit, cacheMiss, refreshed, fetchError, unsupported)
         {
         }
     }

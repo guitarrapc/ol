@@ -1,6 +1,4 @@
 ﻿using System.Net;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -13,10 +11,10 @@ public sealed class SourceRepositoryCache(string root)
     public string Root { get; } = root;
 
     /// <summary>Gets the opaque cache path for a logical key.</summary>
-    public string GetPath(string cacheKey) => Path.Combine(Root, string.Concat(GetCacheKeySha256(cacheKey), ".json"));
+    public string GetPath(string cacheKey) => CacheFile.BuildPath(Root, CacheFile.GetCacheKeySha256(cacheKey));
 
     /// <summary>Gets the lower-case SHA-256 of a logical cache key.</summary>
-    public static string GetCacheKeySha256(string cacheKey) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheKey))).ToLowerInvariant();
+    public static string GetCacheKeySha256(string cacheKey) => CacheFile.GetCacheKeySha256(cacheKey);
 
     /// <summary>Reads a compatible source evidence entry, or null when absent or corrupt.</summary>
     public async Task<SourceRepositoryRecord?> TryReadAsync(string cacheKey, CancellationToken cancellationToken = default)
@@ -25,37 +23,295 @@ public sealed class SourceRepositoryCache(string root)
     /// <summary>Reads an entry and distinguishes a cache miss from an invalid entry.</summary>
     public async Task<SourceRepositoryCacheReadResult> ReadAsync(string cacheKey, CancellationToken cancellationToken = default)
     {
-        var path = GetPath(cacheKey);
+        var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey);
+        byte[] content;
+        int length;
         try
         {
-            await using var stream = File.OpenRead(path);
-            var record = await JsonSerializer.DeserializeAsync(stream, SourceRepositoryJsonContext.Default.SourceRepositoryRecord, cancellationToken).ConfigureAwait(false);
-            return record is { } value && IsValid(value, cacheKey)
-                ? new(SourceRepositoryCacheReadStatus.Hit, value)
-                : new(SourceRepositoryCacheReadStatus.Invalid, null);
+            (content, length) = await CacheFile.RentContentAsync(CacheFile.BuildPath(Root, cacheKeySha256), cancellationToken).ConfigureAwait(false);
         }
-        catch (FileNotFoundException) { return new(SourceRepositoryCacheReadStatus.Missing, null); }
-        catch (DirectoryNotFoundException) { return new(SourceRepositoryCacheReadStatus.Missing, null); }
-        catch (JsonException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
         catch (IOException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
+
+        if (length < 0)
+        {
+            return new(SourceRepositoryCacheReadStatus.Missing, null);
+        }
+
+        try
+        {
+            return Parse(content.AsSpan(0, length), cacheKey, cacheKeySha256);
+        }
+        finally
+        {
+            CacheFile.Return(content);
+        }
     }
 
     /// <summary>Reads an entry without asynchronous file access and distinguishes a cache miss from an invalid entry.</summary>
     public SourceRepositoryCacheReadResult Read(string cacheKey)
     {
-        var path = GetPath(cacheKey);
+        var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey);
+        byte[] content;
+        int length;
         try
         {
-            using var stream = File.OpenRead(path);
-            var record = JsonSerializer.Deserialize(stream, SourceRepositoryJsonContext.Default.SourceRepositoryRecord);
-            return record is { } value && IsValid(value, cacheKey)
-                ? new(SourceRepositoryCacheReadStatus.Hit, value)
+            if (!CacheFile.TryRentContent(CacheFile.BuildPath(Root, cacheKeySha256), out content, out length))
+            {
+                return new(SourceRepositoryCacheReadStatus.Missing, null);
+            }
+        }
+        catch (IOException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
+
+        try
+        {
+            return Parse(content.AsSpan(0, length), cacheKey, cacheKeySha256);
+        }
+        finally
+        {
+            CacheFile.Return(content);
+        }
+    }
+
+    /// <summary>
+    /// Validates and materializes one entry in a single pass.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The generated <see cref="JsonSerializer"/> path materializes <c>CacheKey</c>, <c>Source</c>, and
+    /// <c>AuthMode</c> that only ever get compared, and pays constructor-argument overhead for a
+    /// sixteen-parameter record shape. Only the values that reach report evidence are decoded here.
+    /// </para>
+    /// <para>
+    /// This pass also validates the persisted <c>SchemaVersion</c> and <c>CacheKeySha256</c>, which
+    /// specs/cache_format.md requires. The previous reader compared the deserialized record's calculated
+    /// properties instead, and those are never populated from the file, so neither value was checked.
+    /// </para>
+    /// </remarks>
+    private static SourceRepositoryCacheReadResult Parse(ReadOnlySpan<byte> utf8, string cacheKey, string cacheKeySha256)
+    {
+        try
+        {
+            return TryParse(utf8, cacheKey, cacheKeySha256, out var record)
+                ? new(SourceRepositoryCacheReadStatus.Hit, record)
                 : new(SourceRepositoryCacheReadStatus.Invalid, null);
         }
-        catch (FileNotFoundException) { return new(SourceRepositoryCacheReadStatus.Missing, null); }
-        catch (DirectoryNotFoundException) { return new(SourceRepositoryCacheReadStatus.Missing, null); }
         catch (JsonException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
-        catch (IOException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
+    }
+
+    private static bool TryParse(ReadOnlySpan<byte> utf8, string cacheKey, string cacheKeySha256, out SourceRepositoryRecord record)
+    {
+        record = default;
+        var reader = new Utf8JsonReader(utf8);
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+        {
+            return false;
+        }
+
+        var present = CacheField.None;
+        var repository = string.Empty;
+        var repositoryRef = string.Empty;
+        var authMode = string.Empty;
+        HttpStatusCode? httpStatus = null;
+        GitHubLicenseResult? license = null;
+        string[] warnings = [];
+        string[] errors = [];
+        var fetchedAt = default(DateTimeOffset);
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+        {
+            if (reader.TokenType != JsonTokenType.PropertyName)
+            {
+                return false;
+            }
+
+            if (reader.ValueTextEquals("SchemaVersion"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out var version) || version != 1) return false;
+                present |= CacheField.SchemaVersion;
+            }
+            else if (reader.ValueTextEquals("CacheKey"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(cacheKey)) return false;
+                present |= CacheField.CacheKey;
+            }
+            else if (reader.ValueTextEquals("CacheKeySha256"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(cacheKeySha256)) return false;
+                present |= CacheField.CacheKeySha256;
+            }
+            else if (reader.ValueTextEquals("Source"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals("github-license-api"u8)) return false;
+                present |= CacheField.Source;
+            }
+            else if (reader.ValueTextEquals("AuthMode"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.String) return false;
+                if (reader.ValueTextEquals("none"u8)) authMode = "none";
+                else if (reader.ValueTextEquals("ol_github_token"u8)) authMode = "ol_github_token";
+                else return false;
+                present |= CacheField.AuthMode;
+            }
+            else if (reader.ValueTextEquals("Repository"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.String) return false;
+                repository = reader.GetString()!;
+                if (repository.Length == 0) return false;
+                present |= CacheField.Repository;
+            }
+            else if (reader.ValueTextEquals("Ref"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.String) return false;
+                repositoryRef = reader.GetString()!;
+                if (repositoryRef.Length == 0) return false;
+                present |= CacheField.Ref;
+            }
+            else if (reader.ValueTextEquals("HttpStatus"u8))
+            {
+                if (!reader.Read()) return false;
+                if (reader.TokenType == JsonTokenType.Number)
+                {
+                    if (!reader.TryGetInt32(out var status)) return false;
+                    httpStatus = (HttpStatusCode)status;
+                }
+                else if (reader.TokenType != JsonTokenType.Null)
+                {
+                    return false;
+                }
+
+                present |= CacheField.HttpStatus;
+            }
+            else if (reader.ValueTextEquals("License"u8))
+            {
+                if (!TryReadLicense(ref reader, out license)) return false;
+                present |= CacheField.License;
+            }
+            else if (reader.ValueTextEquals("Warnings"u8))
+            {
+                if (!TryReadStringArray(ref reader, out warnings)) return false;
+                present |= CacheField.Warnings;
+            }
+            else if (reader.ValueTextEquals("Errors"u8))
+            {
+                if (!TryReadStringArray(ref reader, out errors)) return false;
+                present |= CacheField.Errors;
+            }
+            else if (reader.ValueTextEquals("FetchedAt"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.String || !reader.TryGetDateTimeOffset(out fetchedAt) || fetchedAt.Offset != TimeSpan.Zero) return false;
+                present |= CacheField.FetchedAt;
+            }
+            else
+            {
+                reader.Read();
+                reader.Skip();
+            }
+        }
+
+        if (present != CacheField.Required)
+        {
+            return false;
+        }
+
+        record = new SourceRepositoryRecord(cacheKey, "github-license-api", authMode, repository, repositoryRef, httpStatus, license, warnings, errors, fetchedAt);
+        return true;
+    }
+
+    private static bool TryReadLicense(ref Utf8JsonReader reader, out GitHubLicenseResult? license)
+    {
+        license = null;
+        if (!reader.Read()) return false;
+        if (reader.TokenType == JsonTokenType.Null) return true;
+        if (reader.TokenType != JsonTokenType.StartObject) return false;
+
+        string? spdxId = null;
+        var key = string.Empty;
+        var name = string.Empty;
+        var path = string.Empty;
+        var sha = string.Empty;
+        var htmlUrl = string.Empty;
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+        {
+            if (reader.TokenType != JsonTokenType.PropertyName) return false;
+
+            if (reader.ValueTextEquals("SpdxId"u8))
+            {
+                if (!reader.Read()) return false;
+                if (reader.TokenType == JsonTokenType.String) spdxId = reader.GetString();
+                else if (reader.TokenType != JsonTokenType.Null) return false;
+            }
+            else if (reader.ValueTextEquals("Key"u8)) { if (!TryReadString(ref reader, out key)) return false; }
+            else if (reader.ValueTextEquals("Name"u8)) { if (!TryReadString(ref reader, out name)) return false; }
+            else if (reader.ValueTextEquals("Path"u8)) { if (!TryReadString(ref reader, out path)) return false; }
+            else if (reader.ValueTextEquals("Sha"u8)) { if (!TryReadString(ref reader, out sha)) return false; }
+            else if (reader.ValueTextEquals("HtmlUrl"u8)) { if (!TryReadString(ref reader, out htmlUrl)) return false; }
+            else
+            {
+                reader.Read();
+                reader.Skip();
+            }
+        }
+
+        license = new GitHubLicenseResult(spdxId, key, name, path, sha, htmlUrl);
+        return true;
+    }
+
+    private static bool TryReadString(ref Utf8JsonReader reader, out string value)
+    {
+        value = string.Empty;
+        if (!reader.Read() || reader.TokenType != JsonTokenType.String) return false;
+        value = reader.GetString()!;
+        return true;
+    }
+
+    /// <summary>Reads a JSON string array into an exactly sized array by counting it from a reader copy first.</summary>
+    private static bool TryReadStringArray(ref Utf8JsonReader reader, out string[] values)
+    {
+        values = [];
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartArray) return false;
+
+        var counter = reader;
+        var count = 0;
+        while (counter.Read() && counter.TokenType != JsonTokenType.EndArray)
+        {
+            if (counter.TokenType != JsonTokenType.String) return false;
+            count++;
+        }
+
+        if (counter.TokenType != JsonTokenType.EndArray) return false;
+        if (count != 0)
+        {
+            var result = new string[count];
+            for (var i = 0; i < count; i++)
+            {
+                reader.Read();
+                result[i] = reader.GetString()!;
+            }
+
+            values = result;
+        }
+
+        reader = counter;
+        return true;
+    }
+
+    /// <summary>Tracks the properties that specs/cache_format.md requires of a source entry.</summary>
+    [Flags]
+    private enum CacheField : ushort
+    {
+        None = 0,
+        SchemaVersion = 1 << 0,
+        CacheKey = 1 << 1,
+        CacheKeySha256 = 1 << 2,
+        Source = 1 << 3,
+        AuthMode = 1 << 4,
+        Repository = 1 << 5,
+        Ref = 1 << 6,
+        HttpStatus = 1 << 7,
+        License = 1 << 8,
+        Warnings = 1 << 9,
+        Errors = 1 << 10,
+        FetchedAt = 1 << 11,
+        Required = SchemaVersion | CacheKey | CacheKeySha256 | Source | AuthMode | Repository | Ref | HttpStatus | License | Warnings | Errors | FetchedAt,
     }
 
     /// <summary>Writes a normalized source evidence entry.</summary>
@@ -78,10 +334,10 @@ public sealed class SourceRepositoryCache(string root)
         if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);
     }
 
+    /// <summary>Validates a record on the write path. Reads validate the persisted JSON instead.</summary>
     private static bool IsValid(SourceRepositoryRecord record, string requestedKey)
         => record.SchemaVersion == 1
             && string.Equals(record.CacheKey, requestedKey, StringComparison.Ordinal)
-            && string.Equals(record.CacheKeySha256, GetCacheKeySha256(record.CacheKey), StringComparison.Ordinal)
             && record.Source == "github-license-api"
             && (record.AuthMode == "none" || record.AuthMode == "ol_github_token")
             && record.Repository.Length > 0

@@ -2,7 +2,6 @@
 using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
-using Ol.Core.PackageMetadata;
 using Ol.Core.SourceRepository;
 using Ol.Core.Spdx;
 

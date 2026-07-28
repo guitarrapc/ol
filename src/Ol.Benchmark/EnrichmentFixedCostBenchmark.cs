@@ -35,7 +35,7 @@ public class EnrichmentFixedCostBenchmark : IDisposable
         sourceService = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
         packageTemplate = CreateComponent(index, "pkg:npm/example@1.0.0");
         sourceCachedTemplate = CreateComponent(index, "pkg:npm/source-cached@1.0.0");
-        sourceCachedWorkspace.Records[0] = new PackageMetadataRecord("pkg:npm/source-cached@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []);
+        sourceCachedWorkspace.Records[0] = new PackageMetadataResolution("pkg:npm/source-cached@1.0.0", "https://github.com/owner/repository", string.Empty);
         sourceTemplate = CreateComponent(index, "pkg:npm/source@1.0.0");
     }
 

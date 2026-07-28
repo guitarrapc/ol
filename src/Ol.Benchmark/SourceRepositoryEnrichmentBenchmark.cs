@@ -17,7 +17,7 @@ public class SourceRepositoryEnrichmentBenchmark : IDisposable
     {
         root = Path.Combine(Path.GetTempPath(), $"ol-source-benchmark-{Guid.NewGuid():N}");
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
-        var metadata = new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []);
+        var metadata = new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty);
         var target = new SourceRepositoryTarget("owner", "repository", "default");
         sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, System.Net.HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty), [], [])).GetAwaiter().GetResult();
         var index = new SpdxLicenseIndex(["MIT"], []);

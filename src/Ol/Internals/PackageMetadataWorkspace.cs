@@ -1,7 +1,14 @@
-using System.Buffers;
-using Ol.Core.PackageMetadata;
+﻿using System.Buffers;
 
 namespace Ol.Internals;
+
+/// <summary>
+/// Contains the package-metadata facts one component carries into the source repository stage.
+/// </summary>
+/// <param name="CacheKey">The logical package identity that produced the metadata.</param>
+/// <param name="RepositoryUrl">The repository URL for source evidence planning, or an empty value.</param>
+/// <param name="RepositoryRef">The repository commit or ref mapped to this package version.</param>
+internal readonly record struct PackageMetadataResolution(string CacheKey, string RepositoryUrl, string RepositoryRef);
 
 /// <summary>
 /// Owns the pooled per-component package metadata records that the enrichment stages share.
@@ -14,14 +21,14 @@ namespace Ol.Internals;
 /// </remarks>
 internal sealed class PackageMetadataWorkspace : IDisposable
 {
-    private PackageMetadataRecord?[]? records;
+    private PackageMetadataResolution?[]? records;
 
     /// <summary>Rents a workspace covering every component of one scan.</summary>
     /// <param name="componentCount">The number of components the workspace must cover.</param>
     public PackageMetadataWorkspace(int componentCount)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(componentCount);
-        records = ArrayPool<PackageMetadataRecord?>.Shared.Rent(Math.Max(componentCount, 1));
+        records = ArrayPool<PackageMetadataResolution?>.Shared.Rent(Math.Max(componentCount, 1));
         Length = componentCount;
     }
 
@@ -30,7 +37,7 @@ internal sealed class PackageMetadataWorkspace : IDisposable
 
     /// <summary>Gets the per-component records for the duration of one synchronous region.</summary>
     /// <exception cref="ObjectDisposedException">The rental has already been returned.</exception>
-    public Span<PackageMetadataRecord?> Records
+    public Span<PackageMetadataResolution?> Records
         => (records ?? throw new ObjectDisposedException(nameof(PackageMetadataWorkspace))).AsSpan(0, Length);
 
     /// <summary>Returns the rental and invalidates every later access.</summary>
@@ -44,6 +51,6 @@ internal sealed class PackageMetadataWorkspace : IDisposable
 
         records = null;
         returned.AsSpan(0, Length).Clear();
-        ArrayPool<PackageMetadataRecord?>.Shared.Return(returned);
+        ArrayPool<PackageMetadataResolution?>.Shared.Return(returned);
     }
 }

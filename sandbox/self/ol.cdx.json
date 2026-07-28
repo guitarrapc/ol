@@ -1257,20 +1257,20 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "bom-ref": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
       "authors": [
         {
           "name": "Microsoft"
         }
       ],
-      "name": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+      "name": "runtime.linux-x64.Microsoft.DotNet.ILCompiler",
       "version": "10.0.9",
       "description": "Internal implementation package not meant for direct consumption. Please do not reference directly. \nProvides a native AOT compiler and runtime for .NET",
       "scope": "required",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "FB57736223F615F33104F5893988322B3820B610B2107176E5A3849449AF639DA75A282B7CE1844EF7A7B81DFD48D6EBE80F8D83D976DE7754ECBE449EA08B25"
+          "content": "3F39B86E5EBAB7654925A5829C09CEB95339A4ED9F628E713482A25BF5C06DA475894D9563DD8B6B1990CFD710BC98B9A9B26A964956A55B24213899F6F3DC9F"
         }
       ],
       "licenses": [
@@ -1281,7 +1281,7 @@
         }
       ],
       "copyright": "© Microsoft Corporation. All rights reserved.",
-      "purl": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
       "externalReferences": [
         {
           "url": "https://dot.net/",
@@ -1749,7 +1749,7 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "ref": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
       "dependsOn": []
     },
     {

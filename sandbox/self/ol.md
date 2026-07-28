@@ -43,4 +43,4 @@
 | TUnit.Assertions | 1.12.111 | MIT | nuget | transitive | matched |
 | TUnit.Core | 1.12.111 | MIT | nuget | transitive | matched |
 | TUnit.Engine | 1.12.111 | MIT | nuget | transitive | matched |
-| runtime.win-x64.Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | unknown | matched |
+| runtime.linux-x64.Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | unknown | matched |

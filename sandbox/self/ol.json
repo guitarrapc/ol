@@ -6,13 +6,13 @@
       "kind": "sbom",
       "format": "cyclonedx",
       "sourceRef": "ol.cdx.json",
-      "sourceSha256": "81c7fa31b71c376ad43ca82fe7b94e9144992860615aa1eea33ef70b0085b100",
+      "sourceSha256": "91626a5742004dd13e24766e6b6d510aca165602e3ffc93d172bec65e53af4a5",
       "parser": "cyclonedx-json",
       "specificationVersion": "1.7",
       "sbomRef": "ol.cdx.json",
       "sbomFormat": "CycloneDX",
       "sbomSpecVersion": "1.7",
-      "sbomSha256": "81c7fa31b71c376ad43ca82fe7b94e9144992860615aa1eea33ef70b0085b100"
+      "sbomSha256": "91626a5742004dd13e24766e6b6d510aca165602e3ffc93d172bec65e53af4a5"
     },
     "spdx": {
       "source": "bundled",
@@ -320,12 +320,12 @@
         "sourceId": "pkg:nuget/Pragmastat@3.2.4"
       },
       {
-        "name": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+        "name": "runtime.linux-x64.Microsoft.DotNet.ILCompiler",
         "version": "10.0.9",
         "ecosystem": "nuget",
         "dependency": "unknown",
-        "purl": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
-        "sourceId": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9"
+        "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+        "sourceId": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9"
       },
       {
         "name": "System.CodeDom",
@@ -1819,14 +1819,14 @@
       "warnings": []
     },
     {
-      "name": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+      "name": "runtime.linux-x64.Microsoft.DotNet.ILCompiler",
       "version": "10.0.9",
       "license": "MIT",
       "ecosystem": "nuget",
       "dependency": "unknown",
       "status": "matched",
-      "purl": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
-      "sourceId": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "sourceId": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
       "licenseCandidates": [
         {
           "source": "sbom",

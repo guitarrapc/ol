@@ -20,7 +20,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "dotnet build failed." }
     }
 
-    dotnet tool run dotnet-CycloneDX Ol.slnx --output $output --output-format Json --filename (Split-Path -Leaf $generatedSbom) --no-serial-number
+    dotnet tool run dotnet-CycloneDX Ol.slnx --runtime linux-x64 --output $output --output-format Json --filename (Split-Path -Leaf $generatedSbom) --no-serial-number
     if ($LASTEXITCODE -ne 0) { throw "CycloneDX SBOM generation failed." }
 
     $document = Get-Content -Raw $generatedSbom | ConvertFrom-Json

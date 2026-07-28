@@ -1268,6 +1268,35 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithComposerResolvedPairDirectory_CombinesCompanionFilesAsOneInput()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-composer-lock-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "composer.json"), Path.Combine(temporaryDirectory, "composer.json"));
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "composer.lock"), Path.Combine(temporaryDirectory, "composer.lock"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+            await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("composer-lock");
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(5);
+            await Assert.That(inventory.GetProperty("edges").GetArrayLength()).IsEqualTo(5);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithPipInspect_ReportsResolvedEnvironmentWithoutPrivatePaths()
     {
         var root = FindRepositoryRoot();

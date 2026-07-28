@@ -50,6 +50,9 @@ public readonly record struct ScanInputFormat(string Name, string Parser, string
     /// <summary>pip inspect JSON format version 1.</summary>
     public static ScanInputFormat PipInspect { get; } = new("pip-inspect", "pip-inspect-json", "pip inspect");
 
+    /// <summary>Paired Composer root manifest and resolved lock file.</summary>
+    public static ScanInputFormat ComposerLock { get; } = new("composer-lock", "composer-lock-pair", "Composer lock");
+
     /// <summary>A collection containing more than one registered input format.</summary>
     public static ScanInputFormat Collection { get; } = new("collection", "dependency-input-collection", "dependency input collection");
 

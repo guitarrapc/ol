@@ -149,6 +149,15 @@ public sealed class DependencyInputRegistry
             new("installed"u8.ToArray(), DependencyInputMarkerValueKind.Array),
             new("environment"u8.ToArray(), DependencyInputMarkerValueKind.Object),
         }), PipInspectInputParser.Parse, new[] { "pip-inspect.json" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
+        // PHP Composer - Package Manager
+        new(
+            ScanInputKind.PackageManager,
+            ScanInputFormat.ComposerLock,
+            default,
+            null,
+            new[] { "composer.json", "composer.lock" },
+            DependencyComponentIdentityComparison.OrdinalWithSourceId,
+            BundleParser: ComposerLockInputParser.Parse),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>

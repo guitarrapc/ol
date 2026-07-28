@@ -371,14 +371,22 @@ Pythonはpip 23.0以降stableと宣言された`pip inspect` JSON format version
 - Windows sandboxでpip metadataをPowerShell captureするとconsole code pageによって非ASCII metadataが失敗するため、生成scriptは`python -X utf8 -m pip inspect`でUTF-8 modeを明示する。
 - 2 component focused benchmarkではpip inspect ingestionが4.841 µs / 856 B、同じowned result floorが259.3 ns / 856 Bで、parser固有のmanaged allocationは0 Bだった。
 
-### Phase 11: PHP resolved input調査
+### Phase 11: PHP Composer resolved input adapter（完了）
 
+- root `composer.json`とresolved `composer.lock`の同一directory pairを入力とし、manifestやregistryからversion解決を再実装しない。
+- `composer-lock` handlerはexact filename `composer.json`と`composer.lock`、bundle parser、`purl + sourceId` identityを所有する。lock rootには`packages`と`packages-dev`の両配列を要求する。
+- rootの`require`/`require-dev`と各locked packageの`require`からedgeを作る。`provide`/`replace`はproviderが一意な場合だけ解決し、missingまたは複数providerを推測しない。
+- `php`、`hhvm`、`ext-*`、`lib-*`、`composer-*`はplatform requirementとしてcomponent化しない。`packages-dev`はsparse `dev` variant、`plugin-api-version`はcontext variantとして保持する。
+- package nameをlowercase `vendor/name`として検証し、locked versionとの`pkg:composer/{vendor}/{name}@{version}`をenrichment identityにする。lockのlicense arrayはlisted orderのSPDX `OR` dependency-input evidence、`source.url`はrepository hintとして保持する。
+- Packagist providerはversioned Composer purlを検証し、public package JSON APIからrepository metadataを取得する。選択versionのlicenseはversion非固有APIから推測せずlock evidenceを使う。
+- parser token/graph loopは`Utf8JsonReader`、source-backed `Utf8Slice`、pooled node/requirement/link/license/index/depth/edge bufferを使用し、LINQ、regex、transient string、per-edge collection allocationを持たない。
+- 2 component focused benchmarkではComposer pair ingestionが3.680 µs / 896 B、同じowned result floorが255.6 ns / 896 Bで、parser固有のmanaged allocationは0 Bだった。
 
 ### Phase 12: Ruby resolved input調査
 
 ### Phase 13: JVM resolved input調査
 
-- Maven、Gradle、PHP、Rubyはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
+- Maven、Gradle、Rubyはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
 - Maven configuration/scopeとGradle configuration/variantをresolution contextで表現できることを採用条件にする。
 - 安定した標準出力がないecosystemでは、Ol固有portable inventoryを新設せず、既存SBOM生成経路を推奨する選択肢を残す。
 - adapter採用前にdeterminism、Native AOT依存、pathological input、allocation floorを評価する。

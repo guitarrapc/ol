@@ -166,6 +166,28 @@ public class DependencyInputScannerBenchmark
         }
         """);
 
+    private readonly byte[][] composerLock =
+    [
+        Encoding.UTF8.GetBytes(
+            """
+            {
+              "name": "example/app",
+              "require": { "monolog/monolog": "^3.0" }
+            }
+            """),
+        Encoding.UTF8.GetBytes(
+            """
+            {
+              "packages": [
+                { "name": "monolog/monolog", "version": "3.9.0", "require": { "psr/log": "^3.0" }, "license": [ "MIT" ] },
+                { "name": "psr/log", "version": "3.0.2", "license": [ "MIT" ] }
+              ],
+              "packages-dev": [],
+              "plugin-api-version": "2.6.0"
+            }
+            """),
+    ];
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
@@ -201,6 +223,12 @@ public class DependencyInputScannerBenchmark
     private readonly Utf8Slice pythonRequestsVersion = "2.32.4";
     private readonly Utf8Slice pythonUrllibName = "urllib3";
     private readonly Utf8Slice pythonUrllibVersion = "2.5.0";
+    private readonly Utf8Slice composerRoot = "example/app";
+    private readonly Utf8Slice composerMonologName = "monolog/monolog";
+    private readonly Utf8Slice composerMonologVersion = "3.9.0";
+    private readonly Utf8Slice composerPsrLogName = "psr/log";
+    private readonly Utf8Slice composerPsrLogVersion = "3.0.2";
+    private readonly Utf8Slice composerLicense = "MIT";
 
     [Benchmark]
     public DependencyInventory ScanCycloneDx()
@@ -260,6 +288,12 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory ScanPipInspectInventory()
     {
         return DependencyInputScanner.Scan(pipInspect, spdx, expectedFormat: ScanInputFormat.PipInspect);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanComposerLockInventory()
+    {
+        return DependencyInputScanner.ScanBundle(composerLock, spdx, ScanInputFormat.ComposerLock);
     }
 
     [Benchmark]
@@ -362,6 +396,21 @@ public class DependencyInputScannerBenchmark
         return new DependencyInventory(
             default,
             [new DependencyResolutionContext(pythonRoot, pythonTarget, pythonRuntime, pythonPlatform, pythonArchitecture, Utf8Slice.FromOwnedBytes("pip=25.1"u8.ToArray()))],
+            components,
+            [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
+            []);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateComposerLockInventoryResultFloor()
+    {
+        var components = new ScanComponent[2];
+        components[0] = new ScanComponent(composerMonologName, composerMonologVersion, composerLicense, "composer", DependencyType.Direct, LicenseStatus.Matched, Utf8Slice.FromOwnedBytes("pkg:composer/monolog/monolog@3.9.0"u8.ToArray()), Utf8Slice.FromOwnedBytes("monolog/monolog@3.9.0"u8.ToArray()), default, [], []);
+        components[1] = new ScanComponent(composerPsrLogName, composerPsrLogVersion, composerLicense, "composer", DependencyType.Transitive, LicenseStatus.Matched, Utf8Slice.FromOwnedBytes("pkg:composer/psr/log@3.0.2"u8.ToArray()), Utf8Slice.FromOwnedBytes("psr/log@3.0.2"u8.ToArray()), default, [], []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(composerRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("plugin-api=2.6.0"u8.ToArray()))],
             components,
             [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],

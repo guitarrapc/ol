@@ -1,0 +1,76 @@
+{
+  "_readme": [
+    "This file locks the dependencies of your project to a known state"
+  ],
+  "content-hash": "fixture",
+  "packages": [
+    {
+      "name": "monolog/monolog",
+      "version": "3.9.0",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/Seldaek/monolog.git",
+        "reference": "fixture-monolog"
+      },
+      "require": {
+        "php": ">=8.1",
+        "psr/log": "^2.0 || ^3.0"
+      },
+      "license": [
+        "MIT"
+      ]
+    },
+    {
+      "name": "psr/log",
+      "version": "3.0.2",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/php-fig/log.git",
+        "reference": "fixture-psr-log"
+      },
+      "license": [
+        "MIT"
+      ]
+    },
+    {
+      "name": "example/container",
+      "version": "1.1.0",
+      "provide": {
+        "psr/container-implementation": "1.1"
+      },
+      "license": [
+        "Apache-2.0"
+      ]
+    }
+  ],
+  "packages-dev": [
+    {
+      "name": "phpunit/phpunit",
+      "version": "11.5.0",
+      "require": {
+        "php": ">=8.2",
+        "sebastian/version": "^5.0"
+      },
+      "license": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "name": "sebastian/version",
+      "version": "5.0.2",
+      "license": [
+        "BSD-3-Clause"
+      ]
+    }
+  ],
+  "aliases": [],
+  "minimum-stability": "stable",
+  "stability-flags": {},
+  "prefer-stable": false,
+  "prefer-lowest": false,
+  "platform": {
+    "php": "^8.2"
+  },
+  "platform-dev": {},
+  "plugin-api-version": "2.6.0"
+}

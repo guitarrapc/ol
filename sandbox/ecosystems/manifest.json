@@ -30,6 +30,12 @@
       "path": "sandbox/ecosystems/python",
       "package": "idna",
       "metadataSource": "package-registry"
+    },
+    {
+      "ecosystem": "composer",
+      "path": "sandbox/ecosystems/composer",
+      "package": "monolog/monolog",
+      "metadataSource": "packagist-registry"
     }
   ]
 }

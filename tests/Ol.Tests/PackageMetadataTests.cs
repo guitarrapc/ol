@@ -255,7 +255,7 @@ public sealed class PackageMetadataTests
     public async Task Providers_ParseResponse_WithNonObjectRoot_ReturnUnknownMetadataWithoutThrowing()
     {
         using var document = JsonDocument.Parse("\"unexpected\"");
-        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider()];
+        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider(), new PackagistPackageMetadataProvider()];
 
         for (var i = 0; i < providers.Length; i++)
         {
@@ -295,6 +295,22 @@ public sealed class PackageMetadataTests
         await Assert.That(record.Source).IsEqualTo("pypi-registry");
         await Assert.That(record.RawLicense).IsEqualTo("MIT");
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/python");
+    }
+
+    [Test]
+    public async Task Fetch_PackagistResponse_UsesComposerPackageRepositoryMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler("""{ "package": { "repository": "https://github.com/Seldaek/monolog" } }""");
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:composer/monolog/monolog@3.9.0", out var request);
+        await Assert.That(parsed).IsTrue();
+        var record = await client.FetchAsync(request);
+
+        await Assert.That(handler.RequestUris).IsEquivalentTo(["https://packagist.org/packages/monolog/monolog.json"]);
+        await Assert.That(record.Source).IsEqualTo("packagist-registry");
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/Seldaek/monolog");
     }
 
     [Test]

@@ -18,7 +18,7 @@ v2 adds automatic package metadata hints.
 
 ## Current Implementation Status
 
-The implemented v2 behavior plans supported versioned purls, consumes persistent package-metadata cache entries, and fetches registry metadata for cache misses and `--refresh`. It supports npm, NuGet, Cargo, and Go, cache metrics in JSON and stderr summaries, `--refresh`, `--concurrency`, `--retry`, and `ol cache clear` categories.
+The implemented v2 behavior plans supported versioned purls, consumes persistent package-metadata cache entries, and fetches registry metadata for cache misses and `--refresh`. It supports many package providers, cache metrics in JSON and stderr summaries, `--refresh`, `--concurrency`, `--retry`, and `ol cache clear` categories.
 
 Successful fetches overwrite the relevant cache entry. A cache miss or refresh failure records component-scoped `package_metadata_fetch_failed` evidence; existing valid SBOM evidence remains authoritative for the component's final status. Go module proxy metadata provides source references but no license field, so a successful Go lookup without license text contributes unknown evidence rather than a fetch error.
 
@@ -30,7 +30,7 @@ The resolved-input pipeline accepts NuGet `project.assets.json` version 3 or 4 t
 
 The same pipeline accepts npm `package-lock.json` lockfile version 2 or 3 as `npm-package-lock`. Its handler owns recursive discovery of the exact `package-lock.json` name. The adapter consumes the `packages` install tree and never calls a registry to resolve dependency ranges.
 
-pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively. Cargo metadata JSON format version 1 is accepted as `cargo-metadata`, whose handler owns `cargo-metadata.json` discovery. Go's selected-module JSON and module graph are accepted together as `go-module-graph`; its handler owns the exact companion names `go-list-modules.json` and `go-mod-graph.txt`. pip inspect JSON format version 1 is accepted as `pip-inspect`, whose handler owns `pip-inspect.json` discovery.
+pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively. Cargo metadata JSON format version 1 is accepted as `cargo-metadata`, whose handler owns `cargo-metadata.json` discovery. Go's selected-module JSON and module graph are accepted together as `go-module-graph`; its handler owns the exact companion names `go-list-modules.json` and `go-mod-graph.txt`. pip inspect JSON format version 1 is accepted as `pip-inspect`, whose handler owns `pip-inspect.json` discovery. Composer's root manifest and resolved lock are accepted together as `composer-lock`; its handler owns the exact companion names `composer.json` and `composer.lock`.
 
 ## NuGet resolved input
 
@@ -82,6 +82,16 @@ Distribution names are validated and compared using PyPA normalization: ASCII ca
 
 `requested=true` proves a root-to-distribution edge and direct classification. `requested=false` proves transitive classification only with `installer: pip`, whose supported versions generate REQUESTED metadata; false values from other installers and absence remain unknown. An unconditional `requires_dist` entry proves a package-to-package edge when its normalized target exists in the installed set. Marker- or extra-conditional requirements do not produce edges because the inspect report does not identify the extras that activated them. Missing optional targets do not create components. `license_expression` is preferred over legacy `license`; either is classified as dependency-input evidence, not SBOM or registry evidence.
 
+## Composer resolved input
+
+The Composer adapter consumes a root `composer.json` and its resolved `composer.lock` from the same directory. The lock file is the selected package/version inventory; the manifest is read only for root identity and `require`/`require-dev` edges. Ol does not evaluate Composer version constraints, invoke Composer, consult repositories to resolve packages, or validate `content-hash` by reproducing Composer's normalization algorithm.
+
+Entries in `packages` and `packages-dev` become one Composer resolution context. Package names are validated in lowercase `vendor/name` form and paired with the locked version for source identity and canonical `pkg:composer/{vendor}/{name}@{version}` enrichment identity. `packages-dev` occurrences retain a sparse `dev` variant. The optional lock `plugin-api-version` is retained as the context's resolver variant; PHP runtime, extensions, libraries, and the executing host are not inferred as resolved context.
+
+Root and package `require` names resolve directly to a locked package name. A `provide` or `replace` name produces an edge only when exactly one locked package supplies it; multiple providers and missing targets remain unlinked rather than guessed. `php`, `hhvm`, `ext-*`, `lib-*`, and `composer-*` platform requirements never become package components. Proven root reachability determines direct/transitive classification, while locked packages without a proven path remain unknown.
+
+Composer license arrays are interpreted as disjunctive claims in listed order and classified as `dependency-input` evidence with `composer-lock` provenance. A package's lock-file `source.url` is retained as its repository hint. Packagist enrichment for `pkg:composer` uses the public package JSON API for repository metadata; the selected-version license remains supplied by the lock input because the Packagist package endpoint is not version-specific.
+
 ## User Experience
 
 Users should not have to specify package manager or ecosystem manually. The CLI derives the ecosystem from component purl and other SBOM metadata where possible.
@@ -94,14 +104,16 @@ ol scan --input bom.json
 
 The same command gains richer evidence in v2.
 
-## Initial Ecosystem Support
+## Ecosystem Support
 
-Initial v2 package metadata support targets:
+Package metadata support targets:
 
-- npm
-- NuGet
-- Cargo
-- Go modules
+- npm (JavaScript/Node.js)
+- NuGet (.NET)
+- Cargo (Rust)
+- Go modules (Go)
+- pip (Python)
+- Composer (PHP)
 
 Maven and other ecosystems may be added later.
 

@@ -13,6 +13,7 @@ public static class OlDefaults
         new CargoPackageMetadataProvider(),
         new GoPackageMetadataProvider(),
         new PyPiPackageMetadataProvider(),
+        new PackagistPackageMetadataProvider(),
     ]);
 
     /// <summary>Parses a package URL using Ol's built-in package metadata providers.</summary>

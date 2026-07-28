@@ -1,6 +1,6 @@
 ---
 name: performance-requirements
-description: Guidelines for high-performance and memory-efficient transitive OSS license resolution in Ol: dependency inventory and graph ingestion, evidence collection, SPDX validation, license reconciliation, caching/network enrichment, reporting, policy evaluation, and generated SPDX data. Covers allocation control, zero-copy UTF-8 data, pooled buffers, bounded concurrency, and benchmark verification.
+description: Guidelines for high-performance and memory-efficient transitive OSS license resolution in Ol: dependency inventory and graph ingestion, evidence collection, SPDX validation, license reconciliation, caching/network enrichment, reporting, policy evaluation, and generated SPDX data. Covers allocation control, zero-copy UTF-8 data, pooled buffer ownership, bounded concurrency, and benchmark verification.
 ---
 
 # Performance Requirements
@@ -41,7 +41,7 @@ Use disassembly diagnostics when benchmark results indicate that code generation
 - Avoid temporary arrays and collections in repeated component, dependency-edge, evidence-candidate, SPDX, and policy-evaluation loops.
 - Use `Span<T>`/`ReadOnlySpan<T>` for contiguous temporary data where ownership does not escape.
 - Use `stackalloc` only for small buffers with a compile-time or explicitly guarded maximum. Set the limit by total byte size and element type, not by a universal element count; the current SPDX UTF-8 normalization path uses at most 128 `char` values on the stack.
-- Use `ArrayPool<T>.Shared` for larger or dynamically growing temporary buffers, and always return rented arrays in a `finally` block.
+- Use `ArrayPool<T>.Shared` for larger or dynamically growing temporary buffers, and always return rented arrays in a `finally` block. Section 8 governs who may hold the rental and what may cross an API boundary.
 - Allocate owned arrays when they are part of the returned domain result; do not expose pooled arrays from `ScanReport`, `ScanComponent`, or license-candidate results.
 
 Pipeline-specific additions:
@@ -105,7 +105,53 @@ Avoid creating transient `string` values in hot paths. Use `ReadOnlySpan<byte>` 
 
 For component and dependency-edge accumulation during inventory ingestion, rent buffers from `ArrayPool<T>.Shared`, grow geometrically, and return replaced and final buffers. Store `Utf8Slice` offsets into an owned source byte array instead of copying each JSON string. Apply the same discipline to repeated evidence reconciliation and policy working sets. Clear returned arrays when elements contain references, and never let pooled storage escape into the owned report.
 
-### 8. Bounded UTF-8 Normalization Buffers
+### 8. Pooled Buffer Ownership
+
+A rented buffer has exactly one owner: the scope that called `Rent` and is obliged to call `Return`. Whatever crosses an API boundary must make that ownership visible in its type. Rank the options below and take the first one that fits; each later option weakens a guarantee the earlier one gave you.
+
+**Never keep a rented array in a `struct` or `record struct` field.** A struct copies silently — on assignment, argument passing, `with` expressions, array and collection storage, and closure capture. Every copy carries the array reference and none carries the obligation to return it, so a stale copy can read or write a buffer another copy already returned. Nothing throws: the pool hands the same array to an unrelated caller and both sides continue on plausible-looking data, so the corruption surfaces far from its cause as a wrong license verdict rather than a crash.
+
+**`Memory<T>`/`ReadOnlyMemory<T>` over a rented array is that same defect.** It is a copyable struct holding the array, and unlike `Span<T>` it can be stored in a field, captured by a lambda, and hoisted into an async state machine. Passing one across an API boundary silently transfers the buffer somewhere the compiler no longer restricts, so locality degrades from a guarantee to a convention. Do not widen a parameter to `Memory<T>` merely to make a pooled buffer fit through an async signature.
+
+#### First: check whether a shared buffer is needed at all
+
+When a buffer exists only to carry values from one pipeline stage to the next, check whether those values can travel in the owned domain array both stages already receive, such as `ScanComponent[]`. Removing the shared buffer dissolves the ownership question instead of relocating it, and costs nothing at runtime. Reject this only for a stated domain reason — for example, keeping SBOM-declared provenance distinct from registry-resolved values — and record that reason where the buffer is introduced.
+
+#### Preferred: the caller lends a `Span<T>`
+
+The owner rents and returns inside one scope with `try`/`finally` and passes `Span<T>`/`ReadOnlySpan<T>` down. The callee borrows and cannot outlive the loan, because the compiler rejects storing a `Span<T>` in a field, capturing it in a closure, or holding it across an `await`. Rent and Return stay in the same method and locality becomes a compile-time property rather than a review obligation. Size the rental from a count the caller already knows, such as component or dependency count.
+
+```csharp
+// ✅ One owner rents and returns; every consumer only borrows.
+var rented = ArrayPool<int>.Shared.Rent(componentCount);
+try
+{
+    var scratch = rented.AsSpan(0, componentCount);
+    var targetCount = PlanTargets(components, scratch);
+    ProjectResults(components, scratch, targetCount);
+}
+finally
+{
+    ArrayPool<int>.Shared.Return(rented);
+}
+```
+
+#### When the buffer is needed on both sides of an `await`
+
+Split the operation rather than widening the parameter. Keep the buffer in synchronous plan and project phases that take spans, and give the async I/O phase its own inputs and results with no caller buffer. The awaits then sit between the borrows instead of across them, the span borrow pattern survives unchanged, and the loop locals move out of the async state machine, which shrinks it. Prefer this over introducing an owner object.
+
+#### Last resort: a class that owns the rental
+
+Only when the rental must genuinely span several async calls issued by a caller that cannot be restructured, wrap it in a `sealed class` implementing `IDisposable`. This is the weakest option and costs one object per scope; justify in the type's documentation why the two options above were ruled out. Such a type must:
+
+- keep the array in a private field and expose it **only** as `Span<T>`, never as `Memory<T>` or as the array itself, so borrowers still cannot let it escape;
+- drop the field before returning the rental in `Dispose`, so an access that outlives the scope throws `ObjectDisposedException` instead of reading recycled pool storage;
+- tolerate repeated `Dispose`;
+- be created with `using` at the single owning scope.
+
+`Ol.Internals.PackageMetadataWorkspace` is the only instance of this in the repository: the per-component record buffer is written by package-metadata enrichment and read by source-repository enrichment, which are two separate async service calls issued by `ScanExecution.TryExecute`. It is retained only because both enrichment services keep an asynchronous public API, which rules out lending a `Span<T>` through it. It is not yet the settled design: the registry-resolved repository URL and ref could instead travel in the returned `ScanComponent[]`, which would delete this class outright, at the cost of adding a `RepositoryRef` field and redefining `ScanComponent.RepositoryUrl` from "supplied by the SBOM" to "best known". Prefer that direction if the domain model is revisited. Add a regression test proving that a disposed owner rejects access and that the service refuses to write through it; do not add a second owner class without the same justification and test.
+
+### 9. Bounded UTF-8 Normalization Buffers
 
 `SpdxLicenseIndex.TryNormalizeLicenseIdUtf8()` must keep its stack buffer bounded and use `ArrayPool<char>.Shared` for longer UTF-8 input. Inventory, registry, repository, policy-file, and CLI input is user-controlled and can be arbitrarily long; never size a stack allocation directly from that input. If generated lookup code is introduced later, it must follow the same bounded-stack rule.
 
@@ -131,7 +177,7 @@ finally
 }
 ```
 
-### 9. Immutable SPDX Lookup Structures
+### 10. Immutable SPDX Lookup Structures
 
 Choose an immutable lookup structure that matches the domain operation:
 
@@ -140,7 +186,7 @@ Choose an immutable lookup structure that matches the domain operation:
 - Generated SPDX arrays are valid construction input for `SpdxLicenseIndex`; after construction, do not retain an additional copy solely for the same runtime lookup.
 - Do not materialize another collection merely to iterate candidates on an exceptional path.
 
-### 10. Error-Path CPU Budget
+### 11. Error-Path CPU Budget
 
 Invalid inventory, SPDX, registry, repository, or policy input paths may allocate for evidence, exception, or CLI output text, but work must remain bounded for pathological input. Before adding suggestions or other approximate matching:
 
@@ -161,7 +207,7 @@ else
 }
 ```
 
-### 11. I/O, Cache, and Policy Work
+### 12. I/O, Cache, and Policy Work
 
 - New cache and network pipelines must be planned from normalized component identity and deduplicated where semantically equivalent; existing package enrichment requires this optimization when its scheduler is revised.
 - Bound concurrent external requests and preserve deterministic report ordering independently of completion order.

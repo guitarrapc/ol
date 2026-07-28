@@ -587,20 +587,20 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+      "bom-ref": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
       "authors": [
         {
           "name": "Microsoft"
         }
       ],
       "name": "Microsoft.DotNet.ILCompiler",
-      "version": "10.0.9",
+      "version": "10.0.10",
       "description": "Provides a native AOT compiler and runtime for .NET",
       "scope": "required",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "15982DF03FBC8D4AF09A3F3EF5D7DF3E27C606CE4E9253DDED178241C5CB4007C40320018D07BEC5642D414F2D6D9C0B7D63ABCC3212B0A417B89ED551B6A02E"
+          "content": "35EF709253D94137BB4F8F686861AAB1D922360300A71F413D5E3EA6AC360CCA7428F0AFC54275C7634860D2A35098DDA40408755E07B8E50994DAB28789CD7C"
         }
       ],
       "licenses": [
@@ -611,7 +611,7 @@
         }
       ],
       "copyright": "© Microsoft Corporation. All rights reserved.",
-      "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+      "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
       "externalReferences": [
         {
           "url": "https://dot.net/",
@@ -922,20 +922,20 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+      "bom-ref": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
       "authors": [
         {
           "name": "Microsoft"
         }
       ],
       "name": "Microsoft.NET.ILLink.Tasks",
-      "version": "10.0.9",
+      "version": "10.0.10",
       "description": "MSBuild tasks for running the IL Linker",
       "scope": "required",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "15E5D97D2C7F4555E2A2869676499DF60F13180282F8C782E48041C8F7F61604E047E3405CB31381F1E08A633A4F8895E34FACDADCC55CCFFB44A60B64A6631C"
+          "content": "804F0EEC3AD1008DD08ABDF24B3BDD465EC3CD57FC5EB15F234BDB5179761878A6DDD30F755A25F43C70361FD3CEAF729A8935294FB6C2EDAAAC5E6358DBF5A5"
         }
       ],
       "licenses": [
@@ -946,7 +946,7 @@
         }
       ],
       "copyright": "© Microsoft Corporation. All rights reserved.",
-      "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+      "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
       "externalReferences": [
         {
           "url": "https://dot.net/",
@@ -1257,20 +1257,20 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "bom-ref": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.10",
       "authors": [
         {
           "name": "Microsoft"
         }
       ],
       "name": "runtime.linux-x64.Microsoft.DotNet.ILCompiler",
-      "version": "10.0.9",
+      "version": "10.0.10",
       "description": "Internal implementation package not meant for direct consumption. Please do not reference directly. \nProvides a native AOT compiler and runtime for .NET",
       "scope": "required",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "3F39B86E5EBAB7654925A5829C09CEB95339A4ED9F628E713482A25BF5C06DA475894D9563DD8B6B1990CFD710BC98B9A9B26A964956A55B24213899F6F3DC9F"
+          "content": "23129B65657A8A404F989A4CD48040DD30318AB09AC89FFCDCF6C5A982A40195E5B1D1C8EF8C13EFF2EBEF75C21DE78F2436B412CCD757D72489775E11ADA5AB"
         }
       ],
       "licenses": [
@@ -1281,7 +1281,7 @@
         }
       ],
       "copyright": "© Microsoft Corporation. All rights reserved.",
-      "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.10",
       "externalReferences": [
         {
           "url": "https://dot.net/",
@@ -1562,8 +1562,8 @@
       "dependsOn": [
         "pkg:nuget/BenchmarkDotNet@0.15.8",
         "pkg:nuget/ConsoleAppFramework@5.7.13",
-        "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
-        "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+        "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
+        "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
         "pkg:nuget/TUnit@1.12.111"
       ]
     },
@@ -1651,7 +1651,7 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+      "ref": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
       "dependsOn": []
     },
     {
@@ -1697,7 +1697,7 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+      "ref": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
       "dependsOn": []
     },
     {
@@ -1749,7 +1749,7 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "ref": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.10",
       "dependsOn": []
     },
     {

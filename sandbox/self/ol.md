@@ -18,7 +18,7 @@
 | Microsoft.Diagnostics.NETCore.Client | 0.2.510501 | MIT | nuget | transitive | matched |
 | Microsoft.Diagnostics.Runtime | 3.1.512801 | MIT | nuget | transitive | matched |
 | Microsoft.Diagnostics.Tracing.TraceEvent | 3.1.21 | MIT | nuget | transitive | matched |
-| Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | direct | matched |
+| Microsoft.DotNet.ILCompiler | 10.0.10 | MIT | nuget | direct | matched |
 | Microsoft.DotNet.PlatformAbstractions | 3.1.6 | - | nuget | transitive | unknown |
 | Microsoft.Extensions.DependencyInjection | 6.0.0 | MIT | nuget | transitive | matched |
 | Microsoft.Extensions.DependencyInjection.Abstractions | 6.0.0 | MIT | nuget | transitive | matched |
@@ -27,7 +27,7 @@
 | Microsoft.Extensions.Logging.Abstractions | 6.0.0 | MIT | nuget | transitive | matched |
 | Microsoft.Extensions.Options | 6.0.0 | MIT | nuget | transitive | matched |
 | Microsoft.Extensions.Primitives | 6.0.0 | MIT | nuget | transitive | matched |
-| Microsoft.NET.ILLink.Tasks | 10.0.9 | MIT | nuget | direct | matched |
+| Microsoft.NET.ILLink.Tasks | 10.0.10 | MIT | nuget | direct | matched |
 | Microsoft.Testing.Extensions.CodeCoverage | 18.3.2 | - | nuget | transitive | unknown |
 | Microsoft.Testing.Extensions.Telemetry | 2.0.2 | MIT | nuget | transitive | matched |
 | Microsoft.Testing.Extensions.TrxReport | 2.0.2 | MIT | nuget | transitive | matched |
@@ -43,4 +43,4 @@
 | TUnit.Assertions | 1.12.111 | MIT | nuget | transitive | matched |
 | TUnit.Core | 1.12.111 | MIT | nuget | transitive | matched |
 | TUnit.Engine | 1.12.111 | MIT | nuget | transitive | matched |
-| runtime.linux-x64.Microsoft.DotNet.ILCompiler | 10.0.9 | MIT | nuget | unknown | matched |
+| runtime.linux-x64.Microsoft.DotNet.ILCompiler | 10.0.10 | MIT | nuget | unknown | matched |

@@ -6,13 +6,13 @@
       "kind": "sbom",
       "format": "cyclonedx",
       "sourceRef": "ol.cdx.json",
-      "sourceSha256": "91626a5742004dd13e24766e6b6d510aca165602e3ffc93d172bec65e53af4a5",
+      "sourceSha256": "a00213e78ff45f4ef8b4da70b9bb74df9a6dc6c8a5c6e13b8948cfc75ade433c",
       "parser": "cyclonedx-json",
       "specificationVersion": "1.7",
       "sbomRef": "ol.cdx.json",
       "sbomFormat": "CycloneDX",
       "sbomSpecVersion": "1.7",
-      "sbomSha256": "91626a5742004dd13e24766e6b6d510aca165602e3ffc93d172bec65e53af4a5"
+      "sbomSha256": "a00213e78ff45f4ef8b4da70b9bb74df9a6dc6c8a5c6e13b8948cfc75ade433c"
     },
     "spdx": {
       "source": "bundled",
@@ -177,11 +177,11 @@
       },
       {
         "name": "Microsoft.DotNet.ILCompiler",
-        "version": "10.0.9",
+        "version": "10.0.10",
         "ecosystem": "nuget",
         "dependency": "direct",
-        "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
-        "sourceId": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9"
+        "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
+        "sourceId": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10"
       },
       {
         "name": "Microsoft.DotNet.PlatformAbstractions",
@@ -249,11 +249,11 @@
       },
       {
         "name": "Microsoft.NET.ILLink.Tasks",
-        "version": "10.0.9",
+        "version": "10.0.10",
         "ecosystem": "nuget",
         "dependency": "direct",
-        "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
-        "sourceId": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9"
+        "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
+        "sourceId": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10"
       },
       {
         "name": "Microsoft.Testing.Extensions.CodeCoverage",
@@ -321,11 +321,11 @@
       },
       {
         "name": "runtime.linux-x64.Microsoft.DotNet.ILCompiler",
-        "version": "10.0.9",
+        "version": "10.0.10",
         "ecosystem": "nuget",
         "dependency": "unknown",
-        "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
-        "sourceId": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9"
+        "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.10",
+        "sourceId": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.10"
       },
       {
         "name": "System.CodeDom",
@@ -1198,13 +1198,13 @@
     },
     {
       "name": "Microsoft.DotNet.ILCompiler",
-      "version": "10.0.9",
+      "version": "10.0.10",
       "license": "MIT",
       "ecosystem": "nuget",
       "dependency": "direct",
       "status": "matched",
-      "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
-      "sourceId": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.9",
+      "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
+      "sourceId": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1418,13 +1418,13 @@
     },
     {
       "name": "Microsoft.NET.ILLink.Tasks",
-      "version": "10.0.9",
+      "version": "10.0.10",
       "license": "MIT",
       "ecosystem": "nuget",
       "dependency": "direct",
       "status": "matched",
-      "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
-      "sourceId": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.9",
+      "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
+      "sourceId": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1820,13 +1820,13 @@
     },
     {
       "name": "runtime.linux-x64.Microsoft.DotNet.ILCompiler",
-      "version": "10.0.9",
+      "version": "10.0.10",
       "license": "MIT",
       "ecosystem": "nuget",
       "dependency": "unknown",
       "status": "matched",
-      "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
-      "sourceId": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.9",
+      "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.10",
+      "sourceId": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.10",
       "licenseCandidates": [
         {
           "source": "sbom",

@@ -131,17 +131,33 @@ jobs:
           dotnet-version: 10.0.x
       - run: dotnet restore Ol.slnx
       - run: dotnet build Ol.slnx -c Release --no-restore
-      - shell: pwsh
-        run: ./sandbox/Update-SelfScan.ps1 -NoBuild
-      - name: Verify committed self-scan snapshots
+      - name: Generate live self-scan
+        shell: pwsh
+        run: ./sandbox/Update-SelfScan.ps1 -NoBuild -OutputDirectory "$env:RUNNER_TEMP/live-self"
+      - name: Verify live self-scan
         shell: pwsh
         run: |
-          $status = @(git status --porcelain -- sandbox/self)
+          $output = "$env:RUNNER_TEMP/live-self"
+          ./sandbox/ci/Assert-SelfScan.ps1 -Sbom "$output/ol.cdx.json" -Report "$output/ol.json"
+          ./sandbox/ci/New-DependencyPolicyInput.ps1 -Sbom "$output/ol.cdx.json" -Output "$output/dependencies.cdx.json"
+          dotnet src/Ol/bin/Release/net10.0/ol.dll check --input "$output/dependencies.cdx.json" --allow-licenses MIT --skip-enrichment
+          if ($LASTEXITCODE -ne 0) {
+            throw "Live self-scan license policy failed."
+          }
+      - name: Regenerate golden self-scan reports
+        shell: pwsh
+        run: ./sandbox/Update-SelfScan.ps1 -NoBuild -ReportsOnly
+      - name: Verify committed self-scan report snapshots
+        shell: pwsh
+        run: |
+          $status = @(git status --porcelain -- sandbox/self/ol.txt sandbox/self/ol.md sandbox/self/ol.json)
           if ($status.Count -ne 0) {
             $status
-            throw "Run sandbox/Update-SelfScan.ps1 and commit the updated snapshots."
+            git diff -- sandbox/self/ol.txt sandbox/self/ol.md sandbox/self/ol.json
+            throw "Regenerate and commit the updated self-scan report snapshots."
           }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
         with:
-          name: ol-self-scan
-          path: sandbox/self
+          name: ol-live-self-scan
+          path: ${{ runner.temp }}/live-self

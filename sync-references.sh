@@ -15,6 +15,7 @@ repo_specs=(
   "raimon49/pip-licenses"
   "sensslen/nuget-license"
   "aaronpowell/dotnet-delice"
+  "madewithlove/license-checker-php"
 )
 
 for spec in "${repo_specs[@]}"; do

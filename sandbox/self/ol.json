@@ -6,13 +6,13 @@
       "kind": "sbom",
       "format": "cyclonedx",
       "sourceRef": "ol.cdx.json",
-      "sourceSha256": "08ca47df938ee2540c52a9c2e5b43c5b8206493d29c0d25d688ff1022ea1d63c",
+      "sourceSha256": "81c7fa31b71c376ad43ca82fe7b94e9144992860615aa1eea33ef70b0085b100",
       "parser": "cyclonedx-json",
       "specificationVersion": "1.7",
       "sbomRef": "ol.cdx.json",
       "sbomFormat": "CycloneDX",
       "sbomSpecVersion": "1.7",
-      "sbomSha256": "08ca47df938ee2540c52a9c2e5b43c5b8206493d29c0d25d688ff1022ea1d63c"
+      "sbomSha256": "81c7fa31b71c376ad43ca82fe7b94e9144992860615aa1eea33ef70b0085b100"
     },
     "spdx": {
       "source": "bundled",

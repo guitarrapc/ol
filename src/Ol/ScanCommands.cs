@@ -1,4 +1,5 @@
 ﻿using System.Security.Cryptography;
+using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using ConsoleAppFramework;
@@ -899,6 +900,7 @@ internal readonly record struct GroupRow(string[] Values, int Count, ScanCompone
 
 internal static class ReportRenderer
 {
+    private const int InitialJsonBufferCapacity = 4 * 1024;
     private const int JsonSchemaVersion = 1;
 
     public static string RenderInputHeader(ReportFormat format, ScanInputDescriptor input)
@@ -1026,8 +1028,8 @@ internal static class ReportRenderer
 
     public static string RenderJson(DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+        var buffer = new ArrayBufferWriter<byte>(InitialJsonBufferCapacity);
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
         {
             writer.WriteStartObject();
             writer.WriteNumber("schemaVersion", JsonSchemaVersion);
@@ -1066,13 +1068,13 @@ internal static class ReportRenderer
             writer.WriteEndObject();
         }
 
-        return Encoding.UTF8.GetString(stream.ToArray());
+        return CompleteJson(buffer);
     }
 
     public static string RenderJson(DependencyInventory inventory, GroupRow[] groups, string groupBy, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+        var buffer = new ArrayBufferWriter<byte>(InitialJsonBufferCapacity);
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
         {
             writer.WriteStartObject();
             writer.WriteNumber("schemaVersion", JsonSchemaVersion);
@@ -1119,7 +1121,15 @@ internal static class ReportRenderer
             writer.WriteEndObject();
         }
 
-        return Encoding.UTF8.GetString(stream.ToArray());
+        return CompleteJson(buffer);
+    }
+
+    private static string CompleteJson(ArrayBufferWriter<byte> buffer)
+    {
+        var newline = buffer.GetSpan(1);
+        newline[0] = (byte)'\n';
+        buffer.Advance(1);
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     private static void AppendMarkdownValue(StringBuilder builder, string value)

@@ -46,6 +46,8 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
+            await Assert.That(stdout[^2]).IsEqualTo('}');
+            await Assert.That(stdout[^1]).IsEqualTo('\n');
             using var report = JsonDocument.Parse(stdout);
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cyclonedx");
         }

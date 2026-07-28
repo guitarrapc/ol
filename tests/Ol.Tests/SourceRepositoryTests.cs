@@ -223,6 +223,53 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Enrichment_FromCacheHitAndFromFetch_CarryTheTargetCacheKeyDigestAsEvidence()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-digest-{Guid.NewGuid():N}");
+        var target = new SourceRepositoryTarget("owner", "repository", "default");
+        var expected = SourceRepositoryCache.GetCacheKeySha256(target.CacheKey);
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
+        try
+        {
+            using var fetchWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+            using var httpClient = new HttpClient(new GitHubResponseHandler(HttpStatusCode.OK, ReadGitHubLicenseFixture()));
+            var fetchService = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0, httpClient);
+            var fetched = await fetchService.EnrichAsync([CreateDigestComponent(index)], fetchWorkspace, concurrency: 1);
+
+            using var cachedWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+            var cachedService = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
+            var cached = await cachedService.EnrichAsync([CreateDigestComponent(index)], cachedWorkspace, concurrency: 1);
+
+            await Assert.That(fetched.Summary.GitHubRequestCount).IsEqualTo(1);
+            await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(GetSourceEvidence(fetched.Components[0]).CacheKeySha256).IsEqualTo(expected);
+            await Assert.That(GetSourceEvidence(cached.Components[0]).CacheKeySha256).IsEqualTo(expected);
+            await Assert.That(GetSourceEvidence(cached.Components[0]).Repository).IsEqualTo("owner/repository");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static ScanComponent CreateDigestComponent(SpdxLicenseIndex index)
+        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+
+    private static SourceRepositoryEvidence GetSourceEvidence(ScanComponent component)
+    {
+        for (var i = 0; i < component.CandidateCount; i++)
+        {
+            if (component.GetCandidate(i).Evidence.SourceRepository is { } evidence)
+            {
+                return evidence;
+            }
+        }
+
+        throw new InvalidOperationException("The component carries no source repository evidence.");
+    }
+
+    [Test]
     public async Task Enrichment_EquivalentRepositoryUrlSpellings_PlanOneSharedTarget()
     {
         var urls = new[] { "https://github.com/owner/repository.git", "git+https://github.com/owner/repository", "git@github.com:owner/repository.git" };

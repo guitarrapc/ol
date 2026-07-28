@@ -87,7 +87,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
             var cached = sourceCache.Read(target.CacheKey);
             if (cached.Record is { } cachedRecord)
             {
-                return ValueTask.FromResult(ApplySingleTarget(components, CreateResult(cachedRecord, cacheHit: true, cacheMiss: false, requested: false), concurrency));
+                return ValueTask.FromResult(ApplySingleTarget(components, CreateResult(cachedRecord, cached.CacheKeySha256, cacheHit: true, cacheMiss: false, requested: false), concurrency));
             }
 
             cacheWasInvalid = cached.Status == SourceRepositoryCacheReadStatus.Invalid;
@@ -328,7 +328,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         if (!refresh)
         {
             var cached = await sourceCache.ReadAsync(target.CacheKey, cancellationToken).ConfigureAwait(false);
-            if (cached.Record is { } record) return CreateResult(record, cacheHit: true, cacheMiss: false, requested: false);
+            if (cached.Record is { } record) return CreateResult(record, cached.CacheKeySha256, cacheHit: true, cacheMiss: false, requested: false);
             cacheWasInvalid = cached.Status == SourceRepositoryCacheReadStatus.Invalid;
         }
 
@@ -347,7 +347,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
             }
 
             record = await WriteCacheBestEffortAsync(record, cancellationToken).ConfigureAwait(false);
-            return CreateResult(record, cacheHit: false, cacheMiss: true, requested: true);
+            return CreateResult(record, SourceRepositoryCache.GetCacheKeySha256(target.CacheKey), cacheHit: false, cacheMiss: true, requested: true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (OperationCanceledException) { return await CreateErrorAsync(target, null, cacheWasInvalid, cancellationToken).ConfigureAwait(false); }
@@ -356,7 +356,12 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         catch (IOException) { return await CreateErrorAsync(target, null, cacheWasInvalid, cancellationToken).ConfigureAwait(false); }
     }
 
-    private SourceRepositoryLookupResult CreateResult(SourceRepositoryRecord record, bool cacheHit, bool cacheMiss, bool requested)
+    /// <param name="cacheKeySha256">
+    /// The digest of <see cref="SourceRepositoryRecord.CacheKey"/>. Passed in because a cache hit already
+    /// derived it to locate the entry file, and <see cref="SourceRepositoryRecord.CacheKeySha256"/> is a
+    /// calculated property that would hash the key again for every target.
+    /// </param>
+    private SourceRepositoryLookupResult CreateResult(SourceRepositoryRecord record, string cacheKeySha256, bool cacheHit, bool cacheMiss, bool requested)
     {
         var raw = record.License?.SpdxId ?? "NOASSERTION";
         var candidate = LicenseCandidateFactory.Create(LicenseCandidateSource.GitHubLicenseApi, LicenseCandidateKind.License, Utf8Slice.FromString(raw), spdxLicenseIndex);
@@ -377,7 +382,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 record.Repository,
                 record.Ref,
                 record.HttpStatus is { } status ? (int)status : null,
-                record.CacheKeySha256,
+                cacheKeySha256,
                 license?.Path ?? string.Empty,
                 license?.Sha ?? string.Empty,
                 license?.Key ?? string.Empty,
@@ -393,7 +398,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         var warnings = cacheWasInvalid ? new[] { "source_repository_cache_invalid" } : [];
         var record = new SourceRepositoryRecord(target.CacheKey, "github-license-api", authentication.Mode, target.Repository, target.Ref, statusCode, null, warnings, ["source_repository_fetch_failed"], DateTimeOffset.UtcNow);
         record = await WriteCacheBestEffortAsync(record, cancellationToken).ConfigureAwait(false);
-        return CreateResult(record, cacheHit: false, cacheMiss: true, requested: true);
+        return CreateResult(record, SourceRepositoryCache.GetCacheKeySha256(target.CacheKey), cacheHit: false, cacheMiss: true, requested: true);
     }
 
     private async Task<SourceRepositoryRecord> WriteCacheBestEffortAsync(SourceRepositoryRecord record, CancellationToken cancellationToken)

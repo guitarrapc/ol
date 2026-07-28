@@ -92,7 +92,7 @@ public sealed class SourceRepositoryCache(string root)
         try
         {
             return TryParse(utf8, cacheKey, cacheKeySha256, out var record)
-                ? new(SourceRepositoryCacheReadStatus.Hit, record)
+                ? new(SourceRepositoryCacheReadStatus.Hit, record, cacheKeySha256)
                 : new(SourceRepositoryCacheReadStatus.Invalid, null);
         }
         catch (JsonException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
@@ -358,7 +358,13 @@ public enum SourceRepositoryCacheReadStatus : byte
 }
 
 /// <summary>Contains a classified source repository cache read.</summary>
-public readonly record struct SourceRepositoryCacheReadResult(SourceRepositoryCacheReadStatus Status, SourceRepositoryRecord? Record);
+/// <param name="Status">The outcome of the read.</param>
+/// <param name="Record">The entry, when the read was a hit.</param>
+/// <param name="CacheKeySha256">
+/// The requested key's digest, which the read already derived to locate the entry file. Report evidence
+/// needs the same value, and <see cref="SourceRepositoryRecord.CacheKeySha256"/> re-derives it.
+/// </param>
+public readonly record struct SourceRepositoryCacheReadResult(SourceRepositoryCacheReadStatus Status, SourceRepositoryRecord? Record, string CacheKeySha256 = "");
 
 /// <summary>Represents normalized GitHub license metadata.</summary>
 public readonly record struct GitHubLicenseResult(string? SpdxId, string Key, string Name, string Path, string Sha, string HtmlUrl);
@@ -379,6 +385,11 @@ public readonly record struct SourceRepositoryRecord(
     /// <summary>Gets the source-cache schema version.</summary>
     public int SchemaVersion => 1;
     /// <summary>Gets the source cache-key SHA-256.</summary>
+    /// <remarks>
+    /// This exists so the digest is persisted with the entry. It hashes <see cref="CacheKey"/> on every
+    /// read, so a caller that already holds the digest — every reader, which derived it to locate the
+    /// entry file — should use that value instead. See <see cref="SourceRepositoryCacheReadResult.CacheKeySha256"/>.
+    /// </remarks>
     public string CacheKeySha256 => SourceRepositoryCache.GetCacheKeySha256(CacheKey);
 }
 

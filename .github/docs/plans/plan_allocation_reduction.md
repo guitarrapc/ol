@@ -167,6 +167,19 @@ dedup の品質が落ちていないことは、実装前に characterization te
 - 期待効果: **-200 B / component**
 - リスク: 中。provider registry（7 ecosystem）の `TryCreate` 境界に波及する。**ecosystem ごとの provider が purl 検証と endpoint 構築を所有する構造は維持する**こと。1 ecosystem の追加が複数ファイルに散らないという既存の設計制約を壊さない
 
+### P1-4: source evidence の cache key digest を読み取りから引き継ぐ（実施済み）
+
+`SourceRepositoryRecord.CacheKeySha256` は計算プロパティで、`CreateResult` が target ごとに SHA-256 を計算し直していた。読み取り側は entry file を特定するために**同じ digest を既に計算している**。
+
+`SourceRepositoryCacheReadResult` に digest を載せ、`CreateResult` は引数で受け取る形にした。fetch 経路は cache hit ではないので、これまでどおり 1 回計算する。
+
+- **`SourceOneCached` 1,872 B → 1,720 B（-152 B / cached target）**
+- `EnrichDuplicateCachedTarget` 27.18 KB → 27.04 KB（target 1 つ分）
+
+削減幅は当初 416 B と見込んでいたが、実測は 152 B だった。**見込みは P0-3 より前の計測値だった**。P0-3 で `GetCacheKeySha256` が「4 つの中間物」から「stackalloc + `Convert.ToHexStringLower` で string 1 本」に変わり、1 回あたりの費用が 408 B から 152 B に下がっていたため。削減は target ごとの SHA-256 計算そのもの（CPU）にも効く。
+
+`SourceRepositoryRecord.CacheKeySha256` は永続化のために残す（[cache_format.md](../specs/cache_format.md) が要求する）。読み手が呼ばないよう、プロパティに理由を書いた。
+
 ### P2-1: candidate 配列の再確保をやめる
 
 `LicenseReconciler.AddCandidate` は追加のたびに `new LicenseCandidate[n+1]` を作る（enrichment 2 段で 104 + 184 B/component）。候補数の上限は evidence source 数で決まるため、component 構築時に容量を確保して 1 回の確保に収める。`AdditionalCandidates` は report が出力するため確保自体は必要だが、**再確保は不要**。

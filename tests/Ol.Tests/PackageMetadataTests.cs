@@ -19,9 +19,41 @@ public sealed class PackageMetadataTests
             refresh: false,
             retryCount: 0);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, default, default, default, [], []);
+        using var workspace = new PackageMetadataWorkspace(0);
 
-        await Assert.That(async () => await service.EnrichAsync([component], Memory<PackageMetadataRecord?>.Empty, concurrency: 1)).Throws<ArgumentException>();
+        await Assert.That(async () => await service.EnrichAsync([component], workspace, concurrency: 1)).Throws<ArgumentException>();
     }
+
+    [Test]
+    public async Task MetadataWorkspace_AfterDisposal_RejectsAccessInsteadOfReadingReturnedRental()
+    {
+        var workspace = new PackageMetadataWorkspace(2);
+        SetFirstRecord(workspace, new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+
+        await Assert.That(GetRecordCount(workspace)).IsEqualTo(2);
+
+        workspace.Dispose();
+        workspace.Dispose();
+
+        await Assert.That(() => GetRecordCount(workspace)).Throws<ObjectDisposedException>();
+        await Assert.That(() => SetFirstRecord(workspace, null)).Throws<ObjectDisposedException>();
+    }
+
+    [Test]
+    public async Task Enrichment_WithDisposedMetadataWorkspace_FailsInsteadOfWritingReturnedRental()
+    {
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var service = new PackageMetadataService(index, new PackageMetadataCache(Path.GetTempPath()), refresh: false, retryCount: 0);
+        var components = new[] { CreateEnrichmentComponent(index, default) };
+        var workspace = new PackageMetadataWorkspace(components.Length);
+        workspace.Dispose();
+
+        await Assert.That(async () => await service.EnrichAsync(components, workspace, concurrency: 1)).Throws<ObjectDisposedException>();
+    }
+
+    private static int GetRecordCount(PackageMetadataWorkspace workspace) => workspace.Records.Length;
+
+    private static void SetFirstRecord(PackageMetadataWorkspace workspace, PackageMetadataRecord? record) => workspace.Records[0] = record;
 
     [Test]
     public async Task Fetch_RegisteredProvider_ParsesItsPurlAndOwnResponseWithoutCentralSwitches()
@@ -489,15 +521,15 @@ public sealed class PackageMetadataTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
-            var records = new PackageMetadataRecord?[1];
+            using var workspace = new PackageMetadataWorkspace(components.Length);
 
-            var enrichment = await service.EnrichAsync(components, records, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(enrichment.Summary.TargetCount).IsEqualTo(1);
             await Assert.That(enrichment.Summary.SupportedComponentCount).IsEqualTo(1);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
-            await Assert.That(records[0]!.Value.CacheKey).IsEqualTo(purl);
+            await Assert.That(GetRecord(workspace, 0)!.Value.CacheKey).IsEqualTo(purl);
         }
         finally
         {
@@ -515,23 +547,25 @@ public sealed class PackageMetadataTests
         var service = new PackageMetadataService(index, new PackageMetadataCache(Path.GetTempPath()), refresh: false, retryCount: 0);
         var unsupported = new[] { CreateEnrichmentComponent(index, "pkg:unknown-ecosystem/example@1.0.0") };
         var empty = new[] { CreateEnrichmentComponent(index, default) };
-        var unsupportedRecords = new PackageMetadataRecord?[1];
-        var emptyRecords = new PackageMetadataRecord?[1];
+        using var unsupportedWorkspace = new PackageMetadataWorkspace(unsupported.Length);
+        using var emptyWorkspace = new PackageMetadataWorkspace(empty.Length);
 
-        var unsupportedEnrichment = await service.EnrichAsync(unsupported, unsupportedRecords, concurrency: 1);
-        var emptyEnrichment = await service.EnrichAsync(empty, emptyRecords, concurrency: 1);
+        var unsupportedEnrichment = await service.EnrichAsync(unsupported, unsupportedWorkspace, concurrency: 1);
+        var emptyEnrichment = await service.EnrichAsync(empty, emptyWorkspace, concurrency: 1);
 
         await Assert.That(unsupportedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(1);
         await Assert.That(unsupportedEnrichment.Summary.SupportedComponentCount).IsEqualTo(1);
         await Assert.That(unsupportedEnrichment.Summary.TargetCount).IsEqualTo(0);
         await Assert.That(unsupportedEnrichment.Components[0].Warnings).Contains("unsupported_package_metadata");
-        await Assert.That(unsupportedRecords[0].HasValue).IsFalse();
+        await Assert.That(GetRecord(unsupportedWorkspace, 0).HasValue).IsFalse();
         await Assert.That(emptyEnrichment.Summary.SupportedComponentCount).IsEqualTo(0);
         await Assert.That(emptyEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(0);
         await Assert.That(emptyEnrichment.Summary.TargetCount).IsEqualTo(0);
         await Assert.That(emptyEnrichment.Components[0].CandidateCount).IsEqualTo(1);
-        await Assert.That(emptyRecords[0].HasValue).IsFalse();
+        await Assert.That(GetRecord(emptyWorkspace, 0).HasValue).IsFalse();
     }
+
+    private static PackageMetadataRecord? GetRecord(PackageMetadataWorkspace workspace, int index) => workspace.Records[index];
 
     private static ScanComponent CreateEnrichmentComponent(SpdxLicenseIndex index, Utf8Slice purl)
         => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);

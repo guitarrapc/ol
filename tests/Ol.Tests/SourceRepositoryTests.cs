@@ -206,12 +206,12 @@ public sealed class SourceRepositoryTests
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["MIT"], []);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
-        PackageMetadataRecord?[] metadata = [new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], [])];
+        using var workspace = CreateWorkspace(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], metadata, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
@@ -228,7 +228,7 @@ public sealed class SourceRepositoryTests
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-refresh-{Guid.NewGuid():N}");
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
-        PackageMetadataRecord?[] metadata = [new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], [])];
+        using var workspace = CreateWorkspace(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("Apache-2.0", "apache-2.0", "Apache", "LICENSE", "old", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["Apache-2.0", "MIT"], []);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
@@ -237,7 +237,7 @@ public sealed class SourceRepositoryTests
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], metadata, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
             var cached = await sourceCache.TryReadAsync(target.CacheKey);
 
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
@@ -258,7 +258,7 @@ public sealed class SourceRepositoryTests
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-invalid-{Guid.NewGuid():N}");
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
-        PackageMetadataRecord?[] metadata = [new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], [])];
+        using var workspace = CreateWorkspace(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
         Directory.CreateDirectory(sourceCache.Root);
         await File.WriteAllTextAsync(sourceCache.GetPath(target.CacheKey), "{ invalid json");
         var index = new SpdxLicenseIndex(["MIT"], []);
@@ -268,7 +268,7 @@ public sealed class SourceRepositoryTests
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], metadata, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
             var warnings = enrichment.Components[0].Warnings;
             var cached = await sourceCache.TryReadAsync(target.CacheKey);
 
@@ -290,7 +290,7 @@ public sealed class SourceRepositoryTests
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-write-failure-{Guid.NewGuid():N}");
         var invalidSourceRoot = Path.Combine(root, "source-is-a-file");
-        PackageMetadataRecord?[] metadata = [new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], [])];
+        using var workspace = CreateWorkspace(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []));
         Directory.CreateDirectory(root);
         await File.WriteAllTextAsync(invalidSourceRoot, "not a directory");
         var index = new SpdxLicenseIndex(["MIT"], []);
@@ -300,7 +300,7 @@ public sealed class SourceRepositoryTests
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], metadata, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
@@ -365,6 +365,13 @@ public sealed class SourceRepositoryTests
         var cache = new SourceRepositoryCache(Path.Combine(Path.GetTempPath(), $"ol-source-cache-{Guid.NewGuid():N}"));
 
         await Assert.That(cache.Read("github:owner/repository@default").Status).IsEqualTo(SourceRepositoryCacheReadStatus.Missing);
+    }
+
+    private static PackageMetadataWorkspace CreateWorkspace(PackageMetadataRecord? record)
+    {
+        var workspace = new PackageMetadataWorkspace(1);
+        workspace.Records[0] = record;
+        return workspace;
     }
 
     private static async Task AssertSyncReadMatchesAsync(string? json, SourceRepositoryCacheReadStatus expected)

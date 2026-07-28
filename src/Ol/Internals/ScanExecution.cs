@@ -128,22 +128,15 @@ internal static class ScanExecution
             }
             else
             {
-                var recordsByComponent = System.Buffers.ArrayPool<PackageMetadataRecord?>.Shared.Rent(Math.Max(enrichedComponents.Length, 1));
-                try
-                {
-                    var metadataService = new PackageMetadataService(preparation.Spdx.Index, new PackageMetadataCache(preparation.CacheDirectories.PackageMetadata), refresh, preparation.Retry);
-                    var enrichment = metadataService.EnrichAsync(enrichedComponents, recordsByComponent.AsMemory(0, enrichedComponents.Length), preparation.Concurrency).GetAwaiter().GetResult();
-                    enrichedComponents = enrichment.Components;
-                    packageMetadataSummary = enrichment.Summary;
-                    var sourceService = new SourceRepositoryService(preparation.Spdx.Index, new SourceRepositoryCache(preparation.CacheDirectories.SourceRepository), refresh, preparation.Retry);
-                    var sourceEnrichment = sourceService.EnrichAsync(enrichedComponents, recordsByComponent.AsMemory(0, enrichedComponents.Length), preparation.Concurrency).GetAwaiter().GetResult();
-                    enrichedComponents = sourceEnrichment.Components;
-                    sourceRepositorySummary = sourceEnrichment.Summary;
-                }
-                finally
-                {
-                    System.Buffers.ArrayPool<PackageMetadataRecord?>.Shared.Return(recordsByComponent, clearArray: true);
-                }
+                using var workspace = new PackageMetadataWorkspace(enrichedComponents.Length);
+                var metadataService = new PackageMetadataService(preparation.Spdx.Index, new PackageMetadataCache(preparation.CacheDirectories.PackageMetadata), refresh, preparation.Retry);
+                var enrichment = metadataService.EnrichAsync(enrichedComponents, workspace, preparation.Concurrency).GetAwaiter().GetResult();
+                enrichedComponents = enrichment.Components;
+                packageMetadataSummary = enrichment.Summary;
+                var sourceService = new SourceRepositoryService(preparation.Spdx.Index, new SourceRepositoryCache(preparation.CacheDirectories.SourceRepository), refresh, preparation.Retry);
+                var sourceEnrichment = sourceService.EnrichAsync(enrichedComponents, workspace, preparation.Concurrency).GetAwaiter().GetResult();
+                enrichedComponents = sourceEnrichment.Components;
+                sourceRepositorySummary = sourceEnrichment.Summary;
             }
 
             completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageMetadataSummary, sourceRepositorySummary);

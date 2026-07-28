@@ -39,44 +39,44 @@ public static class LicenseReconciler
         var hasError = false;
         var matchedCount = 0;
         var candidateWarnings = LicenseCandidateWarnings.None;
-        for (var i = 0; i < component.CandidateCount; i++)
-        {
-            var candidate = component.GetCandidate(i);
-            candidateWarnings |= candidate.Warnings;
-            switch (candidate.Status)
-            {
-                case LicenseStatus.Matched:
-                    var duplicate = false;
-                    for (var matchedIndex = 0; matchedIndex < matchedCount; matchedIndex++)
-                    {
-                        if (matched[matchedIndex].Equals(candidate.Normalized))
-                        {
-                            duplicate = true;
-                            break;
-                        }
-                    }
-
-                    if (!duplicate)
-                    {
-                        matched[matchedCount] = candidate.Normalized;
-                        matchedCount++;
-                    }
-
-                    break;
-                case LicenseStatus.Invalid:
-                    invalid ??= candidate;
-                    break;
-                case LicenseStatus.Ambiguous:
-                    ambiguous ??= candidate;
-                    break;
-                case LicenseStatus.Error:
-                    hasError = true;
-                    break;
-            }
-        }
-
         try
         {
+            for (var i = 0; i < component.CandidateCount; i++)
+            {
+                var candidate = component.GetCandidate(i);
+                candidateWarnings |= candidate.Warnings;
+                switch (candidate.Status)
+                {
+                    case LicenseStatus.Matched:
+                        var duplicate = false;
+                        for (var matchedIndex = 0; matchedIndex < matchedCount; matchedIndex++)
+                        {
+                            if (matched[matchedIndex].Equals(candidate.Normalized))
+                            {
+                                duplicate = true;
+                                break;
+                            }
+                        }
+
+                        if (!duplicate)
+                        {
+                            matched[matchedCount] = candidate.Normalized;
+                            matchedCount++;
+                        }
+
+                        break;
+                    case LicenseStatus.Invalid:
+                        invalid ??= candidate;
+                        break;
+                    case LicenseStatus.Ambiguous:
+                        ambiguous ??= candidate;
+                        break;
+                    case LicenseStatus.Error:
+                        hasError = true;
+                        break;
+                }
+            }
+
             var (license, status) = matchedCount switch
             {
                 1 => (matched[0], LicenseStatus.Matched),

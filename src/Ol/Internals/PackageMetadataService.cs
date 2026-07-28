@@ -31,13 +31,14 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
 
     public ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(
         ScanComponent[] components,
-        Memory<PackageMetadataRecord?> recordsByComponent,
+        PackageMetadataWorkspace workspace,
         int concurrency,
         CancellationToken cancellationToken = default)
     {
-        if (recordsByComponent.Length < components.Length)
+        ArgumentNullException.ThrowIfNull(workspace);
+        if (workspace.Length < components.Length)
         {
-            throw new ArgumentException("Package metadata workspace must correspond to every component.", nameof(recordsByComponent));
+            throw new ArgumentException("Package metadata workspace must correspond to every component.", nameof(workspace));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -49,55 +50,55 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         }
 
         return components.Length == 1
-            ? EnrichSingleComponent(components, recordsByComponent, concurrency, cancellationToken)
-            : EnrichCoreAsync(components, recordsByComponent, concurrency, cancellationToken);
+            ? EnrichSingleComponent(components, workspace, concurrency, cancellationToken)
+            : EnrichCoreAsync(components, workspace, concurrency, cancellationToken);
     }
 
     private ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichSingleComponent(
         ScanComponent[] components,
-        Memory<PackageMetadataRecord?> recordsByComponent,
+        PackageMetadataWorkspace workspace,
         int concurrency,
         CancellationToken cancellationToken)
     {
         var purl = components[0].Purl;
         if (purl.IsEmpty)
         {
-            return ValueTask.FromResult(ApplySingleLookup(components, recordsByComponent, default, concurrency, lookupCount: 0));
+            return ValueTask.FromResult(ApplySingleLookup(components, workspace, default, concurrency, lookupCount: 0));
         }
 
         if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request))
         {
-            return ValueTask.FromResult(ApplySingleLookup(components, recordsByComponent, CreateUnsupportedPurlResult(purl), concurrency, lookupCount: 0));
+            return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateUnsupportedPurlResult(purl), concurrency, lookupCount: 0));
         }
 
         if (!refresh && cache.TryRead(request.CacheKey) is { } cachedRecord)
         {
             var cacheHit = new PackageMetadataLookupResult(cachedRecord, CreateMetadataCandidate(cachedRecord), true, true, false, false, false, false);
-            return ValueTask.FromResult(ApplySingleLookup(components, recordsByComponent, cacheHit, concurrency, lookupCount: 1));
+            return ValueTask.FromResult(ApplySingleLookup(components, workspace, cacheHit, concurrency, lookupCount: 1));
         }
 
-        return FetchSingleLookupAsync(components, recordsByComponent, request, concurrency, cancellationToken);
+        return FetchSingleLookupAsync(components, workspace, request, concurrency, cancellationToken);
     }
 
     private async ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> FetchSingleLookupAsync(
         ScanComponent[] components,
-        Memory<PackageMetadataRecord?> recordsByComponent,
+        PackageMetadataWorkspace workspace,
         PackageMetadataRequest request,
         int concurrency,
         CancellationToken cancellationToken)
     {
         var result = await FetchLookupAsync(request, cancellationToken).ConfigureAwait(false);
-        return ApplySingleLookup(components, recordsByComponent, result, concurrency, lookupCount: 1);
+        return ApplySingleLookup(components, workspace, result, concurrency, lookupCount: 1);
     }
 
     private (ScanComponent[] Components, PackageMetadataSummary Summary) ApplySingleLookup(
         ScanComponent[] components,
-        Memory<PackageMetadataRecord?> recordsByComponent,
+        PackageMetadataWorkspace workspace,
         in PackageMetadataLookupResult result,
         int concurrency,
         int lookupCount)
     {
-        recordsByComponent.Span[0] = result.Record;
+        workspace.Records[0] = result.Record;
         components[0] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[0], result.Candidate) : components[0];
         return (
             components,
@@ -115,7 +116,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
 
     private async ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichCoreAsync(
         ScanComponent[] components,
-        Memory<PackageMetadataRecord?> recordsByComponent,
+        PackageMetadataWorkspace workspace,
         int concurrency,
         CancellationToken cancellationToken)
     {
@@ -221,31 +222,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                 }
             }
 
-            var supported = 0;
-            var hits = 0;
-            var misses = 0;
-            var refreshed = 0;
-            var errors = 0;
-            var unsupported = 0;
-            for (var i = 0; i < components.Length; i++)
-            {
-                var lookupIndex = componentLookupIndexes[i];
-                var result = lookupIndex >= 0
-                    ? lookupResults![lookupIndex]
-                    : components[i].Purl.IsEmpty ? default : CreateUnsupportedPurlResult(components[i].Purl);
-                recordsByComponent.Span[i] = result.Record;
-                components[i] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];
-                supported += result.Supported ? 1 : 0;
-                hits += result.CacheHit ? 1 : 0;
-                misses += result.CacheMiss ? 1 : 0;
-                refreshed += result.Refreshed ? 1 : 0;
-                errors += result.FetchError ? 1 : 0;
-                unsupported += result.Unsupported ? 1 : 0;
-            }
-
-            return (
-                components,
-                new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount, lookupCount));
+            return (components, ProjectLookups(components, workspace, componentLookupIndexes, lookupResults, concurrency, lookupCount));
         }
         finally
         {
@@ -256,6 +233,41 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                 ArrayPool<PackageMetadataLookupResult>.Shared.Return(lookupResults, clearArray: true);
             }
         }
+    }
+
+    /// <summary>Writes every lookup result back in component order. Synchronous so the workspace records cannot span an await.</summary>
+    private PackageMetadataSummary ProjectLookups(
+        ScanComponent[] components,
+        PackageMetadataWorkspace workspace,
+        ReadOnlySpan<int> componentLookupIndexes,
+        ReadOnlySpan<PackageMetadataLookupResult> lookupResults,
+        int concurrency,
+        int lookupCount)
+    {
+        var records = workspace.Records;
+        var supported = 0;
+        var hits = 0;
+        var misses = 0;
+        var refreshed = 0;
+        var errors = 0;
+        var unsupported = 0;
+        for (var i = 0; i < components.Length; i++)
+        {
+            var lookupIndex = componentLookupIndexes[i];
+            var result = lookupIndex >= 0
+                ? lookupResults[lookupIndex]
+                : components[i].Purl.IsEmpty ? default : CreateUnsupportedPurlResult(components[i].Purl);
+            records[i] = result.Record;
+            components[i] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];
+            supported += result.Supported ? 1 : 0;
+            hits += result.CacheHit ? 1 : 0;
+            misses += result.CacheMiss ? 1 : 0;
+            refreshed += result.Refreshed ? 1 : 0;
+            errors += result.FetchError ? 1 : 0;
+            unsupported += result.Unsupported ? 1 : 0;
+        }
+
+        return new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount, lookupCount);
     }
 
     private async Task<PackageMetadataLookupResult> EnrichLookupAsync(PackageMetadataRequest request, CancellationToken cancellationToken)

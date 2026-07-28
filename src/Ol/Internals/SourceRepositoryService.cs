@@ -25,13 +25,14 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
 
     public ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichAsync(
         ScanComponent[] components,
-        ReadOnlyMemory<PackageMetadataRecord?> recordsByComponent,
+        PackageMetadataWorkspace workspace,
         int concurrency,
         CancellationToken cancellationToken = default)
     {
-        if (recordsByComponent.Length < components.Length)
+        ArgumentNullException.ThrowIfNull(workspace);
+        if (workspace.Length < components.Length)
         {
-            throw new ArgumentException("Package metadata records must correspond to every component.", nameof(recordsByComponent));
+            throw new ArgumentException("Package metadata records must correspond to every component.", nameof(workspace));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -43,17 +44,17 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         }
 
         return components.Length == 1
-            ? EnrichSingleComponent(components, recordsByComponent, concurrency, cancellationToken)
-            : EnrichCoreAsync(components, recordsByComponent, concurrency, cancellationToken);
+            ? EnrichSingleComponent(components, workspace, concurrency, cancellationToken)
+            : EnrichCoreAsync(components, workspace, concurrency, cancellationToken);
     }
 
     private ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichSingleComponent(
         ScanComponent[] components,
-        ReadOnlyMemory<PackageMetadataRecord?> recordsByComponent,
+        PackageMetadataWorkspace workspace,
         int concurrency,
         CancellationToken cancellationToken)
     {
-        var metadata = recordsByComponent.Span[0];
+        var metadata = workspace.Records[0];
         var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[0]);
         if (repositoryUrl.Length == 0)
         {
@@ -129,7 +130,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
 
     private async ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichCoreAsync(
         ScanComponent[] components,
-        ReadOnlyMemory<PackageMetadataRecord?> recordsByComponent,
+        PackageMetadataWorkspace workspace,
         int concurrency,
         CancellationToken cancellationToken)
     {
@@ -142,56 +143,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         var targetCount = 0;
         try
         {
-            var unplannedUnknownCount = 0;
-            for (var i = 0; i < components.Length; i++)
-            {
-                var metadata = recordsByComponent.Span[i];
-                var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[i]);
-                if (repositoryUrl.Length == 0)
-                {
-                    components[i] = AddUnavailableCandidate(components[i]);
-                    unplannedUnknownCount++;
-                    continue;
-                }
-
-                var repositoryRef = metadata?.RepositoryRef ?? string.Empty;
-                if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out var target))
-                {
-                    components[i] = AddUnsupportedCandidate(components[i], repositoryUrl);
-                    unplannedUnknownCount++;
-                    continue;
-                }
-
-                var targetIndex = -1;
-                if (useLinearPlanning)
-                {
-                    for (var existingTargetIndex = 0; existingTargetIndex < targetCount; existingTargetIndex++)
-                    {
-                        if (targets[existingTargetIndex].Equals(target))
-                        {
-                            targetIndex = existingTargetIndex;
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    if (!targetIndexes!.TryGetValue(target.CacheKey, out targetIndex))
-                    {
-                        targetIndex = -1;
-                    }
-                }
-
-                if (targetIndex < 0)
-                {
-                    targetIndex = targetCount;
-                    targetIndexes?.Add(target.CacheKey, targetIndex);
-                    targets[targetCount] = target;
-                    targetCount++;
-                }
-
-                componentTargetIndexes[i] = targetIndex;
-            }
+            targetCount = PlanTargets(components, workspace, targets, componentTargetIndexes, targetIndexes, out var unplannedUnknownCount);
 
             if (targetCount == 1)
             {
@@ -233,12 +185,78 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         }
         finally
         {
-            targets.AsSpan(0, targetCount).Clear();
-            results.AsSpan(0, targetCount).Clear();
+            targets.AsSpan(0, components.Length).Clear();
+            results.AsSpan(0, components.Length).Clear();
             ArrayPool<SourceRepositoryTarget>.Shared.Return(targets);
             ArrayPool<SourceRepositoryLookupResult>.Shared.Return(results);
             ArrayPool<int>.Shared.Return(componentTargetIndexes);
         }
+    }
+
+    /// <summary>Deduplicates every component's repository target. Synchronous so the workspace records cannot span an await.</summary>
+    private static int PlanTargets(
+        ScanComponent[] components,
+        PackageMetadataWorkspace workspace,
+        Span<SourceRepositoryTarget> targets,
+        Span<int> componentTargetIndexes,
+        Dictionary<string, int>? targetIndexes,
+        out int unplannedUnknownCount)
+    {
+        var records = workspace.Records;
+        var useLinearPlanning = targetIndexes is null;
+        var targetCount = 0;
+        unplannedUnknownCount = 0;
+        for (var i = 0; i < components.Length; i++)
+        {
+            var metadata = records[i];
+            var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[i]);
+            if (repositoryUrl.Length == 0)
+            {
+                components[i] = AddUnavailableCandidate(components[i]);
+                unplannedUnknownCount++;
+                continue;
+            }
+
+            var repositoryRef = metadata?.RepositoryRef ?? string.Empty;
+            if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out var target))
+            {
+                components[i] = AddUnsupportedCandidate(components[i], repositoryUrl);
+                unplannedUnknownCount++;
+                continue;
+            }
+
+            var targetIndex = -1;
+            if (useLinearPlanning)
+            {
+                for (var existingTargetIndex = 0; existingTargetIndex < targetCount; existingTargetIndex++)
+                {
+                    if (targets[existingTargetIndex].Equals(target))
+                    {
+                        targetIndex = existingTargetIndex;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                if (!targetIndexes!.TryGetValue(target.CacheKey, out targetIndex))
+                {
+                    targetIndex = -1;
+                }
+            }
+
+            if (targetIndex < 0)
+            {
+                targetIndex = targetCount;
+                targetIndexes?.Add(target.CacheKey, targetIndex);
+                targets[targetCount] = target;
+                targetCount++;
+            }
+
+            componentTargetIndexes[i] = targetIndex;
+        }
+
+        return targetCount;
     }
 
     private async Task<SourceRepositoryLookupResult> EnrichTargetAsync(SourceRepositoryTarget target, CancellationToken cancellationToken)

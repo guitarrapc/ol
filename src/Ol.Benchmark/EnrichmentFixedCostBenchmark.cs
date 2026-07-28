@@ -8,17 +8,17 @@ using Ol.Internals;
 public class EnrichmentFixedCostBenchmark : IDisposable
 {
     private readonly ScanComponent[] emptyComponents = [];
-    private readonly PackageMetadataRecord?[] emptyMetadata = [];
+    private readonly PackageMetadataWorkspace emptyWorkspace = new(0);
     private readonly ScanComponent[] packageComponents = new ScanComponent[1];
-    private readonly PackageMetadataRecord?[] packageMetadata = new PackageMetadataRecord?[1];
+    private readonly PackageMetadataWorkspace packageWorkspace = new(1);
     private readonly PackageMetadataService packageService;
     private readonly ScanComponent packageTemplate;
     private readonly string root;
     private readonly ScanComponent[] sourceCachedComponents = new ScanComponent[1];
-    private readonly PackageMetadataRecord?[] sourceCachedMetadata = new PackageMetadataRecord?[1];
+    private readonly PackageMetadataWorkspace sourceCachedWorkspace = new(1);
     private readonly ScanComponent sourceCachedTemplate;
     private readonly ScanComponent[] sourceComponents = new ScanComponent[1];
-    private readonly PackageMetadataRecord?[] sourceMetadata = new PackageMetadataRecord?[1];
+    private readonly PackageMetadataWorkspace sourceWorkspace = new(1);
     private readonly SourceRepositoryService sourceService;
     private readonly ScanComponent sourceTemplate;
 
@@ -35,42 +35,46 @@ public class EnrichmentFixedCostBenchmark : IDisposable
         sourceService = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
         packageTemplate = CreateComponent(index, "pkg:npm/example@1.0.0");
         sourceCachedTemplate = CreateComponent(index, "pkg:npm/source-cached@1.0.0");
-        sourceCachedMetadata[0] = new PackageMetadataRecord("pkg:npm/source-cached@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []);
+        sourceCachedWorkspace.Records[0] = new PackageMetadataRecord("pkg:npm/source-cached@1.0.0", "npm-registry", string.Empty, "https://github.com/owner/repository", [], []);
         sourceTemplate = CreateComponent(index, "pkg:npm/source@1.0.0");
     }
 
     [Benchmark]
     public int PackageEmpty()
-        => packageService.EnrichAsync(emptyComponents, emptyMetadata, concurrency: 1).GetAwaiter().GetResult().Summary.TargetCount;
+        => packageService.EnrichAsync(emptyComponents, emptyWorkspace, concurrency: 1).GetAwaiter().GetResult().Summary.TargetCount;
 
     [Benchmark]
     public int PackageOneCached()
     {
         packageComponents[0] = packageTemplate;
-        return packageService.EnrichAsync(packageComponents, packageMetadata, concurrency: 1).GetAwaiter().GetResult().Summary.CacheHitCount;
+        return packageService.EnrichAsync(packageComponents, packageWorkspace, concurrency: 1).GetAwaiter().GetResult().Summary.CacheHitCount;
     }
 
     [Benchmark]
     public int SourceEmpty()
-        => sourceService.EnrichAsync(emptyComponents, emptyMetadata, concurrency: 1).GetAwaiter().GetResult().Summary.TargetCount;
+        => sourceService.EnrichAsync(emptyComponents, emptyWorkspace, concurrency: 1).GetAwaiter().GetResult().Summary.TargetCount;
 
     [Benchmark]
     public int SourceOneCached()
     {
         sourceCachedComponents[0] = sourceCachedTemplate;
-        return sourceService.EnrichAsync(sourceCachedComponents, sourceCachedMetadata, concurrency: 1).GetAwaiter().GetResult().Summary.CacheHitCount;
+        return sourceService.EnrichAsync(sourceCachedComponents, sourceCachedWorkspace, concurrency: 1).GetAwaiter().GetResult().Summary.CacheHitCount;
     }
 
     [Benchmark]
     public int SourceOneUnavailable()
     {
         sourceComponents[0] = sourceTemplate;
-        sourceMetadata[0] = null;
-        return sourceService.EnrichAsync(sourceComponents, sourceMetadata, concurrency: 1).GetAwaiter().GetResult().Summary.UnknownCount;
+        sourceWorkspace.Records[0] = null;
+        return sourceService.EnrichAsync(sourceComponents, sourceWorkspace, concurrency: 1).GetAwaiter().GetResult().Summary.UnknownCount;
     }
 
     public void Dispose()
     {
+        emptyWorkspace.Dispose();
+        packageWorkspace.Dispose();
+        sourceCachedWorkspace.Dispose();
+        sourceWorkspace.Dispose();
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
 

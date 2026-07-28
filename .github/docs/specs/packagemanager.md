@@ -74,7 +74,7 @@ Each selected main module becomes a context root. Selected versioned modules bec
 
 Reachability from each main module determines direct/transitive classification and proven root/module edges. Selected modules not proven reachable remain unknown occurrences in the first context rather than being discarded. GOOS, GOARCH, build tags, and package-level import reachability are not present in these module outputs and are not inferred from the scanning host. Both companion files must be supplied explicitly or discovered in the same directory.
 
-## Python resolved input
+## pip resolved input
 
 The Python adapter consumes only stable JSON format version 1 produced by `python -m pip inspect --local`. It does not resolve `requirements.txt`, `pyproject.toml`, Poetry, uv, or Pipenv inputs. The complete `installed` array is the resolved inventory. The report's `python_full_version` or `python_version`, `implementation_name`, `sys_platform`, and `platform_machine` fields form one resolution context, with `pip_version` retained as its resolver variant rather than inferred from the scanning host.
 

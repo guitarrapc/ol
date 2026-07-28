@@ -287,11 +287,11 @@ Scan summary
 
 </details>
 
-### Node.js lockfiles
+### JavaScript/Node.js
 
 ol scans resolved npm `package-lock.json` version 2/3, pnpm `pnpm-lock.yaml` version 9, Yarn Classic `yarn.lock` version 1, and Yarn Berry `yarn.lock` metadata version 8. Pass the lockfile or a directory; workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
 
-### Cargo metadata
+### Rust
 
 ol scans Cargo's resolved metadata JSON format version 1. Generate it from the same locked feature and target selection used by the build, then scan the generated file:
 
@@ -302,7 +302,7 @@ ol scan --input cargo-metadata.json
 
 Each workspace member becomes a resolution context. Workspace and path nodes participate in reachability without being mislabeled as crates.io packages. Resolved features, dependency kinds, and target expressions are retained as variants; ol does not evaluate them against the current host. Cargo metadata does not record the `--filter-platform` argument itself, so ol does not infer a target triple from the machine running the scan.
 
-### Go module graph
+### Go
 
 Go does not persist its MVS build list in a lockfile. Generate both the selected module list and its requirement edges from the same module or workspace, using these exact output names:
 
@@ -321,7 +321,7 @@ ol scan --input .
 
 `go-list-modules.json` is authoritative for the selected build list and replacement metadata. `go-mod-graph.txt` contributes only edges whose endpoints are in that selected list, so superseded module versions and Go's `go@...`/`toolchain@...` graph nodes do not become components. Local replacements receive no proxy purl and their filesystem paths are not reported. Versioned module replacements use the replacement module/version for enrichment while retaining the original requirement as `sourceId`. If the list JSON contains `Retracted` data, ol retains a `retracted` occurrence variant. GOOS, GOARCH, and build tags remain unspecified because neither output proves them.
 
-### Python environment
+### Python
 
 ol scans the stable JSON format version 1 produced by `pip inspect`. Activate the exact virtual environment used by the build or deployment, then capture its installed distributions and environment:
 

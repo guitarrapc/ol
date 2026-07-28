@@ -176,3 +176,12 @@ jobs:
         with:
           name: ol-live-self-scan
           path: ${{ runner.temp }}/live-self
+
+  build-complete:
+    needs: [test, ecosystem-smoke, self-scan]
+    permissions: {}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Build complete
+        run: echo "All build jobs completed successfully."

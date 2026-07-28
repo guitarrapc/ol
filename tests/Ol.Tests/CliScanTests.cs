@@ -1543,7 +1543,7 @@ public sealed class CliScanTests
                 }
             }
 
-            startInfo.ArgumentList.Add(Path.Combine(root, "src", "Ol", "bin", "Debug", "net10.0", "ol.dll"));
+            startInfo.ArgumentList.Add(CliTestAssembly.ResolveOlDllPath(AppContext.BaseDirectory));
             for (var i = 0; i < args.Length; i++)
             {
                 startInfo.ArgumentList.Add(args[i]);

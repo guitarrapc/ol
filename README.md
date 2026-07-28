@@ -143,23 +143,18 @@ ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0 --skip-enrichment
 
 Because unresolved licenses fail closed, `--skip-enrichment` can produce violations that a full enriched check would resolve.
 
-## Scan dependencies
+## Dependency inputs
 
 ### SBOM
 
-ol accepts CycloneDX and SPDX JSON SBOMs. Restore the repository-pinned CycloneDX .NET tool and generate a CycloneDX JSON SBOM from the solution:
+ol accepts CycloneDX and SPDX JSON SBOMs. For release, audit, and CI artifacts, an ecosystem-native generator should resolve the dependency graph and produce one canonical SBOM. Use `scan` to review its reconciled license evidence, then use `check` to apply an SPDX allow-list to the same input:
 
 ```bash
-dotnet tool restore
-dotnet tool run dotnet-CycloneDX Ol.slnx --output sandbox/sbom --output-format Json --filename cyclonedx-sample.json
+ol scan --input bom.cdx.json --format markdown
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
 ```
 
-Scan the generated SBOM with the generalized input API:
-
-```bash
-ol scan --input sandbox/sbom/cyclonedx-sample.json
-ol scan --input sandbox/sbom/cyclonedx-sample.json --format markdown
-```
+SBOM generation and ecosystem-specific resolution remain outside ol. ol enriches the supplied components with package metadata and GitHub License API source evidence, reconciles the resulting claims, and reports unresolved or conflicting evidence before policy evaluation.
 
 <details><summary>Output sample (Markdown)</summary>
 
@@ -221,18 +216,31 @@ Scan summary
 
 ### NuGet
 
-ol accepts resolved dependency inputs. For one .NET project, scan NuGet's resolved `project.assets.json` directly. For a repository or solution layout, pass a directory and ol recursively combines the `project.assets.json` files below it. NuGet resolution can differ by project, target framework, and runtime identifier, so ol preserves each as a separate occurrence context while reporting each package/version once.
+**SBOM:** Generate CycloneDX JSON from the restored solution with [CycloneDX for .NET](https://github.com/CycloneDX/cyclonedx-dotnet), then run both commands against the generated artifact:
 
 ```bash
-dotnet restore Ol.slnx
+dotnet tool restore
+dotnet tool run dotnet-CycloneDX MySolution.slnx --output . --output-format Json --filename bom.cdx.json
+ol scan --input bom.cdx.json
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+**Resolved NuGet input:** For one .NET project, scan NuGet's generated `project.assets.json` directly. For a repository or solution layout, pass a directory and ol recursively combines the `project.assets.json` files below it:
+
+```bash
+dotnet restore MySolution.slnx
 ol scan --input src/Ol/obj/project.assets.json --format markdown
+ol check --input src/Ol/obj/project.assets.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 You can specify a directory containing multiple `project.assets.json` files:
 
 ```bash
 ol scan --input src/ --input tests/ --format markdown
+ol check --input src/ --input tests/ --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
+
+NuGet resolution can differ by project, target framework, and runtime identifier, so ol preserves each as a separate occurrence context while reporting each package/version once.
 
 <details><summary>Output sample (Markdown)</summary>
 
@@ -294,54 +302,92 @@ Scan summary
 
 ### JavaScript/Node.js
 
-ol scans resolved npm `package-lock.json` version 2/3, pnpm `pnpm-lock.yaml` version 9, Yarn Classic `yarn.lock` version 1, and Yarn Berry `yarn.lock` metadata version 8. Pass the lockfile or a directory; workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
+**SBOM:** For npm, generate CycloneDX JSON with [CycloneDX for npm](https://github.com/CycloneDX/cyclonedx-node-npm). A polyglot generator such as [cdxgen](https://github.com/CycloneDX/cdxgen) can be used for pnpm, Yarn, or mixed JavaScript repositories:
+
+```bash
+npx @cyclonedx/cyclonedx-npm --output-format JSON --output-file bom.cdx.json
+ol scan --input bom.cdx.json
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
+```
+
+**Resolved package-manager input:** ol scans npm `package-lock.json` version 2/3, pnpm `pnpm-lock.yaml` version 9, Yarn Classic `yarn.lock` version 1, and Yarn Berry `yarn.lock` metadata version 8:
+
+```bash
+ol scan --input package-lock.json
+ol check --input package-lock.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
+```
+
+Pass a lockfile or directory. Workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
 
 ### Rust
 
-ol scans Cargo's resolved metadata JSON format version 1. Generate it from the same locked feature and target selection used by the build, then scan the generated file:
+**SBOM:** Generate CycloneDX JSON from the Cargo project with [CycloneDX for Rust Cargo](https://github.com/CycloneDX/cyclonedx-rust-cargo):
+
+```bash
+cargo cyclonedx -f json
+ol scan --input bom.json
+ol check --input bom.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+For a workspace that produces multiple BOMs, merge them into one canonical SBOM before passing it to ol.
+
+**Resolved Cargo input:** Generate Cargo metadata from the same locked feature and target selection used by the build, then scan the generated file:
 
 ```bash
 cargo metadata --format-version 1 --locked > cargo-metadata.json
 ol scan --input cargo-metadata.json
+ol check --input cargo-metadata.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 Each workspace member becomes a resolution context. Workspace and path nodes participate in reachability without being mislabeled as crates.io packages. Resolved features, dependency kinds, and target expressions are retained as variants; ol does not evaluate them against the current host. Cargo metadata does not record the `--filter-platform` argument itself, so ol does not infer a target triple from the machine running the scan.
 
 ### Go
 
-Go does not persist its MVS build list in a lockfile. Generate both the selected module list and its requirement edges from the same module or workspace, using these exact output names:
+**SBOM:** Generate CycloneDX JSON from the module with [CycloneDX for Go modules](https://github.com/CycloneDX/cyclonedx-gomod). Use the same GOOS, GOARCH, CGO, and build-tag selection as the released application:
+
+```bash
+cyclonedx-gomod mod -json -output bom.cdx.json .
+ol scan --input bom.cdx.json
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+**Resolved Go input:** Go does not persist its MVS build list in a lockfile. Generate both the selected module list and its requirement edges from the same module or workspace, using these exact output names:
 
 ```bash
 go list -m -json all > go-list-modules.json
 go mod graph > go-mod-graph.txt
 
 ol scan --input go-list-modules.json --input go-mod-graph.txt
+ol check --input go-list-modules.json --input go-mod-graph.txt --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 Alternatively, pass their containing directory. ol binds the two companion files as one `go-module-graph` input:
 
 ```bash
 ol scan --input .
+ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 `go-list-modules.json` is authoritative for the selected build list and replacement metadata. `go-mod-graph.txt` contributes only edges whose endpoints are in that selected list, so superseded module versions and Go's `go@...`/`toolchain@...` graph nodes do not become components. Local replacements receive no proxy purl and their filesystem paths are not reported. Versioned module replacements use the replacement module/version for enrichment while retaining the original requirement as `sourceId`. If the list JSON contains `Retracted` data, ol retains a `retracted` occurrence variant. GOOS, GOARCH, and build tags remain unspecified because neither output proves them.
 
 ### Python
 
-For a canonical release or audit artifact, prefer generating CycloneDX JSON from the exact Python environment used by the build or deployment with the [CycloneDX Python SBOM generator](https://github.com/CycloneDX/cyclonedx-python), then scan that SBOM:
+**SBOM:** Generate CycloneDX JSON from the exact Python environment used by the build or deployment with the [CycloneDX Python SBOM generator](https://github.com/CycloneDX/cyclonedx-python):
 
 ```bash
 cyclonedx-py environment .venv --output-format JSON --output-file bom.cdx.json
 ol scan --input bom.cdx.json
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 The generator also supports Poetry, Pipenv, and pip requirements inputs. Using the installed environment provides the strongest inventory of the packages actually selected for the build.
 
-When an SBOM is unavailable, ol can scan the stable JSON format version 1 produced by `pip inspect`. Activate the exact virtual environment, then capture its installed distributions and environment:
+**Resolved Python input:** ol scans the stable JSON format version 1 produced by `pip inspect`. Activate the exact virtual environment, then capture its installed distributions and environment:
 
 ```bash
 python -m pip inspect --local > pip-inspect.json
 ol scan --input pip-inspect.json
+ol check --input pip-inspect.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 The installed distribution set is authoritative; ol does not resolve `requirements.txt`, `pyproject.toml`, Poetry, uv, or Pipenv declarations. `requested=true` distributions are direct dependencies and receive root edges. `requested=false` proves transitive classification only when `installer` is `pip`; other installers and a missing `requested` field remain unknown. Unconditional `requires_dist` entries produce package edges when the normalized target is installed. Entries with environment markers or extras do not produce edges because `pip inspect` does not record which extras activated them. The report context retains the Python version, implementation, `sys_platform`, machine architecture, and pip version supplied by the report.
@@ -350,17 +396,19 @@ Distribution names use PyPA normalization for identity and `pkg:pypi` enrichment
 
 ### PHP / Composer
 
-For a canonical release or audit artifact, prefer generating CycloneDX JSON from the locked Composer project with the [CycloneDX PHP Composer plugin](https://github.com/CycloneDX/cyclonedx-php-composer), then scan that SBOM:
+**SBOM:** Generate CycloneDX JSON from the locked Composer project with the [CycloneDX PHP Composer plugin](https://github.com/CycloneDX/cyclonedx-php-composer):
 
 ```bash
 composer CycloneDX:make-sbom --output-format=JSON --output-file=bom.cdx.json
 ol scan --input bom.cdx.json
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
-When an SBOM is unavailable, ol can scan a same-directory `composer.json` and `composer.lock` pair directly:
+**Resolved Composer input:** ol scans a same-directory `composer.json` and `composer.lock` pair directly:
 
 ```bash
 ol scan --input . --input-format composer-lock
+ol check --input . --input-format composer-lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 The lockfile supplies the resolved production and development package sets. The manifest supplies only the root package identity and direct `require`/`require-dev` relationships; ol does not invoke Composer, resolve version constraints, or inspect `vendor/`. Package metadata is enriched from Packagist when available, and repository URLs from package metadata can lead to GitHub License API source evidence.
@@ -392,7 +440,8 @@ Use one canonical dependency source per ol report. For a release or audit artifa
 ```bash
 # First run the repository's normal locked restore/install steps.
 cdxgen -r -o bom.cdx.json .
-dotnet run --project src/Ol -- scan --input bom.cdx.json
+ol scan --input bom.cdx.json
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 Check that the generated BOM contains every intended project, package ecosystem, and dependency relationship. A single file is only better when its generator has complete coverage. If separate ecosystem tools produce separate CycloneDX BOMs, merge them before scanning; [CycloneDX CLI](https://github.com/CycloneDX/cyclonedx-cli) supports hierarchical merge when every input BOM identifies its subject in `metadata.component`:
@@ -400,7 +449,8 @@ Check that the generated BOM contains every intended project, package ecosystem,
 ```bash
 cyclonedx merge --input-files dotnet.cdx.json node.cdx.json --output-file repository.cdx.json --output-format json --hierarchical --name my-repository --version "$GIT_COMMIT"
 
-dotnet run --project src/Ol -- scan --input repository.cdx.json
+ol scan --input repository.cdx.json
+ol check --input repository.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 When a trustworthy polyglot SBOM is unavailable, scan resolved package-manager inputs directly. Restore .NET projects first so `project.assets.json` exists, then pass selected roots or the repository directory. Do not specify `--input-format` for mixed formats:
@@ -415,7 +465,8 @@ popd
 pushd src/python
 python -m pip inspect --local > pip-inspect.json
 popd
-dotnet run --project src/Ol -- scan --input src/backend --input src/frontend --input src/rust --input src/go --input src/python --input src/php --format json
+ol scan --input src/backend --input src/frontend --input src/rust --input src/go --input src/python --input src/php --format json
+ol check --input src/backend --input src/frontend --input src/rust --input src/go --input src/python --input src/php --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, both Yarn lock formats, `cargo-metadata.json`, `pip-inspect.json`, and complete Composer and Go companion pairs. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.

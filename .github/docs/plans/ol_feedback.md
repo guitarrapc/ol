@@ -1,510 +1,236 @@
-# 既存ライセンスチェッカーから ol へ反映すべきこと
+# DESIGN から逆算した ol の不足と実装順序
 
 ## この文書の位置付け
 
-[既存 OSS ライセンスチェッカーの実装分析](../references/existing_license_checkers.md)を、2026-07-28 時点の ol の実装・設計と比較し、**ol に足りず、かつ ol で実装する価値が高いもの**を優先順位順に整理する。
+[ol の設計](../DESIGN.md)が利用者へ約束している体験を起点に、**まだ果たされていない約束**を特定し、それを果たすために何を支払うかを整理する。[既存 OSS ライセンスチェッカーの実装分析](../references/existing_license_checkers.md)は、その支払いの相場を知るための参照であって、機能一覧の出典ではない。
 
-これは仕様や実装の commitment ではない。採用する項目は、WHAT / WHY を specs へ追加した後、個別の test-first implementation plan に分ける。既存の [backlog](../backlog.md) と重なる項目もあるが、この文書では参照実装から得た根拠、依存関係、実装しない範囲まで具体化する。
+これは仕様や実装の commitment ではない。採用する項目は WHAT / WHY を specs へ追加した後、個別の test-first implementation plan に分ける。[backlog](../backlog.md) と重なる項目（policy categories、SARIF、Maven、source archive inspection）については、この文書が参照実装から得た根拠、依存関係、支払う代償、実装しない範囲まで具体化する。
 
-## 比較時点の ol の強み
+方法は次の順とする。参照ツールにある機能から出発すると、ol の配布形態や既存の強みを無視した項目が混ざるため、順序を逆にしている。
 
-ol は参照ツールから無差別に機能を足す必要はない。現在の ol には既に次の強い基盤がある。
+1. DESIGN が約束している体験を軸として並べる。
+2. 各軸について、現在の実装が**現物として**どこまで届いているかを確認する。
+3. 届いていない差分だけを不足とする。
+4. 各不足について参照実装が支払っている代償を見積もり、順序を決める。
 
-- CycloneDX / SPDX と複数 package manager の **resolved dependency input** を共通 inventory にし、root / direct / transitive と graph を保持する。
-- npm、NuGet、Cargo、Go、PyPI、Packagist の registry metadata と GitHub License API を、入力上の宣言とは別 evidence として収集する。
-- candidate を一つに上書きせず、source / kind / raw / normalized / status / provenance とともに保持する。
-- SPDX identifier と expression を active SPDX data で厳密に検証する。
-- 複数 evidence の一致、conflict、unknown、ambiguous、invalid、error を明示する。
-- `scan` の事実収集と `check --allow-licenses` の policy enforcement を分離し、`AND` / `OR` / `WITH` を fail-closed で評価する。
-- external I/O を bounded concurrency、deduplication、versioned cache、explicit refresh で制御し、結果順序を deterministic に保つ。
+## 現在の ol（現物確認）
 
-根拠:
+ranking の前提になるため、推測ではなく登録済みの実体で確認する。
 
-- [設計](../DESIGN.md)
-- [入力 registry](../../../src/Ol.Core/DependencyInputRegistry.cs)
-- [evidence data](../../../src/Ol.Core/Licensing/LicenseCandidate.cs)
-- [reconciliation](../../../src/Ol.Core/Licensing/LicenseReconciler.cs)
-- [allow policy](../../../src/Ol.Core/Licensing/LicenseAllowPolicy.cs)
-- [source repository evidence specification](../specs/source.md)
+| 能力 | 実体 | 根拠 |
+|---|---|---|
+| resolved dependency input | CycloneDX、SPDX、NuGet assets、npm、pnpm、Yarn Classic / Berry、Cargo、Go module graph、pip inspect、Composer、**Bundler** の 12 形式と collection | [DependencyInputRegistry.cs](../../../src/Ol.Core/DependencyInputRegistry.cs)、[DependencyInventory.cs](../../../src/Ol.Core/DependencyInventory.cs) |
+| registry metadata provider | npm、NuGet、Cargo、Go、PyPI、Packagist、**RubyGems** の 7 種 | [OlDefaults.cs](../../../src/Ol.Core/OlDefaults.cs) |
+| source repository evidence | GitHub License API のみ。repository / ref / path / blob SHA / http status を保持 | [GitHubLicenseApiClient.cs](../../../src/Ol.Core/GitHub/GitHubLicenseApiClient.cs)、[specs/source.md](../specs/source.md) |
+| evidence 保持 | source / kind / raw / normalized / status / deprecated / warnings / typed provenance | [LicenseCandidate.cs](../../../src/Ol.Core/Licensing/LicenseCandidate.cs) |
+| reconciliation | matched / conflict / unknown / ambiguous / invalid / error の 6 状態 | [LicenseReconciler.cs](../../../src/Ol.Core/Licensing/LicenseReconciler.cs) |
+| SPDX | 版を固定した**識別子**データ。本文・template は持たない（生成物 22KB） | [SpdxGeneratedLicenseData.g.cs](../../../src/Ol.Core/Generated/SpdxGeneratedLicenseData.g.cs)、[specs/spdx.md](../specs/spdx.md) |
+| policy | `check --allow-licenses` の SPDX 識別子 allow-list のみ。CLI 引数限定、`AND` / `OR` / `WITH` を fail-closed 評価 | [CheckCommands.cs](../../../src/Ol/CheckCommands.cs)、[LicenseAllowPolicy.cs](../../../src/Ol.Core/Licensing/LicenseAllowPolicy.cs) |
+| 出力 | `scan` が text / Markdown / JSON と `--out-file`。`check` は text 固定 | [ScanCommands.cs](../../../src/Ol/ScanCommands.cs) |
+| cache | TTL なしの永続 cache。`--refresh` でのみ無効化 | [specs/cache_format.md](../specs/cache_format.md) |
 
-このため、参照ツールにある次の挙動は ol へ取り込む対象にしない。
+前版のこの文書は Bundler / RubyGems を未対応として扱っていたが、実装済みである。ecosystem の不足は上表から取り直すこと。
 
-- package metadata の先頭 license だけを使う。
-- SPDX expression を raw string の exact / substring comparison で判定する。
-- confidence の低い heuristic 推定を確定 license として evidence へ上書きする。
-- package / file ごとに無制限の task / goroutine を作る。
-- installed directory だけを inventory の正とし、resolved graph を失う。
-- ORT の plugin platform や rule DSL を規模ごと模倣する。
+## 約束と充足度
 
-## 優先順位の基準
+[参照文書の評価軸](../references/existing_license_checkers.md#ol-の設計目標から見た横断評価)に沿って、DESIGN の約束と現状を対応させる。
 
-順位は次を総合して決めた。
+| 軸 | DESIGN の約束 | 現状 | 差分 |
+|---|---|---|---|
+| A. 数え落とさない | 完全な inventory と graph を先に確定し、filter は view | 12 input が root / direct / transitive と context 別 graph を保持 | **ほぼ果たされている**。残るのは ecosystem 数 |
+| B. 判定の理由が残る | evidence を上書きせず provenance 付きで保持 | 3 系統の typed evidence、6 状態、警告を保持 | **果たされている**。ただし人間の判断を残す場所がない |
+| C. 同じ入力なら同じ結果 | 版を固定した SPDX、TTL なし cache、決定的順序 | 識別子検証の範囲では成立 | **果たされている**。本文同定を足すと崩れる（後述） |
+| D. 止まったときに前へ進める | 「policy が何を禁じるかを決める」 | 決められるのは SPDX 識別子の allow-list のみ | **果たされていない。最大の穴** |
+| E. 検査の次へ届く | （DESIGN は約束していない） | license ID の報告まで | 拡張であって未達ではない |
+| F. 小さく速いままでいる | 単一 native AOT バイナリ | 維持。renderer は 0 allocation | 新機能はここを削る方向に働く |
 
-1. **正しさ**: unknown や誤判定を減らしつつ、推測を確定値へ昇格させないか。
-2. **監査可能性**: なぜその結果になったか、後から再現・再 review できるか。
-3. **利用者価値**: CI の合否だけでなく、実際の再配布 compliance 作業を短縮するか。
-4. **ol との適合**: typed evidence、完全 graph、strict SPDX、side-effect boundary を活かせるか。
-5. **費用と危険**: network / disk I/O、false positive、schema compatibility、ecosystem 固有処理を制御できるか。
+事実側（A・B・C）は概ね約束を果たしている。**policy 側（D）だけが約束に対して極端に薄い。** ol は「観察と policy を分離する」と宣言し、`matched` は「解決済みであって許可済みではない」と定義しているにもかかわらず、policy が表現できる意思決定は識別子の列挙一つしかない。
 
-| Rank | Priority | 提案 | 価値 | 実装費 | 主な依存 |
-|---:|---|---|---|---|---|
-| 1 | P0 | package / source の legal file evidence と厳密な本文同定 | 非常に高い | 高 | evidence schema、artifact boundary |
-| 2 | P0 | fingerprint 付き curation / review | 非常に高い | 中 | Rank 1 と既存 candidate |
-| 3 | P1 | versioned policy file と監査可能な exception | 高い | 中 | Rank 2 の identity model |
-| 4 | P1 | 保存済み scan report の再評価と evidence diff | 高い | 中 | report input schema |
-| 5 | P1 | NOTICE / license bundle の生成 | 高い | 中〜高 | Rank 1、Rank 3 |
-| 6 | P2 | dependency path 付き SARIF / CI annotation | 中〜高 | 中 | graph path、input location |
-| 7 | P2 | ecosystem coverage の優先拡張 | 中 | ecosystem ごとに中 | registry / input adapter |
-| 8 | P3 | source tree 全体の file-level scan | 条件付きで高い | 非常に高い | Rank 1〜4 |
+## 不足の一覧と順序
 
-## Rank 1 / P0: package / source の legal file evidence と厳密な本文同定
+### Gap 1 / P0: policy が方針を表現できない
 
-### 足りていないこと
+**約束**: [decision-policy-separation](../DESIGN.md) — 同じ事実に対し、組織ごとに異なる policy を適用できる。
 
-現在の ol は SBOM / package input の宣言、package registry metadata、GitHub License API の検出結果を evidence にできる。一方、次を直接 evidence にできない。
+**現状で起きること**: `check` は `--allow-licenses` を必須とし、`unknown` / `conflict` / `ambiguous` / `invalid` / `error` を無条件で違反にする。実在の依存集合には必ず解決不能な component が残るため、**利用者は最初の 1 件で恒久的に停止する**。deny も、package 単位の例外も、理由も期限も表現できない。CLI 引数だけなので、方針が repository に残らず review もできない。
 
-- local package cache や package archive 内の `LICENSE` / `COPYING` / `NOTICE`。
-- source archive / repository root の legal files。
-- file content hash、path、実際の license text。
-- file content と SPDX template の照合結果。
+fail-closed 自体は正しい。欠けているのは、閉じた後に監査可能な形で前へ進む手段である。
 
-[source specification](../specs/source.md)は、GitHub API が unknown を返しても arbitrary text を推測解析しない方針である。この安全性は維持すべきだが、**監査可能な template matching** まで永続的に拒否する理由にはならない。
+**参照実装の解**: LicenseFinder は permit / restrict と package approval を分離し、licensed は allowed / reviewed / ignored を version 条件付きで持つ。ORT は classification と rule violation severity を分ける。
 
-### 参照実装から学ぶこと
+**推奨する最小 scope**: 宣言的 data のみ。DSL、plugin、任意コード実行を導入しない。
 
-- go-licenses: package directory から module root へ legal file を探索し、同じ file を package 間で共有する。
-- licensed / LicenseFinder: installed artifact の metadata と legal files を別々に保持する。
-- nuget-license: `.nupkg` 内の declared file を読み、SPDX matching guideline を意識した template matcher を使う。
-- ORT: declared と detected を別 fact として保持し、file path / line / provenance を失わない。
+- schema version、named profile。
+- SPDX allow / deny 識別子。
+- classification: `allowed` / `denied` / `review` / `notice-required` / `source-disclosure-review`。
+- package exception: 正確な purl、正確な version または明示 range、action、reason、owner、expires。
+- unresolved status の扱い。既定は現行どおり fail closed。
 
-### ol での価値
+`AND` / `OR` / `WITH` は既存 evaluator を共有し、policy file 側に別 parser を作らない。
 
-- registry declaration が空の Go / NuGet / npm package を解決できる。
-- GitHub でない source、private package、offline cache でも evidence を増やせる。
-- package version に対応する配布 artifact そのものを確認できる。
-- 後続の NOTICE / license bundle に必要な原文を得られる。
-- GitHub API の一語の classification より詳しい監査証跡を残せる。
+**支払うもの**: 新しい I/O は設定ファイル 1 つ。同定データもローカル実体化も不要。CLI と policy file の precedence 定義、および exit code 契約の維持が主な設計作業。
 
-### 推奨する最小 scope
+**この順位に対する反論と応答**: 「証拠が不十分なまま例外を作りやすくすると、無知を制度化する」。これは正しい懸念であり、次で抑える。exception には reason / owner / expires を必須にし、期限切れと未使用を報告する。`unknown` の承認は `allowed` と別の action として記録し、report から消さない。事実の訂正（Gap 2）と方針の例外を同じ action にしない。
 
-最初から source tree 全体を scan しない。次の順で範囲を制限する。
-
-1. package manager が指定する license file
-   - 例: NuGet `.nuspec` `license type=file`。
-2. local package archive / cache の root legal files。
-3. source archive / repository root legal files。
-
-探索対象は exact / bounded な file name pattern に限定する。candidate には最低限次を持たせる。
-
-- evidence kind: `package-artifact` または `source-file`。
-- package / repository identity と version / ref。
-- archive / file path。
-- content SHA-256。
-- byte length と text availability。
-- matcher 名・version。
-- matched SPDX expression、confidence ではなく match class。
-- no-match / multiple-match / truncated / unreadable の明示状態。
-
-本文同定は SPDX template の確定的な matcher を第一候補にする。heuristic regex や類似度だけの match は `Matched` にせず、別の review-required candidate 状態にする。
-
-### performance / safety 制約
-
-- inventory を完成してから artifact target を deduplicate する。
-- `(ecosystem, package, version, artifact hash)` または provenance identity ごとに一度だけ読む。
-- network、archive、file scan は別々の bounded concurrency とする。
-- archive entry 数、展開後 byte 数、1 file byte 数、探索 depth を上限化する。
-- zip slip、symlink escape、path traversal を拒否する。
-- bytes を一度 hash / normalize し、同一 content は matcher result を再利用する。
-- completion order ではなく component order で result を merge する。
-- report への本文埋め込みは明示 option とし、既定では hash / path / result だけにして schema 膨張と source disclosure を避ける。
-
-### 完了条件
-
-- declaration unknown の fixture が local legal file から SPDX ID を得る。
-- declared と detected が異なる fixture は conflict を保持し、どちらも消えない。
-- no-match / multiple-match は確定 license に昇格しない。
-- 同一 artifact を参照する複数 component で scan が一度だけ行われる。
-- malicious / oversized archive を bounded failure として component evidence に残す。
-- cache hit / miss と並列完了順にかかわらず report が byte-stable である。
-
-## Rank 2 / P0: fingerprint 付き curation / review
-
-### 足りていないこと
-
-ol は `Concluded` という input acknowledgement を扱えるが、これは SPDX document producer が供給した fact であり、ol 利用者が project 固有に行う curation workflow ではない。現状は次の状況を安全に解決できない。
-
-- upstream metadata が typo / deprecated alias / custom string である。
-- declared と detected が conflict するが、人間が正しい解釈を確認済みである。
-- custom license を `LicenseRef-*` として管理したい。
-- false positive を version / evidence 内容に限定して例外化したい。
-
-単純な `package -> concluded license` override は、upstream の license 変更後も古い判断を通し続けるため危険である。
-
-### 参照実装から学ぶこと
-
-- licensed: review 後に normalized license text が変わると再 review を要求する。
-- license-checker-rseidelsohn: package semver、license file、text range、SHA-256 checksum で clarification を固定し、unused clarification を error にできる。
-- LicenseFinder: who / why / timestamp / version を decision history に残す。
-- ORT: raw evidence、curation、concluded license、resolution を別 data として保持する。
-
-### ol での価値
-
-- conflict / ambiguous を「証拠を消さずに」運用可能な concluded result へ進められる。
-- project 固有例外が command line の暗黙知にならない。
-- package update、file change、registry correction 時に再 review を強制できる。
-- policy exception と factual correction を区別できる。
-
-### 推奨する data model
-
-versioned curation file に、少なくとも次を明示する。
-
-- component selector:
-  - canonical purl を優先。
-  - exact version または明示 version range。
-  - 必要時のみ source ref / input format。
-- action:
-  - normalized claim mapping。
-  - concluded SPDX expression。
-  - candidate exclusion ではなく finding resolution。
-- audit:
-  - reason。
-  - reviewer。
-  - reviewed-at。
-- guard:
-  - 対象 candidate source / kind。
-  - expected raw value hash または legal file content hash。
-  - expected normalized expression / status。
-
-適用後も original candidates と pre-curation reconciliation を report に保持し、curation を独立 evidence / decision として出す。
-
-### 適用規則
-
-- component selector が複数 component に曖昧 match したら command error。
-- guard が一致しなければ curation を適用せず `stale-curation` として fail closed。
-- 一度も使用されなかった entry は warning、strict option では error。
-- concluded expression 自体も active SPDX data で厳密に validation する。
-- policy exception と license conclusion を同じ action にしない。
-- curation 前の `conflict` / `unknown` は raw report から消さない。
-
-### 完了条件
-
-- exact purl / version / evidence hash にだけ curation が適用される。
-- version または evidence content が変わると自動的に stale になる。
-- original、curated、effective の三つを JSON で追跡できる。
-- unused / ambiguous / duplicate curation を deterministic に報告する。
-- curation なしの既存 scan output と hot path に不要な allocation / I/O を追加しない。
-
-## Rank 3 / P1: versioned policy file と監査可能な exception
-
-### 足りていないこと
-
-現在の `check --allow-licenses` は strict SPDX allow-list と unresolved status の fail-closed 判定として良い最小実装である。一方、実際の compliance policy で必要になる次がない。
-
-- deny / review / classification。
-- package + version に限定した exception。
-- dependency scope / production / development / distribution context。
-- notice、source disclosure、copyleft review 等の obligation category。
-- exception の reason、owner、期限。
-- repository に commit できる versioned policy file。
-
-これは既存の [license check plan](plan_license_check.md) でも初期 scope 外と明記されている。
-
-### 参照実装から学ぶこと
-
-- LicenseFinder: permit / restrict と個別 package approval を分離する。
-- licensed: allowed、reviewed、ignored を分け、review を version-aware にする。
-- go-licenses: license ID とは別に配布上の category を持つ。
-- ORT: license classification と rule violation severity を分離する。
-
-### ol での価値
-
-- command line の長い allow-list を repository policy にできる。
-- package 例外を全 version に誤適用せず、監査情報を残せる。
-- 「使ってよいか」だけでなく「NOTICE が必要か」「source 提供 review が必要か」を後続 artifact へ渡せる。
-- 同じ scan fact に対して製品 / distribution profile ごとの policy を変えられる。
-
-### 推奨する最小 scope
-
-最初の policy file は宣言的 data に限定し、DSL / plugin / arbitrary code execution を導入しない。
-
-- schema version。
-- named policy profile。
-- SPDX allow / deny identifiers。
-- license classification:
-  - `allowed`
-  - `denied`
-  - `review`
-  - `notice-required`
-  - `source-disclosure-review`
-- package exception:
-  - exact purl。
-  - exact version または明示 range。
-  - action。
-  - reason / owner / expires。
-- unresolved status の扱い。ただし既定は現在どおり fail closed。
-
-`AND` / `OR` / `WITH` は既存 evaluator を共有し、policy file 側で別 parser を作らない。license choice が必要な `OR` は、単に「どれか allowed だから pass」だけでなく選択した branch を result に記録できるようにする。これは後の NOTICE 生成で必要になる。
-
-### 完了条件
+**完了条件**:
 
 - CLI allow-list と policy file の precedence / conflict が一意に定義される。
 - exception は package identity と version を外れると適用されない。
-- expired / unused exception を report できる。
+- expired / unused exception を報告できる。
 - policy result に matched rule / exception と reason が残る。
 - unresolved の既定 fail-closed を維持する。
-- policy parse failure は violation exit 1 ではなく command error exit 2 になる。
+- policy parse failure は violation の exit 1 ではなく command error の exit 2 になる。
 
-## Rank 4 / P1: 保存済み scan report の再評価と evidence diff
+### Gap 2 / P0: 人間の判断を残す場所がない
 
-### 足りていないこと
+**約束**: [decision-evidence-preservation](../DESIGN.md) — 証拠を消さずに保持する。判断もまた監査対象である。
 
-現在の `check` は `scan` と同じ pipeline を一度だけ実行するため、1 command 内の二重処理はない。しかし policy を変更するたびに input parsing、registry / source enrichment を再実行する。保存済み JSON report は output contract であり、policy input として明示的に versioning / validation されていない。
+**現状で起きること**: `Concluded` は SPDX document producer が供給した事実であり、ol 利用者の curation ではない。upstream の typo、deprecated alias、custom string、確認済みの conflict を、証拠を消さずに解決する手段がない。
 
-また、前回と今回で次が変わった package を専用に示す diff がない。
+**参照実装の解**: [参照文書 D 軸](../references/existing_license_checkers.md#d-止まったときに前へ進める)の三つの出口。事実の訂正 / 結論の確定 / 方針の例外を混ぜない。いずれも fingerprint による変更検知を伴う。
 
-- component の追加 / 削除 / version 変更。
-- evidence source / raw / normalized / hash の変更。
-- reconciliation status の変更。
-- curation / review の stale 化。
-- policy result の変更。
+**Gap 1 との関係**: 同じ component selector と versioned file の形式を共有する。したがって Gap 1 の直後に置く。**Gap 4（原文取得）には依存しない。** guard に使う fingerprint は、既存の candidate `Raw` と、GitHub License API から取得済みの blob SHA（`SourceRepositoryEvidence.LicenseSha`）で成立する。不足しているのは registry evidence 側で、現在保持しているのは `CacheKeySha256`（cache key であって内容 hash ではない）である点だけで、これは content hash の追加 1 項目で済む。
 
-### 参照実装から学ぶこと
+**推奨する data model**: component selector（正規化 purl、正確な version または明示 range）、action（claim mapping / concluded expression / finding resolution）、audit（reason / reviewer / reviewed-at）、guard（対象 candidate source と kind、期待する内容 hash）。適用後も original candidates と curation 前の reconciliation を report に残す。
 
-- licensed: dependency metadata と reviewed cache を repository に保存し、status を高速に再評価する。
-- LicenseFinder: report diff を独立 output にする。
-- ORT: analyzer / scanner / evaluator / reporter の中間 result を保存し、工程を再利用する。
+**完了条件**:
 
-### ol での価値
+- 正確な purl / version / evidence hash にだけ適用される。
+- version または evidence 内容が変わると自動的に stale になり、fail closed する。
+- original / curated / effective の三つを JSON で追跡できる。
+- unused / ambiguous / duplicate curation を決定的に報告する。
+- curation を外すと元の結果が完全に復元される。
+- curation なしの経路に不要な allocation / I/O を追加しない。
 
-- network なしで policy review と CI 再評価ができる。
-- registry / source の時間変化から policy 結果を切り離せる。
-- pull request で「license に関係する変化だけ」を reviewer に見せられる。
-- curation guard と組み合わせ、再 review 対象を自動抽出できる。
+### Gap 3 / P1: 「再 scan なしの再評価」が未実装
 
-### 推奨する実装境界
+**約束**: DESIGN は明示的にこう書いている — 「同じ事実 report を、依存を再 scan したり証拠を再収集したりせずに、異なる policy で評価できる」。
 
-- 現在の renderer JSON をそのまま parser input にせず、`ScanResult` の永続 input contract を versioned schema として定義する。
-- schema major version、SPDX data version、tool version、input identity / hash、collection settings を検証する。
-- report input では enrichment を暗黙に再実行しない。
-- `check --report <file>` または同等の明示的 input mode にする。
-- diff は component identity の stable key と evidence fingerprint を使う pure transform とする。
-- report に secret、token、absolute cache path を入れない既存 privacy boundary を維持する。
+**現状で起きること**: `check` は毎回 input parsing と enrichment を含む pipeline を実行する（[CheckCommands.cs](../../../src/Ol/CheckCommands.cs)）。[cli.md](../specs/cli.md) は「scan と同じ pipeline を一度だけ実行する」と正直に書いており、**DESIGN の記述だけが実装より先へ出ている**。これは新機能の提案ではなく、文書化済みの未実装である。
 
-### 完了条件
+**過大主張しないこと**: 「network なしで再評価できる」は既に成立している。cache は TTL を持たず、`--refresh` を指定しない限りネットワークへ出ない。この Gap の実利は次に限られる。
 
-- 同じ persisted result と policy から byte-stable な同一判定を得る。
-- schema version / malformed / partial report を command error にする。
-- report input 時に network request が発生しない。
-- added / removed / updated / evidence-changed / policy-changed を区別する。
-- diff の順序が component order と change kind で deterministic である。
+- parse と reconciliation のコスト削減。
+- cache dir を持ち回れない環境（別 job、別マシン）への可搬性。
+- registry / source の時間変化から policy 結果を切り離すこと。
+- **前回との差分を出せること**（これが本命）。
 
-## Rank 5 / P1: NOTICE / license bundle の生成
+**推奨する実装境界**: renderer JSON をそのまま parser 入力にせず、`ScanResult` の永続入力契約を versioned schema として定義する。ただし **schema を二枚管理にしない**こと。canonical JSON に schema version と入力同一性を足して 1 枚で兼ねられるなら、そちらを優先する。二枚に割る判断をするなら、同期を検証する test を同時に定義する。
 
-### 足りていないこと
+**完了条件**: 同じ永続結果と policy から同一判定を得る / schema version 不整合・破損・部分 report を command error にする / report 入力時に network request が発生しない / added / removed / updated / evidence-changed / policy-changed を区別する / diff の順序が決定的である。
 
-ol は text / Markdown / JSON で license facts を報告できるが、製品へ同梱するための次の artifact を生成しない。
+### Gap 4 / P1: 証拠の最後の一歩（原文）
 
-- third-party notices。
-- dependency ごとの license text。
-- attribution / copyright。
-- selected license branch。
-- source disclosure 対象一覧または source bundle manifest。
+**約束**: Design Goal 2 — 独立に帰属可能な証拠源から結論を組み立てる。
 
-license ID の report だけでは再配布義務を履行できない。
+**現状で起きること**: registry declaration が空で GitHub でもない package は unknown のまま解決できない。原文を持たないため、後続の NOTICE も作れない。
 
-### 参照実装から学ぶこと
+**この Gap を 4 位に置く理由**: 価値は高いが、**C 軸（同じ入力なら同じ結果）を壊す唯一の項目**であり、支払いが他より一桁重い。[参照文書 C 軸](../references/existing_license_checkers.md#c-同じ入力なら同じ結果)の実測が示すとおり、本文同定は二つの新しい依存を必ず連れてくる。
 
-- go-licenses `save`: license category に応じ、license / notice / source を bundle する。
-- licensed `notices`: reviewed cache の legal contents から NOTICE を作る。
-- nuget-license: package license files を download / 保存する。
-- ORT reporter: 同じ resolved facts から NOTICE、SPDX、CycloneDX 等を作る。
+1. **同定データの版**: 現在の SPDX データは識別子のみで 22KB。SPDX template matching は本文つきデータを要求し、nuget-license はこれを版固定の外部データ package として取り込んでいる。ol では [spdx.md の data resolution 契約](../specs/spdx.md)（明示ディレクトリ → user-managed → bundled）が `licenses.json` と `exceptions.json` しか要求していないため、**user-managed SPDX を選ぶと matcher が動かないか劣化する**。これは `decision-versioned-spdx` の違反であり、matcher の追加ではなくデータ契約の変更である。[Ol.Update](../../../src/Ol.Update) の生成範囲と native AOT の配布サイズにも波及する。
+2. **package のローカル実体化**: 参照実装で本文を読めるものはすべて installed / restore 済みを前提とする。ol の入力は resolved graph なので、**同じ入力ファイルから機械ごとに異なる evidence が出る**状態へ移る。ORT だけが provenance を固定して自分で download することで解決している。
 
-### ol での価値
+前版が最優先に推していた「NuGet embedded license file」も、この観点では最小の縦切りではない。`.nupkg` は NuGet global packages folder にしか存在せず、restore 済み環境という新しい前提を持ち込む。加えて現代の NuGet は `license type="expression"` が主流で `type="file"` は少数派であり、`type="file"` を選ぶ package は独自条項であることが多い。独自条項は SPDX template と no-match になり、規則どおり no-match は確定 license に昇格しない。つまり**この縦切りが最も高い確率で生む結果は「unknown のまま」**である。設計リスクを小さく固定する題材としては良いが、利用者価値の根拠にはならない。
 
-- scan / check の結果を実際の release artifact へ接続できる。
-- 「検査は通ったが原文がない」という最後の手作業を減らせる。
-- deterministic artifact により release 間 diff と review が容易になる。
+**推奨する順序**: Gap 3 を先に済ませ、legal file evidence の投入前後を diff として計測する。「local legal file で unknown が実際に何件減ったか」を観測してから corpus 投資を判断する。
 
-### 推奨する前提と scope
+**着手前に必ず決めること**: 上記 1 の SPDX データ契約と、2 の「取得できなかったこと」の表現（evidence なしか、明示的な未取得状態か）。後者を決めずに実装すると [verification.md](../specs/verification.md) の golden report が機械依存で壊れる。
 
-Rank 1 の legal file text / hash と Rank 3 の policy classification / license choice を前提にする。原文が取れていない状態で SPDX template から汎用本文を補うと、package が付した追加条項や NOTICE を落とすため、既定動作にしてはならない。
+**推奨する最小 scope**（決定後）: 探索は exact / bounded な file name pattern に限定する。candidate は evidence kind、package / repository identity と version / ref、archive / file path、content SHA-256、byte length、matcher 名と version、match class、no-match / multiple-match / truncated / unreadable の明示状態を持つ。heuristic 類似度だけの match を `Matched` にしない。
 
-最初の成果物は次に限定する。
+**performance / safety 制約**: inventory 確定後に artifact target を deduplicate / provenance identity ごとに一度だけ読む / network・archive・file scan を別々の bounded concurrency にする / archive entry 数・展開後 byte 数・1 file byte 数・探索 depth を上限化する / zip slip・symlink escape・path traversal を拒否する / 同一内容は matcher 結果を再利用する / completion order ではなく component order で merge する / report への本文埋め込みは明示 option とする。
 
-- deterministic `THIRD-PARTY-NOTICES`。
-- component identity、version、source URL、effective expression。
-- 取得した original license / notice text と provenance。
-- text がない component の明示的 incomplete list。
-- policy が選択した `OR` branch。
+**完了条件**: declaration unknown の fixture が local legal file から SPDX ID を得る / declared と detected が異なる fixture は conflict を保持する / no-match と multiple-match が確定 license に昇格しない / 同一 artifact を参照する複数 component で読み取りが一度だけ行われる / malicious・oversized archive が bounded failure として evidence に残る / **artifact を取得できる機械とできない機械の差が契約どおりに表れる**。
 
-source code 自体の再配布 bundle は license obligation と build provenance の設計が必要なため、後続 phase とする。
+### Gap 5 / P2: 検査の次（NOTICE / license bundle）
 
-### 完了条件
+DESIGN は約束していないため、これは拡張である。Gap 4 の原文と Gap 1 の classification を前提とする。原文が無い状態で SPDX template から汎用本文を補うと、package が付した追加条項や NOTICE を落とすため既定動作にしてはならない。
 
-- 同じ scan result / policy から byte-stable な artifact ができる。
-- package name collision、同一 text dedup、line ending / encoding を deterministic に扱う。
-- original text と generated separator を区別できる。
-- missing text、custom terms、multiple license、unselected `OR` を黙って落とさない。
-- artifact entry から scan evidence へ逆引きできる。
+最初の成果物は決定的な `THIRD-PARTY-NOTICES` に限定する。component identity、version、source URL、effective expression、取得した原文と provenance、原文が無い component の明示的な incomplete list を含める。
 
-## Rank 6 / P2: dependency path 付き SARIF / CI annotation
+**設計上の分岐点**: `OR` のライセンス選択は **policy 評価の副産物ではなく利用者の入力**とする。allow-list を満たした branch を「選択された license」として成果物へ書くと、ol が利用者に代わって選択を宣言することになり、DESIGN の非目標（法的判断をしない）に抵触する。ORT と同じく license choice は明示的な設定入力として受け取る。
 
-### 足りていないこと
+**完了条件**: 同じ結果と policy から byte-stable な artifact ができる / name collision・同一 text の dedup・改行と encoding を決定的に扱う / 原文と生成した区切りを区別できる / missing text・custom terms・multiple license・未選択の `OR` を黙って落とさない / artifact の各項目から scan evidence へ逆引きできる。
 
-現在の `check` text は違反 component と reason を全件出すが、repository 上の direct declaration location や、transitive violation を導入した root / direct path を CI annotation として出さない。
+### Gap 6 / P2: dependency path 付き SARIF
 
-### 参照実装から学ぶこと
+`check` は違反 component と理由を全件出すが、CI annotation として repository 上の位置や、transitive violation を導入した direct dependency path を出さない。完全な graph を持つ ol の優位を出力へ活かせる。
 
-license-checker-php は transitive violating package を top-level Composer dependency へ逆引きし、SARIF location を `composer.json` の direct dependency 行へ置く。違反そのものが transitive でも、利用者が修正可能な場所を示す点が有用である。
+**scope の現実**: license-checker-php の売りは violation を `composer.json` の direct dependency 宣言行へ結び付ける点だが、**ol は manifest を読まない**。入力は lockfile と resolved graph であり、physical location を出せる入力は限られる。したがって初期実装で出せるのは大半が logical location と dependency path になる。この前提で価値を見積もること。偽の line 1 は作らない。
 
-### ol での価値
+**完了条件**: SARIF schema validation が通る / direct・transitive・multiple-path・no-location の fixture を持つ / check text と SARIF で violation 集合が一致する / 絶対 path・cache path・token を出力しない。
 
-- GitHub code scanning / pull request UI に policy violation を載せられる。
-- transitive package 名だけでなく、upgrade / remove すべき direct dependency path を示せる。
-- 完全 graph を既に持つ ol の優位を output へ活かせる。
+### Gap 7 / P2: ecosystem coverage
 
-### 推奨する scope
+現状は上表のとおり 12 input / 7 provider で、Ruby は対応済みである。参照ツール群と比べて残る主な空白は次になる。
 
-- SARIF rule は violation kind ごとに stable ID を持つ。
-- result には component purl、license status / expression、policy reason を入れる。
-- dependency graph から shortest root-to-component path を deterministic に選ぶ。
-- input parser が manifest line / JSON pointer を確実に保持できる場合だけ physical location を付ける。
-- 位置がない場合は偽の line 1 を作らず、logical location と dependency path を出す。
-- 同じ transitive component に複数 root path がある場合は、代表 path と path count を出すか全 path の上限を決める。
+1. **JVM: Maven / Gradle** — 利用規模が最大。Maven Central / POM に license と SCM metadata がある。multi-module、scope、dependency management、Gradle variant が難所。
+2. **Apple: SwiftPM / CocoaPods** — package graph と Git provenance は取りやすいが、registry metadata より source legal files の比重が高く、Gap 4 の未決事項に依存する。
+3. **Dart / Flutter: Pub** — lockfile と pub.dev metadata を使える。
+4. Erlang / Elixir、Haskell、Conan 等。
 
-### 完了条件
+**採用条件**（ecosystem 数だけを増やさない）: resolved graph と root / direct / transitive semantics、正規化 purl と source identity、scope / variant の audit data、registry provider または unsupported の明示、real fixture と golden report と重複排除 scheduling test、ecosystem 固有 parser の hot-path benchmark。これは [verification.md](../specs/verification.md) の「provider と `sandbox/ecosystems/manifest.json` は 1 対 1」という既存契約と一致する。
 
-- SARIF schema validation が通る。
-- direct / transitive / multiple-path / no-location fixture を持つ。
-- check text と SARIF で violation 集合が一致する。
-- absolute input path、cache path、token を出力しない。
+### Gap 8 / P3: source tree 全体の file-level scan
 
-## Rank 7 / P2: ecosystem coverage の優先拡張
+Gap 4 の bounded な root legal-file evidence を実運用し、解決できない component と監査要求を計測してから判断する。file 数に比例する CPU / I/O、false positive、path exclusion、scanner dataset の版による再現性、copyright / snippet を含む新しい domain model が必要になり、ol の中心価値から最も遠い。
 
-### 足りていないこと
+実装する場合も core に scanner を組み込まず、provenance を固定した source archive を入力とし、外部 scanner の版付き結果を typed evidence として ingest する narrow boundary から始める。
 
-現在の resolved input は CycloneDX、SPDX、NuGet、npm、pnpm、Yarn、Cargo、Go、pip、Composer を中心とする。package metadata provider も npm、NuGet、Cargo、Go、PyPI、Packagist に限られる。
+## 実装計画より先に決める仕様課題
 
-参照ツール群と比較すると、特に次が不足する。
+いずれも specs の変更であり、実装計画の前段に置く。
 
-- JVM: Maven / Gradle。
-- Ruby: Bundler。
-- Apple: SwiftPM / CocoaPods。
-- Dart / Flutter: Pub。
-- Erlang / Elixir、Haskell 等。
+1. **状態モデルの増設**。Gap 2 の stale-curation、Gap 4 の review-required を、既存の閉じた 6 状態と `check` の fail-closed 契約、JSON report 契約のどこに載せるか。candidate の warning か、candidate status か、component status かで、破壊的変更の範囲と exit code の意味が変わる。DESIGN の「evidence source ごとの final status を導入しない」制約にも触れる。
+2. **SPDX データ契約**。Gap 4 の前提。本文 / template を SPDX データの一部とするなら、[spdx.md](../specs/spdx.md) の resolution 順序、user-managed データの要件、`Ol.Update` の生成範囲、配布サイズ目標をまとめて改訂する。
+3. **license choice の位置**。policy 評価の出力ではなく入力とする（Gap 5）。
+4. **host 依存 evidence の契約**。artifact を取得できない機械での結果表現。`--skip-enrichment` に相当する明示的な無効化手段を持つか。golden report への影響（Gap 4）。
+5. **policy 入力の precedence**。CLI 引数と policy file の関係、両方指定時の挙動、exit code の維持（Gap 1）。
+6. **永続入力 schema を canonical JSON と兼ねるか分けるか**（Gap 3）。
 
-### 優先案
+## ロードマップ
 
-1. **Maven / Gradle**
-   - 利用規模が大きく、Maven Central / POM に license と SCM metadata がある。
-   - multi-module、scope、dependency management、Gradle variant が難所。
-2. **Bundler**
-   - `Gemfile.lock` と gemspec / installed gem の license metadata が比較的明瞭。
-3. **SwiftPM**
-   - package graph と Git repository provenance を取りやすい一方、registry metadata より source legal files が重要。
-4. **Pub**
-   - lockfile と pub.dev metadata を利用できる。
+### Phase A: policy が意思決定を表現できるようにする
 
-### 採用条件
+1. 仕様課題 1 と 5 を決める。
+2. versioned policy file（allow / deny / classification / package exception / audit）。
+3. curation file と fingerprint guard、stale / unused 検出。
+4. original / curated / effective の同時追跡。
 
-ecosystem 数だけを増やさない。各 ecosystem は次を一組で提供する。
+検証: 例外が identity と version を外れると適用されない / 内容変化で必ず再 review になる / curation を外すと元の結果へ戻る / 既存経路に allocation と I/O を追加しない / exit 0・1・2 の契約維持。
 
-- resolved graph と root / direct / transitive semantics。
-- canonical purl と source identity。
-- dependency scope / variant の audit data。
-- registry metadata provider または unsupported を明示する evidence。
-- real fixture、golden report、deduplicated provider scheduling test。
-- ecosystem 固有 parser の hot-path benchmark。
+### Phase B: 再評価と可視化
 
-LicenseFinder / licensed の breadth は参考になるが、package manager ごとに license fidelity が違う点も同時に学ぶべきである。
+1. 永続入力契約と `check` の report 入力 mode。
+2. evidence / policy diff。
+3. SARIF。
 
-## Rank 8 / P3: source tree 全体の file-level scan
+検証: offline 再評価の byte 安定性 / added・removed・updated・evidence-changed・policy-changed の区別 / check text と SARIF の violation 集合一致。
 
-### 足りていないこと
+### Phase C: 証拠の最後の一歩
 
-ORT のような source scanner は root license だけでなく、subdirectory、個別 source file header、vendored code、snippet の license finding を検出できる。ol はこの層を持たない。
+1. 仕様課題 2 と 4 を決める。決まるまで着手しない。
+2. legal file evidence schema と archive safety contract。
+3. content hash cache と決定的 matcher。
+4. Phase B の diff で unknown 減少を計測する。
 
-### 価値がある条件
+### Phase D: 成果物と coverage
 
-- repository root license と vendored / generated / submodule code の license が異なる。
-- package metadata が repository 全体の license を表せない。
-- compliance review で file-level location が必須。
-- source archive を release provenance として固定できる。
+NOTICE / license bundle、および fixture と実例に基づく ecosystem 追加。file-level scan は Phase C で解決しない実例が十分に集まった場合だけ個別計画にする。
 
-### なぜ P3 か
+## 今回のスコープに入れないもの
 
-- file 数に比例する CPU / I/O と巨大な result が発生する。
-- false positive、generated file、test / example、vendored source、path exclusion の設計が必要になる。
-- scanner engine / dataset の更新が結果再現性へ影響する。
-- copyright、snippet、license text location を含む新しい domain model が必要になる。
-- ol の「高速な transitive dependency license resolution」という中心価値から大きく広がる。
+- 参照ツールにあっても取り込まない挙動: package metadata の先頭 license だけを使う / SPDX expression を raw string の exact・substring 比較で判定する / confidence の低い heuristic を確定 license として evidence へ上書きする / package・file ごとに無制限の task を作る / installed directory を inventory の正とし resolved graph を失う / ORT の plugin platform と rule DSL を規模ごと模倣する。
+- Phase A の期間中に着手しないもの: 本文同定、NOTICE 生成、file-level scan、新規 ecosystem。
+- 外部プロセス依存（package manager CLI、MSBuild、外部 scanner）の常時要求。単一 native バイナリという配布形態を崩す。
 
-### 推奨する進め方
+## 次に作る個別計画
 
-Rank 1 の bounded root legal-file scan を実運用し、解決できない component と監査要求を計測してから判断する。実装する場合も scanner を core に組み込まず、次の narrow boundary から始める。
+**versioned policy file と監査可能な exception**（Gap 1）を推奨する。
 
-- provenance-fixed source archive を input とする。
-- external scanner の versioned result を typed evidence として ingest する。
-- raw source scanning と reconciliation / policy を分離する。
-- path exclusion / finding curation を data として定義する。
-- scanner process、CPU、memory、result size を上限化する。
+- ol の約束と実装の乖離が最も大きく、利用者が最初に停止する地点である。
+- 新しい I/O 境界、同定データ、ローカル実体化のいずれも要求しない。既存の evaluator と evidence をそのまま使う。
+- Gap 2 の curation と component selector / versioned file 形式を共有するため、次の計画へ直結する。
+- 成功も失敗も既存の golden report と exit code 契約で検証でき、C 軸と F 軸を毀損しない。
 
-## 推奨ロードマップ
-
-### Phase A: Evidence completion
-
-1. legal file evidence schema と archive safety contract を仕様化する。
-2. NuGet の declared embedded license file で end-to-end の最小縦切りを作る。
-3. content hash cache と SPDX template matcher を追加する。
-4. package root / source root へ bounded に拡張する。
-
-検証:
-
-- declaration-only / file-only / agree / conflict / no-match / malicious archive。
-- deduplicated I/O、bounded concurrency、deterministic output。
-- scan benchmark と allocation regression。
-
-### Phase B: Human decision without evidence loss
-
-1. curation file schema と component / evidence identity を仕様化する。
-2. concluded license、claim mapping、resolution を別 action として実装する。
-3. hash guard、stale / unused detection、audit report を追加する。
-
-検証:
-
-- version / content change で必ず再 review になる。
-- curation を外すと元 result が完全に復元される。
-- raw evidence と effective result が JSON で同時に見える。
-
-### Phase C: Reproducible policy and deliverables
-
-1. versioned declarative policy file。
-2. persisted scan result input と diff。
-3. effective license choice。
-4. NOTICE / license bundle。
-5. SARIF。
-
-検証:
-
-- offline policy re-evaluation。
-- policy / evidence / artifact の traceability。
-- CLI exit 0 / 1 / 2 の既存契約維持。
-- golden report / SARIF / NOTICE の deterministic diff。
-
-### Phase D: Coverage based on evidence
-
-利用者需要と unknown / unsupported telemetry ではなく、fixture と issue の集計に基づいて Maven / Gradle 等を順次追加する。file-level source scan は root legal-file evidence で解決しない実例が十分に集まった場合だけ個別計画にする。
-
-## 最優先で作るべき個別計画
-
-次に一つだけ implementation plan を作るなら、**「NuGet embedded license file を package-artifact evidence として取り込み、SPDX template で同定する」**を推奨する。
-
-理由は次のとおりである。
-
-- current ol に NuGet resolved graph、registry provider、cache、candidate reconciliation が既にある。
-- `.nuspec license type=file` は探索 heuristic を必要とせず、package author が対象 file を明示している。
-- nuget-license という具体的な参照実装がある。
-- archive safety、content hash、text provenance、template match、conflict preservation を小さい ecosystem scope で一通り設計できる。
-- この縦切りが Rank 2 の review guard と Rank 5 の NOTICE にそのままつながる。
-
-この最小縦切りでは、source repository 全体、generic recursive file discovery、policy file、NOTICE generation を同時に実装しない。まず evidence type と safety / determinism を固定し、その結果を見て次の計画へ進む。
+この計画では curation の適用規則、report 入力、本文取得、NOTICE を同時に実装しない。policy file の schema、precedence、exception の identity と監査項目、exit code 契約を固定し、その結果を見て Gap 2 へ進む。

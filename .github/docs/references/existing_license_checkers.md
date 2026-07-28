@@ -84,6 +84,7 @@ package 自体は NuGet global packages / fallback folders から取得する。
 - `type="expression"` は独自の SPDX expression 構文評価をせず、宣言値を採用する。
 - URL は SPDX license list の `seeAlso` または既知 URL mapping との一致で SPDX ID にする。
 - 本文は組み込みテンプレートとの Sørensen–Dice 類似度が閾値より大きい場合に一致とする。既定閾値は `0.9`。
+- 組み込みテンプレートは [`CommonLicenses`](../../../.references/dotnet-delice/src/DotNetDelice.Licensing/CommonLicenses) の 7 件（MIT、Apache、CPL、GPL v2、BSD-3、.NET Foundation、Microsoft license）だけで、SPDX license list 全体ではない。fallback chain の最終段があることと、その段が広く効くことは別である。
 - GitHub License API が返した SPDX key も候補にする。
 - 同定できない legacy metadata は unknown 相当として残る。
 
@@ -147,6 +148,7 @@ Go binary / package が実際に利用する package graph を `go/packages` で
 
 - Google `licenseclassifier` で file content を分類する。
 - classifier の `MatchType == "License"` の match を採用し、重複した license 名を除く。
+- classifier corpus は `licenseclassifier/v2` module 同梱の `assets.DefaultClassifier()` であり、go-licenses 自身は本文データを持たない。同定精度と再現性はこの module version に従属する。
 - 複数候補 file のうち、最初に classifier が認識したものを package の license file とする。
 - license 名をツール内の静的 table で配布カテゴリへ対応付ける。未知名は `Unknown` になる。
 
@@ -520,6 +522,7 @@ license file matcher は template を正規化した regex に変換し、option
 
 - expression は Tethys SPDX parser で AST にする。
 - embedded file は SPDX 標準 template から生成した `FastLicenseMatcher` で正規化・token 比較し、一致した全 license を `OR` で結ぶ。
+- template 本体は自前で持たず、`Sensslen.SPDX.Licenses.Net` 3.28.0 という**版を固定した外部 SPDX データ package** から `StandardLicenseTemplate`、無い場合は `LicenseText` を読む。identifier list ではなく本文つきの SPDX データが matcher の前提である。
 - user file mapping を追加 matcher として利用できる。
 - legacy URL は user mapping がある場合だけ license ID へ変換する。download した URL 本文は保存対象であり、自動分類には使わない。
 
@@ -717,30 +720,112 @@ file content は表示対象であり、policy 用 license identity の同定に
 - [CLI、metadata 取得、policy、全 renderer](../../../.references/pip-licenses/piplicenses.py)
 - [利用方法と license source mode](../../../.references/pip-licenses/README.md)
 
-## 横断的に得られる設計上の知見
+## ol の設計目標から見た横断評価
 
-### 依存 inventory と license evidence は別問題である
+ここまでは各ツールを実装として記述した。以下は同じ観察を、[ol の設計](../DESIGN.md)が利用者へ約束している体験の側から読み直す。ol にとっての問いは「参照ツールが何を持っているか」ではなく、**ol が既に約束している体験のうち、どれがまだ果たされておらず、それを果たすと何を支払うことになるか**である。
 
-go-licenses は import graph、nuget-license は restore graph、ORT は analyzer result を先に確定してから license evidence を集める。一方、installed directory を単純列挙するツールは実ファイルへ到達しやすいが、root / direct / transitive や target / scope の説明力が弱くなりやすい。
+評価軸は DESIGN の Design Goals を利用者の言葉へ置き換えたものとする。
 
-### 宣言値だけでは不足し、本文だけでも不足する
+| 軸 | 利用者にとっての意味 | 対応する設計目標 |
+|---|---|---|
+| A. 数え落とさない | 推移的依存まで含めて、実際に配布物へ入る OSS が漏れない | 1 |
+| B. 判定の理由が残る | なぜその結論なのかを後から辿り、再 review できる | 2、3 |
+| C. 同じ入力なら同じ結果 | 時刻・実行環境・機械が変わっても判定が揺れない | 4 |
+| D. 止まったときに前へ進める | fail-closed で止まった後、監査可能な形で解決できる | 5 |
+| E. 検査の次へ届く | 合否の先にある再配布義務の履行を短縮できる | 6 |
+| F. 小さく速いままでいる | 単一 native バイナリとして配布・実行できる | 9 |
 
-- 宣言値は高速で再現性が高いが、欠落、誤記、legacy URL、複数 license の崩壊がある。
-- 本文検出は欠落を埋めるが、file 選択、template 差分、heuristic、subdirectory license による誤検出がある。
-- 強い実装は declared と detected を上書き関係にせず、provenance 付きの別 evidence として保存する。
+### A. 数え落とさない
 
-### 人手判断には「変更検知」が必要である
+inventory の基準は二分される。go-licenses は実際に import される package graph、nuget-license は restore graph と `Publish=false` 到達性、ORT は analyzer result を先に確定する。対して installed directory を列挙する pip-licenses、LicenseFinder、licensed、license-checker-rseidelsohn は実ファイルへ到達しやすい代わりに、root / direct / transitive、target framework、scope の説明力を package manager の状態へ委ねる。
 
-licensed の review-changed-license、Node checker の clarification checksum、LicenseFinder の versioned decision は、例外を単なる package name allow にしない。対象 version、reason、reviewer、元 evidence の fingerprint を固定し、upstream が変われば再 review させることが重要である。
+**依存 inventory と license evidence は別問題である。** 前者を後者の都合で決めると、「なぜこの package が入っているか」を答えられなくなる。license-checker-php が violating package から `composer.json` の direct dependency 行まで逆引きするのは、この説明力を出力側で回復する試みである。
 
-### SPDX expression の意味論と文字列検索は代替関係にない
+### B. 判定の理由が残る
 
-license-checker-php と pip-licenses の exact raw string、Node checker の substring allow は実装が簡単だが、alias、casing、`AND` / `OR` / `WITH` を正しく扱えない。ポリシーは同定済みの構文木または同等の厳密な evaluator に対して行う必要がある。
+同定を一つの値へ畳む実装と、証拠を並べて保持する実装に分かれる。
 
-### 最終成果物は「合否」だけではない
+- 畳む側: license-checker-php は Composer が返す `license` 配列の**先頭要素だけ**を使う。dotnet-delice は `type="file"` の本文が一致しないとき metadata の file 名を license 値として返す経路を持つ。いずれも「値はあるが根拠がない」結果を作る。
+- 並べる側: ORT は declared / detected / concluded / effective を別 fact として保ち、finding に file path、line、copyright、provenance を残す。licensed は license text 全文を cache record へ保存し、人手修正後も元の text を監査材料として残す。license-checker-rseidelsohn は license file path、text range、SHA-256 を保持する。
 
-go-licenses の source bundle、licensed / ORT の NOTICE、nuget-license の license file 保存は、検査の次に必要となる再配布義務の履行を直接支援する。report に license ID があるだけでは、製品へ同梱すべき原文や attribution を作れない。
+**宣言値だけでは不足し、本文だけでも不足する。** 宣言値は高速で再現性が高いが、欠落、誤記、legacy URL、複数 license の崩壊がある。本文検出は欠落を埋めるが、file 選択、template 差分、heuristic、subdirectory license による誤検出がある。強い実装は declared と detected を上書き関係にせず、provenance 付きの別 evidence として保存する。
 
-### 大規模 platform の境界は学べるが、規模は模倣しない
+### C. 同じ入力なら同じ結果
 
-ORT の analyzer / scanner / evaluator / reporter 分離、declared / detected / concluded / effective の語彙、curation を evidence と別に持つ設計は有用である。一方、plugin framework、Kotlin rule DSL、複数 backend storage をそのまま小さな CLI に導入する価値は低い。ol では既存の typed data と明示的 side-effect boundary を維持し、必要な seam だけを採るべきである。
+この軸が参照ツール群で最も差が出る。**本文同定を導入した瞬間、判定は「入力」だけでなく「同定データの版」と「ローカルに実体化された package」に依存し始める。** 参照実装はこの二つの依存を必ず支払っている。
+
+#### 同定データの版
+
+| ツール | 本文同定の corpus | 規模 | 版の従属先 |
+|---|---|---|---|
+| license-checker-php、pip-licenses | なし（宣言値のみ） | — | なし |
+| dotnet-delice | [`CommonLicenses`](../../../.references/dotnet-delice/src/DotNetDelice.Licensing/CommonLicenses) | **7 ライセンス / 約 69KB** | tool 自身 |
+| LicenseFinder | [`license/templates`](../../../.references/LicenseFinder/lib/license_finder/license/templates) | 29 template / 約 336KB | tool 自身 |
+| licensed | Licensee gem `>= 9.18` | gem 同梱 | gem version |
+| go-licenses | `licenseclassifier/v2` の `assets.DefaultClassifier()` | module 同梱 | module version |
+| nuget-license | `Sensslen.SPDX.Licenses.Net` 3.28.0 | **SPDX license list 全量（本文 + template）** | SPDX list version |
+| ORT | 別プロセスの [scanner plugin](../../../.references/ort/plugins/scanners)（askalono、ScanCode、SCANOSS、FossID、Licensee） | 外部 | scanner + dataset version |
+
+読み取るべきことは三つある。
+
+1. **「本文照合の fallback がある」という記述だけでは同定能力を評価できない。** dotnet-delice の fallback chain は最終段まで到達しても 7 ライセンスしか判別しない。カバレッジは chain の段数ではなく corpus の規模で決まる。
+2. **SPDX template matching を選ぶと、必要な SPDX データが identifier list から本文つきデータへ変わる。** nuget-license はこれを版を固定した外部データ package として取り込み、matcher の再現性を SPDX license list version に結び付けている。identifier だけを持つ実装から移行する場合、これはデータ契約の変更であって matcher の追加ではない。
+3. **corpus を外部化するほど、結果の再現性は自分の版管理から離れる。** ORT がこの極であり、だからこそ scan result に scanner 名と version を記録し、provenance ごと storage に保存する。corpus を外に出すなら、その版を結果へ刻む義務が同時に発生する。
+
+#### package のローカル実体化
+
+本文を読む実装は、例外なく package が実行機上に展開済みであることを要求する。
+
+- go-licenses: package directory から module root まで親を遡る（[`FindCandidates(dir, rootDir)`](../../../.references/go-licenses/licenses/find.go)）。module cache が前提。
+- nuget-license: NuGet global packages folder と fallback folders から `.nupkg` を取る（[`GlobalPackagesFolderUtility`](../../../.references/nuget-license/src/NuGetUtility/Wrapper/NuGetWrapper/Protocol/GlobalPackagesFolderUtility.cs)）。restore 済みが前提。
+- licensed、LicenseFinder、license-checker-rseidelsohn、pip-licenses: installed directory が前提。
+- ORT のみ例外で、provenance を固定した source / artifact を**自分で download** し、その provenance を scan result の key にする。
+
+したがって lockfile / resolved graph を入力とするツールが本文同定を足すと、**同じ入力ファイルから機械ごとに異なる evidence が出る**状態へ移る。CI で restore していない、SBOM だけを別機械から受け取った、といった経路で本文が取れないのは異常ではなく通常の分岐である。ORT の解法が示すのは、この分岐を消す方法は「provenance を固定して自分で取得する」か、「取得できないことを結果の一級の状態として表現する」かのどちらかしかない、ということである。
+
+#### policy 側の再現性
+
+**SPDX expression の意味論と文字列検索は代替関係にない。** license-checker-php と pip-licenses の exact raw string、license-checker-rseidelsohn の substring allow は実装が簡単だが、alias、casing、`AND` / `OR` / `WITH` を正しく扱えない。policy は同定済みの構文木か、同等の厳密な evaluator に対して行う必要がある。
+
+### D. 止まったときに前へ進める
+
+判定が厳しいほど、利用者は「正しいが通せない」状態に置かれる。参照実装はここに三種類の異なる出口を用意しており、混同してはならない。
+
+| 出口 | 意味 | 参照実装 |
+|---|---|---|
+| 事実の訂正 | upstream metadata が誤り。正しい license はこれである | license-checker-rseidelsohn の clarification、LicenseFinder の manual license、ORT の package curation |
+| 結論の確定 | 証拠は割れているが、人間が解釈を確定した | licensed の review、ORT の concluded license |
+| 方針の例外 | 事実は正しい。この package のこの版だけ方針上許容する | LicenseFinder の package approval、licensed の `reviewed`、ORT の resolution |
+
+**人手判断には変更検知が必要である。** licensed の `review_changed_license`、license-checker-rseidelsohn の file SHA-256 checksum、LicenseFinder の versioned decision は、例外を単なる package name allow にしない。対象 version、reason、reviewer、元 evidence の fingerprint を固定し、upstream が変われば再 review させる。license-checker-rseidelsohn が unused clarification を error にできるのも同じ動機で、古い例外が黙って残ることを防いでいる。
+
+一方、この安全性には**製品契約上の代償**がある。三つの出口と変更検知はいずれも新しい観測可能な状態を増やす。licensed の `review_changed_license`、rseidelsohn の unused clarification error、ORT の resolution はすべて、利用者が理解し CI が分岐する対象になる。状態を増やす判断は matcher やファイル探索の実装より先に決めるべき事項である。
+
+またこの軸では、**証拠の欠落と方針違反を同じ失敗として扱わない**ことが重要になる。go-licenses は license file が見つからない package を違反として扱う。nuget-license は逆に、allow list が空なら embedded file が未知でも validation error にしない。前者は収集失敗を policy 違反へ、後者は policy 不在を同定成功へ寄せており、どちらも exit code から原因を読めなくする。
+
+### E. 検査の次へ届く
+
+**最終成果物は合否だけではない。** go-licenses の `save` は最も厳しい license condition に応じて source / license / notice を配置し、licensed の `notices` は reviewed cache の legal contents から attribution を作り、nuget-license は license file を保存する。report に license ID があるだけでは、製品へ同梱すべき原文や attribution を作れない。
+
+ここで ORT が示す設計上の分かれ目が一つある。**`OR` のライセンス選択は、policy 評価から導出される結果ではなく、利用者が与える入力である。** ORT は license choice を project / package 単位の明示的な設定として受け取り、それを effective license へ反映する。allow-list を満たした branch を「選ばれた license」として成果物に書けば、それはツールが利用者に代わって選択を宣言したことになる。NOTICE 生成を持つ実装がすべて legal text の provenance を保持しているのも同じ理由で、生成物は観測した事実の再構成であって、ツールの推論結果ではない。
+
+### F. 小さく速いままでいる
+
+参照ツールの多くは、この制約を持たない。LicenseFinder と licensed は package manager の CLI を子プロセスとして呼び、ORT は外部 scanner を別プロセスで動かし、dotnet-delice と nuget-license は MSBuild を必要とする。そのため「参照実装にあるから採用できる」という推論は、配布形態の違いを飛ばしている。
+
+小さな単一バイナリを保つ側から見ると、費用は次の順で重い。
+
+1. 外部プロセス依存（scanner、package manager CLI、MSBuild）— 配布と再現性の両方を壊す。
+2. 同定データの同梱 — 本文つき SPDX データはバイナリサイズの桁を変える。
+3. 新しい I/O 境界（archive 展開、local package folder 探索）— 上限、path traversal、symlink escape の防御が必須になる。
+4. 出力の多重化（original / curated / effective）— report サイズと hot path の allocation に効く。
+
+**大規模 platform の境界は学べるが、規模は模倣しない。** ORT の analyzer / scanner / evaluator / reporter 分離、declared / detected / concluded / effective の語彙、curation を evidence と別に持つ設計は有用である。一方、plugin framework、Kotlin rule DSL、複数 backend storage をそのまま小さな CLI に導入する価値は低い。既存の typed data と明示的 side-effect boundary を維持し、必要な seam だけを採るべきである。
+
+### 逆算に使うときの注意
+
+この文書は参照実装の観察であり、ol に何が足りないかの結論ではない。ol 側の不足を判断するときは、次を必ず現物で確認する。
+
+- 対象能力が ol に本当に無いか（[`DependencyInputRegistry`](../../../src/Ol.Core/DependencyInputRegistry.cs) と [`OlDefaults`](../../../src/Ol.Core/OlDefaults.cs) が登録済みの input / provider の正である）。
+- その体験が既存機能で代替できないか（例: 永続 cache は再実行時の network 依存を既に外している）。
+- 参照実装が支払っている代償を ol も支払えるか（上表の corpus 版、ローカル実体化、状態モデルの増加、配布サイズ）。

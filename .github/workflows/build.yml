@@ -80,8 +80,6 @@ jobs:
         run: ./sandbox/ci/Prepare-Ecosystem.ps1 -Path $env:FIXTURE_PATH
       - id: syft
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          syft-version: 1.44.0
       - name: Generate CycloneDX SBOM
         shell: pwsh
         run: '& "${{ steps.syft.outputs.cmd }}" "dir:$env:FIXTURE_PATH" -o "cyclonedx-json=$env:RUNNER_TEMP/ecosystem.cdx.json"'

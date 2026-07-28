@@ -30,9 +30,7 @@ The resolved-input pipeline accepts NuGet `project.assets.json` version 3 or 4 t
 
 The same pipeline accepts npm `package-lock.json` lockfile version 2 or 3 as `npm-package-lock`. Its handler owns recursive discovery of the exact `package-lock.json` name. The adapter consumes the `packages` install tree and never calls a registry to resolve dependency ranges.
 
-pnpm lockfile version 9.0 is accepted as `pnpm-lock`, and Yarn Classic version 1 and Yarn Berry metadata version 8 are accepted as distinct Yarn formats. Their handlers own `pnpm-lock.yaml` and `yarn.lock` directory discovery respectively. Cargo metadata JSON format version 1 is accepted as `cargo-metadata`, whose handler owns `cargo-metadata.json` discovery. Go's selected-module JSON and module graph are accepted together as `go-module-graph`; its handler owns the exact companion names `go-list-modules.json` and `go-mod-graph.txt`. pip inspect JSON format version 1 is accepted as `pip-inspect`, whose handler owns `pip-inspect.json` discovery. Composer's root manifest and resolved lock are accepted together as `composer-lock`; its handler owns the exact companion names `composer.json` and `composer.lock`.
-
-## NuGet resolved input
+## .NET NuGet resolved input
 
 Each `targets` object becomes a separate resolution context. A target key before `/` is retained as the target framework and the suffix is retained verbatim as the runtime identifier. Ol does not infer operating system or architecture fields from the RID.
 
@@ -40,7 +38,7 @@ Each context owns an implicit project root and package occurrences backed by `ty
 
 Direct dependencies are package or project names declared by the matching `project.frameworks` entry. Reachable packages at depth zero are direct, packages reached below them are transitive, and packages whose relationship cannot be proven are unknown. Package-to-package edges and project-root-to-direct-package edges are retained per context. Identical package/version values in different projects or targets remain distinct occurrences but share one report component and one `pkg:nuget/{id}@{version}` enrichment identity. A shared component is direct if any occurrence is direct, otherwise transitive if any occurrence is transitive, otherwise unknown.
 
-## npm resolved input
+## JavaScript npm resolved input
 
 The empty `packages` key is the root context. Non-`node_modules` package paths become additional workspace contexts. Link entries remain traversal nodes and are not emitted as npm registry packages. Registry package names are derived from installed `node_modules` paths, including scoped names, and versioned purls use canonical percent encoding such as `pkg:npm/%40scope/name@1.2.3`.
 
@@ -50,15 +48,15 @@ Different installed paths remain different components and occurrences even when 
 
 Package `dev`, `optional`, `devOptional`, and `peer` flags plus `os` and `cpu` arrays are retained as sparse occurrence variants. Ol records these values in deterministic lockfile order and does not evaluate them against the executing host. The `packages[].license` string is classified as `dependency-input` evidence with its npm format and field provenance; it is not presented as SBOM evidence.
 
-## pnpm resolved input
+## JavaScript pnpm resolved input
 
 Each pnpm importer becomes a resolution context. Link and workspace nodes participate in traversal but do not become npm registry components. Version 9 snapshot identities remain source identifiers, including peer suffixes, while canonical versioned npm purls remain enrichment identities. Optional/dev reachability, peer snapshot suffixes, and package `os`/`cpu` restrictions are retained as sparse occurrence variants without host evaluation.
 
-## Yarn resolved input
+## JavaScript Yarn resolved input
 
 Yarn Classic and Berry use separate detectors and parsers. Classic version 1 provides a descriptor-to-resolution graph but no workspace root manifest, so it produces one `yarn.lock` context and keeps relationship classification unknown; optional-only incoming resolutions retain an `optional` variant. Berry metadata version 8 workspace resolutions become contexts, while npm resolutions become components. Workspace/protocol nodes are traversal-only, and virtual resolution hashes are retained as `virtual` variants. A resolution that cannot be uniquely reached without Berry install state remains an unknown occurrence in the first workspace context rather than being discarded or guessed.
 
-## Cargo resolved input
+## Rust Cargo resolved input
 
 The Cargo adapter consumes only JSON produced by `cargo metadata --format-version 1 --locked`. It does not resolve `Cargo.toml`, interpret `Cargo.lock`, invoke Cargo, or accept `resolve: null` output produced with `--no-deps`.
 
@@ -74,7 +72,7 @@ Each selected main module becomes a context root. Selected versioned modules bec
 
 Reachability from each main module determines direct/transitive classification and proven root/module edges. Selected modules not proven reachable remain unknown occurrences in the first context rather than being discarded. GOOS, GOARCH, build tags, and package-level import reachability are not present in these module outputs and are not inferred from the scanning host. Both companion files must be supplied explicitly or discovered in the same directory.
 
-## pip resolved input
+## Python pip resolved input
 
 The Python adapter consumes only stable JSON format version 1 produced by `python -m pip inspect --local`. It does not resolve `requirements.txt`, `pyproject.toml`, Poetry, uv, or Pipenv inputs. The complete `installed` array is the resolved inventory. The report's `python_full_version` or `python_version`, `implementation_name`, `sys_platform`, and `platform_machine` fields form one resolution context, with `pip_version` retained as its resolver variant rather than inferred from the scanning host.
 
@@ -82,7 +80,7 @@ Distribution names are validated and compared using PyPA normalization: ASCII ca
 
 `requested=true` proves a root-to-distribution edge and direct classification. `requested=false` proves transitive classification only with `installer: pip`, whose supported versions generate REQUESTED metadata; false values from other installers and absence remain unknown. An unconditional `requires_dist` entry proves a package-to-package edge when its normalized target exists in the installed set. Marker- or extra-conditional requirements do not produce edges because the inspect report does not identify the extras that activated them. Missing optional targets do not create components. `license_expression` is preferred over legacy `license`; either is classified as dependency-input evidence, not SBOM or registry evidence.
 
-## Composer resolved input
+## PHP Composer resolved input
 
 The Composer adapter consumes a root `composer.json` and its resolved `composer.lock` from the same directory. The lock file is the selected package/version inventory; the manifest is read only for root identity and `require`/`require-dev` edges. Ol does not evaluate Composer version constraints, invoke Composer, consult repositories to resolve packages, or validate `content-hash` by reproducing Composer's normalization algorithm.
 
@@ -91,6 +89,14 @@ Entries in `packages` and `packages-dev` become one Composer resolution context.
 Root and package `require` names resolve directly to a locked package name. A `provide` or `replace` name produces an edge only when exactly one locked package supplies it; multiple providers and missing targets remain unlinked rather than guessed. `php`, `hhvm`, `ext-*`, `lib-*`, and `composer-*` platform requirements never become package components. Proven root reachability determines direct/transitive classification, while locked packages without a proven path remain unknown.
 
 Composer license arrays are interpreted as disjunctive claims in listed order and classified as `dependency-input` evidence with `composer-lock` provenance. A package's lock-file `source.url` is retained as its repository hint. Packagist enrichment for `pkg:composer` uses the public package JSON API for repository metadata; the selected-version license remains supplied by the lock input because the Packagist package endpoint is not version-specific.
+
+## Ruby Bundler resolved input
+
+The Ruby adapter consumes only Bundler's resolved `Gemfile.lock`. It does not execute or parse the `Gemfile`, invoke Bundler or RubyGems, evaluate version constraints, or inspect the host's installed gems. The lockfile `DEPENDENCIES` section proves root/direct requirements, while each source's `specs` entries provide selected versions and package-to-package dependency names. Reachability from those roots determines direct/transitive classification; missing names do not create phantom components, and ambiguous same-platform targets are rejected rather than guessed.
+
+Each `PLATFORMS` entry becomes a separate resolution context. A spec without a platform suffix is available in each context; a platform-suffixed spec is retained only in its matching context and receives a `platform=...` occurrence variant. The optional `RUBY VERSION` and `BUNDLED WITH` values are retained as runtime and resolver context data. Generic and platform-specific occurrences are not merged before graph projection.
+
+Only `GEM` specs whose source is exactly `https://rubygems.org/` receive canonical `pkg:gem/{name}@{version}` identities. Platform-specific identities include the standard `platform` qualifier. Private `GEM`, `GIT`, and `PATH` specs remain graph components with `source=registry`, `source=git`, or `source=path` variants but receive no RubyGems.org enrichment identity; their remote or local paths are not emitted. RubyGems.org enrichment uses the version-specific API v2 endpoint, includes the platform query when present, and projects the listed licenses as an ordered SPDX `OR` claim plus the source-code or homepage repository hint.
 
 ## User Experience
 
@@ -114,6 +120,7 @@ Package metadata support targets:
 - Go modules (Go)
 - pip (Python)
 - Composer (PHP)
+- RubyGems (Ruby)
 
 Maven and other ecosystems may be added later.
 

@@ -8,12 +8,14 @@
 /// <param name="Name">The package name.</param>
 /// <param name="Version">The package version.</param>
 /// <param name="CacheKey">The normalized, stable package metadata cache key.</param>
+/// <param name="Platform">The package platform qualifier, when the provider supports one.</param>
 public readonly record struct PackageMetadataRequest(
     string Ecosystem,
     string Namespace,
     string Name,
     string Version,
-    string CacheKey)
+    string CacheKey,
+    string Platform = "")
 {
     /// <summary>
     /// Parses a supported package URL using a provider registry.

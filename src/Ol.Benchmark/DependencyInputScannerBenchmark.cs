@@ -188,6 +188,23 @@ public class DependencyInputScannerBenchmark
             """),
     ];
 
+    private readonly byte[] bundlerLock = Encoding.UTF8.GetBytes(
+        """
+        GEM
+          remote: https://rubygems.org/
+          specs:
+            rack (3.1.8)
+
+        PLATFORMS
+          ruby
+
+        DEPENDENCIES
+          rack
+
+        BUNDLED WITH
+           2.6.5
+        """);
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
@@ -229,6 +246,10 @@ public class DependencyInputScannerBenchmark
     private readonly Utf8Slice composerPsrLogName = "psr/log";
     private readonly Utf8Slice composerPsrLogVersion = "3.0.2";
     private readonly Utf8Slice composerLicense = "MIT";
+    private readonly Utf8Slice bundlerRoot = "Gemfile.lock";
+    private readonly Utf8Slice bundlerPlatform = "ruby";
+    private readonly Utf8Slice bundlerRackName = "rack";
+    private readonly Utf8Slice bundlerRackVersion = "3.1.8";
 
     [Benchmark]
     public DependencyInventory ScanCycloneDx()
@@ -294,6 +315,12 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory ScanComposerLockInventory()
     {
         return DependencyInputScanner.ScanBundle(composerLock, spdx, ScanInputFormat.ComposerLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanBundlerLockInventory()
+    {
+        return DependencyInputScanner.Scan(bundlerLock, spdx, expectedFormat: ScanInputFormat.BundlerLock);
     }
 
     [Benchmark]
@@ -414,6 +441,30 @@ public class DependencyInputScannerBenchmark
             components,
             [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
+            []);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateBundlerLockInventoryResultFloor()
+    {
+        var component = new ScanComponent(
+            bundlerRackName,
+            bundlerRackVersion,
+            default,
+            "gem",
+            DependencyType.Direct,
+            LicenseStatus.Unknown,
+            Utf8Slice.FromOwnedBytes("pkg:gem/rack@3.1.8"u8.ToArray()),
+            Utf8Slice.FromOwnedBytes("rack@3.1.8"u8.ToArray()),
+            default,
+            [],
+            []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(bundlerRoot, default, default, bundlerPlatform, default, Utf8Slice.FromOwnedBytes("bundler=2.6.5"u8.ToArray()))],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
             []);
     }
 

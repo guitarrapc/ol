@@ -14,6 +14,7 @@ public static class OlDefaults
         new GoPackageMetadataProvider(),
         new PyPiPackageMetadataProvider(),
         new PackagistPackageMetadataProvider(),
+        new RubyGemsPackageMetadataProvider(),
     ]);
 
     /// <summary>Parses a package URL using Ol's built-in package metadata providers.</summary>

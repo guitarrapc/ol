@@ -382,15 +382,29 @@ Pythonはpip 23.0以降stableと宣言された`pip inspect` JSON format version
 - parser token/graph loopは`Utf8JsonReader`、source-backed `Utf8Slice`、pooled node/requirement/link/license/index/depth/edge bufferを使用し、LINQ、regex、transient string、per-edge collection allocationを持たない。
 - 2 component focused benchmarkではComposer pair ingestionが3.680 µs / 896 B、同じowned result floorが255.6 ns / 896 Bで、parser固有のmanaged allocationは0 Bだった。
 
-### Phase 12: Ruby resolved input調査
+### Phase 12: Ruby Bundler resolved input adapter（完了）
+
+- RubyGemsの`gem dependency`はinstalled gemの依存宣言を取得できるがproject rootを証明しないため、direct/transitive分類の入力には採用しない。Bundlerのresolved `Gemfile.lock`を単一入力とし、`Gemfile`のRuby DSLを実行または解析しない。
+- `bundler-lock` handlerは非JSON content detector、exact filename `Gemfile.lock`、`purl + sourceId` identityを所有する。source section、`PLATFORMS`、`DEPENDENCIES`を必須構造とし、選択済みspecとroot dependencyからgraphを構築する。
+- `DEPENDENCIES`をroot/direct edge、各spec配下のdependencyをpackage edgeとし、contextごとの到達深度からdirect/transitiveを決める。missing targetはphantom componentにせず、同一platformで複数候補になるtargetは推測せず拒否する。
+- `PLATFORMS`を別々のresolution contextとして保持し、generic specを各contextのoccurrence、platform suffix付きspecを一致contextだけのoccurrenceにする。`RUBY VERSION`をruntime、`BUNDLED WITH`をresolver variantとspecification versionに保持する。
+- exactly `https://rubygems.org/`の`GEM` specだけに`pkg:gem/{name}@{version}`を付け、platform固有gemは`platform` qualifierを持つ。private registry、git、path specはpurlを持たず`source=registry|git|path`だけをvariantに保持し、remote/local pathをreportへ出さない。
+- RubyGems.org API v2のversion-specific endpointを使うproviderを登録し、platform queryを保持したcache keyでdeduplicateする。license arrayはlisted orderのSPDX `OR`候補、`source_code_uri`またはhomepageをrepository hintにする。
+- parser line/graph loopはsource-backed `Utf8Slice`とpooled node/dependency/direct/platform/depth/edge bufferを使用し、LINQ、regex、Gemfile evaluation、transient stringを持たない。
+- 1 component focused benchmarkではBundler lock ingestionが1.948 µs / 552 B、同じowned result floorが139.0 ns / 552 Bで、parser固有のmanaged allocationは0 Bだった。
 
 ### Phase 13: JVM resolved input調査
 
-- Maven、Gradle、Rubyはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
+- Maven、Gradleはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
 - Maven configuration/scopeとGradle configuration/variantをresolution contextで表現できることを採用条件にする。
 - 安定した標準出力がないecosystemでは、Ol固有portable inventoryを新設せず、既存SBOM生成経路を推奨する選択肢を残す。
 - adapter採用前にdeterminism、Native AOT依存、pathological input、allocation floorを評価する。
 
+### Phase 14: Swift resolved input調査
+
+### Phase 15: Swift SwiftPM / CocoaPods resolved input調査
+
+### Phase 16: Dart Pub input調査
 
 ## テスト方針
 

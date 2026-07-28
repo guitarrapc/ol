@@ -1,0 +1,90 @@
+using Ol.Core.PackageMetadata;
+using System.Text.Json;
+
+namespace Ol.Core.PackageManagers;
+
+/// <summary>Provides version-specific RubyGems.org metadata.</summary>
+public sealed class RubyGemsPackageMetadataProvider : PackageMetadataProvider
+{
+    private static readonly Uri BaseUri = new("https://rubygems.org/api/v2/rubygems/");
+
+    public override string Ecosystem => "gem";
+
+    public override bool TryCreate(string purl, out PackageMetadataRequest request)
+    {
+        if (!base.TryCreate(purl, out request) || request.Namespace.Length != 0 || !TryReadPlatform(purl, out var platform))
+        {
+            request = default;
+            return false;
+        }
+
+        var fragment = purl.IndexOf('#');
+        var cacheKey = fragment < 0 ? purl : purl[..fragment];
+        request = request with { CacheKey = cacheKey, Platform = platform };
+        return true;
+    }
+
+    public override Uri CreateEndpoint(PackageMetadataRequest request)
+    {
+        var path = string.Concat(
+            Uri.EscapeDataString(request.Name),
+            "/versions/",
+            Uri.EscapeDataString(request.Version),
+            ".json");
+        if (request.Platform.Length != 0)
+        {
+            path = string.Concat(path, "?platform=", Uri.EscapeDataString(request.Platform));
+        }
+
+        return new(BaseUri, path);
+    }
+
+    public override PackageMetadataResponse ParseResponse(JsonElement root)
+    {
+        var license = ReadLicenses(root);
+        var repository = PackageMetadataJson.ReadString(root, "source_code_uri");
+        if (repository.Length == 0)
+        {
+            var metadata = PackageMetadataJson.ReadElement(root, "metadata");
+            repository = PackageMetadataJson.ReadString(metadata, "source_code_uri");
+        }
+
+        if (repository.Length == 0) repository = PackageMetadataJson.ReadString(root, "homepage_uri");
+        return new("rubygems-registry", license, repository);
+    }
+
+    private static bool TryReadPlatform(string purl, out string platform)
+    {
+        platform = string.Empty;
+        var query = purl.IndexOf('?');
+        var fragment = purl.IndexOf('#');
+        if (query < 0) return true;
+        if (fragment >= 0 && query > fragment) return false;
+        var end = fragment < 0 ? purl.Length : fragment;
+        var value = purl.AsSpan(query + 1, end - query - 1);
+        const string Prefix = "platform=";
+        if (!value.StartsWith(Prefix, StringComparison.Ordinal) || value[Prefix.Length..].IndexOf('&') >= 0)
+        {
+            return false;
+        }
+
+        platform = Uri.UnescapeDataString(value[Prefix.Length..].ToString());
+        return platform.Length != 0;
+    }
+
+    private static string ReadLicenses(JsonElement root)
+    {
+        var licenses = PackageMetadataJson.ReadElement(root, "licenses");
+        if (licenses.ValueKind != JsonValueKind.Array) return string.Empty;
+        var values = new string[licenses.GetArrayLength()];
+        var count = 0;
+        foreach (var item in licenses.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String) continue;
+            var value = item.GetString();
+            if (!string.IsNullOrWhiteSpace(value)) values[count++] = value;
+        }
+
+        return count == 0 ? string.Empty : string.Join(" OR ", values.AsSpan(0, count));
+    }
+}

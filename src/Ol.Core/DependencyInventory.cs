@@ -53,6 +53,9 @@ public readonly record struct ScanInputFormat(string Name, string Parser, string
     /// <summary>Paired Composer root manifest and resolved lock file.</summary>
     public static ScanInputFormat ComposerLock { get; } = new("composer-lock", "composer-lock-pair", "Composer lock");
 
+    /// <summary>Bundler Gemfile.lock.</summary>
+    public static ScanInputFormat BundlerLock { get; } = new("bundler-lock", "bundler-lock", "Bundler lock");
+
     /// <summary>A collection containing more than one registered input format.</summary>
     public static ScanInputFormat Collection { get; } = new("collection", "dependency-input-collection", "dependency input collection");
 

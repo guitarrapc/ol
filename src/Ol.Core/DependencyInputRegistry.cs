@@ -158,6 +158,15 @@ public sealed class DependencyInputRegistry
             new[] { "composer.json", "composer.lock" },
             DependencyComponentIdentityComparison.OrdinalWithSourceId,
             BundleParser: ComposerLockInputParser.Parse),
+        // Ruby Bundler - Package Manager
+        new(
+            ScanInputKind.PackageManager,
+            ScanInputFormat.BundlerLock,
+            default,
+            BundlerLockInputParser.Parse,
+            new[] { "Gemfile.lock" },
+            DependencyComponentIdentityComparison.OrdinalWithSourceId,
+            BundlerLockInputParser.Detect),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>

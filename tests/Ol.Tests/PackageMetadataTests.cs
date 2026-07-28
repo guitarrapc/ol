@@ -255,7 +255,7 @@ public sealed class PackageMetadataTests
     public async Task Providers_ParseResponse_WithNonObjectRoot_ReturnUnknownMetadataWithoutThrowing()
     {
         using var document = JsonDocument.Parse("\"unexpected\"");
-        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider(), new PackagistPackageMetadataProvider()];
+        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider(), new PackagistPackageMetadataProvider(), new RubyGemsPackageMetadataProvider()];
 
         for (var i = 0; i < providers.Length; i++)
         {
@@ -311,6 +311,31 @@ public sealed class PackageMetadataTests
         await Assert.That(record.Source).IsEqualTo("packagist-registry");
         await Assert.That(record.RawLicense).IsEmpty();
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/Seldaek/monolog");
+    }
+
+    [Test]
+    public async Task Fetch_RubyGemsVersionResponse_UsesVersionAndPlatformSpecificMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler("""{ "licenses": ["MIT", "Apache-2.0"], "source_code_uri": "https://github.com/example/gem" }""");
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:gem/example@1.2.3?platform=java", out var request);
+        await Assert.That(parsed).IsTrue();
+        await Assert.That(request.CacheKey).IsEqualTo("pkg:gem/example@1.2.3?platform=java");
+        var record = await client.FetchAsync(request);
+
+        await Assert.That(handler.RequestUris).IsEquivalentTo(["https://rubygems.org/api/v2/rubygems/example/versions/1.2.3.json?platform=java"]);
+        await Assert.That(record.Source).IsEqualTo("rubygems-registry");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT OR Apache-2.0");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/gem");
+    }
+
+    [Test]
+    public async Task TryCreate_RubyGemsPurlWithUnsupportedQualifier_RejectsRequest()
+    {
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:gem/example@1.2.3?repository_url=example.test", out _);
+
+        await Assert.That(parsed).IsFalse();
     }
 
     [Test]

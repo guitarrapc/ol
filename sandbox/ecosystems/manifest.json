@@ -36,6 +36,12 @@
       "path": "sandbox/ecosystems/composer",
       "package": "monolog/monolog",
       "metadataSource": "packagist-registry"
+    },
+    {
+      "ecosystem": "gem",
+      "path": "sandbox/ecosystems/ruby",
+      "package": "rack-protection",
+      "metadataSource": "package-registry"
     }
   ]
 }

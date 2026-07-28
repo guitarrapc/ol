@@ -82,6 +82,7 @@ Options:
 | Go | `go-module-graph` |
 | Python | `pip-inspect` |
 | PHP | `composer-lock` |
+| Ruby | `bundler-lock` |
 
 `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
 
@@ -413,6 +414,25 @@ ol check --input . --input-format composer-lock --allow-licenses MIT,Apache-2.0,
 
 The lockfile supplies the resolved production and development package sets. The manifest supplies only the root package identity and direct `require`/`require-dev` relationships; ol does not invoke Composer, resolve version constraints, or inspect `vendor/`. Package metadata is enriched from Packagist when available, and repository URLs from package metadata can lead to GitHub License API source evidence.
 
+### Ruby / Bundler
+
+**SBOM:** Generate CycloneDX JSON from the locked Bundler project with the [CycloneDX Ruby Gem](https://github.com/CycloneDX/cyclonedx-ruby-gem):
+
+```bash
+cyclonedx-ruby -p . -f json -o bom.cdx.json
+ol scan --input bom.cdx.json
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+**Resolved Bundler input:** ol scans `Gemfile.lock` directly without executing `Gemfile`, Bundler, or RubyGems:
+
+```bash
+ol scan --input Gemfile.lock
+ol check --input Gemfile.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+The lockfile `DEPENDENCIES` section identifies direct dependencies, and resolved spec dependencies provide transitive edges. Each recorded platform becomes a separate resolution context. Only gems resolved from `https://rubygems.org/` receive `pkg:gem` identities and RubyGems.org metadata enrichment; private registry, Git, and path sources are retained without exposing their remote or local paths.
+
 ### Dependency files by ecosystem
 
 ol does not resolve package manifests or version ranges itself. It consumes either a resolved graph supported by a direct input adapter or an SBOM whose generator performed the ecosystem-specific resolution. Passing a declaration such as `package.json`, `*.csproj`, `Cargo.toml`, or `pyproject.toml` directly to ol is not supported.
@@ -429,9 +449,9 @@ ol does not resolve package manifests or version ranges itself. It consumes eith
 | Java / JVM | `pom.xml`, Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Run the ecosystem build/resolution and use its CycloneDX generator or a polyglot generator. |
 | Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock`, `uv.lock` | CycloneDX/SPDX JSON SBOM, or `python -m pip inspect --local` JSON | Prefer an SBOM generated from the intended environment. Alternatively, generate `pip-inspect.json` and scan it directly; ol consumes installed distributions and does not choose markers, extras, or platform wheels. |
 | PHP / Composer | `composer.json`, `composer.lock` | Paired `composer.json` and `composer.lock`, or CycloneDX/SPDX JSON SBOM | Prefer an SBOM from the locked project. Alternatively, scan the directory containing the pair with `--input-format composer-lock`; ol consumes the lockfile without invoking Composer. |
-| Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM | Generate an SBOM from the locked project, then scan it with `--input`. |
+| Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM, or resolved `Gemfile.lock` | Prefer an SBOM generated from the locked project. Alternatively, scan `Gemfile.lock` directly with `--input`; ol consumes its resolved specs and root dependencies without evaluating `Gemfile`. |
 
-For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, `pip-inspect.json`, the paired Composer files `composer.json` plus `composer.lock`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
+For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, `pip-inspect.json`, `Gemfile.lock`, the paired Composer files `composer.json` plus `composer.lock`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
 
 ### Repositories with multiple package managers
 
@@ -465,11 +485,11 @@ popd
 pushd src/python
 python -m pip inspect --local > pip-inspect.json
 popd
-ol scan --input src/backend --input src/frontend --input src/rust --input src/go --input src/python --input src/php --format json
-ol check --input src/backend --input src/frontend --input src/rust --input src/go --input src/python --input src/php --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+ol scan --input src/backend --input src/frontend --input src/rust --input src/go --input src/python --input src/php --input src/ruby --format json
+ol check --input src/backend --input src/frontend --input src/rust --input src/go --input src/python --input src/php --input src/ruby --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
-ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, both Yarn lock formats, `cargo-metadata.json`, `pip-inspect.json`, and complete Composer and Go companion pairs. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.
+ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, both Yarn lock formats, `cargo-metadata.json`, `pip-inspect.json`, `Gemfile.lock`, and complete Composer and Go companion pairs. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.
 
 ol intentionally rejects SBOM and package-manager inputs in the same report, and it does not accept multiple SBOM files as an implicit union. Combining them would double-count packages and make conflicting graph/evidence precedence ambiguous. To validate both paths in CI, produce two independent reports: a canonical SBOM report and a direct-lockfile report. The runnable mixed-manager example is under [sandbox/package-manager-inputs](sandbox/package-manager-inputs/README.md).
 

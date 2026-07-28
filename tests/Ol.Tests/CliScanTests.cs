@@ -1316,6 +1316,36 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithBundlerLockDirectory_ReportsPlatformContextsWithoutPrivateSources()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-bundler-lock-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Gemfile.lock"), Path.Combine(temporaryDirectory, "Gemfile.lock"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var metadata = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(metadata.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+            await Assert.That(metadata.GetProperty("format").GetString()).IsEqualTo("bundler-lock");
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(7);
+            await Assert.That(stdout).DoesNotContain("vendor/local-gem");
+            await Assert.That(stdout).DoesNotContain("github.com/example/private-gem");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithRepeatedNpmPackageLocks_CombinesSparseVariantIndexes()
     {
         var root = FindRepositoryRoot();

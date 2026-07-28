@@ -1,5 +1,4 @@
 ﻿using System.Security.Cryptography;
-using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using ConsoleAppFramework;
@@ -15,6 +14,18 @@ using Ol.Core.Spdx;
 /// </summary>
 internal sealed class ScanCommands
 {
+    private readonly Stream? standardOutput;
+
+    public ScanCommands()
+    {
+    }
+
+    internal ScanCommands(Stream standardOutput)
+    {
+        ArgumentNullException.ThrowIfNull(standardOutput);
+        this.standardOutput = standardOutput;
+    }
+
     /// <summary>
     /// Scan a resolved dependency input.
     /// </summary>
@@ -89,20 +100,46 @@ internal sealed class ScanCommands
         var componentCount = ScanView.Apply(viewComponents, dependency, sort, sortOrder);
         var components = viewComponents.AsSpan(0, componentCount);
         var dependencyFilteredCount = dependency is null or "" ? 0 : scanResult.Inventory.Components.Length - components.Length;
+        var groups = groupBy is null or "" ? null : ScanView.Group(components, groupBy);
+        if (format == ReportFormat.Json)
+        {
+            if (outFile is { Length: > 0 })
+            {
+                try
+                {
+                    using var output = File.Create(outFile);
+                    WriteJson(output, scanResult.Inventory, components, groups, groupBy, spdx, packageMetadataSummary, sourceRepositorySummary);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                {
+                    Console.Error.WriteLine($"Unable to write report: {exception.Message}");
+                    return 1;
+                }
+            }
+
+            try
+            {
+                WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, groups, groupBy, spdx, packageMetadataSummary, sourceRepositorySummary);
+            }
+            catch (IOException exception)
+            {
+                Console.Error.WriteLine($"Unable to write report: {exception.Message}");
+                return 1;
+            }
+
+            return 0;
+        }
+
         var inputDescriptor = scanResult.Inventory.Input;
-        var text = groupBy is null or ""
+        var text = groups is null
             ? format switch
             {
                 ReportFormat.Text => ReportRenderer.RenderText(components, verbose),
                 ReportFormat.Markdown => ReportRenderer.RenderMarkdown(components, verbose),
-                ReportFormat.Json => ReportRenderer.RenderJson(scanResult.Inventory, components, spdx, packageMetadataSummary, sourceRepositorySummary),
                 _ => throw new ArgumentOutOfRangeException(nameof(format)),
             }
-            : RenderGrouped(format, ScanView.Group(components, groupBy), groupBy, scanResult.Inventory, spdx, packageMetadataSummary, sourceRepositorySummary);
-        if (format is ReportFormat.Text or ReportFormat.Markdown)
-        {
-            text = ReportRenderer.RenderInputHeader(format, inputDescriptor) + text;
-        }
+            : RenderGrouped(format, groups, groupBy!);
+        text = ReportRenderer.RenderInputHeader(format, inputDescriptor) + text;
         if (!text.EndsWith('\n'))
         {
             text += '\n';
@@ -131,7 +168,7 @@ internal sealed class ScanCommands
             return 1;
         }
 
-        if (!quiet && format != ReportFormat.Json)
+        if (!quiet)
         {
             var summary = ScanSummary.Create(components);
             var packageMetadata = packageMetadataSummary;
@@ -158,15 +195,45 @@ internal sealed class ScanCommands
         return 0;
     }
 
-    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy, DependencyInventory inventory, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    private static string RenderGrouped(ReportFormat format, GroupRow[] groups, string groupBy)
     {
         return format switch
         {
             ReportFormat.Text => ReportRenderer.RenderText(groups, groupBy),
             ReportFormat.Markdown => ReportRenderer.RenderMarkdown(groups, groupBy),
-            ReportFormat.Json => ReportRenderer.RenderJson(inventory, groups, groupBy, spdx, metadataSummary, sourceSummary),
             _ => throw new ArgumentOutOfRangeException(nameof(format)),
         };
+    }
+
+    private static void WriteJson(
+        Stream output,
+        DependencyInventory inventory,
+        ReadOnlySpan<ScanComponent> components,
+        GroupRow[]? groups,
+        string? groupBy,
+        SpdxData spdx,
+        PackageMetadataSummary metadataSummary,
+        SourceRepositorySummary sourceSummary)
+    {
+        using var buffer = new PooledStreamBufferWriter(output);
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
+        {
+            if (groups is null)
+            {
+                ReportRenderer.WriteJson(writer, inventory, components, spdx, metadataSummary, sourceSummary);
+            }
+            else
+            {
+                ReportRenderer.WriteJson(writer, inventory, groups, groupBy!, spdx, metadataSummary, sourceSummary);
+            }
+
+            writer.Flush();
+        }
+
+        var newline = buffer.GetSpan(1);
+        newline[0] = (byte)'\n';
+        buffer.Advance(1);
+        buffer.Flush();
     }
 
     internal static DependencyInventory ScanInputs(ScanInputSelection selection, SpdxLicenseIndex spdx, bool includeHash)
@@ -900,7 +967,6 @@ internal readonly record struct GroupRow(string[] Values, int Count, ScanCompone
 
 internal static class ReportRenderer
 {
-    private const int InitialJsonBufferCapacity = 4 * 1024;
     private const int JsonSchemaVersion = 1;
 
     public static string RenderInputHeader(ReportFormat format, ScanInputDescriptor input)
@@ -1026,110 +1092,89 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static string RenderJson(DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
-        var buffer = new ArrayBufferWriter<byte>(InitialJsonBufferCapacity);
-        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
+        writer.WriteStartObject();
+        writer.WriteNumber("schemaVersion", JsonSchemaVersion);
+        writer.WriteStartObject("metadata");
+        writer.WriteString("tool", "ol");
+        WriteInputMetadata(writer, inventory.Input);
+        WriteSpdxMetadata(writer, spdx);
+        WritePackageMetadata(writer, metadataSummary);
+        WriteSourceRepositoryMetadata(writer, sourceSummary);
+        writer.WriteEndObject();
+
+        WriteInventory(writer, inventory);
+
+        writer.WriteStartArray("components");
+        for (var i = 0; i < components.Length; i++)
+        {
+            var component = components[i];
+            writer.WriteStartObject();
+            writer.WriteString("name"u8, component.Name.Span);
+            writer.WriteString("version"u8, component.Version.Span);
+            writer.WriteString("license"u8, component.License.IsEmpty ? "-"u8 : component.License.Span);
+            writer.WriteString("ecosystem", component.Ecosystem);
+            writer.WriteString("dependency"u8, GetDependencyTypeUtf8(component.DependencyType));
+            writer.WriteString("status"u8, component.Status.ToUtf8());
+            writer.WriteString("purl"u8, component.Purl.Span);
+            writer.WriteString("sourceId"u8, component.SourceId.Span);
+            WriteLicenseCandidates(writer, component);
+            WriteWarnings(writer, component.Warnings);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+
+        WriteSummary(writer, ScanSummary.Create(components));
+        WriteWarnings(writer, components);
+        writer.WriteEndObject();
+    }
+
+    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, GroupRow[] groups, string groupBy, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("schemaVersion", JsonSchemaVersion);
+        writer.WriteStartObject("metadata");
+        writer.WriteString("tool", "ol");
+        WriteInputMetadata(writer, inventory.Input);
+        WriteSpdxMetadata(writer, spdx);
+        WritePackageMetadata(writer, metadataSummary);
+        WriteSourceRepositoryMetadata(writer, sourceSummary);
+        writer.WriteEndObject();
+
+        WriteInventory(writer, inventory);
+
+        writer.WriteStartArray("groups");
+        for (var i = 0; i < groups.Length; i++)
         {
             writer.WriteStartObject();
-            writer.WriteNumber("schemaVersion", JsonSchemaVersion);
-            writer.WriteStartObject("metadata");
-            writer.WriteString("tool", "ol");
-            WriteInputMetadata(writer, inventory.Input);
-            WriteSpdxMetadata(writer, spdx);
-            WritePackageMetadata(writer, metadataSummary);
-            WriteSourceRepositoryMetadata(writer, sourceSummary);
-            writer.WriteEndObject();
-
-            WriteInventory(writer, inventory);
-
-            writer.WriteStartArray("components");
-            for (var i = 0; i < components.Length; i++)
+            for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
             {
-                var component = components[i];
+                writer.WriteString(GetGroupPropertyNameUtf8(groupBy, valueIndex), groups[i].Values[valueIndex]);
+            }
+
+            writer.WriteNumber("count", groups[i].Count);
+            writer.WriteStartArray("components");
+            for (var componentIndex = 0; componentIndex < groups[i].Components.Length; componentIndex++)
+            {
+                var component = groups[i].Components[componentIndex];
                 writer.WriteStartObject();
                 writer.WriteString("name"u8, component.Name.Span);
                 writer.WriteString("version"u8, component.Version.Span);
-                writer.WriteString("license"u8, component.License.IsEmpty ? "-"u8 : component.License.Span);
                 writer.WriteString("ecosystem", component.Ecosystem);
-                writer.WriteString("dependency", component.DependencyType.ToString().ToLowerInvariant());
-                writer.WriteString("status", component.Status.ToString().ToLowerInvariant());
                 writer.WriteString("purl"u8, component.Purl.Span);
-                writer.WriteString("sourceId"u8, component.SourceId.Span);
-                WriteLicenseCandidates(writer, component);
-                WriteWarnings(writer, component.Warnings);
                 writer.WriteEndObject();
             }
 
             writer.WriteEndArray();
-
-            WriteSummary(writer, ScanSummary.Create(components));
-            WriteWarnings(writer, components);
             writer.WriteEndObject();
         }
 
-        return CompleteJson(buffer);
-    }
-
-    public static string RenderJson(DependencyInventory inventory, GroupRow[] groups, string groupBy, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
-    {
-        var buffer = new ArrayBufferWriter<byte>(InitialJsonBufferCapacity);
-        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
-        {
-            writer.WriteStartObject();
-            writer.WriteNumber("schemaVersion", JsonSchemaVersion);
-            writer.WriteStartObject("metadata");
-            writer.WriteString("tool", "ol");
-            WriteInputMetadata(writer, inventory.Input);
-            WriteSpdxMetadata(writer, spdx);
-            WritePackageMetadata(writer, metadataSummary);
-            WriteSourceRepositoryMetadata(writer, sourceSummary);
-            writer.WriteEndObject();
-
-            WriteInventory(writer, inventory);
-
-            var headers = groupBy.ToLowerInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            writer.WriteStartArray("groups");
-            for (var i = 0; i < groups.Length; i++)
-            {
-                writer.WriteStartObject();
-                for (var valueIndex = 0; valueIndex < headers.Length; valueIndex++)
-                {
-                    writer.WriteString(headers[valueIndex], groups[i].Values[valueIndex]);
-                }
-
-                writer.WriteNumber("count", groups[i].Count);
-                writer.WriteStartArray("components");
-                for (var componentIndex = 0; componentIndex < groups[i].Components.Length; componentIndex++)
-                {
-                    var component = groups[i].Components[componentIndex];
-                    writer.WriteStartObject();
-                    writer.WriteString("name"u8, component.Name.Span);
-                    writer.WriteString("version"u8, component.Version.Span);
-                    writer.WriteString("ecosystem", component.Ecosystem);
-                    writer.WriteString("purl"u8, component.Purl.Span);
-                    writer.WriteEndObject();
-                }
-
-                writer.WriteEndArray();
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-            WriteSummary(writer, ScanSummary.Create(groups));
-            WriteWarnings(writer, groups);
-            writer.WriteEndObject();
-        }
-
-        return CompleteJson(buffer);
-    }
-
-    private static string CompleteJson(ArrayBufferWriter<byte> buffer)
-    {
-        var newline = buffer.GetSpan(1);
-        newline[0] = (byte)'\n';
-        buffer.Advance(1);
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+        writer.WriteEndArray();
+        WriteSummary(writer, ScanSummary.Create(groups));
+        WriteWarnings(writer, groups);
+        writer.WriteEndObject();
     }
 
     private static void AppendMarkdownValue(StringBuilder builder, string value)
@@ -1145,6 +1190,60 @@ internal static class ReportRenderer
     private static string Display(string value) => value.Length == 0 ? "-" : value;
 
     private static string Display(Utf8Slice value) => value.IsEmpty ? "-" : value.ToString();
+
+    private static ReadOnlySpan<byte> GetDependencyTypeUtf8(DependencyType value) => value switch
+    {
+        DependencyType.Unknown => "unknown"u8,
+        DependencyType.Root => "root"u8,
+        DependencyType.Direct => "direct"u8,
+        DependencyType.Transitive => "transitive"u8,
+        _ => default,
+    };
+
+    private static ReadOnlySpan<byte> GetGroupPropertyNameUtf8(string groupBy, int targetIndex)
+    {
+        var value = groupBy.AsSpan();
+        var fieldIndex = 0;
+        var start = 0;
+        for (var i = 0; i <= value.Length; i++)
+        {
+            if (i < value.Length && value[i] != ',')
+            {
+                continue;
+            }
+
+            var field = TrimAsciiWhitespace(value[start..i]);
+            start = i + 1;
+            if (field.IsEmpty)
+            {
+                continue;
+            }
+
+            if (fieldIndex++ != targetIndex)
+            {
+                continue;
+            }
+
+            if (field.Equals("name", StringComparison.OrdinalIgnoreCase)) return "name"u8;
+            if (field.Equals("version", StringComparison.OrdinalIgnoreCase)) return "version"u8;
+            if (field.Equals("license", StringComparison.OrdinalIgnoreCase)) return "license"u8;
+            if (field.Equals("ecosystem", StringComparison.OrdinalIgnoreCase)) return "ecosystem"u8;
+            if (field.Equals("dependency", StringComparison.OrdinalIgnoreCase)) return "dependency"u8;
+            if (field.Equals("status", StringComparison.OrdinalIgnoreCase)) return "status"u8;
+            break;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(targetIndex));
+    }
+
+    private static ReadOnlySpan<char> TrimAsciiWhitespace(ReadOnlySpan<char> value)
+    {
+        var start = 0;
+        while (start < value.Length && value[start] is ' ' or '\t' or '\r' or '\n') start++;
+        var end = value.Length;
+        while (end > start && value[end - 1] is ' ' or '\t' or '\r' or '\n') end--;
+        return value[start..end];
+    }
 
     private static void WriteSpdxMetadata(Utf8JsonWriter writer, SpdxData spdx)
     {
@@ -1409,7 +1508,7 @@ internal static class ReportRenderer
             writer.WriteString("name"u8, component.Name.Span);
             writer.WriteString("version"u8, component.Version.Span);
             writer.WriteString("ecosystem", component.Ecosystem);
-            writer.WriteString("dependency", component.DependencyType.ToString().ToLowerInvariant());
+            writer.WriteString("dependency"u8, GetDependencyTypeUtf8(component.DependencyType));
             writer.WriteString("purl"u8, component.Purl.Span);
             writer.WriteString("sourceId"u8, component.SourceId.Span);
             writer.WriteEndObject();

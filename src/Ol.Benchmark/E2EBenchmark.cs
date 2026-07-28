@@ -5,7 +5,7 @@ public class E2EBenchmark : IDisposable
 {
     private readonly string cacheRoot;
     private readonly string? previousCacheRoot;
-    private readonly ScanCommands scanCommands = new();
+    private readonly ScanCommands scanCommands = new(Stream.Null);
     private readonly string nugetAssetsPath;
     private readonly string sbomPath;
     private readonly string workingDirectory;

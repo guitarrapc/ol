@@ -18,11 +18,12 @@ internal static class SourceRepositoryPaths
 
 internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex, SourceRepositoryCache sourceCache, bool refresh, int retryCount, HttpClient? client = null)
 {
+    private const int LinearPlanningComponentLimit = 8;
     private static readonly HttpClient SharedHttpClient = new();
     private readonly HttpClient httpClient = client ?? SharedHttpClient;
     private readonly GitHubAuthentication authentication = GitHubAuthentication.FromEnvironment();
 
-    public async Task<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichAsync(
+    public ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichAsync(
         ScanComponent[] components,
         ReadOnlyMemory<PackageMetadataRecord?> recordsByComponent,
         int concurrency,
@@ -33,7 +34,38 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
             throw new ArgumentException("Package metadata records must correspond to every component.", nameof(recordsByComponent));
         }
 
-        var targetIndexes = new Dictionary<string, int>(components.Length, StringComparer.Ordinal);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (components.Length == 0)
+        {
+            return ValueTask.FromResult((
+                Components: components,
+                Summary: new SourceRepositorySummary(0, 0, 0, 0, 0, 0, authentication.Mode, concurrency, retryCount)));
+        }
+
+        if (components.Length == 1)
+        {
+            var metadata = recordsByComponent.Span[0];
+            var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[0]);
+            if (repositoryUrl.Length == 0)
+            {
+                components[0] = AddUnavailableCandidate(components[0]);
+                return ValueTask.FromResult((
+                    Components: components,
+                    Summary: new SourceRepositorySummary(0, 0, 0, 0, 0, 1, authentication.Mode, concurrency, retryCount)));
+            }
+        }
+
+        return EnrichCoreAsync(components, recordsByComponent, concurrency, cancellationToken);
+    }
+
+    private async ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichCoreAsync(
+        ScanComponent[] components,
+        ReadOnlyMemory<PackageMetadataRecord?> recordsByComponent,
+        int concurrency,
+        CancellationToken cancellationToken)
+    {
+        var useLinearPlanning = components.Length <= LinearPlanningComponentLimit;
+        var targetIndexes = useLinearPlanning ? null : new Dictionary<string, int>(components.Length, StringComparer.Ordinal);
         var targets = ArrayPool<SourceRepositoryTarget>.Shared.Rent(Math.Max(components.Length, 1));
         var results = ArrayPool<SourceRepositoryLookupResult>.Shared.Rent(Math.Max(components.Length, 1));
         var componentTargetIndexes = ArrayPool<int>.Shared.Rent(Math.Max(components.Length, 1));
@@ -48,15 +80,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[i]);
                 if (repositoryUrl.Length == 0)
                 {
-                    components[i] = LicenseReconciler.AddCandidate(components[i], new LicenseCandidate(
-                        LicenseCandidateSource.SourceRepository,
-                        LicenseCandidateKind.Unavailable,
-                        default,
-                        default,
-                        LicenseStatus.Unknown,
-                        false,
-                        LicenseCandidateWarnings.SourceRepositoryUnavailable,
-                        new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
+                    components[i] = AddUnavailableCandidate(components[i]);
                     unplannedUnknownCount++;
                     continue;
                 }
@@ -77,11 +101,30 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                     continue;
                 }
 
-                var cacheKey = target.CacheKey;
-                if (!targetIndexes.TryGetValue(cacheKey, out var targetIndex))
+                var targetIndex = -1;
+                if (useLinearPlanning)
+                {
+                    for (var existingTargetIndex = 0; existingTargetIndex < targetCount; existingTargetIndex++)
+                    {
+                        if (targets[existingTargetIndex].Equals(target))
+                        {
+                            targetIndex = existingTargetIndex;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    if (!targetIndexes!.TryGetValue(target.CacheKey, out targetIndex))
+                    {
+                        targetIndex = -1;
+                    }
+                }
+
+                if (targetIndex < 0)
                 {
                     targetIndex = targetCount;
-                    targetIndexes.Add(cacheKey, targetIndex);
+                    targetIndexes?.Add(target.CacheKey, targetIndex);
                     targets[targetCount] = target;
                     targetCount++;
                 }
@@ -89,11 +132,18 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
                 componentTargetIndexes[i] = targetIndex;
             }
 
-            var options = new ParallelOptions { MaxDegreeOfParallelism = concurrency, CancellationToken = cancellationToken };
-            await Parallel.ForAsync(0, targetCount, options, async (index, token) =>
+            if (targetCount == 1)
             {
-                results[index] = await EnrichTargetAsync(targets[index], token).ConfigureAwait(false);
-            }).ConfigureAwait(false);
+                results[0] = await EnrichTargetAsync(targets[0], cancellationToken).ConfigureAwait(false);
+            }
+            else if (targetCount > 1)
+            {
+                var options = new ParallelOptions { MaxDegreeOfParallelism = concurrency, CancellationToken = cancellationToken };
+                await Parallel.ForAsync(0, targetCount, options, async (index, token) =>
+                {
+                    results[index] = await EnrichTargetAsync(targets[index], token).ConfigureAwait(false);
+                }).ConfigureAwait(false);
+            }
 
             var unknown = unplannedUnknownCount;
             for (var i = 0; i < components.Length; i++)
@@ -219,6 +269,19 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
     private static string GetSbomRepositoryUrl(ScanComponent component)
     {
         return component.RepositoryUrl.ToString();
+    }
+
+    private static ScanComponent AddUnavailableCandidate(ScanComponent component)
+    {
+        return LicenseReconciler.AddCandidate(component, new LicenseCandidate(
+            LicenseCandidateSource.SourceRepository,
+            LicenseCandidateKind.Unavailable,
+            default,
+            default,
+            LicenseStatus.Unknown,
+            false,
+            LicenseCandidateWarnings.SourceRepositoryUnavailable,
+            new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
     }
 
     private readonly record struct SourceRepositoryLookupResult(LicenseCandidate Candidate, bool CacheHit, bool CacheMiss, bool Requested, bool FetchError, bool Unknown);

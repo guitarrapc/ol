@@ -25,10 +25,11 @@ internal static class PackageMetadataPaths
 
 internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, PackageMetadataCache cache, bool refresh, int retryCount)
 {
+    private const int LinearPlanningComponentLimit = 8;
     private static readonly HttpClient HttpClient = new();
     private readonly PackageMetadataRegistryClient registryClient = OlDefaults.CreatePackageMetadataRegistryClient(HttpClient);
 
-    public async Task<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(
+    public ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(
         ScanComponent[] components,
         Memory<PackageMetadataRecord?> recordsByComponent,
         int concurrency,
@@ -39,9 +40,27 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
             throw new ArgumentException("Package metadata workspace must correspond to every component.", nameof(recordsByComponent));
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        if (components.Length == 0)
+        {
+            return ValueTask.FromResult((
+                Components: components,
+                Summary: new PackageMetadataSummary(0, 0, 0, 0, 0, 0, concurrency, retryCount)));
+        }
+
+        return EnrichCoreAsync(components, recordsByComponent, concurrency, cancellationToken);
+    }
+
+    private async ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichCoreAsync(
+        ScanComponent[] components,
+        Memory<PackageMetadataRecord?> recordsByComponent,
+        int concurrency,
+        CancellationToken cancellationToken)
+    {
         var initialLookupCapacity = Math.Clamp(components.Length, 1, 16);
-        var lookupByCacheKey = new Dictionary<string, int>(initialLookupCapacity, StringComparer.Ordinal);
-        var lookupByPurl = new Dictionary<Utf8Slice, int>(initialLookupCapacity);
+        var useLinearPlanning = components.Length <= LinearPlanningComponentLimit;
+        var lookupByCacheKey = useLinearPlanning ? null : new Dictionary<string, int>(initialLookupCapacity, StringComparer.Ordinal);
+        var lookupByPurl = useLinearPlanning ? null : new Dictionary<Utf8Slice, int>(initialLookupCapacity);
         var lookups = ArrayPool<PackageMetadataLookup>.Shared.Rent(initialLookupCapacity);
         var componentLookupIndexes = ArrayPool<int>.Shared.Rent(components.Length);
         PackageMetadataLookupResult[]? lookupResults = null;
@@ -58,7 +77,26 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                     continue;
                 }
 
-                if (lookupByPurl.TryGetValue(purl, out var lookupIndex))
+                var lookupIndex = -1;
+                var purlPlanned = false;
+                if (useLinearPlanning)
+                {
+                    for (var previousIndex = 0; previousIndex < i; previousIndex++)
+                    {
+                        if (components[previousIndex].Purl.Equals(purl))
+                        {
+                            lookupIndex = componentLookupIndexes[previousIndex];
+                            purlPlanned = true;
+                            break;
+                        }
+                    }
+                }
+                else if (lookupByPurl!.TryGetValue(purl, out lookupIndex))
+                {
+                    purlPlanned = true;
+                }
+
+                if (purlPlanned)
                 {
                     componentLookupIndexes[i] = lookupIndex;
                     continue;
@@ -66,30 +104,60 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
 
                 if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request))
                 {
-                    lookupByPurl.Add(purl, -1);
+                    lookupByPurl?.Add(purl, -1);
                     componentLookupIndexes[i] = -1;
                     continue;
                 }
 
-                if (!lookupByCacheKey.TryGetValue(request.CacheKey, out lookupIndex))
+                lookupIndex = -1;
+                if (useLinearPlanning)
+                {
+                    for (var existingLookupIndex = 0; existingLookupIndex < lookupCount; existingLookupIndex++)
+                    {
+                        if (string.Equals(lookups[existingLookupIndex].Request.CacheKey, request.CacheKey, StringComparison.Ordinal))
+                        {
+                            lookupIndex = existingLookupIndex;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    if (!lookupByCacheKey!.TryGetValue(request.CacheKey, out lookupIndex))
+                    {
+                        lookupIndex = -1;
+                    }
+                }
+
+                if (lookupIndex < 0)
                 {
                     EnsureLookupCapacity(ref lookups, lookupCount);
                     lookupIndex = lookupCount;
-                    lookupByCacheKey.Add(request.CacheKey, lookupIndex);
+                    lookupByCacheKey?.Add(request.CacheKey, lookupIndex);
                     lookups[lookupCount] = new PackageMetadataLookup(lookupIndex, request);
                     lookupCount++;
                 }
 
-                lookupByPurl.Add(purl, lookupIndex);
+                lookupByPurl?.Add(purl, lookupIndex);
                 componentLookupIndexes[i] = lookupIndex;
             }
 
-            lookupResults = ArrayPool<PackageMetadataLookupResult>.Shared.Rent(lookupCount);
-            var options = new ParallelOptions { MaxDegreeOfParallelism = concurrency, CancellationToken = cancellationToken };
-            await Parallel.ForEachAsync<PackageMetadataLookup>(new ArraySegment<PackageMetadataLookup>(lookups, 0, lookupCount), options, async (lookup, token) =>
+            if (lookupCount != 0)
             {
-                lookupResults[lookup.Index] = await EnrichLookupAsync(lookup.Request, token).ConfigureAwait(false);
-            }).ConfigureAwait(false);
+                lookupResults = ArrayPool<PackageMetadataLookupResult>.Shared.Rent(lookupCount);
+                if (lookupCount == 1)
+                {
+                    lookupResults[0] = await EnrichLookupAsync(lookups[0].Request, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    var options = new ParallelOptions { MaxDegreeOfParallelism = concurrency, CancellationToken = cancellationToken };
+                    await Parallel.ForEachAsync<PackageMetadataLookup>(new ArraySegment<PackageMetadataLookup>(lookups, 0, lookupCount), options, async (lookup, token) =>
+                    {
+                        lookupResults[lookup.Index] = await EnrichLookupAsync(lookup.Request, token).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                }
+            }
 
             var supported = 0;
             var hits = 0;
@@ -101,7 +169,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
             {
                 var lookupIndex = componentLookupIndexes[i];
                 var result = lookupIndex >= 0
-                    ? lookupResults[lookupIndex]
+                    ? lookupResults![lookupIndex]
                     : components[i].Purl.IsEmpty ? default : CreateUnsupportedPurlResult(components[i].Purl);
                 recordsByComponent.Span[i] = result.Record;
                 components[i] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];

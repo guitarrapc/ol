@@ -218,13 +218,17 @@ public sealed class CliCheckTests
         }
     }
 
-    private static string FindRepositoryRoot()
+    private static string FindRepositoryRoot(
+        [System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
+        foreach (var startDirectory in new[] { AppContext.BaseDirectory, Path.GetDirectoryName(sourceFilePath)! })
         {
-            if (File.Exists(Path.Combine(directory.FullName, "Ol.slnx"))) return directory.FullName;
-            directory = directory.Parent;
+            var directory = new DirectoryInfo(startDirectory);
+            while (directory is not null)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "Ol.slnx"))) return directory.FullName;
+                directory = directory.Parent;
+            }
         }
 
         throw new InvalidOperationException("Repository root was not found.");

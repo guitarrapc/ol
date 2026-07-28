@@ -436,8 +436,8 @@ public sealed class CliScanTests
                         }
                         """,
                 Encoding.UTF8);
-        await File.WriteAllTextAsync(spdxDirectory + "\\licenses.json", """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "GPL-2.0", "isDeprecatedLicenseId": true }, { "licenseId": "MIT", "isDeprecatedLicenseId": false } ] }""", Encoding.UTF8);
-        await File.WriteAllTextAsync(spdxDirectory + "\\exceptions.json", """{ "licenseListVersion": "3.27.0", "exceptions": [] }""", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "licenses.json"), """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "GPL-2.0", "isDeprecatedLicenseId": true }, { "licenseId": "MIT", "isDeprecatedLicenseId": false } ] }""", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "exceptions.json"), """{ "licenseListVersion": "3.27.0", "exceptions": [] }""", Encoding.UTF8);
 
         try
         {
@@ -617,8 +617,8 @@ public sealed class CliScanTests
             }
             """,
             Encoding.UTF8);
-        await File.WriteAllTextAsync(spdxDirectory + "\\licenses.json", """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "MIT", "isDeprecatedLicenseId": false } ] }""", Encoding.UTF8);
-        await File.WriteAllTextAsync(spdxDirectory + "\\exceptions.json", """{ "licenseListVersion": "3.27.0", "exceptions": [] }""", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "licenses.json"), """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "MIT", "isDeprecatedLicenseId": false } ] }""", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "exceptions.json"), """{ "licenseListVersion": "3.27.0", "exceptions": [] }""", Encoding.UTF8);
 
         try
         {
@@ -1562,17 +1562,21 @@ public sealed class CliScanTests
         }
     }
 
-    private static string FindRepositoryRoot()
+    private static string FindRepositoryRoot(
+        [System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
+        foreach (var startDirectory in new[] { AppContext.BaseDirectory, Path.GetDirectoryName(sourceFilePath)! })
         {
-            if (File.Exists(Path.Combine(directory.FullName, "Ol.slnx")))
+            var directory = new DirectoryInfo(startDirectory);
+            while (directory is not null)
             {
-                return directory.FullName;
-            }
+                if (File.Exists(Path.Combine(directory.FullName, "Ol.slnx")))
+                {
+                    return directory.FullName;
+                }
 
-            directory = directory.Parent;
+                directory = directory.Parent;
+            }
         }
 
         throw new DirectoryNotFoundException("Could not find repository root.");

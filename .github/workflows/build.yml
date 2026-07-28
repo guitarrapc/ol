@@ -16,7 +16,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           persist-credentials: false
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
@@ -33,7 +33,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           persist-credentials: false
       - id: matrix
@@ -58,7 +58,7 @@ jobs:
       FIXTURE_PACKAGE: ${{ matrix.package }}
       FIXTURE_METADATA_SOURCE: ${{ matrix.metadataSource }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           persist-credentials: false
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
@@ -120,7 +120,7 @@ jobs:
             Invoke-OlScan $env:FIXTURE_PATH bundler-lock-report
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/bundler-lock-report.json" -TextReport "$env:RUNNER_TEMP/bundler-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/bundler-lock-report.md" -Ecosystem gem -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat bundler-lock
           }
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ecosystem-${{ matrix.ecosystem }}
           path: |
@@ -138,7 +138,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           persist-credentials: false
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
@@ -171,7 +171,7 @@ jobs:
             git diff -- sandbox/self/ol.txt sandbox/self/ol.md sandbox/self/ol.json
             throw "Regenerate and commit the updated self-scan report snapshots."
           }
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: ol-live-self-scan

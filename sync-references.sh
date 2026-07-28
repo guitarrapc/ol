@@ -13,6 +13,8 @@ repo_specs=(
   "RSeidelsohn/license-checker-rseidelsohn"
   "pivotal/LicenseFinder"
   "raimon49/pip-licenses"
+  "sensslen/nuget-license"
+  "aaronpowell/dotnet-delice"
 )
 
 for spec in "${repo_specs[@]}"; do

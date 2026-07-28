@@ -184,11 +184,181 @@ public sealed class CliCheckTests
         }
     }
 
-    private static async Task<string> WriteCycloneDxAsync(string? license)
+    [Test]
+    public async Task Check_UpdateBaseline_AcknowledgesUnresolvedAndPassesOnRerun()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync(null);
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            var update = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath, "--update-baseline");
+            var rerun = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath);
+
+            await Assert.That(update.ExitCode).IsEqualTo(0);
+            await Assert.That(rerun.ExitCode).IsEqualTo(0);
+            await Assert.That(rerun.Stdout).Contains("Acknowledged by baseline: 1 component.");
+            await Assert.That(File.Exists(baselinePath)).IsTrue();
+            await Assert.That(await File.ReadAllTextAsync(baselinePath)).Contains("\"status\": \"unknown\"");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(baselinePath)) File.Delete(baselinePath);
+        }
+    }
+
+    [Test]
+    public async Task Check_UpdateBaseline_DoesNotAcknowledgeForbiddenLicense()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath, "--update-baseline");
+
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.Stdout).Contains("license is not allowed");
+            await Assert.That(await File.ReadAllTextAsync(baselinePath)).DoesNotContain("GPL-3.0-only");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(baselinePath)) File.Delete(baselinePath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithBaseline_WhenVersionChanges_FailsAgain()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync(null);
+        var bumpedPath = await WriteCycloneDxAsync(null, "2.0.0");
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath, "--update-baseline");
+            var afterBump = await RunOlAsync(root, "check", "--input", bumpedPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath);
+
+            await Assert.That(afterBump.ExitCode).IsEqualTo(1);
+            await Assert.That(afterBump.Stdout).Contains("Acknowledged by baseline: 0 components.");
+            await Assert.That(afterBump.Stdout).Contains("license is unresolved");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            File.Delete(bumpedPath);
+            if (File.Exists(baselinePath)) File.Delete(baselinePath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMissingBaseline_ReturnsTwoWithoutPolicyOutput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath);
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("Unable to read baseline");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMalformedBaseline_ReturnsTwoWithoutPolicyOutput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(baselinePath, "{ \"schemaVersion\": 99, \"acknowledged\": [] }", Encoding.UTF8);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath);
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("Unable to read baseline");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            File.Delete(baselinePath);
+        }
+    }
+
+    [Test]
+    public async Task Check_UpdateBaselineWithoutBaselinePath_ReturnsTwo()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--update-baseline");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("--update-baseline requires --baseline");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_UpdateBaseline_IsByteStableAcrossRuns()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync(null);
+        var first = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        var second = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", first, "--update-baseline");
+            await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", second, "--update-baseline");
+
+            await Assert.That(await File.ReadAllBytesAsync(first)).IsEquivalentTo(await File.ReadAllBytesAsync(second));
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(first)) File.Delete(first);
+            if (File.Exists(second)) File.Delete(second);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithoutBaseline_ReportsNoAcknowledgementLine()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).DoesNotContain("Acknowledged by baseline");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    private static async Task<string> WriteCycloneDxAsync(string? license, string version = "1.0.0")
     {
         var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
         var licenseJson = license is null ? string.Empty : $", \"licenses\": [{{ \"expression\": \"{license}\" }}]";
-        var json = string.Concat("{ \"bomFormat\": \"CycloneDX\", \"specVersion\": \"1.6\", \"components\": [{ \"type\": \"library\", \"name\": \"example\", \"version\": \"1.0.0\", \"purl\": \"pkg:npm/example@1.0.0\"", licenseJson, " }] }");
+        var json = string.Concat("{ \"bomFormat\": \"CycloneDX\", \"specVersion\": \"1.6\", \"components\": [{ \"type\": \"library\", \"name\": \"example\", \"version\": \"", version, "\", \"purl\": \"pkg:npm/example@", version, "\"", licenseJson, " }] }");
         await File.WriteAllTextAsync(inputPath, json, Encoding.UTF8);
         return inputPath;
     }

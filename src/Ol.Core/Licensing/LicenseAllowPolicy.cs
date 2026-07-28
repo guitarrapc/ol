@@ -68,9 +68,49 @@ public sealed class LicenseAllowPolicy
         return true;
     }
 
+    /// <summary>
+    /// Determines whether an unresolved component may be acknowledged by a baseline.
+    /// </summary>
+    /// <remarks>
+    /// Status <c>error</c> is excluded because a collection failure is a condition to repair rather than a
+    /// policy question, and status <c>matched</c> because a resolved license belongs in the allow-list.
+    /// A component is also excluded when any candidate normalizes to a rejected expression, which is what
+    /// keeps a forbidden license from being deferred through a conflict. This is evaluated whenever a
+    /// baseline is applied, not only when one is written, so tightening the allow-list invalidates entries
+    /// a more permissive list had accepted.
+    /// </remarks>
+    public bool CanAcknowledge(in ScanComponent component)
+    {
+        if (component.Status is not (LicenseStatus.Unknown or LicenseStatus.Ambiguous or LicenseStatus.Conflict or LicenseStatus.Invalid))
+        {
+            return false;
+        }
+
+        var candidateCount = component.CandidateCount;
+        for (var i = 0; i < candidateCount; i++)
+        {
+            var normalized = component.GetCandidate(i).Normalized;
+            if (normalized.IsEmpty) continue;
+            if (SpdxExpression.TryEvaluatePolicy(normalized.Span, spdxLicenseIndex, allowedLicenses, out var allowed) && !allowed)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Evaluates every completed component and returns all violations in component order.</summary>
     public LicensePolicyViolation[] Evaluate(ReadOnlySpan<ScanComponent> components)
+        => Evaluate(components, null, out _);
+
+    /// <summary>
+    /// Evaluates every completed component, removing violations for unresolved components the baseline
+    /// acknowledges. Acknowledgement removes a violation only; component status and evidence are unchanged.
+    /// </summary>
+    public LicensePolicyViolation[] Evaluate(ReadOnlySpan<ScanComponent> components, LicenseBaseline? baseline, out int acknowledgedCount)
     {
+        acknowledgedCount = 0;
         if (components.IsEmpty) return [];
 
         var violations = ArrayPool<LicensePolicyViolation>.Shared.Rent(components.Length);
@@ -101,6 +141,12 @@ public sealed class LicenseAllowPolicy
                         LicenseStatus.Error => LicensePolicyViolationKind.Error,
                         _ => LicensePolicyViolationKind.Error,
                     };
+                }
+
+                if (baseline is not null && CanAcknowledge(component) && baseline.IsAcknowledged(component))
+                {
+                    acknowledgedCount++;
+                    continue;
                 }
 
                 violations[violationCount++] = new LicensePolicyViolation(i, kind);

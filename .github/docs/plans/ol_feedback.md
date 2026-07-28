@@ -193,15 +193,20 @@ Gap 4 の bounded な root legal-file evidence を実運用し、解決できな
 
 ## ロードマップ
 
-### Phase A: 既存製品へ導入できるようにする
+### Phase A: 既存製品へ導入できるようにする — **実装済み**
 
-仕様は [cli.md の baseline 契約](../specs/cli.md#contract-policy-baseline)で確定済み。実装のみ。
+仕様は [cli.md の baseline 契約](../specs/cli.md#contract-policy-baseline)。実装は [`LicenseBaseline`](../../../src/Ol.Core/Licensing/LicenseBaseline.cs)、[`LicenseAllowPolicy.CanAcknowledge`](../../../src/Ol.Core/Licensing/LicenseAllowPolicy.cs)、[`CheckCommands`](../../../src/Ol/CheckCommands.cs)。検証は [`LicenseBaselineTests`](../../../tests/Ol.Tests/LicenseBaselineTests.cs) と [`CliCheckTests`](../../../tests/Ol.Tests/CliCheckTests.cs)。
 
-1. baseline の読み書きと、承認可能性の判定（status 条件と、候補が allow-list 外へ正規化されないこと）。
-2. component identity と evidence fingerprint。
-3. `--baseline` / `--update-baseline` の CLI 追加と、承認件数の報告。
+確認できた挙動:
 
-検証: 承認は unresolved のみで `error` と `matched` に効かない / 禁止ライセンスを含む候補は書き込み時も適用時も承認されない / 版と証拠の変化で承認が自動的に外れる / 全置換が決定的で、無変更なら byte 同一 / baseline の欠落・破損・schema 不整合が exit 2 / exit 0・1・2 の既存契約維持 / baseline を使わない経路に allocation と I/O を追加しない。
+- 承認は `unknown` / `ambiguous` / `conflict` / `invalid` のみ。`error` と `matched` には効かない。
+- 禁止ライセンスへ正規化される候補を持つ component は、書き込み時も適用時も承認されない。allow-list を狭めると過去の承認が無効になる。
+- 版と証拠の変化で承認が自動的に外れる。
+- 全置換が決定的で、無変更の再生成は byte 同一。timestamp を持たない。
+- baseline の欠落・破損・schema 不整合は exit 2。`--update-baseline` は `--baseline` を要求する。
+- exit 0 / 1 / 2 の既存契約を維持。baseline を使わない経路に allocation と I/O を追加しない。
+
+実装で確定した設計判断は [cli.md の Lessons Learned](../specs/cli.md#lessons-learned) に記録した。特に fingerprint は候補の挿入順に依存させない。挿入順は enrichment pipeline の実装詳細である一方、fingerprint は利用者の repository に永続するため、evidence source を1つ足しただけで全 baseline が無効化されてはならない。
 
 ### Phase B: 再評価と可視化
 

@@ -21,6 +21,8 @@ internal sealed class CheckCommands
     /// <param name="skipEnrichment">Use only evidence already present in the dependency input.</param>
     /// <param name="concurrency">Maximum concurrent package metadata lookups.</param>
     /// <param name="retry">Reserved package metadata retry count.</param>
+    /// <param name="baseline">Baseline file acknowledging already reviewed unresolved components.</param>
+    /// <param name="updateBaseline">Rewrite the baseline file as a complete snapshot.</param>
     [Command("check")]
     public int Check(
         [InputPathsParser] string[]? input = null,
@@ -32,11 +34,20 @@ internal sealed class CheckCommands
         string? cacheDir = null,
         bool skipEnrichment = false,
         int concurrency = 0,
-        int retry = 1)
+        int retry = 1,
+        string? baseline = null,
+        bool updateBaseline = false)
     {
         if (string.IsNullOrWhiteSpace(allowLicenses))
         {
             Console.Error.WriteLine("Invalid license policy: --allow-licenses must be specified.");
+            return 2;
+        }
+
+        var baselinePath = string.IsNullOrWhiteSpace(baseline) ? null : baseline;
+        if (updateBaseline && baselinePath is null)
+        {
+            Console.Error.WriteLine("Invalid license policy: --update-baseline requires --baseline.");
             return 2;
         }
 
@@ -53,6 +64,15 @@ internal sealed class CheckCommands
             return 2;
         }
 
+        // An unusable baseline is a command failure rather than a silently empty baseline, so a mistyped
+        // path is reported instead of changing which components fail.
+        LicenseBaseline? acknowledgements = null;
+        if (baselinePath is not null && !updateBaseline && !BaselineFile.TryRead(baselinePath, out acknowledgements, out var baselineError))
+        {
+            Console.Error.WriteLine(baselineError);
+            return 2;
+        }
+
         if (!ScanExecution.TryExecute(preparation, refresh, skipEnrichment, includeHash: false, out var completed, out var executionError))
         {
             Console.Error.WriteLine(executionError);
@@ -64,8 +84,20 @@ internal sealed class CheckCommands
             WriteDetectedInputFormat(completed.Result.Inventory.Input);
         }
 
-        var violations = policy.Evaluate(completed.Result.Components);
-        var text = CheckRenderer.Render(completed.Result.Components, violations);
+        if (updateBaseline)
+        {
+            var entries = LicenseBaseline.CreateEntries(completed.Result.Components, policy);
+            if (!BaselineFile.TryWrite(baselinePath!, entries, preparation.Spdx.LicenseListVersion, out var writeError))
+            {
+                Console.Error.WriteLine(writeError);
+                return 2;
+            }
+
+            acknowledgements = LicenseBaseline.FromEntries(entries);
+        }
+
+        var violations = policy.Evaluate(completed.Result.Components, acknowledgements, out var acknowledgedCount);
+        var text = CheckRenderer.Render(completed.Result.Components, violations, baselinePath is null ? -1 : acknowledgedCount);
         try
         {
             Console.Write(text);
@@ -89,16 +121,66 @@ internal sealed class CheckCommands
     }
 }
 
+/// <summary>Reads and writes the acknowledgement baseline at the application I/O boundary.</summary>
+internal static class BaselineFile
+{
+    public static bool TryRead(string path, out LicenseBaseline? baseline, out string error)
+    {
+        baseline = null;
+        byte[] content;
+        try
+        {
+            content = File.ReadAllBytes(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            error = $"Unable to read baseline: {exception.Message}";
+            return false;
+        }
+
+        if (LicenseBaseline.TryParse(content, out var parsed, out var parseError))
+        {
+            baseline = parsed;
+            error = string.Empty;
+            return true;
+        }
+
+        error = $"Unable to read baseline: {parseError}";
+        return false;
+    }
+
+    public static bool TryWrite(string path, ReadOnlySpan<LicenseBaselineEntry> entries, string licenseListVersion, out string error)
+    {
+        try
+        {
+            File.WriteAllBytes(path, LicenseBaseline.Serialize(entries, ToolVersion(), licenseListVersion));
+            error = string.Empty;
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            error = $"Unable to write baseline: {exception.Message}";
+            return false;
+        }
+    }
+
+    private static string ToolVersion()
+        => typeof(BaselineFile).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+}
+
 internal static class CheckRenderer
 {
-    public static string Render(ReadOnlySpan<ScanComponent> components, ReadOnlySpan<LicensePolicyViolation> violations)
+    public static string Render(ReadOnlySpan<ScanComponent> components, ReadOnlySpan<LicensePolicyViolation> violations, int acknowledgedCount = -1)
     {
         if (violations.IsEmpty)
         {
-            return $"License check passed: {components.Length} component{(components.Length == 1 ? string.Empty : "s")} satisf{(components.Length == 1 ? "ies" : "y")} the allow-list.{Environment.NewLine}";
+            return string.Concat(
+                Acknowledgement(acknowledgedCount),
+                $"License check passed: {components.Length} component{(components.Length == 1 ? string.Empty : "s")} satisf{(components.Length == 1 ? "ies" : "y")} the allow-list.{Environment.NewLine}");
         }
 
         var builder = new StringBuilder();
+        builder.Append(Acknowledgement(acknowledgedCount));
         builder.Append("License check failed: ");
         builder.Append(violations.Length);
         builder.Append(" violation");
@@ -126,6 +208,12 @@ internal static class CheckRenderer
 
         return builder.ToString();
     }
+
+    /// <summary>Makes a supplied baseline visible even when the run passes.</summary>
+    private static string Acknowledgement(int acknowledgedCount)
+        => acknowledgedCount < 0
+            ? string.Empty
+            : $"Acknowledged by baseline: {acknowledgedCount} component{(acknowledgedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
 
     private static void Append(StringBuilder builder, Utf8Slice value, string empty = "")
         => builder.Append(value.IsEmpty ? empty : value.ToString());

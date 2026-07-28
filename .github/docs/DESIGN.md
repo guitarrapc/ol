@@ -147,6 +147,8 @@ A source failure does not override a valid candidate. For example, a registry fa
 
 Policy is deliberately not encoded in `matched`. A valid, unambiguous SPDX expression can still be forbidden by an organization's rules. `check` consumes the completed report and fails closed for allow-list misses and unresolved states such as `unknown`, `conflict`, `ambiguous`, `invalid`, and `error`.
 
+Failing closed on unresolved evidence would make the command unusable on an existing product, where components Ol cannot resolve are common and often unfixable by the user. A [baseline](specs/cli.md#contract-policy-baseline) therefore records the unresolved components a reviewer has accepted, so that only newly unresolved components fail. This is deliberately not a new status: acknowledgement removes a violation while the component keeps its unresolved status and evidence, and a license the allow-list rejects can never be acknowledged. The goal is not an empty unresolved set; it is that the unresolved set cannot grow silently.
+
 Keeping policy separate allows the same factual report to be evaluated under different organizational policies without rescanning dependencies or recollecting evidence.
 
 ## Evidence Architecture

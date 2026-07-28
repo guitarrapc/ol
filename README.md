@@ -152,8 +152,8 @@ dotnet tool run dotnet-CycloneDX Ol.slnx --output sandbox/sbom --output-format J
 Scan the generated SBOM with the generalized input API:
 
 ```bash
-dotnet run --project src/Ol -- scan --input sandbox/sbom/cyclonedx-sample.json
-dotnet run --project src/Ol -- scan --input sandbox/sbom/cyclonedx-sample.json --format markdown
+ol scan --input sandbox/sbom/cyclonedx-sample.json
+ol scan --input sandbox/sbom/cyclonedx-sample.json --format markdown
 ```
 
 <details><summary>Output sample (Markdown)</summary>
@@ -220,13 +220,13 @@ ol accepts resolved dependency inputs. For one .NET project, scan NuGet's resolv
 
 ```bash
 dotnet restore Ol.slnx
-dotnet run --project src/Ol -- scan --input src/Ol/obj/project.assets.json --format markdown
+ol scan --input src/Ol/obj/project.assets.json --format markdown
 ```
 
 You can specify a directory containing multiple `project.assets.json` files:
 
 ```bash
-dotnet run --project src/Ol -- scan --input src/ --input tests/ --format markdown
+ol scan --input src/ --input tests/ --format markdown
 ```
 
 <details><summary>Output sample (Markdown)</summary>
@@ -297,7 +297,7 @@ ol scans Cargo's resolved metadata JSON format version 1. Generate it from the s
 
 ```bash
 cargo metadata --format-version 1 --locked > cargo-metadata.json
-dotnet run --project src/Ol -- scan --input cargo-metadata.json
+ol scan --input cargo-metadata.json
 ```
 
 Each workspace member becomes a resolution context. Workspace and path nodes participate in reachability without being mislabeled as crates.io packages. Resolved features, dependency kinds, and target expressions are retained as variants; ol does not evaluate them against the current host. Cargo metadata does not record the `--filter-platform` argument itself, so ol does not infer a target triple from the machine running the scan.
@@ -310,15 +310,13 @@ Go does not persist its MVS build list in a lockfile. Generate both the selected
 go list -m -json all > go-list-modules.json
 go mod graph > go-mod-graph.txt
 
-dotnet run --project src/Ol -- scan \
-  --input go-list-modules.json \
-  --input go-mod-graph.txt
+ol scan --input go-list-modules.json --input go-mod-graph.txt
 ```
 
 Alternatively, pass their containing directory. ol binds the two companion files as one `go-module-graph` input:
 
 ```bash
-dotnet run --project src/Ol -- scan --input .
+ol scan --input .
 ```
 
 `go-list-modules.json` is authoritative for the selected build list and replacement metadata. `go-mod-graph.txt` contributes only edges whose endpoints are in that selected list, so superseded module versions and Go's `go@...`/`toolchain@...` graph nodes do not become components. Local replacements receive no proxy purl and their filesystem paths are not reported. Versioned module replacements use the replacement module/version for enrichment while retaining the original requirement as `sourceId`. If the list JSON contains `Retracted` data, ol retains a `retracted` occurrence variant. GOOS, GOARCH, and build tags remain unspecified because neither output proves them.
@@ -404,6 +402,26 @@ Regenerate ol's committed SBOM and text, Markdown, and JSON report snapshots thr
 
 ```bash
 ./sandbox/Update-SelfScan.ps1
+```
+
+To keep the committed SBOM as a fixed golden input and regenerate only its derived reports, run:
+
+```bash
+./sandbox/Update-SelfScan.ps1 -ReportsOnly
+```
+
+CI separately generates a live self-scan of `src/Ol/Ol.csproj` with the latest .NET 10 SDK, validates its dependency inventory, and enforces the `MIT` license policy on its distributable dependencies. The live SBOM is retained as an artifact instead of being compared byte-for-byte with the golden input.
+
+### Scan
+
+```bash
+dotnet run --project src/Ol -- scan --input src/Ol/obj/project.assets.json --format markdown
+```
+
+### Check
+
+```bash
+dotnet run --project src/Ol -- check --input src/Ol/obj/project.assets.json --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
 ```
 
 ### Generated Data

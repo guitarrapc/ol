@@ -16,6 +16,8 @@ repo_specs=(
   "sensslen/nuget-license"
   "aaronpowell/dotnet-delice"
   "madewithlove/license-checker-php"
+  "pivotal/LicenseFinder"
+  "polarismesh/polaris-java"
 )
 
 for spec in "${repo_specs[@]}"; do

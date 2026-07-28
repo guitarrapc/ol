@@ -176,14 +176,32 @@ dedup の品質が落ちていないことは、実装前に characterization te
 
 ### P2-2: 起動時の SPDX 固定費を削る
 
-1 回の CLI 起動につき 324 KB を払っている。
+1 回の CLI 起動につき 324 KB を払っている。2 つの独立した項目からなる。
 
-- `SpdxLicenseIndex` の `licenseUtf8`（識別子ごとに個別の byte[]）を、**生成時に 1 本の連結 UTF-8 バッファ + offset table** に置き換える。700 個超の小さな byte[] が消える
-- `ComputeGeneratedDataHash` は JSON 出力の metadata でしか使われない。**遅延評価にする**（text / markdown 出力では計算しない）
+#### hash の遅延化（実施済み）
 
-- 期待効果: **-30 KB（hash 遅延化、確実）**、**-100 KB 以上（UTF-8 テーブル、要測定）**
+`SpdxData` は毎回 2 本の SHA-256 を先に計算していたが、その値は **JSON report の `metadata.spdx` でしか読まれない**（`WriteSpdxMetadata` の呼び出し元は `WriteJson` の 2 箇所のみ）。
+
+| 計算 | B/op（実測） |
+|---|---:|
+| 生成 `LicenseIds` の hash | 27,432 |
+| 生成 `ExceptionIds` の hash | 6,016 |
+| **起動ごとの合計** | **33,448** |
+
+`SpdxData` から 2 本の string フィールドを外し、「どう導出するか」だけを持つ `SpdxDataDigest` に置き換えた。text / Markdown 出力では **1 バイトも計算しない**。
+
+- 計算プロパティではなく `GetLicensesSha256()` という**メソッド名**にした。ただの読み取りに見える property が 33 KB を確保するのは罠であり、[P1-2](#p1-2-計算プロパティを確定値に変え正規化を-dedup-の後ろへ移す実施済み) で消したのと同じ形だから
+- `SpdxDataDigest` は struct ではなく class にして結果を保持する。`--format json --out-file` は `WriteJson` を出力先と標準出力の 2 回呼ぶため、毎回計算する形にすると 66 KB に増えてしまう
+- user-installed SPDX data（`--spdx-data` / `ol spdx use`）では、`HashFile` が licenses.json と exceptions.json を**もう一度全部読み直していた**（`ReadSpdxData` が既に読んだ後で）。text 出力ではこの再読み込みも起きなくなった。実 SPDX データはこの 2 ファイルが大きいため、生成データより削減幅は大きい
+
+digest の値が変わっていないことは、実装前に characterization test で固定した（bundled は生成識別子から、user directory は実ファイルから、テスト側で独立に再計算して照合）。`E2E`、`JsonReportRenderer`（0 B 維持）、`TextReportRenderer`（0 B 維持）に変化なし。
+
+#### UTF-8 テーブル（未着手）
+
+`SpdxLicenseIndex` の `licenseUtf8` は識別子ごとに個別の byte[] を持つ（構築 293,624 B/回）。**生成時に 1 本の連結 UTF-8 バッファ + offset table** に置き換えれば 700 個超の小さな byte[] が消える。
+
+- 期待効果: **-100 KB 以上（要測定）**
 - リスク: 中。SPDX code generator（`Ol.Update`）の出力形式変更を伴う
-- 判断: scan 対象が数十 component 規模なら固定費の比率が高く、数百規模なら P0 の方が支配的。**P0 完了後に E2E で再測定してから着手を決める**
 
 ### P3: cache の物理形式（P0 の実測により優先度が上がった）
 
@@ -241,6 +259,8 @@ Mean は cache 読み取りが file I/O 律速であり、benchmark 設定が `I
 | `E2E.ScanNuGetTextWithCachedMetadata`（3 component） | 23.32 KB | ≤ 6 KB | **9.17 KB** | ≤ 4 KB |
 | `SourceRepositoryEnrichment.EnrichDuplicateCachedTarget` | 67.53 KB | ≤ 20 KB | **63.71 KB** | ≤ 12 KB |
 | CLI 起動固定費 | 約 324 KB | 変化なし | 変化なし | ≤ 200 KB（P2-2） |
+
+P2-2 の hash 遅延化により、起動固定費は約 324 KB → **約 291 KB**（JSON 出力時のみ 33 KB を後から支払う）。残りはほぼ `SpdxLicenseIndex` の構築で、UTF-8 テーブル化が未着手。
 
 P0 目標の見積もりは、cache 読み取り単体の下限（prototype 425 B）から外挿しており、**component ごとに必ず残る所有 string（evidence・candidate）を数えていなかった**。cache 読み取り自体は目標に近い水準（package 880 B / source 856 B）に達している。次の削減対象は parser ではなく、path 構築（P3）と evidence の生成時期（P2）である。
 

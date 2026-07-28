@@ -601,15 +601,65 @@ internal enum SortOrder
     Desc,
 }
 
+/// <summary>
+/// Describes how to derive the active SPDX data digests, without deriving them.
+/// </summary>
+/// <remarks>
+/// Only the JSON report writes these digests, but <see cref="SpdxData"/> is built for every run.
+/// Deriving them eagerly cost 33 KB per process — a joined string of every generated identifier plus
+/// its UTF-8 copy, or a second full read of each installed SPDX file — for a value that text and
+/// Markdown output never read. A run that writes JSON to both a file and standard output asks twice,
+/// so each digest is retained after the first request.
+/// </remarks>
+internal sealed class SpdxDataDigest
+{
+    private readonly string? exceptionsPath;
+    private readonly string? licensesPath;
+    private string? exceptions;
+    private string? licenses;
+
+    private SpdxDataDigest(string? licensesPath, string? exceptionsPath)
+    {
+        this.licensesPath = licensesPath;
+        this.exceptionsPath = exceptionsPath;
+    }
+
+    /// <summary>Describes the digests of the bundled generated identifiers.</summary>
+    public static SpdxDataDigest ForGeneratedData() => new(null, null);
+
+    /// <summary>Describes the digests of an installed SPDX data directory.</summary>
+    public static SpdxDataDigest ForFiles(string licensesPath, string exceptionsPath) => new(licensesPath, exceptionsPath);
+
+    /// <summary>Calculates the active licenses digest once per run.</summary>
+    public string GetLicensesSha256()
+        => licenses ??= licensesPath is null ? ComputeGeneratedDataHash(SpdxGeneratedLicenseData.LicenseIds) : HashFile(licensesPath);
+
+    /// <summary>Calculates the active exceptions digest once per run.</summary>
+    public string GetExceptionsSha256()
+        => exceptions ??= exceptionsPath is null ? ComputeGeneratedDataHash(SpdxGeneratedLicenseData.ExceptionIds) : HashFile(exceptionsPath);
+
+    private static string HashFile(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
+    private static string ComputeGeneratedDataHash(string[] identifiers) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', identifiers)))).ToLowerInvariant();
+}
+
+/// <remarks>
+/// <see cref="Digest"/> is never null in practice: every instance comes from <see cref="Load"/>.
+/// </remarks>
 internal readonly record struct SpdxData(
     SpdxLicenseIndex Index,
     string Source,
     string LicenseListVersion,
     string DataRef,
-    string LicensesSha256,
-    string ExceptionsSha256)
+    SpdxDataDigest Digest)
 {
     private static readonly SpdxData Bundled = CreateBundled();
+
+    /// <summary>Calculates the active licenses digest. Named as a method because the calculation is not free.</summary>
+    public string GetLicensesSha256() => Digest.GetLicensesSha256();
+
+    /// <summary>Calculates the active exceptions digest. Named as a method because the calculation is not free.</summary>
+    public string GetExceptionsSha256() => Digest.GetExceptionsSha256();
 
     public static SpdxData Load(string? directory)
     {
@@ -634,8 +684,7 @@ internal readonly record struct SpdxData(
             "bundled",
             SpdxGeneratedLicenseData.LicenseListVersion,
             "bundled/spdx/builtin",
-            ComputeGeneratedDataHash(SpdxGeneratedLicenseData.LicenseIds),
-            ComputeGeneratedDataHash(SpdxGeneratedLicenseData.ExceptionIds));
+            SpdxDataDigest.ForGeneratedData());
     }
 
     private static SpdxData LoadFromDirectory(string directory, string source, string dataRef)
@@ -654,8 +703,7 @@ internal readonly record struct SpdxData(
             source,
             licenses.Version,
             dataRef,
-            HashFile(licensesPath),
-            HashFile(exceptionsPath));
+            SpdxDataDigest.ForFiles(licensesPath, exceptionsPath));
     }
 
     private static (string Version, string[] Ids, string[] DeprecatedIds) ReadSpdxData(string path, string arrayName, string propertyName)
@@ -680,10 +728,6 @@ internal readonly record struct SpdxData(
 
         return (document.RootElement.TryGetProperty("licenseListVersion", out var version) ? version.GetString() ?? "unknown" : "unknown", ids, deprecatedIds.ToArray());
     }
-
-    private static string HashFile(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
-
-    private static string ComputeGeneratedDataHash(string[] identifiers) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', identifiers)))).ToLowerInvariant();
 
     private static ReadOnlyMemory<byte> SkipUtf8Bom(byte[] bytes)
         => bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? bytes.AsMemory(3) : bytes;
@@ -1385,8 +1429,8 @@ internal static class ReportRenderer
         writer.WriteString("source", spdx.Source);
         writer.WriteString("licenseListVersion", spdx.LicenseListVersion);
         writer.WriteString("dataRef", spdx.DataRef);
-        writer.WriteString("licensesSha256", spdx.LicensesSha256);
-        writer.WriteString("exceptionsSha256", spdx.ExceptionsSha256);
+        writer.WriteString("licensesSha256", spdx.GetLicensesSha256());
+        writer.WriteString("exceptionsSha256", spdx.GetExceptionsSha256());
         writer.WriteEndObject();
     }
 

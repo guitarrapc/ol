@@ -371,7 +371,12 @@ Pythonはpip 23.0以降stableと宣言された`pip inspect` JSON format version
 - Windows sandboxでpip metadataをPowerShell captureするとconsole code pageによって非ASCII metadataが失敗するため、生成scriptは`python -X utf8 -m pip inspect`でUTF-8 modeを明示する。
 - 2 component focused benchmarkではpip inspect ingestionが4.841 µs / 856 B、同じowned result floorが259.3 ns / 856 Bで、parser固有のmanaged allocationは0 Bだった。
 
-### Phase 11: JVM、PHP、Ruby resolved input調査
+### Phase 11: PHP resolved input調査
+
+
+### Phase 12: Ruby resolved input調査
+
+### Phase 13: JVM resolved input調査
 
 - Maven、Gradle、PHP、Rubyはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
 - Maven configuration/scopeとGradle configuration/variantをresolution contextで表現できることを採用条件にする。

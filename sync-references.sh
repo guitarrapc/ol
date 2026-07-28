@@ -25,6 +25,8 @@ for spec in "${repo_specs[@]}"; do
   url="https://github.com/${repo}.git"
 
   if [[ -d "${target}/.git" ]]; then
+    echo "[reset] ${repo}"
+    git -C "${target}" reset --hard HEAD
     echo "[pull] ${repo}${branch:+ @ ${branch}}"
     if [[ -n "${branch:-}" ]]; then
       git -C "${target}" pull --ff-only origin "${branch}"

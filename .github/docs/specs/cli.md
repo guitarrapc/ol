@@ -397,7 +397,7 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 `--allow-licenses` is one comma-separated list of SPDX License Identifiers. Surrounding ASCII whitespace is ignored. Matching is case-insensitive and identifiers are normalized to the official casing from the active SPDX data. Empty entries, unknown identifiers, SPDX expressions, exception identifiers, natural-language names, and an empty list are invalid check options. Duplicate identifiers after normalization have no additional effect.
 
-`check` accepts the scan controls needed to produce the completed result: `--input`, `--input-format`, `--spdx-data`, `--cache-dir`, `--refresh`, `--skip-enrichment`, `--concurrency`, `--retry`, and `--verbose`. The initial command does not accept scan view or report controls such as `--dependency`, `--group-by`, `--sort`, `--format`, or `--out`; policy always evaluates every component in the completed result and emits one deterministic text result.
+`check` accepts the scan controls needed to produce the completed result: `--input`, `--input-format`, `--spdx-data`, `--cache-dir`, `--refresh`, `--skip-enrichment`, `--concurrency`, `--retry`, and `--verbose`. It additionally accepts `--baseline` and `--update-baseline`, defined below. The initial command does not accept scan view or report controls such as `--dependency`, `--group-by`, `--sort`, `--format`, or `--out`; policy always evaluates every component in the completed result and emits one deterministic text result.
 
 For a component with status `matched`, the normalized SPDX expression is evaluated as a Boolean expression where an allowed license identifier is true and every other license identifier is false:
 
@@ -408,7 +408,7 @@ For a component with status `matched`, the normalized SPDX expression is evaluat
 
 For example, with `--allow-licenses MIT,Apache-2.0`, `MIT`, `MIT AND Apache-2.0`, and `MIT OR GPL-3.0-only` pass; `MIT AND GPL-3.0-only` and `GPL-3.0-only WITH Classpath-exception-2.0` fail.
 
-Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.
+Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain, unless an unresolved component is acknowledged by a baseline as defined below. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.
 
 `check` writes its pass result or complete violation list to stdout. Expected option, input, SPDX-data, whole-command evidence-pipeline, and output failures write a concise cause to stderr without a stack trace or partial policy result. A component-level registry or source failure remains evidence in the completed result and is evaluated as a policy violation when it leaves that component unresolved; it is not an exit-2 command failure. Exit codes are:
 
@@ -416,7 +416,35 @@ Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed 
 - `1`: one or more policy violations were found.
 - `2`: the check could not be completed because its configuration, input, evidence pipeline, or output failed.
 
-Policy files, deny-lists, per-package exceptions, dependency-scope policy, JSON/Markdown output, and evaluation of a previously serialized scan report are outside the initial `check --allow-licenses` scope.
+<a id="contract-policy-baseline"></a>
+
+### Acknowledged unresolved components
+
+Failing closed on unresolved evidence is correct, but on its own it makes the command unusable for an existing product. Any real dependency set contains components whose license cannot be resolved: registries with no license field, non-GitHub sources, private packages. A user cannot fix those, and an allow-list cannot silence them. The goal is not that the unresolved set is empty; it is that **the unresolved set cannot grow silently**.
+
+A baseline records the unresolved components a reviewer has already seen and accepted, so that only newly unresolved components fail:
+
+```text
+ol check --input . --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json --update-baseline
+ol check --input . --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json
+```
+
+`--baseline` names the file explicitly. Ol never discovers a baseline by convention, so the command line alone states what is acknowledged. `--update-baseline` rewrites the file as a complete snapshot of the currently acknowledgeable components; it is not an append. Hand-removing an entry is therefore not durable, which is intentional: a baseline is a reviewed snapshot to be reduced by fixing evidence or extending the allow-list, not a curated list of decisions.
+
+A component may be acknowledged only when both of the following hold.
+
+1. Its status is `unknown`, `ambiguous`, `conflict`, or `invalid`. Status `error` cannot be acknowledged, because a collection failure is a condition to repair rather than a policy question, and acknowledging one would freeze a transient outage into an approval. Status `matched` cannot be acknowledged, because a resolved license is a policy decision that belongs in `--allow-licenses`.
+2. No license candidate on that component normalizes to an SPDX expression the active allow-list rejects.
+
+Rule 2 is what keeps a forbidden license from being deferred. A `conflict` between `MIT` and `GPL-3.0-only` is not acknowledgeable while `GPL-3.0-only` is disallowed, so `--update-baseline` cannot silence it and the command still exits 1. This yields a two-layer guarantee that should not be overstated: a forbidden license **that Ol can identify** cannot be acknowledged at all, while one Ol cannot identify — an unnormalizable string such as `GPLv3`, which strict normalization refuses to guess — remains visible because the baseline records the raw claim. Rule 2 is evaluated when the baseline is applied, not only when it is written, so tightening `--allow-licenses` invalidates entries that a more permissive list had accepted.
+
+An entry identifies its component by versioned purl when one exists and by ecosystem, name, and version otherwise, and always carries the readable name, version, and ecosystem so a reviewer never needs to know which identity form was used. It records the acknowledged status, the raw claims that produced it as `(source, kind, raw)` triples, and a fingerprint over that same evidence. The fingerprint is why an acknowledgement expires by itself: when a version changes, a registry corrects its metadata, or a repository's license file changes, the entry stops applying and the component fails again until it is reviewed anew. An entry applies to every component it matches; entries carry no reason field, because the file is generated and the surrounding version control already records who added it and when.
+
+The file is JSON with a schema version, and records the Ol version and SPDX License List version that produced it as diagnostic information rather than as a compatibility requirement — a License List update must not invalidate a whole baseline, and real evidence changes are already caught by the fingerprint. Entries are ordered by ecosystem, name, version, and purl so that reordering an input produces no diff, and no generation timestamp is written so that regenerating an unchanged baseline produces no diff. Overlong raw values are truncated in the file and marked as truncated, while the fingerprint covers the untruncated value. Report privacy applies unchanged: a baseline is committed to a repository and must not contain tokens or absolute local paths.
+
+`check` always reports how many components were acknowledged, so a passing run never hides the existence of a baseline. Acknowledged components remain in the scan result with their original unresolved status; acknowledgement removes a violation, it does not alter evidence or reconciliation. A missing, malformed, or schema-incompatible baseline is a command failure with exit code 2 rather than a silently empty baseline, so a mistyped path is reported instead of changing which components fail.
+
+Policy files, deny-lists, per-package policy exceptions, license curation and concluded licenses, dependency-scope policy, JSON/Markdown output, and evaluation of a previously serialized scan report remain outside the `check` scope.
 
 ## Lessons Learned
 

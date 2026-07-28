@@ -223,6 +223,65 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Target_TryCreate_UrlShapes_NormalizeOrRejectExactly()
+    {
+        // Pins the normalization of every URL shape the parser must keep answering the same way.
+        // An empty expectation means the URL must be rejected.
+        (string Url, string Expected)[] cases =
+        [
+            ("https://github.com/owner/repository", "owner/repository"),
+            ("https://github.com/owner/repository/", "owner/repository"),
+            ("https://GitHub.com/owner/repository", "owner/repository"),
+            ("https://github.com:443/owner/repository", "owner/repository"),
+            ("https://user@github.com/owner/repository", "owner/repository"),
+            ("https://github.com/owner/repository/tree/main", "owner/repository"),
+            ("https://github.com/owner/repository?tab=readme", "owner/repository"),
+            ("https://github.com/owner/repository#readme", "owner/repository"),
+            ("  https://github.com/owner/repository  ", "owner/repository"),
+            ("git+ssh://git@github.com/owner/repository.git", "owner/repository"),
+            ("GIT+HTTPS://github.com/owner/repository.git", "owner/repository"),
+            ("git@github.com:owner/repository.git", "owner/repository"),
+            ("git@github.com:owner/repository", "owner/repository"),
+            ("https://github.com/owner/repository.GIT", "owner/repository"),
+            ("https://raw.github.com/owner/repository", ""),
+            ("https://github.com.example.test/owner/repository", ""),
+            ("https://example.test/owner/repository", ""),
+            ("https://github.com/owner", ""),
+            ("https://github.com/", ""),
+            ("https://github.com", ""),
+            ("github.com/owner/repository", ""),
+            ("git@gitlab.test:owner/repository.git", ""),
+            ("   ", ""),
+
+            // Shapes that only a URI parser answers a particular way. They are pathological for a
+            // repository URL, but the answer must not drift silently.
+            ("HTTPS://GITHUB.COM/Owner/Repository", "Owner/Repository"),
+            ("https://github.com./owner/repository", ""),
+            ("https://github.com//owner/repository", "owner/repository"),
+            ("https://github.com/owner//repository", ""),
+            ("https://github.com:notaport/owner/repository", ""),
+            ("ftp://github.com/owner/repository", "owner/repository"),
+            ("ht!tp://github.com/owner/repository", ""),
+            ("https://github.com/owner/repo%73itory", "owner/repository"),
+            ("https://github.com/owner/../evil/repository", "evil/repository"),
+        ];
+
+        for (var i = 0; i < cases.Length; i++)
+        {
+            var (url, expected) = cases[i];
+
+            var parsed = SourceRepositoryTarget.TryCreate(url, out var target);
+
+            await Assert.That(parsed).IsEqualTo(expected.Length != 0).Because($"URL: {url}");
+            if (expected.Length != 0)
+            {
+                await Assert.That(target.Repository).IsEqualTo(expected).Because($"URL: {url}");
+                await Assert.That(target.CacheKey).IsEqualTo($"github:{expected}@default").Because($"URL: {url}");
+            }
+        }
+    }
+
+    [Test]
     public async Task Enrichment_FromCacheHitAndFromFetch_CarryTheTargetCacheKeyDigestAsEvidence()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-digest-{Guid.NewGuid():N}");

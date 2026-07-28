@@ -180,6 +180,31 @@ dedup の品質が落ちていないことは、実装前に characterization te
 
 `SourceRepositoryRecord.CacheKeySha256` は永続化のために残す（[cache_format.md](../specs/cache_format.md) が要求する）。読み手が呼ばないよう、プロパティに理由を書いた。
 
+### P1-5: GitHub URL の正規化から `Uri` を外す（実施済み）
+
+`SourceRepositoryTarget.TryCreate` は unique target ごとに 648 B を確保しており、[P1-4](#p1-4-source-evidence-の-cache-key-digest-を読み取りから引き継ぐ実施済み) 後の `SourceOneCached` 1,720 B の最大項だった。内訳は計測で分解できる。
+
+| 項目 | B/op |
+|---|---:|
+| `value[prefix..].ToString()`（prefix が 0 でも複製する） | 104 |
+| `Uri.TryCreate` + `Host` + `AbsolutePath` | 320 |
+| **`Uri` 機構の小計** | **424** |
+| Owner / Name / Repository / CacheKey（結果として必要） | 224 |
+
+`Uri` を作らずに scheme・authority・path を span で切り出す高速路を追加した。**結果: 648 B → 224 B（-65%）**。残りは戻り値そのもので、この型の形を変えない限りの下限。
+
+| 指標 | 前 | 後 |
+|---|---:|---:|
+| `EnrichmentFixedCost.SourceOneCached` | 1,720 B | **1,312 B** |
+| `SourceRepositoryEnrichment.EnrichDuplicateCachedTarget` | 27.04 KB | **26.64 KB** |
+
+**高速路は意図的に狭くしてある。** `Uri` は URL を書き換える — unreserved な percent escape を復元し（`repo%73itory` → `repository`）、`.` / `..` を畳み、backslash を書き換え、scheme と port を検証する。これらを含む URL は高速路が `false` を返し、**従来の `Uri` 経路がそのまま答えを出す**。したがって挙動は変わらない。
+
+実装前に、URL の形 30 通り（採用 17 / 拒否 13）を現行実装に対して流し、答えを characterization test に固定した。うち 2 つは事前の想定と違っており、**先に測っていなければ静かに壊していた**。
+
+- `https://github.com//owner/repository` は**採用**される（`AbsolutePath` の `//` が `Trim('/')` で落ちる）
+- `https://github.com/owner/repo%73itory` は `owner/repository` に**復元される**
+
 ### P2-1: candidate 配列の再確保をやめる
 
 `LicenseReconciler.AddCandidate` は追加のたびに `new LicenseCandidate[n+1]` を作る（enrichment 2 段で 104 + 184 B/component）。候補数の上限は evidence source 数で決まるため、component 構築時に容量を確保して 1 回の確保に収める。`AdditionalCandidates` は report が出力するため確保自体は必要だが、**再確保は不要**。

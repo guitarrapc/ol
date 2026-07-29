@@ -17,6 +17,8 @@ internal static class DependencyInventoryCombiner
         var occurrenceCount = 0;
         var edgeCount = 0;
         var occurrenceVariantCount = 0;
+        var usageRangeCount = 0;
+        var developmentOccurrenceCount = 0;
         for (var i = 0; i < inventories.Length; i++)
         {
             contextCount = checked(contextCount + inventories[i].Contexts.Length);
@@ -24,12 +26,18 @@ internal static class DependencyInventoryCombiner
             occurrenceCount = checked(occurrenceCount + inventories[i].Occurrences.Length);
             edgeCount = checked(edgeCount + inventories[i].Edges.Length);
             occurrenceVariantCount = checked(occurrenceVariantCount + (inventories[i].OccurrenceVariants?.Length ?? 0));
+            usageRangeCount = checked(usageRangeCount + (inventories[i].UsageDeterminedRanges?.Length ?? 0));
+            developmentOccurrenceCount = checked(developmentOccurrenceCount + (inventories[i].DevelopmentOccurrences?.Length ?? 0));
         }
 
         var contexts = new DependencyResolutionContext[contextCount];
         var occurrences = new DependencyOccurrence[occurrenceCount];
         var edges = new DependencyEdge[edgeCount];
         var occurrenceVariants = new DependencyOccurrenceVariant[occurrenceVariantCount];
+        // Only inputs that determined usage contribute ranges or development occurrences; if none did, both stay null so
+        // the combined inventory carries no usage storage.
+        var usageRanges = usageRangeCount == 0 ? null : new DependencyUsageRange[usageRangeCount];
+        var developmentOccurrences = developmentOccurrenceCount == 0 ? null : new int[developmentOccurrenceCount];
         var components = ArrayPool<ScanComponent>.Shared.Rent(Math.Max(componentCapacity, 1));
         var componentRemap = ArrayPool<int>.Shared.Rent(Math.Max(componentCapacity, 1));
         var componentIndexes = new Dictionary<ComponentKey, int>(componentCapacity, ComponentKeyComparer.Instance);
@@ -39,6 +47,8 @@ internal static class DependencyInventoryCombiner
         var occurrenceOffset = 0;
         var edgeOffset = 0;
         var occurrenceVariantOffset = 0;
+        var usageRangeOffset = 0;
+        var developmentOccurrenceOffset = 0;
         try
         {
             for (var inventoryIndex = 0; inventoryIndex < inventories.Length; inventoryIndex++)
@@ -90,6 +100,29 @@ internal static class DependencyInventoryCombiner
                     occurrenceVariantOffset += inventoryOccurrenceVariants.Length;
                 }
 
+                var inventoryUsageRanges = inventory.UsageDeterminedRanges;
+                if (inventoryUsageRanges is not null && usageRanges is not null)
+                {
+                    for (var i = 0; i < inventoryUsageRanges.Length; i++)
+                    {
+                        var range = inventoryUsageRanges[i];
+                        usageRanges[usageRangeOffset + i] = new DependencyUsageRange(range.StartOccurrenceIndex + occurrenceOffset, range.Length);
+                    }
+
+                    usageRangeOffset += inventoryUsageRanges.Length;
+                }
+
+                var inventoryDevelopmentOccurrences = inventory.DevelopmentOccurrences;
+                if (inventoryDevelopmentOccurrences is not null && developmentOccurrences is not null)
+                {
+                    for (var i = 0; i < inventoryDevelopmentOccurrences.Length; i++)
+                    {
+                        developmentOccurrences[developmentOccurrenceOffset + i] = inventoryDevelopmentOccurrences[i] + occurrenceOffset;
+                    }
+
+                    developmentOccurrenceOffset += inventoryDevelopmentOccurrences.Length;
+                }
+
                 for (var i = 0; i < inventory.Edges.Length; i++)
                 {
                     var edge = inventory.Edges[i];
@@ -111,7 +144,9 @@ internal static class DependencyInventoryCombiner
                 components.AsSpan(0, combinedComponentCount).ToArray(),
                 occurrences,
                 edges,
-                occurrenceVariants);
+                occurrenceVariants,
+                usageRanges,
+                developmentOccurrences);
         }
         finally
         {

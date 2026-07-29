@@ -134,6 +134,37 @@ public sealed class NpmInputTests
         await Assert.That(() => DependencyInputScanner.Scan(input, Spdx)).Throws<JsonException>();
     }
 
+    [Test]
+    public async Task Scan_PackageLockV3_ClassifiesDevOnlyOccurrenceAsDevelopment()
+    {
+        var inventory = DependencyInputScanner.Scan(
+            await File.ReadAllBytesAsync(GetFixturePath("package-lock.json")),
+            Spdx,
+            expectedFormat: ScanInputFormat.NpmPackageLock);
+
+        // npm determines dev/runtime for every emitted occurrence.
+        await Assert.That(inventory.UsageDeterminedRanges).IsNotNull();
+        await Assert.That(inventory.UsageDeterminedRanges!.Sum(static range => range.Length)).IsEqualTo(inventory.Occurrences.Length);
+
+        var usages = new DependencyUsage[inventory.Components.Length];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[FindComponentIndex(inventory, "node_modules/dev-tool")]).IsEqualTo(DependencyUsage.Development);
+        await Assert.That(usages[FindComponentIndex(inventory, "node_modules/shared")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, "node_modules/native-addon")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, "node_modules/peer-host")]).IsEqualTo(DependencyUsage.Runtime);
+    }
+
+    private static int FindComponentIndex(DependencyInventory inventory, string sourceId)
+    {
+        for (var i = 0; i < inventory.Components.Length; i++)
+        {
+            if (inventory.Components[i].SourceId.ToString() == sourceId) return i;
+        }
+
+        throw new InvalidOperationException($"Component not found: {sourceId}");
+    }
+
     private static ScanComponent FindComponent(DependencyInventory inventory, string sourceId)
         => inventory.Components.Single(component => component.SourceId.ToString() == sourceId);
 

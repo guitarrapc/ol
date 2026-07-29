@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Buffers;
+using System.Text;
 using ConsoleAppFramework;
 using Ol.Core;
 using Ol.Core.Licensing;
@@ -17,6 +18,7 @@ internal sealed class CheckCommands
     /// <summary>Check a resolved dependency input against allowed SPDX licenses.</summary>
     /// <param name="input">Repeatable resolved dependency input files or directories.</param>
     /// <param name="allowLicenses">Comma-separated SPDX License Identifiers.</param>
+    /// <param name="allowDevLicenses">Comma-separated SPDX License Identifiers additionally allowed for development-only components.</param>
     /// <param name="inputFormat">Input format assertion; defaults to auto detection.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="verbose">Include input detection diagnostics.</param>
@@ -33,6 +35,7 @@ internal sealed class CheckCommands
     public int Check(
         [InputPathsParser] string[]? input = null,
         string? allowLicenses = null,
+        string? allowDevLicenses = null,
         string? inputFormat = null,
         string? spdxData = null,
         bool verbose = false,
@@ -51,6 +54,10 @@ internal sealed class CheckCommands
             Console.Error.WriteLine("Invalid license policy: --allow-licenses must be specified.");
             return 2;
         }
+
+        var developmentLicenseIds = string.IsNullOrWhiteSpace(allowDevLicenses)
+            ? []
+            : allowDevLicenses.Split(',', StringSplitOptions.None);
 
         var baselinePath = string.IsNullOrWhiteSpace(baseline) ? null : baseline;
         if (updateBaseline && baselinePath is null)
@@ -80,7 +87,7 @@ internal sealed class CheckCommands
                 return 2;
             }
 
-            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), reportSpdx.Index, out policy, out var reportPolicyError))
+            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, reportSpdx.Index, out policy, out var reportPolicyError))
             {
                 Console.Error.WriteLine($"Invalid license policy: {reportPolicyError}");
                 return 2;
@@ -108,7 +115,7 @@ internal sealed class CheckCommands
                 return 2;
             }
 
-            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), preparation.Spdx.Index, out policy, out var policyError))
+            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, preparation.Spdx.Index, out policy, out var policyError))
             {
                 Console.Error.WriteLine($"Invalid license policy: {policyError}");
                 return 2;
@@ -151,11 +158,30 @@ internal sealed class CheckCommands
             acknowledgements = LicenseBaseline.FromEntries(entries);
         }
 
-        var violations = policy.Evaluate(
-            components,
-            acknowledgements,
-            out var acknowledgedCount,
-            out var policyComponentCount);
+        int acknowledgedCount;
+        int policyComponentCount;
+        int developmentAllowedCount;
+        LicensePolicyViolation[] violations;
+        if (developmentLicenseIds.Length == 0)
+        {
+            violations = policy.Evaluate(components, default, acknowledgements, out acknowledgedCount, out policyComponentCount, out _);
+            developmentAllowedCount = -1;
+        }
+        else
+        {
+            // Aggregate occurrence usage into a per-component verdict once, using pooled scratch that never escapes.
+            var usageLength = inventory.Components.Length;
+            var usages = ArrayPool<DependencyUsage>.Shared.Rent(Math.Max(usageLength, 1));
+            try
+            {
+                DependencyUsageResolver.Resolve(inventory, usages.AsSpan(0, usageLength));
+                violations = policy.Evaluate(components, usages.AsSpan(0, usageLength), acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedCount);
+            }
+            finally
+            {
+                ArrayPool<DependencyUsage>.Shared.Return(usages);
+            }
+        }
 
         // SARIF carries the same violation set as the text result; it is an additional projection, not a filter.
         if (!string.IsNullOrWhiteSpace(sarif))
@@ -175,7 +201,8 @@ internal sealed class CheckCommands
             components,
             violations,
             policyComponentCount,
-            baselinePath is null ? -1 : acknowledgedCount);
+            baselinePath is null ? -1 : acknowledgedCount,
+            developmentAllowedCount);
         try
         {
             Console.Write(text);
@@ -280,17 +307,20 @@ internal static class CheckRenderer
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<LicensePolicyViolation> violations,
         int policyComponentCount,
-        int acknowledgedCount = -1)
+        int acknowledgedCount = -1,
+        int developmentAllowedCount = -1)
     {
         if (violations.IsEmpty)
         {
             return string.Concat(
                 Acknowledgement(acknowledgedCount),
+                DevelopmentAllowance(developmentAllowedCount),
                 $"License check passed: {policyComponentCount} component{(policyComponentCount == 1 ? string.Empty : "s")} satisf{(policyComponentCount == 1 ? "ies" : "y")} the allow-list.{Environment.NewLine}");
         }
 
         var builder = new StringBuilder();
         builder.Append(Acknowledgement(acknowledgedCount));
+        builder.Append(DevelopmentAllowance(developmentAllowedCount));
         builder.Append("License check failed: ");
         builder.Append(violations.Length);
         builder.Append(" violation");
@@ -324,6 +354,12 @@ internal static class CheckRenderer
         => acknowledgedCount < 0
             ? string.Empty
             : $"Acknowledged by baseline: {acknowledgedCount} component{(acknowledgedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
+
+    /// <summary>Reports how many components the development allow-list admitted, shown whenever the option is supplied.</summary>
+    private static string DevelopmentAllowance(int developmentAllowedCount)
+        => developmentAllowedCount < 0
+            ? string.Empty
+            : $"Allowed by development policy: {developmentAllowedCount} component{(developmentAllowedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
 
     private static void Append(StringBuilder builder, Utf8Slice value, string empty = "")
         => builder.Append(value.IsEmpty ? empty : value.ToString());

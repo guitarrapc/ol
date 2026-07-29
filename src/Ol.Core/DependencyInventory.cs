@@ -117,6 +117,24 @@ public readonly record struct DependencyEdge(int ContextIndex, int FromOccurrenc
 /// <param name="Value">The input-supplied resolver conditions.</param>
 public readonly record struct DependencyOccurrenceVariant(int OccurrenceIndex, Utf8Slice Value);
 
+/// <summary>Classifies how a resolver reaches one dependency occurrence.</summary>
+public enum DependencyUsage : byte
+{
+    /// <summary>The input did not determine development-versus-runtime reachability.</summary>
+    Unknown = 0,
+
+    /// <summary>The occurrence is reachable through a production (runtime) path.</summary>
+    Runtime = 1,
+
+    /// <summary>The occurrence is reachable only through a development path.</summary>
+    Development = 2,
+}
+
+/// <summary>Marks a contiguous occurrence-index range whose development usage the input determined.</summary>
+/// <param name="StartOccurrenceIndex">The first occurrence index in the range.</param>
+/// <param name="Length">The number of occurrences in the range.</param>
+public readonly record struct DependencyUsageRange(int StartOccurrenceIndex, int Length);
+
 /// <summary>Contains a complete resolved dependency inventory before external enrichment.</summary>
 /// <param name="Input">The dependency input descriptor.</param>
 /// <param name="Contexts">The distinct resolution contexts.</param>
@@ -124,13 +142,24 @@ public readonly record struct DependencyOccurrenceVariant(int OccurrenceIndex, U
 /// <param name="Occurrences">The package occurrences in deterministic input order.</param>
 /// <param name="Edges">The dependency edges in deterministic input order.</param>
 /// <param name="OccurrenceVariants">Sparse package-specific resolver conditions ordered by occurrence index.</param>
+/// <param name="UsageDeterminedRanges">
+/// Occurrence-index ranges whose development usage the input determined. Occurrences inside a range default to
+/// <see cref="DependencyUsage.Runtime"/>; occurrences outside every range are <see cref="DependencyUsage.Unknown"/>.
+/// <see langword="null"/> means no usage information (all occurrences <see cref="DependencyUsage.Unknown"/>).
+/// </param>
+/// <param name="DevelopmentOccurrences">
+/// Ascending occurrence indices classified as <see cref="DependencyUsage.Development"/>. Every entry lies inside a
+/// <paramref name="UsageDeterminedRanges"/> range. <see langword="null"/> means no development-only occurrences.
+/// </param>
 public readonly record struct DependencyInventory(
     ScanInputDescriptor Input,
     DependencyResolutionContext[] Contexts,
     ScanComponent[] Components,
     DependencyOccurrence[] Occurrences,
     DependencyEdge[] Edges,
-    DependencyOccurrenceVariant[]? OccurrenceVariants = null);
+    DependencyOccurrenceVariant[]? OccurrenceVariants = null,
+    DependencyUsageRange[]? UsageDeterminedRanges = null,
+    int[]? DevelopmentOccurrences = null);
 
 /// <summary>Contains a dependency inventory and its reconciled component results.</summary>
 /// <param name="Inventory">The complete dependency inventory.</param>

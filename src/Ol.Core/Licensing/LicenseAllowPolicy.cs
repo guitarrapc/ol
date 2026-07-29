@@ -24,38 +24,88 @@ public readonly record struct LicensePolicyViolation(int ComponentIndex, License
 public sealed class LicenseAllowPolicy
 {
     private readonly FrozenSet<string> allowedLicenses;
+    private readonly FrozenSet<string>? developmentUnionLicenses;
     private readonly SpdxLicenseIndex spdxLicenseIndex;
 
-    private LicenseAllowPolicy(FrozenSet<string> allowedLicenses, SpdxLicenseIndex spdxLicenseIndex)
+    private LicenseAllowPolicy(FrozenSet<string> allowedLicenses, FrozenSet<string>? developmentUnionLicenses, SpdxLicenseIndex spdxLicenseIndex)
     {
         this.allowedLicenses = allowedLicenses;
+        this.developmentUnionLicenses = developmentUnionLicenses;
         this.spdxLicenseIndex = spdxLicenseIndex;
     }
 
     /// <summary>Creates an immutable allow-list from SPDX License Identifiers.</summary>
     public static bool TryCreate(ReadOnlySpan<string> licenseIds, SpdxLicenseIndex spdxLicenseIndex, out LicenseAllowPolicy policy, out string error)
+        => TryCreate(licenseIds, [], spdxLicenseIndex, out policy, out error);
+
+    /// <summary>
+    /// Creates an immutable allow-list plus an optional development allow-list. The development identifiers are held as
+    /// their union with the primary allow-list, built once here, so a development-only component is re-evaluated against
+    /// <c>primary ∪ development</c> without allocating per component. An empty development list carries no development policy.
+    /// </summary>
+    public static bool TryCreate(
+        ReadOnlySpan<string> licenseIds,
+        ReadOnlySpan<string> developmentLicenseIds,
+        SpdxLicenseIndex spdxLicenseIndex,
+        out LicenseAllowPolicy policy,
+        out string error)
     {
+        policy = null!;
         if (licenseIds.IsEmpty)
         {
-            policy = null!;
             error = "The allow-list must contain at least one SPDX License Identifier.";
             return false;
         }
 
-        var normalized = new HashSet<string>(licenseIds.Length, StringComparer.Ordinal);
+        if (!TryNormalize(licenseIds, spdxLicenseIndex, "Allow-list entries must not be empty.", out var normalized, out error))
+        {
+            return false;
+        }
+
+        FrozenSet<string>? developmentUnion = null;
+        if (!developmentLicenseIds.IsEmpty)
+        {
+            var union = new HashSet<string>(normalized, StringComparer.Ordinal);
+            for (var i = 0; i < developmentLicenseIds.Length; i++)
+            {
+                var value = TrimAsciiWhitespace(developmentLicenseIds[i].AsSpan());
+                if (value.IsEmpty)
+                {
+                    error = "Development allow-list entries must not be empty.";
+                    return false;
+                }
+
+                if (!spdxLicenseIndex.TryNormalizeLicenseId(value, out var identifier))
+                {
+                    error = $"Unknown SPDX License Identifier: {Display(value)}";
+                    return false;
+                }
+
+                union.Add(identifier);
+            }
+
+            developmentUnion = union.ToFrozenSet(StringComparer.Ordinal);
+        }
+
+        policy = new LicenseAllowPolicy(normalized.ToFrozenSet(StringComparer.Ordinal), developmentUnion, spdxLicenseIndex);
+        error = string.Empty;
+        return true;
+    }
+
+    private static bool TryNormalize(ReadOnlySpan<string> licenseIds, SpdxLicenseIndex spdxLicenseIndex, string emptyEntryError, out HashSet<string> normalized, out string error)
+    {
+        normalized = new HashSet<string>(licenseIds.Length, StringComparer.Ordinal);
         for (var i = 0; i < licenseIds.Length; i++)
         {
             var value = TrimAsciiWhitespace(licenseIds[i].AsSpan());
             if (value.IsEmpty)
             {
-                policy = null!;
-                error = "Allow-list entries must not be empty.";
+                error = emptyEntryError;
                 return false;
             }
 
             if (!spdxLicenseIndex.TryNormalizeLicenseId(value, out var identifier))
             {
-                policy = null!;
                 error = $"Unknown SPDX License Identifier: {Display(value)}";
                 return false;
             }
@@ -63,7 +113,6 @@ public sealed class LicenseAllowPolicy
             normalized.Add(identifier);
         }
 
-        policy = new LicenseAllowPolicy(normalized.ToFrozenSet(StringComparer.Ordinal), spdxLicenseIndex);
         error = string.Empty;
         return true;
     }
@@ -107,14 +156,14 @@ public sealed class LicenseAllowPolicy
 
     /// <summary>Evaluates every non-root completed component and returns all violations in component order.</summary>
     public LicensePolicyViolation[] Evaluate(ReadOnlySpan<ScanComponent> components)
-        => Evaluate(components, null, out _);
+        => Evaluate(components, default, null, out _, out _, out _);
 
     /// <summary>
     /// Evaluates every non-root completed component, removing violations for unresolved components the baseline
     /// acknowledges. Acknowledgement removes a violation only; component status and evidence are unchanged.
     /// </summary>
     public LicensePolicyViolation[] Evaluate(ReadOnlySpan<ScanComponent> components, LicenseBaseline? baseline, out int acknowledgedCount)
-        => Evaluate(components, baseline, out acknowledgedCount, out _);
+        => Evaluate(components, default, baseline, out acknowledgedCount, out _, out _);
 
     /// <summary>
     /// Evaluates every non-root completed component and returns both acknowledged and evaluated component counts.
@@ -124,9 +173,25 @@ public sealed class LicenseAllowPolicy
         LicenseBaseline? baseline,
         out int acknowledgedCount,
         out int evaluatedCount)
+        => Evaluate(components, default, baseline, out acknowledgedCount, out evaluatedCount, out _);
+
+    /// <summary>
+    /// Evaluates every non-root completed component, allowing a development-only component whose license satisfies the
+    /// development allow-list even when the primary allow-list rejects it. <paramref name="componentUsages"/> is indexed
+    /// by component; entries beyond its length, and every component when no development allow-list was supplied, follow
+    /// the primary allow-list unchanged.
+    /// </summary>
+    public LicensePolicyViolation[] Evaluate(
+        ReadOnlySpan<ScanComponent> components,
+        ReadOnlySpan<DependencyUsage> componentUsages,
+        LicenseBaseline? baseline,
+        out int acknowledgedCount,
+        out int evaluatedCount,
+        out int developmentAllowedCount)
     {
         acknowledgedCount = 0;
         evaluatedCount = 0;
+        developmentAllowedCount = 0;
         if (components.IsEmpty) return [];
 
         var violations = ArrayPool<LicensePolicyViolation>.Shared.Rent(components.Length);
@@ -147,6 +212,16 @@ public sealed class LicenseAllowPolicy
                 {
                     if (SpdxExpression.TryEvaluatePolicy(component.License.Span, spdxLicenseIndex, allowedLicenses, out var allowed) && allowed)
                     {
+                        continue;
+                    }
+
+                    if (developmentUnionLicenses is not null
+                        && (uint)i < (uint)componentUsages.Length
+                        && componentUsages[i] == DependencyUsage.Development
+                        && SpdxExpression.TryEvaluatePolicy(component.License.Span, spdxLicenseIndex, developmentUnionLicenses, out var developmentAllowed)
+                        && developmentAllowed)
+                    {
+                        developmentAllowedCount++;
                         continue;
                     }
 

@@ -412,6 +412,18 @@ For a component with status `matched`, the normalized SPDX expression is evaluat
 
 For example, with `--allow-licenses MIT,Apache-2.0`, `MIT`, `MIT AND Apache-2.0`, and `MIT OR GPL-3.0-only` pass; `MIT AND GPL-3.0-only` and `GPL-3.0-only WITH Classpath-exception-2.0` fail.
 
+#### Development-only allow-list
+
+`--allow-dev-licenses` is an optional second comma-separated allow-list, validated by the same rules as `--allow-licenses`, applied only to components the resolver reaches exclusively through a development path. It exists because development tooling routinely pulls transitive licenses that a permissive production allow-list rejects — for example a Vite dev toolchain reaches `caniuse-lite` (`CC-BY-4.0`) — even though those packages never enter a production artifact.
+
+```text
+ol check --input package-lock.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --allow-dev-licenses CC-BY-4.0
+```
+
+A `matched` component that the primary allow-list rejects is re-evaluated against `primary ∪ development` **only** when its resolver usage is development-only. Usage is aggregated across every occurrence of the component: a single runtime or usage-unknown occurrence keeps the component on the primary allow-list, and package or dependency names are never used to infer development usage. Usage comes only from inputs whose resolver records it; the initial support is npm `package-lock.json` (pnpm and Composer follow). Inputs without development reachability leave every component usage-unknown, so `--allow-dev-licenses` never relaxes them.
+
+This option is an organization policy statement, not a claim about artifact inclusion: a resolver's development scope does not prove a bundler, code generator, or plugin excludes the package from a production build. Release gates should still check the production artifact or a production SBOM with the primary allow-list alone. When supplied, `check` prints `Allowed by development policy: N components.` — including `0` — so a lost or newly inapplicable exception is visible in CI logs. Omitting the option leaves the verdict, output, and SARIF violation set byte-for-byte unchanged.
+
 Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain, unless an unresolved component is acknowledged by a baseline as defined below. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.
 
 `check` writes its pass result or complete violation list to stdout. Expected option, input, SPDX-data, whole-command evidence-pipeline, and output failures write a concise cause to stderr without a stack trace or partial policy result. A component-level registry or source failure remains evidence in the completed result and is evaluated as a policy violation when it leaves that component unresolved; it is not an exit-2 command failure. Exit codes are:

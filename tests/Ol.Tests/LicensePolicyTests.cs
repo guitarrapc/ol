@@ -127,6 +127,125 @@ public sealed class LicensePolicyTests
         await Assert.That(error).IsNotEmpty();
     }
 
+    [Test]
+    public async Task Evaluate_DevelopmentOnlyComponent_AllowedByDevelopmentList()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], ["GPL-3.0-only"], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate(
+            [CreateComponent("GPL-3.0-only", LicenseStatus.Matched)],
+            [DependencyUsage.Development],
+            null,
+            out _,
+            out var evaluatedCount,
+            out var developmentAllowedCount);
+
+        await Assert.That(violations).IsEmpty();
+        await Assert.That(evaluatedCount).IsEqualTo(1);
+        await Assert.That(developmentAllowedCount).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments(DependencyUsage.Runtime)]
+    [Arguments(DependencyUsage.Unknown)]
+    public async Task Evaluate_NonDevelopmentUsage_NotAllowedByDevelopmentList(DependencyUsage usage)
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], ["GPL-3.0-only"], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate(
+            [CreateComponent("GPL-3.0-only", LicenseStatus.Matched)],
+            [usage],
+            null,
+            out _,
+            out _,
+            out var developmentAllowedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(violations[0].Kind).IsEqualTo(LicensePolicyViolationKind.NotAllowed);
+        await Assert.That(developmentAllowedCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Evaluate_DevelopmentOnlyComponent_LicenseOutsideDevelopmentList_Fails()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], ["GPL-3.0-only"], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate(
+            [CreateComponent("GPL-2.0-only", LicenseStatus.Matched)],
+            [DependencyUsage.Development],
+            null,
+            out _,
+            out _,
+            out var developmentAllowedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(developmentAllowedCount).IsEqualTo(0);
+    }
+
+    [Test]
+    [Arguments("MIT AND GPL-3.0-only", true)]
+    [Arguments("MIT OR GPL-3.0-only", true)]
+    [Arguments("GPL-3.0-only AND GPL-2.0-only", false)]
+    [Arguments("GPL-2.0-only WITH Classpath-exception-2.0", false)]
+    public async Task Evaluate_DevelopmentUnion_FollowsSpdxBooleanSemantics(string expression, bool expectedPass)
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], ["GPL-3.0-only"], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate(
+            [CreateComponent(expression, LicenseStatus.Matched)],
+            [DependencyUsage.Development],
+            null,
+            out _,
+            out _,
+            out _);
+
+        await Assert.That(violations.Length == 0).IsEqualTo(expectedPass);
+    }
+
+    [Test]
+    public async Task Evaluate_WithoutDevelopmentList_IgnoresUsageAndFailsClosed()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate(
+            [CreateComponent("GPL-3.0-only", LicenseStatus.Matched)],
+            [DependencyUsage.Development],
+            null,
+            out _,
+            out _,
+            out var developmentAllowedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(developmentAllowedCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Evaluate_DevelopmentUsage_DoesNotBypassUnresolvedStatus()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], ["GPL-3.0-only"], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate(
+            [CreateComponent(default, LicenseStatus.Unknown)],
+            [DependencyUsage.Development],
+            null,
+            out _,
+            out _,
+            out var developmentAllowedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(violations[0].Kind).IsEqualTo(LicensePolicyViolationKind.Unknown);
+        await Assert.That(developmentAllowedCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task TryCreate_WithInvalidDevelopmentEntry_RejectsPolicy()
+    {
+        var created = LicenseAllowPolicy.TryCreate(["MIT"], ["Unknown-License"], Spdx, out _, out var error);
+
+        await Assert.That(created).IsFalse();
+        await Assert.That(error).IsNotEmpty();
+    }
+
     private static ScanComponent CreateComponent(Utf8Slice license, LicenseStatus status, string name = "example")
         => new(name, "1.0.0", license, "npm", DependencyType.Direct, status, $"pkg:npm/{name}@1.0.0", name, default, [], []);
 }

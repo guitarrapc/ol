@@ -19,7 +19,7 @@ public static class DependencyPathResolver
     {
         var occurrences = inventory.Occurrences;
         var edges = inventory.Edges;
-        if (occurrences.Length == 0 || componentIndex < 0) return [];
+        if (occurrences is null || edges is null || occurrences.Length == 0 || componentIndex < 0) return [];
 
         // Adjacency is rebuilt per query rather than cached: violations are few, and a persistent index
         // would add allocation to every scan for a path only the SARIF output asks for.

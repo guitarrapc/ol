@@ -3,6 +3,9 @@
 data/** text eol=lf
 scripts/** text eol=lf
 *.sh text eol=lf
+# Self-scan snapshots are byte-compared across OSes in CI; the tool hashes raw
+# input bytes, so the fixtures must stay LF regardless of core.autocrlf.
+sandbox/self/** text eol=lf
 
 data/** linguist-vendored
 Formula/** linguist-vendored

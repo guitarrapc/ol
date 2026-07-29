@@ -610,7 +610,13 @@ ol scan --input build/reports/cyclonedx/bom.json
 ol check --input build/reports/cyclonedx/bom.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
-For per-project output, use `cyclonedxDirectBom`; configurations can be selected with the plugin's `includeConfigs` and `skipConfigs` settings. Gradle's built-in dependency reports do not provide a stable portable resolved-graph JSON contract, so ol does not parse `gradlew dependencies` or `dependencyInsight` output directly.
+For per-project output, use `cyclonedxDirectBom`; configurations can be selected with the plugin's `includeConfigs` and `skipConfigs` settings.
+
+**Resolved Gradle input:**
+
+Gradle resolved dependency input is not supported directly by ol; generate a CycloneDX or SPDX JSON SBOM instead.
+
+Gradle does not officially define or provide a machine-readable JSON format for its resolved dependency graph. Its built-in `dependencies` and `dependencyInsight` reports are human-readable output, not a portable input contract.
 
 ### Dependency files by ecosystem
 
@@ -626,7 +632,7 @@ ol does not resolve package manifests or version ranges itself. It consumes eith
 | Rust / Cargo | `Cargo.toml`, `Cargo.lock` | `cargo metadata --format-version 1 --locked` JSON | Generate `cargo-metadata.json` using the build's feature/target selection, then scan it with `--input`. ol does not resolve `Cargo.toml` or `Cargo.lock` itself. |
 | Go modules | `go.mod`, `go.sum`, optional `go.work` | Paired `go list -m -json all` and `go mod graph` output | Generate `go-list-modules.json` and `go-mod-graph.txt` together, then pass both files or their directory. ol consumes Go's selected build list instead of running MVS itself. |
 | Java / JVM | Maven Dependency Plugin 3.7+ `dependency:tree` JSON | `maven-dependency-tree.json` | Resolved graph input; it contains no license metadata and Maven registry enrichment is not yet supported. |
-| Java / JVM | Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Gradle has no stable portable resolved-graph JSON report; use its CycloneDX generator or a polyglot generator. |
+| Java / JVM | Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Gradle does not officially provide a machine-readable resolved-graph JSON format, so direct Gradle input is unsupported; use its CycloneDX generator or a polyglot generator. |
 | Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock`, `uv.lock` | CycloneDX/SPDX JSON SBOM, or `python -m pip inspect --local` JSON | Prefer an SBOM generated from the intended environment. Alternatively, generate `pip-inspect.json` and scan it directly; ol consumes installed distributions and does not choose markers, extras, or platform wheels. |
 | PHP / Composer | `composer.json`, `composer.lock` | Paired `composer.json` and `composer.lock`, or CycloneDX/SPDX JSON SBOM | Prefer an SBOM from the locked project. Alternatively, scan the directory containing the pair with `--input-format composer-lock`; ol consumes the lockfile without invoking Composer. |
 | Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM, or resolved `Gemfile.lock` | Prefer an SBOM generated from the locked project. Alternatively, scan `Gemfile.lock` directly with `--input`; ol consumes its resolved specs and root dependencies without evaluating `Gemfile`. |

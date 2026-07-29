@@ -20,7 +20,7 @@ ranking の前提になるため、推測ではなく登録済みの実体で確
 | 能力 | 実体 | 根拠 |
 |---|---|---|
 | resolved dependency input | CycloneDX、SPDX、NuGet assets、npm、pnpm、Yarn Classic / Berry、Cargo、Go module graph、pip inspect、Composer、Bundler、Maven の 13 形式と collection | [DependencyInputRegistry.cs](../../../src/Ol.Core/DependencyInputRegistry.cs)、[DependencyInventory.cs](../../../src/Ol.Core/DependencyInventory.cs) |
-| registry metadata provider | npm、NuGet、Cargo、Go、PyPI、Packagist、**RubyGems** の 7 種 | [OlDefaults.cs](../../../src/Ol.Core/OlDefaults.cs) |
+| registry metadata provider | npm、NuGet、Cargo、Go、PyPI、Packagist、RubyGems、**Maven** の 8 種 | [OlDefaults.cs](../../../src/Ol.Core/OlDefaults.cs) |
 | source repository evidence | GitHub License API のみ。repository / ref / path / blob SHA / http status を保持 | [GitHubLicenseApiClient.cs](../../../src/Ol.Core/GitHub/GitHubLicenseApiClient.cs)、[specs/source.md](../specs/source.md) |
 | evidence 保持 | source / kind / raw / normalized / status / deprecated / warnings / typed provenance | [LicenseCandidate.cs](../../../src/Ol.Core/Licensing/LicenseCandidate.cs) |
 | reconciliation | matched / conflict / unknown / ambiguous / invalid / error の 6 状態 | [LicenseReconciler.cs](../../../src/Ol.Core/Licensing/LicenseReconciler.cs) |
@@ -165,9 +165,9 @@ Introduced through pkg:npm/direct@1.0.0 > pkg:npm/poison@2.0.0
 
 ### Gap 7 / P2: ecosystem coverage
 
-現状は上表のとおり 13 input / 7 provider で、RubyとMaven resolved inputは対応済みである。参照ツール群と比べて残る主な空白は次になる。
+現状は上表のとおり 13 input / 8 provider で、RubyとMaven resolved inputおよびMaven metadata enrichmentは対応済みである。参照ツール群と比べて残る主な空白は次になる。
 
-1. **JVM metadata / Gradle** — Maven Central / POM の license と SCM metadata provider、およびGradle resolved inputは未対応。multi-module、dependency management、Gradle variantが難所。
+1. **Gradle** — resolved inputは未対応。multi-module、dependency management、Gradle variantが公式から解決提供されておらず、サポート対象にすべきではない。ため。
 2. **Apple: SwiftPM / CocoaPods** — package graph と Git provenance は取りやすいが、registry metadata より source legal files の比重が高く、Gap 4 の未決事項に依存する。
 3. **Dart / Flutter: Pub** — lockfile と pub.dev metadata を使える。
 4. Erlang / Elixir、Haskell、Conan 等。
@@ -254,4 +254,4 @@ Phase A・B が完了したため、**次は実装計画ではなく仕様決定
 
 **先に測るべきこと**: Gap 4 に着手する前に、`ol diff` で「本文取得を足したら unknown が実際に何件減るか」を計測できる状態になった。投資判断はこの実測に基づいて行う。順序を Gap 3 → Gap 4 にしたのはこのためである。
 
-なお Gap 7（ecosystem 追加）は仕様課題に依存しないため、上記と独立に着手できる。[verification.md](../specs/verification.md) の provider と fixture の 1 対 1 契約に従い、Maven / Gradle から検討する。
+なお Gap 7（ecosystem 追加）は仕様課題に依存しないため、上記と独立に着手できる。Mavenは[verification.md](../specs/verification.md) の provider と fixture の 1 対 1 契約まで実装済みであり、次はGradleを検討する。

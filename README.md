@@ -102,6 +102,7 @@ Options:
 | Python | `pip-inspect` |
 | PHP | `composer-lock` |
 | Ruby | `bundler-lock` |
+| Java / JVM | `maven-dependency-tree` |
 
 `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
 
@@ -418,14 +419,45 @@ ol scan --input bom.cdx.json
 ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
 ```
 
-**Resolved package-manager input:** ol scans npm `package-lock.json` version 2/3, pnpm `pnpm-lock.yaml` version 9, Yarn Classic `yarn.lock` version 1, and Yarn Berry `yarn.lock` metadata version 8:
+**Resolved package-manager input:** Pass a supported lockfile or directory directly.
+
+#### npm
+
+ol scans `package-lock.json` version 2/3:
 
 ```bash
 ol scan --input package-lock.json
 ol check --input package-lock.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
 ```
 
-Pass a lockfile or directory. Workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
+#### pnpm
+
+ol scans `pnpm-lock.yaml` version 9:
+
+```bash
+ol scan --input pnpm-lock.yaml
+ol check --input pnpm-lock.yaml --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
+```
+
+#### Yarn Classic
+
+ol scans `yarn.lock` version 1:
+
+```bash
+ol scan --input yarn.lock
+ol check --input yarn.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
+```
+
+#### Yarn Berry
+
+ol scans `yarn.lock` metadata version 8:
+
+```bash
+ol scan --input yarn.lock
+ol check --input yarn.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
+```
+
+Workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
 
 ### Rust
 
@@ -540,6 +572,53 @@ ol check --input Gemfile.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 The lockfile `DEPENDENCIES` section identifies direct dependencies, and resolved spec dependencies provide transitive edges. Each recorded platform becomes a separate resolution context. Only gems resolved from `https://rubygems.org/` receive `pkg:gem` identities and RubyGems.org metadata enrichment; private registry, Git, and path sources are retained without exposing their remote or local paths.
 
+### Java / JVM
+
+#### Maven
+
+**SBOM:** Generate aggregate CycloneDX JSON from the resolved Maven reactor with the [CycloneDX Maven plugin](https://github.com/CycloneDX/cyclonedx-maven-plugin):
+
+```bash
+mvn org.cyclonedx:cyclonedx-maven-plugin:2.9.2:makeAggregateBom -DoutputFormat=json
+ol scan --input target/bom.json
+ol check --input target/bom.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+**Resolved Maven input:** ol scans JSON produced by Maven Dependency Plugin 3.7.0 or later:
+
+```bash
+mvn org.apache.maven.plugins:maven-dependency-plugin:3.11.0:tree -DoutputType=json -DoutputFile=maven-dependency-tree.json
+ol scan --input maven-dependency-tree.json
+```
+
+The root artifact becomes one resolution context. Root children are direct dependencies, deeper nodes are transitive, and each node retains its effective scope, optional flag, type, classifier, and incoming edge. Repeated coordinates share one report component while remaining distinct graph occurrences. The dependency-tree JSON contains no license metadata, so ol enriches its canonical Maven purls with version-specific license and source-repository hints from deps.dev. When deps.dev reports multiple licenses without an AND/OR relationship, ol preserves them as ambiguous evidence instead of inventing an SPDX expression. CycloneDX remains preferable when the build's effective POM metadata and repository context must be captured in the input artifact itself.
+
+#### Gradle
+
+**SBOM:** Apply the [CycloneDX Gradle plugin](https://github.com/CycloneDX/cyclonedx-gradle-plugin) to the root project:
+
+```kotlin
+plugins {
+    id("org.cyclonedx.bom") version "3.2.4"
+}
+```
+
+Generate and scan the aggregate JSON SBOM:
+
+```bash
+./gradlew cyclonedxBom
+ol scan --input build/reports/cyclonedx/bom.json
+ol check --input build/reports/cyclonedx/bom.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+For per-project output, use `cyclonedxDirectBom`; configurations can be selected with the plugin's `includeConfigs` and `skipConfigs` settings.
+
+**Resolved Gradle input:**
+
+Gradle resolved dependency input is not supported directly by ol; generate a CycloneDX or SPDX JSON SBOM instead.
+
+Gradle does not officially define or provide a machine-readable JSON format for its resolved dependency graph. Its built-in `dependencies` and `dependencyInsight` reports are human-readable output, not a portable input contract.
+
 ### Dependency files by ecosystem
 
 ol does not resolve package manifests or version ranges itself. It consumes either a resolved graph supported by a direct input adapter or an SBOM whose generator performed the ecosystem-specific resolution. Passing a declaration such as `package.json`, `*.csproj`, `Cargo.toml`, or `pyproject.toml` directly to ol is not supported.
@@ -553,12 +632,13 @@ ol does not resolve package manifests or version ranges itself. It consumes eith
 | JavaScript / Yarn Berry | `package.json`, `yarn.lock`, `.yarnrc.yml` | Yarn metadata version 8 lockfile | Scan `yarn.lock` directly. Workspace contexts and proven descriptor edges are retained without reconstructing install state. |
 | Rust / Cargo | `Cargo.toml`, `Cargo.lock` | `cargo metadata --format-version 1 --locked` JSON | Generate `cargo-metadata.json` using the build's feature/target selection, then scan it with `--input`. ol does not resolve `Cargo.toml` or `Cargo.lock` itself. |
 | Go modules | `go.mod`, `go.sum`, optional `go.work` | Paired `go list -m -json all` and `go mod graph` output | Generate `go-list-modules.json` and `go-mod-graph.txt` together, then pass both files or their directory. ol consumes Go's selected build list instead of running MVS itself. |
-| Java / JVM | `pom.xml`, Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Run the ecosystem build/resolution and use its CycloneDX generator or a polyglot generator. |
+| Java / JVM | Maven Dependency Plugin 3.7+ `dependency:tree` JSON | `maven-dependency-tree.json` | Resolved graph input; version-specific Maven license and source hints are enriched from deps.dev. |
+| Java / JVM | Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Gradle does not officially provide a machine-readable resolved-graph JSON format, so direct Gradle input is unsupported; use its CycloneDX generator or a polyglot generator. |
 | Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock`, `uv.lock` | CycloneDX/SPDX JSON SBOM, or `python -m pip inspect --local` JSON | Prefer an SBOM generated from the intended environment. Alternatively, generate `pip-inspect.json` and scan it directly; ol consumes installed distributions and does not choose markers, extras, or platform wheels. |
 | PHP / Composer | `composer.json`, `composer.lock` | Paired `composer.json` and `composer.lock`, or CycloneDX/SPDX JSON SBOM | Prefer an SBOM from the locked project. Alternatively, scan the directory containing the pair with `--input-format composer-lock`; ol consumes the lockfile without invoking Composer. |
 | Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM, or resolved `Gemfile.lock` | Prefer an SBOM generated from the locked project. Alternatively, scan `Gemfile.lock` directly with `--input`; ol consumes its resolved specs and root dependencies without evaluating `Gemfile`. |
 
-For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, `pip-inspect.json`, `Gemfile.lock`, the paired Composer files `composer.json` plus `composer.lock`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
+For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, `pip-inspect.json`, `Gemfile.lock`, `maven-dependency-tree.json`, the paired Composer files `composer.json` plus `composer.lock`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
 
 ### Repositories with multiple package managers
 

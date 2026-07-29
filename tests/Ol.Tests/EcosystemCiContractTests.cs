@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Ol.Core;
+using System.Xml.Linq;
 
 namespace Ol.Tests;
 
@@ -31,6 +32,34 @@ public sealed class EcosystemCiContractTests
             await Assert.That(Directory.Exists(fixturePath)).IsTrue();
             await Assert.That(File.Exists(Path.Combine(fixturePath, "prepare.ps1"))).IsTrue();
         }
+    }
+
+    [Test]
+    public async Task Manifest_MavenPackage_MatchesFixturePurlPath()
+    {
+        var root = FindRepositoryRoot();
+        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "sandbox", "ecosystems", "manifest.json")));
+        var entries = document.RootElement.GetProperty("ecosystems");
+        JsonElement maven = default;
+        foreach (var entry in entries.EnumerateArray())
+        {
+            if (entry.GetProperty("ecosystem").ValueEquals("maven"))
+            {
+                maven = entry;
+                break;
+            }
+        }
+
+        await Assert.That(maven.ValueKind).IsEqualTo(JsonValueKind.Object);
+        var pom = XDocument.Load(Path.Combine(root, maven.GetProperty("path").GetString()!, "pom.xml"));
+        var xmlNamespace = pom.Root!.Name.Namespace;
+        var dependency = pom.Root.Element(xmlNamespace + "dependencies")!.Element(xmlNamespace + "dependency")!;
+        var expected = string.Concat(
+            dependency.Element(xmlNamespace + "groupId")!.Value,
+            "/",
+            dependency.Element(xmlNamespace + "artifactId")!.Value);
+
+        await Assert.That(maven.GetProperty("package").GetString()).IsEqualTo(expected);
     }
 
     private static string FindRepositoryRoot(

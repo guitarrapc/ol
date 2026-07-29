@@ -393,12 +393,22 @@ Pythonはpip 23.0以降stableと宣言された`pip inspect` JSON format version
 - parser line/graph loopはsource-backed `Utf8Slice`とpooled node/dependency/direct/platform/depth/edge bufferを使用し、LINQ、regex、Gemfile evaluation、transient stringを持たない。
 - 1 component focused benchmarkではBundler lock ingestionが1.948 µs / 552 B、同じowned result floorが139.0 ns / 552 Bで、parser固有のmanaged allocationは0 Bだった。
 
-### Phase 13: JVM resolved input調査
+### Phase 13: JVM resolved input調査（完了）
 
 - Maven、Gradleはmanifestやregistryからの独自解決を行わず、標準的かつ機械可読なresolved graph出力をfixtureで比較する。
 - Maven configuration/scopeとGradle configuration/variantをresolution contextで表現できることを採用条件にする。
 - 安定した標準出力がないecosystemでは、Ol固有portable inventoryを新設せず、既存SBOM生成経路を推奨する選択肢を残す。
 - adapter採用前にdeterminism、Native AOT依存、pathological input、allocation floorを評価する。
+
+Phase 13では次の境界に確定した。
+
+- MavenはMaven Dependency Plugin 3.7.0以降の`dependency:tree` JSONを採用し、exact filename `maven-dependency-tree.json`とcontent signatureを`maven-dependency-tree` handlerが所有する。`pom.xml`やregistryからdependency resolutionを再実装しない。
+- root artifactを1つのresolution context、root childrenをdirect、それ以下をtransitiveとする。resolved coordinateが複数経路に現れる場合はreport componentとenrichment identityを共有し、JSON tree nodeごとのoccurrence、resolver condition、incoming edgeを保持する。
+- `scope`と`optional`をsparse occurrence variant、`type`と`classifier`をsource identityおよびMaven purl qualifierとして保持する。JSONが証明しない`-Dscope`引数、Maven/plugin version、repository originはcontextへ推測しない。
+- Gradle 9.6.1の組み込み`dependencies`、`dependencyInsight`、project-reportは人間向けtext/HTMLであり、configurationとselected variantを保持するstable portable schemaがない。Tooling APIはbuild/daemonを実行するJava integration boundaryで、Olのfile input、Native AOT、side-effect境界に合わないためadapterを追加しない。Gradleは既存CycloneDX/SPDX JSON経路を推奨する。
+- Maven JSON自体にはlicense metadataがないため、canonical Maven purlをdeps.dev v3のversion metadataでenrichし、POM由来のSPDX license hintとsource repository linkを補う。複数licenseの関係はAPIが規定しないため`AND`/`OR`を推測せずambiguous raw evidenceとして保持する。effective POMとbuild repository contextを入力artifactへ固定する用途では引き続きCycloneDXを推奨する。
+- parserは`Utf8JsonReader`、source-backed `Utf8Slice`、pooled node/index/component/edge buffer、span-based open addressingを使い、DOM、LINQ、transient string、per-node collection allocationを持たない。reader depthを64に制限し、malformed/pathological nestingをbounded errorにする。
+- 3 warmup / 15 iteration / 3 launchの1 component focused benchmarkではMaven ingestionが5.529 µs / 672 B、同じowned result floorが172.8 ns / 672 Bで、parser固有のmanaged allocationは0 Bだった。
 
 ### Phase 14: Swift SwiftPM / CocoaPods resolved input調査
 

@@ -98,6 +98,22 @@ Each `PLATFORMS` entry becomes a separate resolution context. A spec without a p
 
 Only `GEM` specs whose source is exactly `https://rubygems.org/` receive canonical `pkg:gem/{name}@{version}` identities. Platform-specific identities include the standard `platform` qualifier. Private `GEM`, `GIT`, and `PATH` specs remain graph components with `source=registry`, `source=git`, or `source=path` variants but receive no RubyGems.org enrichment identity; their remote or local paths are not emitted. RubyGems.org enrichment uses the version-specific API v2 endpoint, includes the platform query when present, and projects the listed licenses as an ordered SPDX `OR` claim plus the source-code or homepage repository hint.
 
+## JVM Maven resolved input
+
+The Maven adapter consumes JSON emitted by Maven Dependency Plugin 3.7.0 or later:
+
+```bash
+mvn org.apache.maven.plugins:maven-dependency-plugin:3.11.0:tree -DoutputType=json -DoutputFile=maven-dependency-tree.json
+```
+
+The root artifact becomes one resolution context and is not rendered as a dependency component. Root children are direct dependencies; deeper children are transitive. Every proven root/package and package/package relationship is retained as an edge. Repeated resolved artifact coordinates share one report component and enrichment identity, while each JSON tree node remains a distinct occurrence with its own incoming edge and resolver conditions.
+
+Each dependency retains its effective `scope` and `optional` flag as a sparse occurrence variant. `groupId`, `artifactId`, `version`, `type`, and `classifier` form the resolver-native source identity. Canonical `pkg:maven/{groupId}/{artifactId}@{version}` identities include `classifier` and non-default `type` qualifiers when present. The JSON output does not record the requested `-Dscope`, Maven version, plugin version, repository origin, selected Gradle-style attributes, or license metadata; Ol leaves those values unspecified instead of inferring them from the host or file name.
+
+Maven dependency tree input does not cause Ol to resolve a POM or dependency version. Canonical versioned Maven purls are enriched through deps.dev v3 with POM-derived SPDX license hints and a source-repository link when available. A single reported license is reconciled normally. Because deps.dev does not specify the relationship between multiple reported licenses, Ol preserves their listed values as one ambiguous raw claim and does not synthesize `AND` or `OR`. This metadata remains an additive hint rather than authority; CycloneDX is preferable when effective-POM metadata and build repository context must be captured in the input artifact itself.
+
+Gradle's built-in `dependencies`, `dependencyInsight`, and project-report tasks produce human-oriented text or HTML rather than a stable portable graph schema. Ol does not parse those reports or embed the Gradle Tooling API; Gradle users should provide CycloneDX or SPDX JSON.
+
 ## User Experience
 
 Users should not have to specify package manager or ecosystem manually. The CLI derives the ecosystem from component purl and other SBOM metadata where possible.
@@ -115,14 +131,15 @@ The same command gains richer evidence in v2.
 Package metadata support targets:
 
 - npm (JavaScript/Node.js)
+- pnpm (JavaScript/Node.js)
+- yarn (JavaScript/Node.js)
 - NuGet (.NET)
 - Cargo (Rust)
 - Go modules (Go)
 - pip (Python)
 - Composer (PHP)
-- RubyGems (Ruby)
-
-Maven and other ecosystems may be added later.
+- Ruby Bundler (Ruby)
+- Maven (Java)
 
 Each ecosystem is an independently registered metadata provider. A provider owns the versioned-purl acceptance rules, registry endpoint, and normalized response evidence for that ecosystem. This keeps ecosystem-specific changes local: adding or removing a provider does not change central request parsing, registry dispatch, or SBOM ecosystem detection. Provider registration is immutable for a scan so repeated component processing performs only data lookup, not runtime configuration work.
 
@@ -220,3 +237,4 @@ Reports must not include token values or absolute cache paths. Package cache pat
 
 - Go module proxy metadata exposes repository identity as `Origin.URL` and does not provide a package license field. A successful lookup therefore contributes unknown license evidence plus a source reference, not a fetch error.
 - Registry parsing and persisted report records necessarily allocate. Reconciliation must avoid extra per-component `List` and `HashSet` allocations by using pooled temporary storage where equivalent behavior is preserved.
+- deps.dev exposes Maven license identifiers derived from package metadata, but multiple values have no declared relationship. Joining them with SPDX `OR` would create a legal conclusion that the source did not make, so they remain ambiguous evidence.

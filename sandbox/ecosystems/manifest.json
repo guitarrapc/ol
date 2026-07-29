@@ -42,6 +42,12 @@
       "path": "sandbox/ecosystems/ruby",
       "package": "rack-protection",
       "metadataSource": "package-registry"
+    },
+    {
+      "ecosystem": "maven",
+      "path": "sandbox/ecosystems/maven",
+      "package": "org.slf4j/slf4j-api",
+      "metadataSource": "package-registry"
     }
   ]
 }

@@ -56,6 +56,9 @@ public readonly record struct ScanInputFormat(string Name, string Parser, string
     /// <summary>Bundler Gemfile.lock.</summary>
     public static ScanInputFormat BundlerLock { get; } = new("bundler-lock", "bundler-lock", "Bundler lock");
 
+    /// <summary>Maven Dependency Plugin dependency tree JSON.</summary>
+    public static ScanInputFormat MavenDependencyTree { get; } = new("maven-dependency-tree", "maven-dependency-tree-json", "Maven dependency tree");
+
     /// <summary>A collection containing more than one registered input format.</summary>
     public static ScanInputFormat Collection { get; } = new("collection", "dependency-input-collection", "dependency input collection");
 

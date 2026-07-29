@@ -363,7 +363,7 @@ public sealed class PackageMetadataTests
     public async Task Providers_ParseResponse_WithNonObjectRoot_ReturnUnknownMetadataWithoutThrowing()
     {
         using var document = JsonDocument.Parse("\"unexpected\"");
-        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider(), new PackagistPackageMetadataProvider(), new RubyGemsPackageMetadataProvider()];
+        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider(), new PackagistPackageMetadataProvider(), new RubyGemsPackageMetadataProvider(), new MavenPackageMetadataProvider()];
 
         for (var i = 0; i < providers.Length; i++)
         {
@@ -469,6 +469,65 @@ public sealed class PackageMetadataTests
         await Assert.That(record.Source).IsEqualTo("rubygems-registry");
         await Assert.That(record.RawLicense).IsEqualTo("MIT OR Apache-2.0");
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/gem");
+    }
+
+    [Test]
+    public async Task Fetch_MavenVersionResponse_UsesDepsDevLicenseAndSourceRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            """
+            {
+              "licenses": ["Apache-2.0"],
+              "links": [
+                { "label": "HOMEPAGE", "url": "https://commons.apache.org/proper/commons-lang/" },
+                { "label": "SOURCE_REPO", "url": "https://github.com/apache/commons-lang" }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:maven/org.apache.commons/commons-lang3@3.17.0?type=jar", out var request);
+        await Assert.That(parsed).IsTrue();
+        var record = await client.FetchAsync(request);
+
+        await Assert.That(handler.RequestUris).IsEquivalentTo([
+            "https://api.deps.dev/v3/systems/maven/packages/org.apache.commons%3Acommons-lang3/versions/3.17.0",
+        ]);
+        await Assert.That(request.CacheKey).IsEqualTo("pkg:maven/org.apache.commons/commons-lang3@3.17.0");
+        await Assert.That(record.Source).IsEqualTo("deps.dev");
+        await Assert.That(record.RawLicense).IsEqualTo("Apache-2.0");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/apache/commons-lang");
+    }
+
+    [Test]
+    public async Task Fetch_MavenVersionResponse_WithMultipleLicenses_DoesNotInventRelationship()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            """{ "licenses": ["MIT", "Apache-2.0"], "links": [] }""");
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest(
+            "maven",
+            "example.group",
+            "example",
+            "1.0.0",
+            "pkg:maven/example.group/example@1.0.0"));
+        var candidate = LicenseCandidateFactory.Create(
+            LicenseCandidateSource.PackageRegistry,
+            LicenseCandidateKind.License,
+            System.Text.Encoding.UTF8.GetBytes(record.RawLicense),
+            new SpdxLicenseIndex(["MIT", "Apache-2.0"], []));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT; Apache-2.0");
+        await Assert.That(candidate.Status).IsEqualTo(LicenseStatus.Ambiguous);
+    }
+
+    [Test]
+    public async Task TryCreate_MavenPurlWithoutGroupId_RejectsRequest()
+    {
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:maven/example@1.0.0", out _);
+
+        await Assert.That(parsed).IsFalse();
     }
 
     [Test]

@@ -167,6 +167,16 @@ public sealed class DependencyInputRegistry
             new[] { "Gemfile.lock" },
             DependencyComponentIdentityComparison.OrdinalWithSourceId,
             BundlerLockInputParser.Detect),
+        // Maven - Package Manager
+        new(ScanInputKind.PackageManager, ScanInputFormat.MavenDependencyTree, new(new DependencyInputMarker[] {
+            new("groupId"u8.ToArray(), DependencyInputMarkerValueKind.String),
+            new("artifactId"u8.ToArray(), DependencyInputMarkerValueKind.String),
+            new("version"u8.ToArray(), DependencyInputMarkerValueKind.String),
+            new("type"u8.ToArray(), DependencyInputMarkerValueKind.String),
+            new("scope"u8.ToArray(), DependencyInputMarkerValueKind.String),
+            new("classifier"u8.ToArray(), DependencyInputMarkerValueKind.String),
+            new("optional"u8.ToArray(), DependencyInputMarkerValueKind.String),
+        }), MavenDependencyTreeInputParser.Parse, new[] { "maven-dependency-tree.json" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>

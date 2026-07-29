@@ -145,6 +145,36 @@ public static class LicenseCandidateIdentifiers
         return result;
     }
 
+    /// <summary>Parses a persisted source token. Unknown tokens become <see cref="LicenseCandidateSource.None"/>.</summary>
+    public static LicenseCandidateSource ParseSource(ReadOnlySpan<byte> value) => value switch
+    {
+        var v when v.SequenceEqual("sbom"u8) => LicenseCandidateSource.Sbom,
+        var v when v.SequenceEqual("package-registry"u8) => LicenseCandidateSource.PackageRegistry,
+        var v when v.SequenceEqual("npm-registry"u8) => LicenseCandidateSource.NpmRegistry,
+        var v when v.SequenceEqual("nuget-registry"u8) => LicenseCandidateSource.NuGetRegistry,
+        var v when v.SequenceEqual("cargo-registry"u8) => LicenseCandidateSource.CargoRegistry,
+        var v when v.SequenceEqual("go-module-proxy"u8) => LicenseCandidateSource.GoModuleProxy,
+        var v when v.SequenceEqual("source-repository"u8) => LicenseCandidateSource.SourceRepository,
+        var v when v.SequenceEqual("github-license-api"u8) => LicenseCandidateSource.GitHubLicenseApi,
+        var v when v.SequenceEqual("dependency-input"u8) => LicenseCandidateSource.DependencyInput,
+        _ => LicenseCandidateSource.None,
+    };
+
+    /// <summary>Parses a persisted kind token. Unknown tokens become <see cref="LicenseCandidateKind.None"/>.</summary>
+    public static LicenseCandidateKind ParseKind(ReadOnlySpan<byte> value) => value switch
+    {
+        var v when v.SequenceEqual("license"u8) => LicenseCandidateKind.License,
+        var v when v.SequenceEqual("id"u8) => LicenseCandidateKind.Id,
+        var v when v.SequenceEqual("name"u8) => LicenseCandidateKind.Name,
+        var v when v.SequenceEqual("expression"u8) => LicenseCandidateKind.Expression,
+        var v when v.SequenceEqual("declared"u8) => LicenseCandidateKind.Declared,
+        var v when v.SequenceEqual("concluded"u8) => LicenseCandidateKind.Concluded,
+        var v when v.SequenceEqual("fetch"u8) => LicenseCandidateKind.Fetch,
+        var v when v.SequenceEqual("unavailable"u8) => LicenseCandidateKind.Unavailable,
+        var v when v.SequenceEqual("unsupported"u8) => LicenseCandidateKind.Unsupported,
+        _ => LicenseCandidateKind.None,
+    };
+
     public static ReadOnlySpan<byte> ToUtf8(this LicenseCandidateSource value) => value switch
     {
         LicenseCandidateSource.Sbom => "sbom"u8,

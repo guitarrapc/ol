@@ -1,0 +1,221 @@
+﻿using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
+
+namespace Ol.Tests;
+
+public sealed class SarifOutputTests
+{
+    private static readonly SemaphoreSlim CliGate = new(1, 1);
+
+    [Test]
+    public async Task Sarif_WithDirectViolation_EmitsStableRuleAndLogicalLocation()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "GPL-3.0-only", transitiveLicense: "MIT");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--skip-enrichment", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+
+            var run = document.RootElement.GetProperty("runs")[0];
+            var results = run.GetProperty("results");
+
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(document.RootElement.GetProperty("version").GetString()).IsEqualTo("2.1.0");
+            await Assert.That(run.GetProperty("tool").GetProperty("driver").GetProperty("name").GetString()).IsEqualTo("ol");
+            await Assert.That(results.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(results[0].GetProperty("ruleId").GetString()).IsEqualTo("OL0001");
+            await Assert.That(results[0].GetProperty("level").GetString()).IsEqualTo("error");
+            await Assert.That(results[0].GetProperty("properties").GetProperty("purl").GetString()).IsEqualTo("pkg:npm/direct@1.0.0");
+            await Assert.That(results[0].GetProperty("locations")[0].GetProperty("logicalLocations")[0].GetProperty("kind").GetString()).IsEqualTo("package");
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    [Test]
+    public async Task Sarif_WithTransitiveViolation_NamesTheIntroducingDirectDependency()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "MIT", transitiveLicense: "GPL-3.0-only");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--skip-enrichment", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+
+            var result = document.RootElement.GetProperty("runs")[0].GetProperty("results")[0];
+            var path = result.GetProperty("properties").GetProperty("dependencyPath");
+
+            await Assert.That(result.GetProperty("properties").GetProperty("dependency").GetString()).IsEqualTo("transitive");
+            await Assert.That(path.GetArrayLength()).IsEqualTo(2);
+            await Assert.That(path[0].GetString()).IsEqualTo("pkg:npm/direct@1.0.0");
+            await Assert.That(path[1].GetString()).IsEqualTo("pkg:npm/transitive@1.0.0");
+            await Assert.That(result.GetProperty("message").GetProperty("text").GetString()).Contains("Introduced through pkg:npm/direct@1.0.0 > pkg:npm/transitive@1.0.0");
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    [Test]
+    public async Task Sarif_MatchesTheTextViolationSet()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "GPL-3.0-only", transitiveLicense: null);
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--skip-enrichment", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+
+            var results = document.RootElement.GetProperty("runs")[0].GetProperty("results");
+            var textViolations = result.Stdout.Split('\n').Count(line => line.Contains("pkg:npm/"));
+
+            await Assert.That(results.GetArrayLength()).IsEqualTo(textViolations);
+            await Assert.That(results.GetArrayLength()).IsEqualTo(2);
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    [Test]
+    public async Task Sarif_WithNoViolations_EmitsEmptyResultsAndExitsZero()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "MIT", transitiveLicense: "MIT");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--skip-enrichment", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(document.RootElement.GetProperty("runs")[0].GetProperty("results").GetArrayLength()).IsEqualTo(0);
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    [Test]
+    public async Task Sarif_AcknowledgedComponents_AreAbsent()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "MIT", transitiveLicense: null);
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath, "--update-baseline", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(document.RootElement.GetProperty("runs")[0].GetProperty("results").GetArrayLength()).IsEqualTo(0);
+        }
+        finally
+        {
+            Cleanup(input, sarifPath, baselinePath);
+        }
+    }
+
+    [Test]
+    public async Task Sarif_ContainsNoAbsolutePathsOrTokens()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "GPL-3.0-only", transitiveLicense: "MIT");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--skip-enrichment", "--sarif", sarifPath);
+            var text = await File.ReadAllTextAsync(sarifPath);
+
+            await Assert.That(text).DoesNotContain(Path.GetTempPath().Replace("\\", "\\\\"));
+            await Assert.That(text).DoesNotContain(root.Replace("\\", "\\\\"));
+            await Assert.That(text.Contains("token", StringComparison.OrdinalIgnoreCase)).IsFalse();
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    private static void Cleanup(params string[] paths)
+    {
+        foreach (var path in paths)
+        {
+            if (File.Exists(path)) File.Delete(path);
+            else if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+        }
+    }
+
+    private static async Task<string> WriteNpmLockAsync(string? directLicense, string? transitiveLicense)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-sarif-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "package-lock.json");
+        var direct = directLicense is null ? string.Empty : $", \"license\": \"{directLicense}\"";
+        var transitive = transitiveLicense is null ? string.Empty : $", \"license\": \"{transitiveLicense}\"";
+        var json = $$"""
+        {
+          "lockfileVersion": 3,
+          "packages": {
+            "": { "name": "app", "dependencies": { "direct": "^1.0.0" } },
+            "node_modules/direct": { "name": "direct", "version": "1.0.0"{{direct}}, "dependencies": { "transitive": "^1.0.0" } },
+            "node_modules/transitive": { "name": "transitive", "version": "1.0.0"{{transitive}} }
+          }
+        }
+        """;
+        await File.WriteAllTextAsync(path, json, Encoding.UTF8);
+        return path;
+    }
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
+    {
+        await CliGate.WaitAsync();
+        try
+        {
+            var startInfo = new ProcessStartInfo("dotnet")
+            {
+                WorkingDirectory = root,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            startInfo.ArgumentList.Add(CliTestAssembly.ResolveOlDllPath(AppContext.BaseDirectory));
+            for (var i = 0; i < args.Length; i++) startInfo.ArgumentList.Add(args[i]);
+            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start ol CLI.");
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return (process.ExitCode, stdout, stderr);
+        }
+        finally
+        {
+            CliGate.Release();
+        }
+    }
+
+    private static string FindRepositoryRoot(
+        [System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
+    {
+        foreach (var startDirectory in new[] { AppContext.BaseDirectory, Path.GetDirectoryName(sourceFilePath)! })
+        {
+            var directory = new DirectoryInfo(startDirectory);
+            while (directory is not null)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "Ol.slnx"))) return directory.FullName;
+                directory = directory.Parent;
+            }
+        }
+
+        throw new InvalidOperationException("Repository root was not found.");
+    }
+}

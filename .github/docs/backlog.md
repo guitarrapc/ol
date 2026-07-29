@@ -4,18 +4,30 @@ This document tracks ideas that are intentionally outside the current v1, v2, an
 
 ## Policy and Enforcement
 
-- Add allow-list policy checking after the v1-v3 scan phases.
-- Define a `check` command or equivalent policy phase that fails closed for allow-list misses, unknown licenses, conflicts, ambiguous values, and invalid SPDX expressions.
-- Consider richer policy categories such as `deny`, `review`, `exception`, `notice_required`, `source_disclosure_required`, and `copyleft_review`.
-- Define how human review results or project-specific exceptions are stored and audited.
+Implemented and specified in [cli.md](specs/cli.md#contract-policy-checks): allow-list checking that fails closed, an acknowledgement [baseline](specs/cli.md#contract-policy-baseline) for reviewed unresolved components, and [persisted-report evaluation](specs/cli.md#contract-policy-report-input).
+
+Remaining:
+
+- Consider richer policy categories such as `deny`, `review`, `notice_required`, `source_disclosure_required`, and `copyleft_review`. Deliberately deferred: a deny-list reduces noise rather than adding detection, and the baseline removes noise more precisely. Deny becomes meaningful only if acknowledgement is ever widened beyond unresolved components, where it would act as a floor that acknowledgement cannot cross.
+- License curation, that is recording that an upstream claim is factually wrong and what the correct license is. Not needed for a pass/fail verdict, which acknowledgement already covers; it becomes required for NOTICE generation, which needs an actual license value.
+- Per-package policy exceptions with owner and expiry, distinct from factual correction.
 
 ## Additional Output Formats
 
+Implemented: [SARIF](specs/cli.md#contract-policy-sarif) for code scanning and CI annotations, and a [report diff](specs/cli.md#contract-diff) in text and JSON.
+
+Remaining:
+
 - SPDX JSON output with scan results attached or mapped back to SPDX package fields.
 - CycloneDX output with scan results attached through properties or annotations.
-- SARIF output for code scanning and CI annotations.
 - CSV output for spreadsheet review.
 - HTML output for human-readable audit reports.
+
+## Redistribution Artifacts
+
+- Generate `THIRD-PARTY-NOTICES` from resolved facts, including original license text, attribution, and an explicit list of components whose text could not be obtained.
+- Requires license text collection and license curation first. Generic text substituted from an SPDX template would drop package-specific additional terms, so it must never be a default.
+- An `OR` license choice must be an explicit user input, never inferred from which branch an allow-list happened to accept. Recording an inferred choice would make Ol assert a licensing election on the user's behalf.
 
 ## SBOM Generation
 

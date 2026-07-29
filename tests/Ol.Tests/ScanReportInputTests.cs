@@ -1,0 +1,214 @@
+﻿using System.Text;
+using Ol.Core;
+using Ol.Core.Licensing;
+using Ol.Core.Reporting;
+
+namespace Ol.Tests;
+
+public sealed class ScanReportInputTests
+{
+    private static string Component(
+        string name = "example",
+        string version = "1.0.0",
+        string license = "MIT",
+        string status = "matched",
+        string raw = "MIT",
+        string normalized = "MIT")
+        => $$"""
+        {
+          "name": "{{name}}", "version": "{{version}}", "license": "{{license}}",
+          "ecosystem": "npm", "dependency": "direct", "status": "{{status}}",
+          "purl": "pkg:npm/{{name}}@{{version}}", "sourceId": "{{name}}",
+          "licenseCandidates": [
+            { "source": "sbom", "kind": "expression", "raw": "{{raw}}", "normalized": "{{normalized}}", "status": "matched", "deprecated": false }
+          ],
+          "warnings": []
+        }
+        """;
+
+    private static string Report(params string[] components)
+        => $$"""
+        {
+          "schemaVersion": 1,
+          "metadata": {
+            "tool": "ol",
+            "input": { "sourceReference": "sbom.json", "kind": "sbom", "format": "cyclonedx-json" },
+            "spdx": { "source": "generated", "licenseListVersion": "5e59516" }
+          },
+          "components": [ {{string.Join(",", components)}} ]
+        }
+        """;
+
+    [Test]
+    public async Task TryRead_WithCanonicalReport_RestoresComponentsAndMetadata()
+    {
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(Report(Component())), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue();
+        await Assert.That(error).IsEmpty();
+        await Assert.That(report.LicenseListVersion).IsEqualTo("5e59516");
+        await Assert.That(report.SourceReference).IsEqualTo("sbom.json");
+        await Assert.That(report.Components).Count().IsEqualTo(1);
+
+        var component = report.Components[0];
+        await Assert.That(component.Name.ToString()).IsEqualTo("example");
+        await Assert.That(component.Version.ToString()).IsEqualTo("1.0.0");
+        await Assert.That(component.Ecosystem).IsEqualTo("npm");
+        await Assert.That(component.Status).IsEqualTo(LicenseStatus.Matched);
+        await Assert.That(component.License.ToString()).IsEqualTo("MIT");
+        await Assert.That(component.Purl.ToString()).IsEqualTo("pkg:npm/example@1.0.0");
+        await Assert.That(component.DependencyType).IsEqualTo(DependencyType.Direct);
+        await Assert.That(component.CandidateCount).IsEqualTo(1);
+        await Assert.That(component.GetCandidate(0).Source).IsEqualTo(LicenseCandidateSource.Sbom);
+        await Assert.That(component.GetCandidate(0).Normalized.ToString()).IsEqualTo("MIT");
+    }
+
+    [Test]
+    public async Task TryRead_PreservesCandidatesNeededForPolicyAndBaseline()
+    {
+        var json = Report(Component(status: "conflict", license: "MIT, GPL-3.0-only (?)", raw: "MIT"));
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out _);
+
+        await Assert.That(parsed).IsTrue();
+        await Assert.That(report.Components[0].Status).IsEqualTo(LicenseStatus.Conflict);
+        await Assert.That(report.Components[0].GetCandidate(0).Raw.ToString()).IsEqualTo("MIT");
+    }
+
+    [Test]
+    public async Task TryRead_WithAbsentLicensePlaceholder_RestoresEmptyLicense()
+    {
+        var json = Report(Component(license: "-", status: "unknown", raw: string.Empty, normalized: string.Empty));
+
+        ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out _);
+
+        await Assert.That(report.Components[0].License.IsEmpty).IsTrue();
+    }
+
+    [Test]
+    [Arguments("{ malformed")]
+    [Arguments("[]")]
+    [Arguments("{ \"schemaVersion\": 99, \"components\": [] }")]
+    [Arguments("{ \"components\": [] }")]
+    public async Task TryRead_WithUnusableDocument_Fails(string json)
+    {
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
+
+        await Assert.That(parsed).IsFalse();
+        await Assert.That(error).IsNotEmpty();
+    }
+
+    [Test]
+    public async Task TryRead_WithUnknownComponentStatus_Fails()
+    {
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(Report(Component(status: "weird"))), out _, out var error);
+
+        await Assert.That(parsed).IsFalse();
+        await Assert.That(error).Contains("status");
+    }
+
+    [Test]
+    public async Task TryRead_WithGroupedReport_FailsWithActionableError()
+    {
+        var json = """{ "schemaVersion": 1, "metadata": { "tool": "ol" }, "groups": [ { "key": "MIT", "count": 2 } ] }""";
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
+
+        await Assert.That(parsed).IsFalse();
+        await Assert.That(error).Contains("--group-by");
+    }
+
+    // Diff.
+
+    [Test]
+    public async Task Compare_WithIdenticalReports_ReportsNoChanges()
+        => await Assert.That(ScanReportDiff.Compare(Read(Report(Component())), Read(Report(Component())))).IsEmpty();
+
+    [Test]
+    public async Task Compare_DetectsAddedAndRemovedComponents()
+    {
+        var changes = ScanReportDiff.Compare(Read(Report(Component())), Read(Report(Component(name: "replacement"))));
+
+        await Assert.That(changes).Count().IsEqualTo(2);
+        await Assert.That(changes[0].Name).IsEqualTo("example");
+        await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.Removed);
+        await Assert.That(changes[1].Name).IsEqualTo("replacement");
+        await Assert.That(changes[1].Kind).IsEqualTo(ScanReportChangeKind.Added);
+    }
+
+    [Test]
+    public async Task Compare_DetectsVersionChange()
+    {
+        var changes = ScanReportDiff.Compare(Read(Report(Component())), Read(Report(Component(version: "2.0.0"))));
+
+        await Assert.That(changes).Count().IsEqualTo(1);
+        await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.VersionChanged);
+        await Assert.That(changes[0].PreviousVersion).IsEqualTo("1.0.0");
+        await Assert.That(changes[0].CurrentVersion).IsEqualTo("2.0.0");
+    }
+
+    [Test]
+    public async Task Compare_DetectsLicenseChangeAtSameVersion()
+    {
+        var changes = ScanReportDiff.Compare(
+            Read(Report(Component())),
+            Read(Report(Component(license: "Apache-2.0", raw: "Apache-2.0", normalized: "Apache-2.0"))));
+
+        await Assert.That(changes).Count().IsEqualTo(1);
+        await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.LicenseChanged);
+        await Assert.That(changes[0].PreviousLicense).IsEqualTo("MIT");
+        await Assert.That(changes[0].CurrentLicense).IsEqualTo("Apache-2.0");
+    }
+
+    [Test]
+    public async Task Compare_DetectsStatusChangeAtSameVersion()
+    {
+        var changes = ScanReportDiff.Compare(Read(Report(Component())), Read(Report(Component(status: "unknown"))));
+
+        await Assert.That(changes).Count().IsEqualTo(1);
+        await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.StatusChanged);
+        await Assert.That(changes[0].PreviousStatus).IsEqualTo("matched");
+        await Assert.That(changes[0].CurrentStatus).IsEqualTo("unknown");
+    }
+
+    [Test]
+    public async Task Compare_DetectsEvidenceChangeWhenConclusionIsUnchanged()
+    {
+        var changes = ScanReportDiff.Compare(Read(Report(Component())), Read(Report(Component(raw: "MIT License"))));
+
+        await Assert.That(changes).Count().IsEqualTo(1);
+        await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.EvidenceChanged);
+    }
+
+    [Test]
+    public async Task Compare_OrdersChangesByComponentName()
+    {
+        var current = Read(Report(Component(name: "zzz"), Component(name: "aaa"), Component()));
+
+        var changes = ScanReportDiff.Compare(Read(Report(Component())), current);
+
+        await Assert.That(changes).Count().IsEqualTo(2);
+        await Assert.That(changes[0].Name).IsEqualTo("aaa");
+        await Assert.That(changes[1].Name).IsEqualTo("zzz");
+    }
+
+    [Test]
+    public async Task Compare_WithPolicy_ReportsVerdictTransition()
+    {
+        var spdx = new Ol.Core.Spdx.SpdxLicenseIndex(["MIT", "GPL-3.0-only"], []);
+        LicenseAllowPolicy.TryCreate(["MIT"], spdx, out var policy, out _);
+        var previous = Read(Report(Component()));
+        var current = Read(Report(Component(license: "GPL-3.0-only", raw: "GPL-3.0-only", normalized: "GPL-3.0-only")));
+
+        var changes = ScanReportDiff.Compare(previous, current, policy);
+
+        await Assert.That(changes.Any(c => c.Kind == ScanReportChangeKind.PolicyChanged)).IsTrue();
+        await Assert.That(changes.Any(c => c.Kind == ScanReportChangeKind.LicenseChanged)).IsTrue();
+    }
+
+    private static ScanComponent[] Read(string json)
+    {
+        if (!ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error)) throw new InvalidOperationException(error);
+        return report.Components;
+    }
+}

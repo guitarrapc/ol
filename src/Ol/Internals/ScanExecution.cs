@@ -78,19 +78,32 @@ internal static class ScanExecution
             }
         }
 
-        SpdxData spdx;
+        if (!TryResolveSpdx(spdxData, out var spdx, out error))
+        {
+            preparation = default;
+            return false;
+        }
+
+        preparation = new ScanPreparation(inputSelection, spdx, cacheDirectories, concurrency, retry);
+        error = string.Empty;
+        return true;
+    }
+
+    /// <summary>Resolves active SPDX data without preparing an evidence pipeline.</summary>
+    /// <remarks>Evaluating a persisted report still needs SPDX data to normalize the allow-list, but must not touch inputs or caches.</remarks>
+    public static bool TryResolveSpdx(string? spdxData, out SpdxData spdx, out string error)
+    {
         try
         {
             spdx = SpdxData.Load(spdxData);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException or KeyNotFoundException)
         {
-            preparation = default;
+            spdx = default;
             error = $"Unable to load SPDX data: {exception.Message}";
             return false;
         }
 
-        preparation = new ScanPreparation(inputSelection, spdx, cacheDirectories, concurrency, retry);
         error = string.Empty;
         return true;
     }

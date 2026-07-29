@@ -149,7 +149,7 @@ Policy is deliberately not encoded in `matched`. A valid, unambiguous SPDX expre
 
 Failing closed on unresolved evidence would make the command unusable on an existing product, where components Ol cannot resolve are common and often unfixable by the user. A [baseline](specs/cli.md#contract-policy-baseline) therefore records the unresolved components a reviewer has accepted, so that only newly unresolved components fail. This is deliberately not a new status: acknowledgement removes a violation while the component keeps its unresolved status and evidence, and a license the allow-list rejects can never be acknowledged. The goal is not an empty unresolved set; it is that the unresolved set cannot grow silently.
 
-Keeping policy separate allows the same factual report to be evaluated under different organizational policies without rescanning dependencies or recollecting evidence.
+Keeping policy separate allows the same factual report to be evaluated under different organizational policies without rescanning dependencies or recollecting evidence. The [canonical JSON report is that persistence boundary](specs/cli.md#contract-policy-report-input): it is the input contract as well as the output, so no second schema exists to drift from it, and evaluating one performs no collection and no network access. A [report diff](specs/cli.md#contract-diff) over the same documents separates a genuine change of licensing fact from ordinary registry drift.
 
 ## Evidence Architecture
 
@@ -295,7 +295,7 @@ Optimizations require representative benchmarks for the affected stage. Performa
 - **v1 — implemented:** CycloneDX/SPDX JSON inventory, dependency relationships, SPDX validation, and reports.
 - **v2 — implemented:** package-registry evidence, persistent metadata cache, bounded external-request concurrency, and retries.
 - **v3 — implemented:** source-repository evidence through the GitHub License API, typed candidate provenance, and source evidence caching.
-- **Policy phase — implemented:** explicit allow-list evaluation and CI failure behavior over the completed in-memory report.
+- **Policy phase — implemented:** explicit allow-list evaluation and CI failure behavior, an acknowledgement baseline for reviewed unresolved components, persisted-report evaluation without collection, a license-relevant report diff, and SARIF output carrying dependency paths.
 
 The architectural destination is therefore a transitive OSS license resolver and policy input, not an SBOM viewer. SBOM support is one ingestion mechanism for constructing the dependency and evidence model.
 

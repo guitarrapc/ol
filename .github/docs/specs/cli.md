@@ -446,7 +446,50 @@ The file is JSON with a schema version, and records the Ol version and SPDX Lice
 
 Whenever a baseline is supplied, `check` reports how many components it acknowledged, including zero, so a passing run never hides the existence of a baseline and a baseline that stopped applying is visible. Acknowledged components remain in the scan result with their original unresolved status; acknowledgement removes a violation, it does not alter evidence or reconciliation. A missing, malformed, or schema-incompatible baseline is a command failure with exit code 2 rather than a silently empty baseline, so a mistyped path is reported instead of changing which components fail.
 
-Policy files, deny-lists, per-package policy exceptions, license curation and concluded licenses, dependency-scope policy, JSON/Markdown output, and evaluation of a previously serialized scan report remain outside the `check` scope.
+<a id="contract-policy-report-input"></a>
+
+### Evaluating a persisted report
+
+`--report <file>` evaluates a previously written JSON scan report instead of scanning an input:
+
+```text
+ol scan --input . --format Json --out-file ol-report.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
+```
+
+The canonical JSON report is the input contract; Ol does not define a second persistence schema. One document means a report a user already has is directly usable as policy input, and an output schema and an input schema cannot drift apart. The report schema version is validated on read, and an unsupported version, a malformed document, or a grouped report produced with `--group-by` is a command failure with exit code 2 rather than a partial evaluation.
+
+Report evaluation performs no input parsing, no registry or repository collection, and no network access. Separating policy from collection this way means a policy can be re-run, or a different policy applied, without the result depending on what a registry happened to answer at that moment. `--report` therefore cannot be combined with `--input`, `--input-format`, `--refresh`, `--skip-enrichment`, or `--cache-dir`; combining them is a configuration error. `--baseline`, `--update-baseline`, `--spdx-data`, and `--sarif` still apply.
+
+Active SPDX data still normalizes the allow-list, so a report may be evaluated under different SPDX data than produced it. The report's own recorded License List version is reported under `--verbose` rather than enforced, for the same reason a baseline records it without enforcing it: a data refresh must not invalidate an existing artifact.
+
+<a id="contract-policy-sarif"></a>
+
+### SARIF output
+
+`--sarif <file>` additionally writes violations as SARIF 2.1.0 for CI code scanning. The text result on stdout is unchanged, and both carry the same violation set: SARIF is another projection of one evaluation, never a filter. Acknowledged components are absent from both.
+
+Each violation kind has a stable rule ID so annotations remain comparable across runs: `OL0001` not allowed, `OL0002` evidence conflict, `OL0003` unresolved, `OL0004` ambiguous, `OL0005` invalid expression, `OL0006` evidence error.
+
+Ol reads resolved graphs rather than manifests, so a violation has no trustworthy file position and Ol does not invent one. Results carry a logical location plus the component's purl, ecosystem, status, license, and dependency classification. When the graph is available, a result also carries the deterministic shortest root-to-component dependency path, and the message names it. That path is the actionable part of a transitive violation: it identifies the direct dependency to upgrade or remove, which is the only thing the user can change. Evaluating a persisted report yields no path, because a report carries no graph.
+
+Policy files, deny-lists, per-package policy exceptions, license curation and concluded licenses, and dependency-scope policy remain outside the `check` scope.
+
+<a id="contract-diff"></a>
+
+## `ol diff`
+
+`diff` compares two persisted JSON scan reports and reports only license-relevant change:
+
+```text
+ol diff --previous before.json --current after.json --allow-licenses MIT
+```
+
+A full report is too large to review by hand on every change, and most of what changes between two runs is not license-relevant. The diff exists so a reviewer can see what actually changed about licensing, and so a genuine policy transition is separated from ordinary registry or repository drift.
+
+Components are identified by ecosystem and name so that a version bump reads as a change rather than as an unrelated removal and addition. Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, `evidence-changed`, and, when `--allow-licenses` is supplied, `policy-changed`. `evidence-changed` reports that the underlying claims moved while the conclusion held, which is what distinguishes a real change of fact from a change of wording; it is derived from the same evidence fingerprint the baseline uses.
+
+Output is `--format Text` or `--format Json`, ordered by component name and change kind so identical inputs produce identical output. `diff` reports rather than enforces, so it exits `0` whenever both reports could be read and `2` when either could not. Policy enforcement stays in `check` so an exit code keeps one meaning.
 
 ## Lessons Learned
 
@@ -455,5 +498,6 @@ Policy files, deny-lists, per-package policy exceptions, license curation and co
 - ConsoleAppFramework binds command method parameters as named options. Preserve the documented positional cache-category syntax by translating it before command dispatch.
 - A baseline fingerprint must not depend on the order in which license candidates were appended. Enrichment appends candidates in pipeline order, which is an implementation detail, while the fingerprint is persisted in user repositories. Sorting the claims before hashing keeps a future evidence source or a reordered enrichment phase from silently invalidating every existing baseline.
 - Acknowledgement needed no new component status. Removing a violation while leaving the component's unresolved status and evidence untouched preserves the evidence contract and keeps the `check` exit-code surface unchanged, which is what made the whole feature fit behind two options.
+- `LicenseStatus.Unknown` must be the zero value of the enum. Every input parser builds components itself, and several derive a component's status from a candidate that is `default` when the input declares no license. While `Matched` was the zero value, those packages were reported as resolved with an empty license expression: a silent false negative in exactly the case a compliance tool exists to catch, and one that `check` could then neither explain nor let a user acknowledge. Explicit enum values pin the safe default, and a cross-parser test asserts no component is ever `Matched` without a license.
 - CLI integration tests must execute the already-built CLI DLL. Parallel `dotnet run` invocations race while replacing the shared apphost executable.
 - Do not add an optional second parameter to shared `params string[]` CLI test helpers: it can capture `scan` rather than treating it as command input. Use a distinct helper for cache-aware invocation.

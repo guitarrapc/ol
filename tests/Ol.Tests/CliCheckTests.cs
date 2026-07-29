@@ -354,6 +354,91 @@ public sealed class CliCheckTests
         }
     }
 
+    [Test]
+    public async Task Check_WithReport_ReachesSameVerdictAsScanningTheInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json", "--out-file", reportPath);
+            var fromInput = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var fromReport = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(fromReport.ExitCode).IsEqualTo(fromInput.ExitCode);
+            await Assert.That(fromReport.ExitCode).IsEqualTo(1);
+            await Assert.That(fromReport.Stdout).IsEqualTo(fromInput.Stdout);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithReportAndBaseline_AcknowledgesUnresolved()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync(null);
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json", "--out-file", reportPath);
+            var update = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", baselinePath, "--update-baseline");
+
+            await Assert.That(update.ExitCode).IsEqualTo(0);
+            await Assert.That(update.Stdout).Contains("Acknowledged by baseline: 1 component.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+            if (File.Exists(baselinePath)) File.Delete(baselinePath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithReportAndInput_ReturnsTwo()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", inputPath, "--input", inputPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("--report cannot be combined");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMalformedReport_ReturnsTwo()
+    {
+        var root = FindRepositoryRoot();
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(reportPath, "{ \"schemaVersion\": 99, \"components\": [] }", Encoding.UTF8);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("Unable to read report");
+        }
+        finally
+        {
+            File.Delete(reportPath);
+        }
+    }
+
     private static async Task<string> WriteCycloneDxAsync(string? license, string version = "1.0.0")
     {
         var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");

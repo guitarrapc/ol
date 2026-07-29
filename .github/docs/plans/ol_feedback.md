@@ -25,11 +25,12 @@ ranking の前提になるため、推測ではなく登録済みの実体で確
 | evidence 保持 | source / kind / raw / normalized / status / deprecated / warnings / typed provenance | [LicenseCandidate.cs](../../../src/Ol.Core/Licensing/LicenseCandidate.cs) |
 | reconciliation | matched / conflict / unknown / ambiguous / invalid / error の 6 状態 | [LicenseReconciler.cs](../../../src/Ol.Core/Licensing/LicenseReconciler.cs) |
 | SPDX | 版を固定した**識別子**データ。本文・template は持たない（生成物 22KB） | [SpdxGeneratedLicenseData.g.cs](../../../src/Ol.Core/Generated/SpdxGeneratedLicenseData.g.cs)、[specs/spdx.md](../specs/spdx.md) |
-| policy | `check --allow-licenses` の SPDX 識別子 allow-list のみ。CLI 引数限定、`AND` / `OR` / `WITH` を fail-closed 評価 | [CheckCommands.cs](../../../src/Ol/CheckCommands.cs)、[LicenseAllowPolicy.cs](../../../src/Ol.Core/Licensing/LicenseAllowPolicy.cs) |
-| 出力 | `scan` が text / Markdown / JSON と `--out-file`。`check` は text 固定 | [ScanCommands.cs](../../../src/Ol/ScanCommands.cs) |
+| policy | `check --allow-licenses` の SPDX 識別子 allow-list。`AND` / `OR` / `WITH` を fail-closed 評価。**承認 baseline**と**永続 report 評価**を持つ | [CheckCommands.cs](../../../src/Ol/CheckCommands.cs)、[LicenseAllowPolicy.cs](../../../src/Ol.Core/Licensing/LicenseAllowPolicy.cs)、[LicenseBaseline.cs](../../../src/Ol.Core/Licensing/LicenseBaseline.cs) |
+| 出力 | `scan` が text / Markdown / JSON と `--out-file`。`check` は text と **SARIF**。**`diff`** が text / JSON | [ScanCommands.cs](../../../src/Ol/ScanCommands.cs)、[SarifRenderer.cs](../../../src/Ol/SarifRenderer.cs)、[DiffCommands.cs](../../../src/Ol/DiffCommands.cs) |
+| 永続 report の再利用 | canonical JSON を入力契約として兼用。`check --report` は parse も network も行わない | [ScanReportReader.cs](../../../src/Ol.Core/Reporting/ScanReportReader.cs) |
 | cache | TTL なしの永続 cache。`--refresh` でのみ無効化 | [specs/cache_format.md](../specs/cache_format.md) |
 
-前版のこの文書は Bundler / RubyGems を未対応として扱っていたが、実装済みである。ecosystem の不足は上表から取り直すこと。
+前版のこの文書は Bundler / RubyGems を未対応として扱っていたが、実装済みである。ecosystem の不足は上表から取り直すこと。太字は本計画で追加した能力。
 
 ## 約束と充足度
 
@@ -37,18 +38,20 @@ ranking の前提になるため、推測ではなく登録済みの実体で確
 
 | 軸 | DESIGN の約束 | 現状 | 差分 |
 |---|---|---|---|
-| A. 数え落とさない | 完全な inventory と graph を先に確定し、filter は view | 12 input が root / direct / transitive と context 別 graph を保持 | **ほぼ果たされている**。残るのは ecosystem 数 |
-| B. 判定の理由が残る | evidence を上書きせず provenance 付きで保持 | 3 系統の typed evidence、6 状態、警告を保持 | **果たされている**。ただし人間の判断を残す場所がない |
-| C. 同じ入力なら同じ結果 | 版を固定した SPDX、TTL なし cache、決定的順序 | 識別子検証の範囲では成立 | **果たされている**。本文同定を足すと崩れる（後述） |
-| D. 止まったときに前へ進める | 「policy が何を禁じるかを決める」 | 決められるのは SPDX 識別子の allow-list のみ | **最大の穴。baseline で埋める設計を確定済み**（Gap 1） |
-| E. 検査の次へ届く | （DESIGN は約束していない） | license ID の報告まで | 拡張であって未達ではない |
-| F. 小さく速いままでいる | 単一 native AOT バイナリ | 維持。renderer は 0 allocation | 新機能はここを削る方向に働く |
+| A. 数え落とさない | 完全な inventory と graph を先に確定し、filter は view | 12 input が root / direct / transitive と context 別 graph を保持。SARIF が root からの経路を出す | **ほぼ果たされている**。残るのは ecosystem 数（Gap 7） |
+| B. 判定の理由が残る | evidence を上書きせず provenance 付きで保持 | 3 系統の typed evidence、6 状態、警告を保持。承認は evidence を消さず violation だけを除く | **果たされている**。事実の訂正（curation）は未実装だが合否には不要（Gap 2） |
+| C. 同じ入力なら同じ結果 | 版を固定した SPDX、TTL なし cache、決定的順序 | 識別子検証の範囲で成立。永続 report の再評価も byte 一致 | **果たされている**。本文同定を足すと崩れる（Gap 4） |
+| D. 止まったときに前へ進める | 「policy が何を禁じるかを決める」 | allow-list に加え、証拠指紋つきの承認 baseline を持つ | **埋まった**（Gap 1） |
+| E. 検査の次へ届く | （DESIGN は約束していない） | license ID の報告、SARIF、report diff | 再配布成果物（NOTICE）は未着手（Gap 5） |
+| F. 小さく速いままでいる | 単一 native AOT バイナリ | 維持。renderer は 0 allocation、baseline 未使用経路に追加コストなし | Gap 4 がここを削る方向に働く |
 
-事実側（A・B・C）は概ね約束を果たしている。**policy 側（D）だけが約束に対して極端に薄い。** ol は「観察と policy を分離する」と宣言し、`matched` は「解決済みであって許可済みではない」と定義しているにもかかわらず、policy が表現できる意思決定は識別子の列挙一つしかない。
+当初この表で最大の穴だった policy 側（D）は Gap 1 で埋まり、Gap 3 と Gap 6 が B・E を補強した。**残る本質的な差分は C 軸と F 軸を代償に要求する Gap 4 だけ**であり、だからこそ仕様決定を先に置いている。
 
 ## 不足の一覧と順序
 
-番号は識別子であって順位ではない。実施順は優先度に従い、`Gap 1 → Gap 3 → Gap 4 → Gap 2 → Gap 5` となる。Gap 2 は当初 P0 だったが、Gap 1 の設計確定により合否判定には不要と分かったため P2 へ後退した（[経緯](#gap-2--p2-事実の訂正curation)）。
+番号は識別子であって順位ではない。実施順は優先度に従い、`Gap 1 → Gap 3 → Gap 6 → Gap 4 → Gap 2 → Gap 5` となる。Gap 2 は当初 P0 だったが、Gap 1 の設計確定により合否判定には不要と分かったため P2 へ後退した（[経緯](#gap-2--p2-事実の訂正curation)）。
+
+**進捗**: Gap 1・Gap 3・Gap 6 は実装済み。残る Gap 4 は未決の仕様課題2件が解決するまで着手しない（下記）。Gap 2 と Gap 5 は Gap 4 に連なる。Gap 7 と Gap 8 は方針どおり据え置き。
 
 ### Gap 1 / P0: fail-closed の逃げ道がなく、既存製品へ導入できない — **設計確定**
 
@@ -100,22 +103,19 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 **着手時に引き継ぐ設計**: [参照文書 D 軸](../references/existing_license_checkers.md#d-止まったときに前へ進める)の三つの出口（事実の訂正 / 結論の確定 / 方針の例外）を混ぜないこと。guard は既存の candidate `Raw` と GitHub License API の blob SHA（`SourceRepositoryEvidence.LicenseSha`）で成立する。registry evidence 側だけ `CacheKeySha256`（cache key であって内容 hash ではない）なので content hash の追加が要る。適用後も original candidates と curation 前の reconciliation を report に残す。
 
-### Gap 3 / P1: 「再 scan なしの再評価」が未実装
+### Gap 3 / P1: 「再 scan なしの再評価」 — **実装済み**
 
-**約束**: DESIGN は明示的にこう書いている — 「同じ事実 report を、依存を再 scan したり証拠を再収集したりせずに、異なる policy で評価できる」。
+**約束**: DESIGN は「同じ事実 report を、依存を再 scan したり証拠を再収集したりせずに、異なる policy で評価できる」と書いていたが、実装が追いついていなかった。
 
-**現状で起きること**: `check` は毎回 input parsing と enrichment を含む pipeline を実行する（[CheckCommands.cs](../../../src/Ol/CheckCommands.cs)）。[cli.md](../specs/cli.md) は「scan と同じ pipeline を一度だけ実行する」と正直に書いており、**DESIGN の記述だけが実装より先へ出ている**。これは新機能の提案ではなく、文書化済みの未実装である。
+**確定した設計判断**: **canonical JSON をそのまま入力契約にした。**（未決だった「schema 一枚か二枚か」の結論）。report JSON は既に `schemaVersion` と `metadata.input` を持っており、二枚に割る理由がなかった。利点は二つある。利用者が既に持っている report をそのまま policy 入力にできること、そして出力 schema と入力 schema が乖離し得ないこと。writer は `Ol`、reader は `Ol.Core` にあるため、[`Check_WithReport_ReachesSameVerdictAsScanningTheInput`](../../../tests/Ol.Tests/CliCheckTests.cs) が両者の同期を CLI レベルで保証する。
 
-**過大主張しないこと**: 「network なしで再評価できる」は既に成立している。cache は TTL を持たず、`--refresh` を指定しない限りネットワークへ出ない。この Gap の実利は次に限られる。
+**過大主張しなかったこと**: 「network なしで再評価できる」は cache により既に成立していた。実際の利得は parse コスト、cache dir を持ち回れない環境での可搬性、registry の時間変化からの隔離、そして **diff**（本命）である。
 
-- parse と reconciliation のコスト削減。
-- cache dir を持ち回れない環境（別 job、別マシン）への可搬性。
-- registry / source の時間変化から policy 結果を切り離すこと。
-- **前回との差分を出せること**（これが本命）。
+実装: [`ScanReportReader`](../../../src/Ol.Core/Reporting/ScanReportReader.cs)、[`ScanReportDiff`](../../../src/Ol.Core/Reporting/ScanReportDiff.cs)、[`DiffCommands`](../../../src/Ol/DiffCommands.cs)。仕様は [cli.md](../specs/cli.md#contract-policy-report-input) と [cli.md の diff](../specs/cli.md#contract-diff)。
 
-**推奨する実装境界**: renderer JSON をそのまま parser 入力にせず、`ScanResult` の永続入力契約を versioned schema として定義する。ただし **schema を二枚管理にしない**こと。canonical JSON に schema version と入力同一性を足して 1 枚で兼ねられるなら、そちらを優先する。二枚に割る判断をするなら、同期を検証する test を同時に定義する。
+**確認できた挙動**: 同じ永続結果と policy から `--input` 経由と同一の判定・同一の stdout を得る / schema version 不整合・破損・grouped report は exit 2 / report 入力時は input parsing も network request も行わない / added・removed・version-changed・status-changed・license-changed・evidence-changed・policy-changed を区別する / diff の順序が決定的で JSON も byte 安定。
 
-**完了条件**: 同じ永続結果と policy から同一判定を得る / schema version 不整合・破損・部分 report を command error にする / report 入力時に network request が発生しない / added / removed / updated / evidence-changed / policy-changed を区別する / diff の順序が決定的である。
+`evidence-changed` は baseline と同じ fingerprint から導出しており、「結論は同じだが証拠が動いた」を検出する。
 
 ### Gap 4 / P1: 証拠の最後の一歩（原文）
 
@@ -150,13 +150,18 @@ DESIGN は約束していないため、これは拡張である。Gap 4 の原�
 
 **完了条件**: 同じ結果と policy から byte-stable な artifact ができる / name collision・同一 text の dedup・改行と encoding を決定的に扱う / 原文と生成した区切りを区別できる / missing text・custom terms・multiple license・未選択の `OR` を黙って落とさない / artifact の各項目から scan evidence へ逆引きできる。
 
-### Gap 6 / P2: dependency path 付き SARIF
+### Gap 6 / P2: dependency path 付き SARIF — **実装済み**
 
-`check` は違反 component と理由を全件出すが、CI annotation として repository 上の位置や、transitive violation を導入した direct dependency path を出さない。完全な graph を持つ ol の優位を出力へ活かせる。
+`check --sarif <file>` で SARIF 2.1.0 を出力する。実装は [`SarifRenderer`](../../../src/Ol/SarifRenderer.cs) と [`DependencyPathResolver`](../../../src/Ol.Core/Reporting/DependencyPathResolver.cs)、仕様は [cli.md](../specs/cli.md#contract-policy-sarif)。
 
-**scope の現実**: license-checker-php の売りは violation を `composer.json` の direct dependency 宣言行へ結び付ける点だが、**ol は manifest を読まない**。入力は lockfile と resolved graph であり、physical location を出せる入力は限られる。したがって初期実装で出せるのは大半が logical location と dependency path になる。この前提で価値を見積もること。偽の line 1 は作らない。
+**scope の現実は事前の見立てどおりだった**: ol は manifest を読まないため physical location を出せない。偽の line 1 は作らず、logical location と dependency path を出す。ただし**「どの direct dependency が持ち込んだか」は完全な graph から復元できる**ため、参照実装（license-checker-php）の主眼である「利用者が修正できる場所を示す」は満たせた。
 
-**完了条件**: SARIF schema validation が通る / direct・transitive・multiple-path・no-location の fixture を持つ / check text と SARIF で violation 集合が一致する / 絶対 path・cache path・token を出力しない。
+```text
+pkg:npm/poison@2.0.0: license is not allowed (GPL-3.0-only).
+Introduced through pkg:npm/direct@1.0.0 > pkg:npm/poison@2.0.0
+```
+
+**確認できた挙動**: violation kind ごとに安定した rule ID（OL0001〜OL0006） / direct・transitive・違反なし・承認済みの fixture を持つ / check text と SARIF で violation 集合が一致する / 絶対 path・cache path・token を出力しない / 永続 report 経由では graph が無いため path を出さない（偽の path を作らない）。
 
 ### Gap 7 / P2: ecosystem coverage
 
@@ -184,12 +189,13 @@ Gap 4 の bounded な root legal-file evidence を実運用し、解決できな
 - ~~状態モデルの増設~~ — 承認は新しい status を作らず、violation 集合から除外するだけ。component は unresolved のまま report に残る。curation を持たないので stale-curation も不要。Gap 4 の review-required だけが将来の検討事項として残る。
 - ~~policy 入力の precedence~~ — deny-list なし、暗黙の baseline 発見なし。入力は `--allow-licenses` と `--baseline` の 2 つで、後者は前者を弱められない。
 
-**未決**:
+- ~~永続入力 schema を canonical JSON と兼ねるか分けるか~~ — **兼ねる**と決定（Gap 3）。canonical JSON は既に `schemaVersion` と `metadata.input` を持ち、二枚に割る理由がなかった。writer と reader が別 assembly にあるため、CLI レベルの round-trip test で同期を保証する。
 
-1. **SPDX データ契約**。Gap 4 の前提。本文 / template を SPDX データの一部とするなら、[spdx.md](../specs/spdx.md) の resolution 順序、user-managed データの要件、`Ol.Update` の生成範囲、配布サイズ目標をまとめて改訂する。
-2. **host 依存 evidence の契約**。artifact を取得できない機械での結果表現。`--skip-enrichment` に相当する明示的な無効化手段を持つか。golden report への影響（Gap 4）。
+**未決（いずれも Gap 4 系。着手前に決める）**:
+
+1. **SPDX データ契約**。Gap 4 の前提。本文 / template を SPDX データの一部とするなら、[spdx.md](../specs/spdx.md) の resolution 順序、user-managed データの要件、`Ol.Update` の生成範囲、配布サイズ目標をまとめて改訂する。現在の生成データは識別子のみで 22KB、参照実装（nuget-license）は SPDX list version に固定した本文つき外部データ package を要求する。
+2. **host 依存 evidence の契約**。artifact を取得できない機械での結果表現。`--skip-enrichment` に相当する明示的な無効化手段を持つか。golden report への影響。
 3. **license choice の位置**。policy 評価の出力ではなく入力とする（Gap 5）。curation（Gap 2）と同時に決める。
-4. **永続入力 schema を canonical JSON と兼ねるか分けるか**（Gap 3）。baseline の fingerprint 定義は Gap 3 の evidence diff と共有できるため、先に baseline を実装して形を確かめる。
 
 ## ロードマップ
 
@@ -208,13 +214,15 @@ Gap 4 の bounded な root legal-file evidence を実運用し、解決できな
 
 実装で確定した設計判断は [cli.md の Lessons Learned](../specs/cli.md#lessons-learned) に記録した。特に fingerprint は候補の挿入順に依存させない。挿入順は enrichment pipeline の実装詳細である一方、fingerprint は利用者の repository に永続するため、evidence source を1つ足しただけで全 baseline が無効化されてはならない。
 
-### Phase B: 再評価と可視化
+### Phase B: 再評価と可視化 — **実装済み**
 
-1. 永続入力契約と `check` の report 入力 mode。
-2. evidence / policy diff。
-3. SARIF。
+1. 永続入力契約と `check --report`（canonical JSON を兼用）。
+2. evidence / policy diff（`ol diff`）。
+3. SARIF（`check --sarif`）。
 
-検証: offline 再評価の byte 安定性 / added・removed・updated・evidence-changed・policy-changed の区別 / check text と SARIF の violation 集合一致。
+検証済み: offline 再評価が `--input` と同一判定・同一 stdout / added・removed・version-changed・status-changed・license-changed・evidence-changed・policy-changed の区別 / diff JSON の byte 安定 / check text と SARIF の violation 集合一致 / SARIF に絶対 path と token を出さない。
+
+**この Phase で発見して修正したバグ**: `LicenseStatus.Matched` が enum の 0 値だったため、license 宣言を持たない package が `matched` かつ license 空として報告されていた（npm / Cargo / Composer / pip の各 parser が既定 candidate の status を分岐に使うため）。コンプライアンスツールとして最悪の false negative であり、`check` では「license is not allowed」という説明不能な理由になり、baseline でも承認できない袋小路を生んでいた。`Unknown = 0` を明示値で固定し、全 parser 横断の不変条件テスト（`Matched` なら license を必ず持つ）を追加した。詳細は [cli.md の Lessons Learned](../specs/cli.md#lessons-learned)。
 
 ### Phase C: 証拠の最後の一歩
 
@@ -230,17 +238,20 @@ NOTICE / license bundle は、未決の仕様課題 3（license choice を入力
 ## 今回のスコープに入れないもの
 
 - 参照ツールにあっても取り込まない挙動: package metadata の先頭 license だけを使う / SPDX expression を raw string の exact・substring 比較で判定する / confidence の低い heuristic を確定 license として evidence へ上書きする / package・file ごとに無制限の task を作る / installed directory を inventory の正とし resolved graph を失う / ORT の plugin platform と rule DSL を規模ごと模倣する。
-- Phase A の期間中に着手しないもの: curation（事実の訂正）、deny-list、policy file、本文同定、NOTICE 生成、file-level scan、新規 ecosystem。
+- Phase A / B の期間中に着手しないもの（据え置き継続）: curation（事実の訂正）、deny-list、policy file、本文同定、NOTICE 生成、file-level scan、新規 ecosystem。
 - `--allow-licenses` の入力補助（`osi-approved` のような SPDX 由来グループ）。SPDX データに無い「コピーレフトでない」という分類が本当に欲しいものであり、それは ol による法的判断になる。OSI 承認には GPL が含まれるため、SPDX 由来のグループはケース2 を解かない。
 - 外部プロセス依存（package manager CLI、MSBuild、外部 scanner）の常時要求。単一 native バイナリという配布形態を崩す。
 
 ## 次に作る個別計画
 
-**`check` の baseline**（Gap 1、Phase A）。仕様が [cli.md](../specs/cli.md#contract-policy-baseline) に確定しているため、test-first implementation plan を直接起こせる。
+Phase A・B が完了したため、**次は実装計画ではなく仕様決定**である。残る Gap 4 / 2 / 5 はすべて未決の仕様課題に依存しており、決めないまま着手すると再現性（C 軸）と配布サイズ（F 軸）を毀損する。
 
-- ol の約束と実装の乖離が最も大きく、利用者が最初に停止する地点である。
-- 新しい I/O 境界は JSON ファイル 1 つ。同定データもローカル実体化も要求せず、既存の evaluator と evidence をそのまま使う。C 軸と F 軸を毀損しない。
-- 未決の仕様課題を 1 つも持ち込まない。
-- fingerprint の定義が Gap 3 の evidence diff にそのまま流用できる。
+**決めるべき順序**:
 
-この計画では curation、deny-list、report 入力、本文取得、NOTICE を同時に実装しない。baseline の schema、承認可能性の判定、fingerprint、exit code 契約を固定し、その結果を見て Gap 3 へ進む。
+1. **SPDX データ契約**（未決 1）。本文 / template を SPDX データの一部にするかどうか。ここが「する」に決まらない限り、Gap 4 の matcher は成立しない。決めるべきは、bundled に本文を持つのか、外部データを版固定で参照するのか、そして user-managed SPDX を選んだときの matcher の挙動をどう定義するか。現在の 22KB という配布実績に対して桁が変わるため、単一 native バイナリという方針との折り合いを先に付ける。
+2. **host 依存 evidence の契約**（未決 2）。artifact をローカルに持たない機械での結果表現。これが決まると Gap 4 の完了条件が書ける。
+3. **license choice の位置**（未決 3）と curation（Gap 2）。Gap 5 の前提。
+
+**先に測るべきこと**: Gap 4 に着手する前に、`ol diff` で「本文取得を足したら unknown が実際に何件減るか」を計測できる状態になった。投資判断はこの実測に基づいて行う。順序を Gap 3 → Gap 4 にしたのはこのためである。
+
+なお Gap 7（ecosystem 追加）は仕様課題に依存しないため、上記と独立に着手できる。[verification.md](../specs/verification.md) の provider と fixture の 1 対 1 契約に従い、Maven / Gradle から検討する。

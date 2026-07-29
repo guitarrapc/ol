@@ -21,6 +21,7 @@ if (args.Length >= 3
 var app = ConsoleApp.Create();
 app.Add<ScanCommands>();
 app.Add<CheckCommands>();
+app.Add<DiffCommands>();
 app.Add<SpdxCommands>("spdx");
 app.Add<CacheCommands>("cache");
 app.Run(args);

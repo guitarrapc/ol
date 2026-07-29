@@ -15,6 +15,7 @@ Usage: [command] [-h|--help] [--version]
 Commands:
   cache clear     Clears cached evidence for the specified category.
   check           Check a resolved dependency input against allowed SPDX licenses.
+  diff            Compare two persisted JSON scan reports and report license-relevant changes.
   scan            Scan a resolved dependency input.
   spdx clear      Clear user-managed SPDX data.
   spdx list       List installed SPDX data versions.
@@ -40,6 +41,24 @@ Options:
   --skip-enrichment             Use only evidence already present in the dependency input.
   --concurrency <int>           Maximum concurrent package metadata lookups. [Default: 0]
   --retry <int>                 Reserved package metadata retry count. [Default: 1]
+  --baseline <string?>          Baseline file acknowledging already reviewed unresolved components. [Default: null]
+  --update-baseline             Rewrite the baseline file as a complete snapshot.
+  --report <string?>            Persisted JSON scan report to evaluate instead of scanning an input. [Default: null]
+  --sarif <string?>             Write violations as SARIF to this file for CI code scanning. [Default: null]
+```
+
+```bash
+$ ol diff --help
+Usage: diff [options...] [-h|--help] [--version]
+
+Compare two persisted JSON scan reports and report license-relevant changes.
+
+Options:
+  --previous <string?>          Previously persisted JSON scan report. [Default: null]
+  --current <string?>           Current JSON scan report. [Default: null]
+  --allow-licenses <string?>    Comma-separated SPDX License Identifiers; adds policy verdict transitions. [Default: null]
+  --spdx-data <string?>         Directory containing licenses.json and exceptions.json. [Default: null]
+  --format <DiffFormat>         Output format. [Default: Text]
 ```
 
 ```bash
@@ -143,6 +162,94 @@ ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0 --skip-enrichment
 ```
 
 Because unresolved licenses fail closed, `--skip-enrichment` can produce violations that a full enriched check would resolve.
+
+### Adopting `check` on an existing project
+
+Failing closed is right for a pull request, where the baseline is already clean and anything newly unresolved deserves a look. It is not enough for a product that already exists: real dependency sets contain components whose license Ol cannot resolve, and most of them are not something you can fix. A baseline records the unresolved components you have reviewed and accepted, so only *newly* unresolved components fail.
+
+```bash
+ol check --input . --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json --update-baseline
+```
+
+That one command adopts a baseline and still evaluates the result. If it exits `1`, what remains is a genuine finding — a forbidden license can never be absorbed by a baseline:
+
+```text
+Acknowledged by baseline: 2 components.
+License check failed: 1 violation.
+
+Package  Version  Ecosystem  Purl                     License/Status  Reason
+poison   2.0.0    npm        pkg:npm/poison@2.0.0     GPL-3.0-only    license is not allowed
+```
+
+Commit `ol-baseline.json`, then check against it from then on:
+
+```bash
+ol check --input . --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json
+```
+
+Only `unknown`, `ambiguous`, `conflict`, and `invalid` can be acknowledged. `error` cannot, because a collection failure is something to repair rather than to accept. `matched` cannot, because a resolved license is a policy decision that belongs in `--allow-licenses`. Above all, **a component is never acknowledgeable when any of its evidence normalizes to a license your allow-list rejects** — so `--update-baseline` cannot silence a GPL dependency, not even one hidden inside a conflict.
+
+The file is generated; you never write it by hand. Each entry keeps the raw claims so a reviewer can judge it straight from a pull request diff:
+
+```json
+{
+  "ecosystem": "npm",
+  "name": "vague",
+  "version": "0.1.0",
+  "purl": "pkg:npm/vague@0.1.0",
+  "status": "ambiguous",
+  "evidence": [ { "source": "sbom", "kind": "name", "raw": "BSD" } ],
+  "fingerprint": "ffb2d51436e7..."
+}
+```
+
+The fingerprint makes an acknowledgement expire by itself. When a version changes, a registry corrects its metadata, or a repository's license file changes, the entry stops applying and the component fails again until it is reviewed anew. `--update-baseline` always rewrites the whole file, so a baseline is a reviewed snapshot to reduce, not a list to curate. `--baseline` must be named explicitly; Ol never picks one up by convention.
+
+Ol cannot identify every forbidden license: an unnormalizable string such as `GPLv3` has no SPDX meaning to check against, and Ol refuses to guess. Such a claim can be acknowledged, but its raw text appears in the baseline diff, so it stays visible to review.
+
+### Re-checking without rescanning
+
+Save a report once, then evaluate any policy against it offline. No input parsing, no registry or repository calls, no network:
+
+```bash
+ol scan --input . --format Json --out-file ol-report.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
+```
+
+The canonical JSON report is the input contract, so there is no second file format to keep in sync. `--report` cannot be combined with `--input` or the evidence-collection options; `--baseline` and `--sarif` still work.
+
+### CI code scanning (SARIF)
+
+```bash
+ol check --input . --allow-licenses MIT --sarif ol.sarif
+```
+
+Text output on stdout is unchanged; SARIF carries the same violations. Because Ol reads resolved graphs rather than manifests, results use logical locations instead of invented file positions, and each one names the direct dependency that introduced a transitive violation — the part you can actually change:
+
+```text
+pkg:npm/poison@2.0.0: license is not allowed (GPL-3.0-only).
+Introduced through pkg:npm/direct@1.0.0 > pkg:npm/poison@2.0.0
+```
+
+Rule IDs are stable: `OL0001` not allowed, `OL0002` evidence conflict, `OL0003` unresolved, `OL0004` ambiguous, `OL0005` invalid expression, `OL0006` evidence error.
+
+## Compare two reports
+
+`diff` shows only what changed about licensing between two saved reports, so a reviewer does not have to read a whole report to find it.
+
+```bash
+ol diff --previous before.json --current after.json --allow-licenses MIT
+```
+
+```text
+License-relevant changes: 2 changes.
+
+Change           Ecosystem  Name    Previous  Current
+license-changed  npm        poison  MIT       GPL-3.0-only
+policy-changed   npm        poison  MIT       GPL-3.0-only
+```
+
+Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, `evidence-changed`, and `policy-changed` when `--allow-licenses` is given. `evidence-changed` means the underlying claims moved while the conclusion held — a change of fact rather than of wording. `--format Json` emits the same set as a document. `diff` reports rather than enforces: it exits `0` unless a report could not be read.
 
 ## Dependency inputs
 

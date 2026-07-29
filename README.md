@@ -1,10 +1,95 @@
+[![build](https://github.com/guitarrapc/ol/actions/workflows/build.yml/badge.svg)](https://github.com/guitarrapc/ol/actions/workflows/build.yml)
+[![Release](https://github.com/guitarrapc/ol/actions/workflows/release.yaml/badge.svg)](https://github.com/guitarrapc/ol/actions/workflows/release.yaml)
+
 # ol
 
-OpenSource License checker.
+Open-source license checker for resolved dependencies and SBOMs.
 
 ol consumes an SBOM or a supported resolved package-manager input, enriches its components with package metadata and source-repository license evidence, reconciles those claims through SPDX semantics, and produces explainable reports for review or policy checks. SBOM generation and ecosystem-specific dependency resolution remain the responsibility of ecosystem-native tools.
 
 Source-repository enrichment intentionally uses the GitHub License API as a bounded evidence source. ol does not crawl arbitrary repository contents or guess licenses from repository layout; component-level evidence for repositories with independently licensed subtrees should be supplied by the SBOM or other dependency input.
+
+## Why ol?
+
+A dependency manifest tells you what a project requested, but license review needs the versions that the build actually resolved, including transitive dependencies. The result must also be useful to both a human reviewer and a CI policy check.
+
+Use ol when you want to:
+
+- review the licenses of the dependencies in a release, audit, or pull request;
+- find missing, ambiguous, or conflicting license evidence before applying policy;
+- enforce an SPDX license allow-list in CI;
+- compare two saved reports and focus review on license-relevant changes.
+
+ol deliberately starts from a resolved dependency graph: a CycloneDX or SPDX JSON SBOM, a supported lockfile, or package-manager output such as `project.assets.json` or `cargo metadata`. It does not resolve manifests or version ranges itself.
+
+## Quick start
+
+Download the archive for your platform from [GitHub Releases](https://github.com/guitarrapc/ol/releases), extract it, and place `ol` (`ol.exe` on Windows) on `PATH`. Release archives are available for Linux, Windows, and macOS on x64 and Arm64.
+
+For GitHub Actions, [guitarrapc/setup-ol](https://github.com/guitarrapc/setup-ol) downloads ol and adds it to `PATH`:
+
+```yaml
+steps:
+  - uses: actions/checkout@v7
+  - uses: guitarrapc/setup-ol@v1.0.0
+  - run: ol --version
+```
+
+`setup-ol` installs the latest release by default. Set `ol-version` to pin a version:
+
+```yaml
+- uses: guitarrapc/setup-ol@v1.0.0
+  with:
+    ol-version: 0.1.0
+```
+
+### Scan resolved dependencies
+
+Point ol at a supported resolved dependency file or a directory containing one:
+
+```bash
+ol scan --input .
+```
+
+For example, ol discovers `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `Gemfile.lock`, and other [supported inputs](#sbom-and-ecosystem-support). To scan an SBOM explicitly:
+
+```bash
+ol scan --input bom.cdx.json
+```
+
+The text report shows each resolved component, its reconciled license, dependency type, and resolution status:
+
+```text
+Input: package-manager/npm-package-lock
+
+NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS
+example-lib 1.2.3 MIT npm direct matched
+```
+
+Write a reviewable Markdown report with:
+
+```bash
+ol scan --input . --format markdown --out-file ol-report.md
+```
+
+### Enforce a license policy
+
+After reviewing the scan, allow the SPDX License Identifiers accepted by your project:
+
+```bash
+ol check --input . --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
+```
+
+`check` exits `0` when every dependency satisfies the allow-list, `1` for policy violations, and `2` when the check cannot be completed. In GitHub Actions, explicitly map the token if you want authenticated GitHub source-license enrichment:
+
+```yaml
+- uses: guitarrapc/setup-ol@v1.0.0
+- run: ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+  env:
+    OL_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+If ol cannot resolve every existing dependency on first adoption, create and review a [baseline](#adopting-check-on-an-existing-project) rather than weakening the allow-list.
 
 ## Usage
 
@@ -112,7 +197,7 @@ Use an isolated cache root when a build or CI job must not share the user cache:
 dotnet run --project src/ol -- scan --input sandbox/sbom/cyclonedx-sample.json --cache-dir .tmp/ol-cache
 ```
 
-## Check licenses
+### Check licenses
 
 Use `check` in CI to allow only selected SPDX License Identifiers. `check` runs the same input detection and license enrichment as `scan`, evaluates every resolved component, and reports all violations.
 
@@ -164,7 +249,7 @@ ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0 --skip-enrichment
 
 Because unresolved licenses fail closed, `--skip-enrichment` can produce violations that a full enriched check would resolve.
 
-### Adopting `check` on an existing project
+#### Adopting `check` on an existing project
 
 Failing closed is right for a pull request, where the baseline is already clean and anything newly unresolved deserves a look. It is not enough for a product that already exists: real dependency sets contain components whose license Ol cannot resolve, and most of them are not something you can fix. A baseline records the unresolved components you have reviewed and accepted, so only *newly* unresolved components fail.
 
@@ -208,7 +293,7 @@ The fingerprint makes an acknowledgement expire by itself. When a version change
 
 Ol cannot identify every forbidden license: an unnormalizable string such as `GPLv3` has no SPDX meaning to check against, and Ol refuses to guess. Such a claim can be acknowledged, but its raw text appears in the baseline diff, so it stays visible to review.
 
-### Re-checking without rescanning
+#### Re-checking without rescanning
 
 Save a report once, then evaluate any policy against it offline. No input parsing, no registry or repository calls, no network:
 
@@ -219,7 +304,7 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 
 The canonical JSON report is the input contract, so there is no second file format to keep in sync. `--report` cannot be combined with `--input` or the evidence-collection options; `--baseline` and `--sarif` still work.
 
-### CI code scanning (SARIF)
+#### CI code scanning (SARIF)
 
 ```bash
 ol check --input . --allow-licenses MIT --sarif ol.sarif
@@ -234,7 +319,7 @@ Introduced through pkg:npm/direct@1.0.0 > pkg:npm/poison@2.0.0
 
 Rule IDs are stable: `OL0001` not allowed, `OL0002` evidence conflict, `OL0003` unresolved, `OL0004` ambiguous, `OL0005` invalid expression, `OL0006` evidence error.
 
-## Compare two reports
+### Compare two reports
 
 `diff` shows only what changed about licensing between two saved reports, so a reviewer does not have to read a whole report to find it.
 
@@ -252,7 +337,25 @@ policy-changed   npm        poison  MIT       GPL-3.0-only
 
 Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, `evidence-changed`, and `policy-changed` when `--allow-licenses` is given. `evidence-changed` means the underlying claims moved while the conclusion held — a change of fact rather than of wording. `--format Json` emits the same set as a document. `diff` reports rather than enforces: it exits `0` unless a report could not be read.
 
-## Dependency inputs
+## SBOM and ecosystem support
+
+ol supports CycloneDX and SPDX JSON SBOMs across ecosystems. It can also read the following resolved package-manager inputs directly:
+
+| Ecosystem | Direct resolved input | Direct support |
+| --- | --- | --- |
+| .NET / NuGet | `project.assets.json` | Supported |
+| JavaScript / npm | `package-lock.json` version 2/3 | Supported |
+| JavaScript / pnpm | `pnpm-lock.yaml` version 9 | Supported |
+| JavaScript / Yarn | Yarn Classic v1 and Berry metadata v8 `yarn.lock` | Supported |
+| Rust / Cargo | `cargo metadata --format-version 1` JSON | Supported |
+| Go modules | `go list -m -json all` plus `go mod graph` | Supported |
+| Python | `pip inspect` JSON format version 1 | Supported |
+| PHP / Composer | Same-directory `composer.json` and `composer.lock` | Supported |
+| Ruby / Bundler | `Gemfile.lock` | Supported |
+| Java / Maven | Maven Dependency Plugin 3.7+ tree JSON | Supported |
+| Java / Gradle | — | Use a CycloneDX or SPDX JSON SBOM |
+
+The sections below show how to generate or select each input and include report examples. For the exact file-discovery rules and recommended workflow by ecosystem, see [Dependency files by ecosystem](#dependency-files-by-ecosystem).
 
 ### SBOM
 
@@ -679,6 +782,46 @@ ol check --input src/backend --input src/frontend --input src/rust --input src/g
 ol recursively discovers `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, both Yarn lock formats, `cargo-metadata.json`, `pip-inspect.json`, `Gemfile.lock`, and complete Composer and Go companion pairs. Different detected formats produce a `package-manager/collection` report. Every input keeps its own contexts, occurrences, and edges; ol does not invent cross-language dependency edges. Components are combined only under the originating format's identity rules, so the same npm purl resolved by npm and pnpm remains separate graph evidence while registry enrichment work is deduplicated by cache key.
 
 ol intentionally rejects SBOM and package-manager inputs in the same report, and it does not accept multiple SBOM files as an implicit union. Combining them would double-count packages and make conflicting graph/evidence precedence ambiguous. To validate both paths in CI, produce two independent reports: a canonical SBOM report and a direct-lockfile report. The runnable mixed-manager example is under [sandbox/package-manager-inputs](sandbox/package-manager-inputs/README.md).
+
+## FAQ
+
+### Can I pass a manifest such as `package.json`, `*.csproj`, or `Cargo.toml`?
+
+No. ol reads dependencies that have already been resolved, so it can review the exact versions and transitive graph used by the build. Generate an SBOM or use the [supported resolved input](#dependency-files-by-ecosystem) for the ecosystem.
+
+### Should I use an SBOM or a package-manager input?
+
+Prefer one canonical CycloneDX or SPDX JSON SBOM for a release or audit artifact, especially for a repository with multiple ecosystems. Direct package-manager inputs are convenient for local feedback and for ecosystems where the resolved graph is already committed or generated by the build.
+
+### Can ol scan several ecosystems in one repository?
+
+Yes. The preferred workflow is a repository-wide SBOM. ol can also discover several supported package-manager inputs from directories and combine them into one report. It does not mix SBOMs with package-manager inputs or implicitly merge multiple SBOM files.
+
+### Does ol need network access?
+
+By default, ol enriches input evidence with package metadata and bounded GitHub License API lookups. Use `--skip-enrichment` to rely only on evidence already present in the input. Unresolved components remain visible in `scan` and fail closed in `check`.
+
+### How do I avoid GitHub API rate limits in CI?
+
+Map a token explicitly as `OL_GITHUB_TOKEN`. ol does not implicitly read `GITHUB_TOKEN`:
+
+```yaml
+env:
+  OL_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### What should I do with an unresolved existing dependency?
+
+Review its raw evidence first. When adopting `check` on an existing project, a generated [baseline](#adopting-check-on-an-existing-project) can acknowledge reviewed unresolved components while continuing to reject forbidden licenses and newly changed evidence.
+
+### Can I apply a different policy without scanning again?
+
+Yes. Persist a JSON report and pass it to `check`:
+
+```bash
+ol scan --input . --format json --out-file ol-report.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
+```
 
 
 ## Development

@@ -400,11 +400,9 @@ Pythonはpip 23.0以降stableと宣言された`pip inspect` JSON format version
 - 安定した標準出力がないecosystemでは、Ol固有portable inventoryを新設せず、既存SBOM生成経路を推奨する選択肢を残す。
 - adapter採用前にdeterminism、Native AOT依存、pathological input、allocation floorを評価する。
 
-### Phase 14: Swift resolved input調査
+### Phase 14: Swift SwiftPM / CocoaPods resolved input調査
 
-### Phase 15: Swift SwiftPM / CocoaPods resolved input調査
-
-### Phase 16: Dart Pub input調査
+### Phase 15: Dart Pub input調査
 
 ## テスト方針
 

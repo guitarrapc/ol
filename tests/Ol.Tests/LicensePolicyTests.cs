@@ -56,6 +56,24 @@ public sealed class LicensePolicyTests
     }
 
     [Test]
+    public async Task Evaluate_WithRootAndUnknownDependency_IgnoresOnlyRootAndPreservesComponentIndex()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], Spdx, out var policy, out _);
+        ScanComponent[] components =
+        [
+            CreateComponent("GPL-3.0-only", LicenseStatus.Matched, "application") with { DependencyType = DependencyType.Root },
+            CreateComponent(default, LicenseStatus.Unknown, "dependency"),
+        ];
+
+        var violations = policy.Evaluate(components, null, out _, out var evaluatedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(evaluatedCount).IsEqualTo(1);
+        await Assert.That(violations[0].ComponentIndex).IsEqualTo(1);
+        await Assert.That(violations[0].Kind).IsEqualTo(LicensePolicyViolationKind.Unknown);
+    }
+
+    [Test]
     public async Task Evaluate_MultipleComponents_ReturnsEveryViolationInComponentOrder()
     {
         LicenseAllowPolicy.TryCreate(["MIT"], Spdx, out var policy, out _);

@@ -148,6 +148,26 @@ public sealed class SarifOutputTests
     }
 
     [Test]
+    public async Task Sarif_WithUnknownRootAndAllowedDependency_EmitsNoRootViolation()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteCycloneDxWithUnknownRootAsync();
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--skip-enrichment", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(document.RootElement.GetProperty("runs")[0].GetProperty("results").GetArrayLength()).IsEqualTo(0);
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    [Test]
     public async Task Sarif_AcknowledgedComponents_AreAbsent()
     {
         var root = FindRepositoryRoot();
@@ -215,6 +235,44 @@ public sealed class SarifOutputTests
           }
         }
         """;
+        await File.WriteAllTextAsync(path, json, Encoding.UTF8);
+        return path;
+    }
+
+    private static async Task<string> WriteCycloneDxWithUnknownRootAsync()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"ol-sarif-{Guid.NewGuid():N}.json");
+        const string json =
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "metadata": {
+                "component": {
+                  "type": "application",
+                  "bom-ref": "application@1.0.0",
+                  "name": "application",
+                  "version": "1.0.0"
+                }
+              },
+              "components": [
+                {
+                  "type": "library",
+                  "bom-ref": "pkg:npm/example@1.0.0",
+                  "name": "example",
+                  "version": "1.0.0",
+                  "purl": "pkg:npm/example@1.0.0",
+                  "licenses": [{ "expression": "MIT" }]
+                }
+              ],
+              "dependencies": [
+                {
+                  "ref": "application@1.0.0",
+                  "dependsOn": ["pkg:npm/example@1.0.0"]
+                }
+              ]
+            }
+            """;
         await File.WriteAllTextAsync(path, json, Encoding.UTF8);
         return path;
     }

@@ -161,8 +161,7 @@ jobs:
         run: |
           $output = "$env:RUNNER_TEMP/live-self"
           ./sandbox/ci/Assert-SelfScan.ps1 -Sbom "$output/ol.cdx.json" -Report "$output/ol.json"
-          ./sandbox/ci/New-DependencyPolicyInput.ps1 -Sbom "$output/ol.cdx.json" -Output "$output/dependencies.cdx.json"
-          dotnet src/Ol/bin/Release/net10.0/ol.dll check --input "$output/dependencies.cdx.json" --allow-licenses MIT --skip-enrichment
+          dotnet src/Ol/bin/Release/net10.0/ol.dll check --input "$output/ol.cdx.json" --allow-licenses MIT --skip-enrichment
           if ($LASTEXITCODE -ne 0) {
             throw "Live self-scan license policy failed."
           }

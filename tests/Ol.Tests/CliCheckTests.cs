@@ -42,6 +42,69 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    public async Task Check_WithUnknownRootAndAllowedDependency_IgnoresRoot()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxWithRootAsync(rootLicense: null, dependencyLicense: "MIT");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).Contains("License check passed: 1 component satisfies the allow-list.");
+            await Assert.That(result.Stdout).DoesNotContain("application");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithForbiddenRootAndUnknownDependency_EvaluatesOnlyDependency()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxWithRootAsync(rootLicense: "GPL-3.0-only", dependencyLicense: null);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).Contains("License check failed: 1 violation.");
+            await Assert.That(result.Stdout).Contains("example");
+            await Assert.That(result.Stdout).Contains("license is unresolved");
+            await Assert.That(result.Stdout).DoesNotContain("application");
+            await Assert.That(result.Stdout).DoesNotContain("GPL-3.0-only");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithOnlyUnknownRoot_PassesWithZeroPolicyComponents()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxRootOnlyAsync();
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).Contains("License check passed: 0 components satisfy the allow-list.");
+            await Assert.That(result.Stdout).DoesNotContain("application");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithForbiddenLicense_ReturnsOneAndCompleteViolation()
     {
         var root = FindRepositoryRoot();
@@ -200,6 +263,29 @@ public sealed class CliCheckTests
             await Assert.That(rerun.Stdout).Contains("Acknowledged by baseline: 1 component.");
             await Assert.That(File.Exists(baselinePath)).IsTrue();
             await Assert.That(await File.ReadAllTextAsync(baselinePath)).Contains("\"status\": \"unknown\"");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(baselinePath)) File.Delete(baselinePath);
+        }
+    }
+
+    [Test]
+    public async Task Check_UpdateBaseline_WithUnknownRootAndDependency_RecordsOnlyDependency()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxWithRootAsync(rootLicense: null, dependencyLicense: null);
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath, "--update-baseline");
+            var baseline = await File.ReadAllTextAsync(baselinePath);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("Acknowledged by baseline: 1 component.");
+            await Assert.That(baseline).Contains("\"name\": \"example\"");
+            await Assert.That(baseline).DoesNotContain("\"name\": \"application\"");
         }
         finally
         {
@@ -380,6 +466,30 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    public async Task Check_WithReportContainingUnknownRoot_IgnoresRoot()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxWithRootAsync(rootLicense: null, dependencyLicense: "MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("License check passed: 1 component satisfies the allow-list.");
+            await Assert.That(result.Stdout).DoesNotContain("application");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithReportAndBaseline_AcknowledgesUnresolved()
     {
         var root = FindRepositoryRoot();
@@ -448,6 +558,52 @@ public sealed class CliCheckTests
         var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
         var licenseJson = license is null ? string.Empty : $", \"licenses\": [{{ \"expression\": \"{license}\" }}]";
         var json = string.Concat("{ \"bomFormat\": \"CycloneDX\", \"specVersion\": \"1.6\", \"components\": [{ \"type\": \"library\", \"name\": \"example\", \"version\": \"", version, "\", \"purl\": \"pkg:npm/example@", version, "\"", licenseJson, " }] }");
+        await File.WriteAllTextAsync(inputPath, json, Encoding.UTF8);
+        return inputPath;
+    }
+
+    private static async Task<string> WriteCycloneDxWithRootAsync(string? rootLicense, string? dependencyLicense)
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        var rootLicenseJson = rootLicense is null ? string.Empty : $", \"licenses\": [{{ \"expression\": \"{rootLicense}\" }}]";
+        var dependencyLicenseJson = dependencyLicense is null ? string.Empty : $", \"licenses\": [{{ \"expression\": \"{dependencyLicense}\" }}]";
+        var json = string.Concat(
+            "{ \"bomFormat\": \"CycloneDX\", \"specVersion\": \"1.6\", ",
+            "\"metadata\": { \"component\": { \"type\": \"application\", \"bom-ref\": \"application@1.0.0\", \"name\": \"application\", \"version\": \"1.0.0\"",
+            rootLicenseJson,
+            " } }, ",
+            "\"components\": [{ \"type\": \"library\", \"bom-ref\": \"pkg:npm/example@1.0.0\", \"name\": \"example\", \"version\": \"1.0.0\", \"purl\": \"pkg:npm/example@1.0.0\"",
+            dependencyLicenseJson,
+            " }], ",
+            "\"dependencies\": [{ \"ref\": \"application@1.0.0\", \"dependsOn\": [\"pkg:npm/example@1.0.0\"] }] }");
+        await File.WriteAllTextAsync(inputPath, json, Encoding.UTF8);
+        return inputPath;
+    }
+
+    private static async Task<string> WriteCycloneDxRootOnlyAsync()
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        const string json =
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "metadata": {
+                "component": {
+                  "type": "application",
+                  "bom-ref": "application@1.0.0",
+                  "name": "application",
+                  "version": "1.0.0"
+                }
+              },
+              "dependencies": [
+                {
+                  "ref": "application@1.0.0",
+                  "dependsOn": []
+                }
+              ]
+            }
+            """;
         await File.WriteAllTextAsync(inputPath, json, Encoding.UTF8);
         return inputPath;
     }

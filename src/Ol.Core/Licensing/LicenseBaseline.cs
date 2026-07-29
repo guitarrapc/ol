@@ -102,7 +102,7 @@ public sealed class LicenseBaseline
         return new LicenseBaseline(keys.ToFrozenSet(StringComparer.Ordinal));
     }
 
-    /// <summary>Builds the deterministic snapshot of every component the policy allows to be acknowledged.</summary>
+    /// <summary>Builds the deterministic snapshot of every non-root component the policy allows to be acknowledged.</summary>
     public static LicenseBaselineEntry[] CreateEntries(ReadOnlySpan<ScanComponent> components, LicenseAllowPolicy policy)
     {
         ArgumentNullException.ThrowIfNull(policy);
@@ -113,6 +113,7 @@ public sealed class LicenseBaseline
         for (var i = 0; i < components.Length; i++)
         {
             ref readonly var component = ref components[i];
+            if (component.DependencyType == DependencyType.Root) continue;
             if (!policy.CanAcknowledge(component)) continue;
 
             var fingerprint = ComputeFingerprint(component);

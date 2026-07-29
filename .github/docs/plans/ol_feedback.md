@@ -167,7 +167,7 @@ Introduced through pkg:npm/direct@1.0.0 > pkg:npm/poison@2.0.0
 
 現状は上表のとおり 13 input / 8 provider で、RubyとMaven resolved inputおよびMaven metadata enrichmentは対応済みである。参照ツール群と比べて残る主な空白は次になる。
 
-1. **Gradle** — resolved inputは未対応。multi-module、dependency management、Gradle variantが公式から解決提供されておらず、サポート対象にすべきではない。ため。
+1. **Gradle** — resolved inputは未対応。multi-module、dependency management、Gradle variantが公式から解決提供されておらず、サポート対象にすべきではないため。
 2. **Apple: SwiftPM / CocoaPods** — package graph と Git provenance は取りやすいが、registry metadata より source legal files の比重が高く、Gap 4 の未決事項に依存する。
 3. **Dart / Flutter: Pub** — lockfile と pub.dev metadata を使える。
 4. Erlang / Elixir、Haskell、Conan 等。

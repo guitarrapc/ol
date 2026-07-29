@@ -161,7 +161,7 @@ pkg:npm/poison@2.0.0: license is not allowed (GPL-3.0-only).
 Introduced through pkg:npm/direct@1.0.0 > pkg:npm/poison@2.0.0
 ```
 
-**確認できた挙動**: violation kind ごとに安定した rule ID（OL0001〜OL0006） / direct・transitive・違反なし・承認済みの fixture を持つ / check text と SARIF で violation 集合が一致する / 絶対 path・cache path・token を出力しない / 永続 report 経由では graph が無いため path を出さない（偽の path を作らない）。
+**確認できた挙動**: violation kind ごとに安定した rule ID（OL0001〜OL0006） / direct・transitive・違反なし・承認済みの fixture を持つ / check text と SARIF で violation 集合が一致する / 絶対 path・cache path・token を出力しない / canonical JSON の完全な inventory / graph を復元するため、永続 report 経由でも dependency path を維持する。
 
 ### Gap 7 / P2: ecosystem coverage
 

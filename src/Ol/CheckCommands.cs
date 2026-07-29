@@ -71,7 +71,6 @@ internal sealed class CheckCommands
         ScanComponent[] components;
         string licenseListVersion;
         LicenseAllowPolicy policy;
-        // A persisted report carries no graph, so SARIF from a report has logical locations without paths.
         var inventory = default(DependencyInventory);
         if (reportPath is not null)
         {
@@ -94,6 +93,7 @@ internal sealed class CheckCommands
             }
 
             components = persisted.Components;
+            inventory = persisted.Inventory;
             licenseListVersion = reportSpdx.LicenseListVersion;
             if (verbose)
             {

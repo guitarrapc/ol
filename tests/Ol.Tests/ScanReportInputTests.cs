@@ -108,6 +108,26 @@ public sealed class ScanReportInputTests
     }
 
     [Test]
+    public async Task TryRead_WithNonObjectInputMetadata_FailsWithActionableError()
+    {
+        var json = $$"""
+        {
+          "schemaVersion": 1,
+          "metadata": {
+            "input": [ { "kind": "sbom" } ],
+            "spdx": { "licenseListVersion": "5e59516" }
+          },
+          "components": [ {{Component()}} ]
+        }
+        """;
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
+
+        await Assert.That(parsed).IsFalse();
+        await Assert.That(error).Contains("metadata.input");
+    }
+
+    [Test]
     public async Task TryRead_WithGroupedReport_FailsWithActionableError()
     {
         var json = """{ "schemaVersion": 1, "metadata": { "tool": "ol" }, "groups": [ { "key": "MIT", "count": 2 } ] }""";
@@ -116,6 +136,34 @@ public sealed class ScanReportInputTests
 
         await Assert.That(parsed).IsFalse();
         await Assert.That(error).Contains("--group-by");
+    }
+
+    [Test]
+    public async Task TryRead_WithInvalidInventoryIndex_Fails()
+    {
+        var json = $$"""
+        {
+          "schemaVersion": 1,
+          "metadata": {
+            "input": { "kind": "sbom", "format": "cyclonedx", "sourceRef": "sbom.json", "parser": "cyclonedx-json" },
+            "spdx": { "licenseListVersion": "5e59516" }
+          },
+          "inventory": {
+            "contexts": [],
+            "components": [
+              { "name": "example", "version": "1.0.0", "ecosystem": "npm", "dependency": "direct", "purl": "pkg:npm/example@1.0.0", "sourceId": "example" }
+            ],
+            "occurrences": [ { "contextIndex": -1, "componentIndex": 1 } ],
+            "edges": []
+          },
+          "components": [ {{Component()}} ]
+        }
+        """;
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
+
+        await Assert.That(parsed).IsFalse();
+        await Assert.That(error).Contains("componentIndex");
     }
 
     // Diff.

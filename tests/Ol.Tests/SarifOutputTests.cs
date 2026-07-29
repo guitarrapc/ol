@@ -64,6 +64,48 @@ public sealed class SarifOutputTests
     }
 
     [Test]
+    public async Task Sarif_FromPersistedReport_PreservesTheDependencyPath()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "MIT", transitiveLicense: "GPL-3.0-only");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.json");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            var scan = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                input,
+                "--skip-enrichment",
+                "--format",
+                "Json",
+                "--sort",
+                "name",
+                "--sort-order",
+                "desc",
+                "--out-file",
+                reportPath);
+            var check = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--sarif", sarifPath);
+
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await Assert.That(check.ExitCode).IsEqualTo(1).Because($"{check.Stderr}\n{check.Stdout}");
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+
+            var result = document.RootElement.GetProperty("runs")[0].GetProperty("results")[0];
+            var path = result.GetProperty("properties").GetProperty("dependencyPath");
+
+            await Assert.That(path.GetArrayLength()).IsEqualTo(2);
+            await Assert.That(path[0].GetString()).IsEqualTo("pkg:npm/direct@1.0.0");
+            await Assert.That(path[1].GetString()).IsEqualTo("pkg:npm/transitive@1.0.0");
+        }
+        finally
+        {
+            Cleanup(input, reportPath, sarifPath);
+        }
+    }
+
+    [Test]
     public async Task Sarif_MatchesTheTextViolationSet()
     {
         var root = FindRepositoryRoot();

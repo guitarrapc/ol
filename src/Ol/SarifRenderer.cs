@@ -86,7 +86,8 @@ internal static class SarifRenderer
     {
         var component = components[violation.ComponentIndex];
         var identity = Identity(component);
-        var path = DependencyPathResolver.FindShortestRootPath(inventory, violation.ComponentIndex);
+        var inventoryComponentIndex = FindInventoryComponentIndex(inventory.Components, component, violation.ComponentIndex);
+        var path = DependencyPathResolver.FindShortestRootPath(inventory, inventoryComponentIndex);
 
         writer.WriteStartObject();
         writer.WriteString("ruleId"u8, RuleId(violation.Kind));
@@ -128,6 +129,32 @@ internal static class SarifRenderer
         writer.WriteEndObject();
         writer.WriteEndObject();
     }
+
+    private static int FindInventoryComponentIndex(
+        ReadOnlySpan<ScanComponent> inventoryComponents,
+        in ScanComponent component,
+        int preferredIndex)
+    {
+        if ((uint)preferredIndex < (uint)inventoryComponents.Length
+            && HasSameIdentity(inventoryComponents[preferredIndex], component))
+        {
+            return preferredIndex;
+        }
+
+        for (var i = 0; i < inventoryComponents.Length; i++)
+        {
+            if (HasSameIdentity(inventoryComponents[i], component)) return i;
+        }
+
+        return -1;
+    }
+
+    private static bool HasSameIdentity(in ScanComponent left, in ScanComponent right)
+        => left.Name.Equals(right.Name)
+            && left.Version.Equals(right.Version)
+            && left.Purl.Equals(right.Purl)
+            && left.SourceId.Equals(right.SourceId)
+            && string.Equals(left.Ecosystem, right.Ecosystem, StringComparison.Ordinal);
 
     private static string BuildMessage(
         in ScanComponent component,

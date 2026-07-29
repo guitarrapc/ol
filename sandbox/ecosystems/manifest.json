@@ -46,7 +46,7 @@
     {
       "ecosystem": "maven",
       "path": "sandbox/ecosystems/maven",
-      "package": "slf4j-api",
+      "package": "org.slf4j/slf4j-api",
       "metadataSource": "package-registry"
     }
   ]

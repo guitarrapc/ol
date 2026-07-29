@@ -1,8 +1,8 @@
-# 任意パッケージのライセンスポリシー例外
+# exact versioned PURL のライセンスポリシー例外
 
 ## 背景
 
-組織全体のルールとして development-only dependency に追加ライセンスを許可する場合は、[開発専用依存の追加 allow-list](plan_development_license_policy.md) のような CLI policy が適している。
+組織全体のルールとして resolver 上の development scope に追加ライセンスを許可する場合は、[development scope の追加 allow-list](plan_development_license_policy.md) のような CLI policy が適している。
 
 一方、次の判断は全体ルールではなく、個別にレビューされた例外である。
 
@@ -24,7 +24,7 @@ ol check --input . \
   --policy-exceptions ol-policy-exceptions.json
 ```
 
-初期 schema は exact package/version と、その package に追加で許可する SPDX License Identifier、理由、owner、期限だけを持つ。
+初期 schema は exact versioned PURL と、その package に追加で許可する SPDX License Identifier、機械的な usage 条件、理由、owner、期限を持つ。
 
 ```json
 {
@@ -35,7 +35,8 @@ ol check --input . \
       "allowLicenses": [
         "LGPL-2.1-only"
       ],
-      "reason": "Build-time tool only; not included in distributed artifacts",
+      "usage": "development",
+      "reason": "Approved for resolver-declared development scope; the production artifact is checked separately",
       "owner": "frontend-platform",
       "expiresOn": "2027-03-31"
     }
@@ -47,14 +48,17 @@ ol check --input . \
 
 ## 例外の意味
 
-### exact identity
+### exact PURL identity
 
-例外は canonical versioned purl と exact match する component だけに適用する。
+初期実装は report が出力する versioned purl の UTF-8 bytes と exact match する component だけに適用する。利用者は report の purl をそのまま policy file へコピーする。PURL の意味的 canonicalization、type casing、percent-encoding、qualifier order の同値化は初期 scope に含めない。
 
 - version を省略した package-wide exception は許可しない。
 - wildcard、glob、正規表現、version range は初期 schema に含めない。
 - ecosystem/name だけの fallback match は行わない。
-- purl が同じ複数 occurrence に適用されることは許すが、異なる report component identity に曖昧に一致してはならない。
+- purl を持たない private/path/git component は初期 schema の対象外とする。
+- 同じ purl を持つ複数 occurrence または複数 report component がある場合、一つの entry をその全 component へ適用する。package/version 単位の例外であり、installed path 単位の例外ではない。
+- 各 component では license、usage、期限を独立に評価する。一つの component に適用できたことを理由に、同じ purl の別 component の条件を省略しない。
+- 特定 source ID または installed path だけを選ぶ selector は初期 scope に含めない。
 
 version update で例外が自動的に外れ、再レビューされることを優先する。利用者の typo や stale entry は通常ポリシーを弱めないため、match しない例外として可視化する。
 
@@ -70,6 +74,19 @@ version update で例外が自動的に外れ、再レビューされること�
 - `allowLicenses` の未知 identifier、空配列、expression、exception identifier は configuration error とする。
 
 例外は `LicenseStatus.Matched` にだけ適用する。`unknown`、`ambiguous`、`conflict`、`invalid`、`error` を個別例外で隠さない。初期実装では package exception を `LicenseAllowPolicy.CanAcknowledge` に持ち込まず、baseline の候補判定も変更しない。
+
+### usage constraint
+
+`usage` は必須で、次の二値だけを受け付ける。
+
+| 値 | 意味 |
+|---|---|
+| `development` | [development scope policy](plan_development_license_policy.md) と同じ resolver usage が `DevelopmentOnly` の component にだけ適用する |
+| `any` | runtime、development を問わない無条件の package/version 例外として適用する |
+
+`development` entry は、同じ purl/version/license の package が runtime へ移った場合に自動的に失効する。mixed または usage unknown の component へは適用しない。package-manager scope は artifact 非包含を証明しないため、`reason` に「製品へ含まれない」と書くだけでは条件を追加できない。
+
+`any` は通常 allow-list を package/version 単位で意図的に広げる強い承認である。既定値を設けず、利用者が明示した場合だけ受け付ける。`reason`、owner、CODEOWNERS 等の repository review はこの承認の governance であり、Ol が owner の権限を認証するものではない。
 
 ### owner、reason、期限
 
@@ -89,20 +106,29 @@ version update で例外が自動的に外れ、再レビューされること�
 Policy exceptions evaluated as of 2026-07-29 UTC.
 ```
 
-将来、過去日での監査再実行が必要になった場合は、evaluation date の明示入力を別 plan で検討する。初期 CLI に `--policy-date` は追加しない。
+過去の判定を再現できるよう、初期 CLI から任意の `--policy-date YYYY-MM-DD` を追加する。`--policy-exceptions` 指定時だけ使用でき、省略時は UTC の現在日を一度だけ取得する。指定時は system clock を読まない。
+
+```text
+ol check --report ol-report.json \
+  --allow-licenses MIT,Apache-2.0 \
+  --policy-exceptions ol-policy-exceptions.json \
+  --policy-date 2026-07-29
+```
+
+同じ report、SPDX data、policy file、evaluation date は同じ verdict と stdout を返す。
 
 ## policy の合成順序
 
 複数の許可手段を次の順序で評価する。
 
 1. 通常の `--allow-licenses`
-2. component が development-only の場合の `--allow-dev-licenses`
-3. exact purl に一致する有効な package exception
+2. component が resolver 上の `DevelopmentOnly` である場合の `--allow-dev-licenses`
+3. exact purl、license、usage、期限が一致する package exception
 4. unresolved component に対する baseline acknowledgement
 
 1〜3は `LicenseStatus.Matched` の SPDX expression を評価する。4は unresolved evidence にだけ作用する。この順序は「強い順」ではなく、どの理由で通過したかを一意に記録するための precedence である。
 
-通常 allow-list で通過した component は package exception の適用件数に数えない。development policy で通過した component も package exception に数えない。package exception は前段で失敗した場合だけ使用する。
+通常 allow-list で通過した component は package exception の適用 component 数に数えない。development policy で通過した component も package exception に数えない。package exception は前段で失敗した場合だけ verdict を変えるが、entry 自体は後述の `redundant` として追跡する。
 
 同じ purl に複数 entry を置くことは拒否する。複数 entry の allow-list、owner、期限を暗黙に merge すると、どの承認が verdict を変えたか一意に説明できないためである。
 
@@ -116,9 +142,10 @@ policy exception file は独立した schema version を持つ。canonical scan 
 - 必須の `exceptions` array
 - entry 数、文字列長、file byte length の上限
 - 必須 field、未知 field の扱い
-- canonical versioned purl
+- report と exact match する versioned purl
 - 重複 purl
 - SPDX identifier の正規化と重複
+- `usage` の必須性と `development` / `any` 以外の拒否
 - 空または whitespace-only の `owner` / `reason`
 - `expiresOn` の厳密な日付形式と実在日
 
@@ -126,19 +153,24 @@ policy exception file は独立した schema version を持つ。canonical scan 
 
 missing、unreadable、malformed、unsupported schema、重複 entry は exit 2 の command/configuration failure とする。途中まで読めた例外だけを適用して partial policy result を出してはならない。
 
-## 未使用・期限切れの扱い
+## entry 状態と適用結果
 
-例外ファイルを指定した場合、次の件数を pass/fail にかかわらず表示する。
+例外ファイルを指定した場合、全 entry を次の排他的な状態の一つへ分類する。状態数の合計は常に exception entry 数と一致する。
+
+1. `expired`: purl が一致したが evaluation date を過ぎている。
+2. `applied`: 一つ以上の component が通常/development policy では失敗し、この entry によって通過した。
+3. `license-mismatch`: purl と usage は一致したが、対象 component の expression を entry の追加 allow-list が許可しない。
+4. `usage-mismatch`: purl は一致したが、`usage: development` に対して runtime、mixed、unknown しかない。
+5. `redundant`: purl と条件は一致するが、全対象 component が通常または development policy で既に通過する。
+6. `unmatched`: purl に一致する report component がない。
+
+同じ purl の複数 component が異なる結果を持つ場合は、上記の先勝ち順序で entry state を一意に決める一方、component ごとの decision は全て保持する。たとえば一つでも実際に verdict を変えれば entry は `applied` とし、別 component の usage mismatch を消さず詳細出力に残す。
 
 ```text
-Policy exceptions: 2 applied, 1 expired, 3 unused.
+Policy exceptions: 2 entries applied to 3 components, 1 expired, 1 license-mismatch, 1 usage-mismatch, 1 redundant, 3 unmatched.
 ```
 
-- `applied`: 通常および development policy では失敗し、entry によって通過した component 数
-- `expired`: report component に purl が一致したが期限切れで適用されなかった entry 数
-- `unused`: purl に一致する report component がなかった entry 数
-
-unused entry は初期実装では exit code を変えない。異なる project、target、platform の report に同じ policy file を適用する運用があり得るためである。ただし件数を隠さず、verbose では bounded な purl、owner、期限を列挙する。
+expired、license-mismatch、usage-mismatch、redundant、unmatched は初期実装では exit code を単独で変えない。元の component が通常 policy を満たさなければ、その violation が exit 1 を決める。異なる project、target、platform の report に同じ policy file を適用する運用があり得るため、stale entry 自体は configuration error にしない。
 
 expired entry が一致した component は通常ポリシーの violation のままとする。text と SARIF は、同じ `NotAllowed` rule ID を維持しつつ、matching exception が期限切れだったことと期限を診断情報として示す。expired entry 自体を別の license violation として二重計上しない。
 
@@ -160,13 +192,13 @@ policy file は run ごとに一度だけ parse、SPDX normalize、index 構築�
 - component ごとの `HashSet` / `FrozenSet` 構築
 - exception metadata の出力用文字列生成
 
-lookup は `Utf8Slice` / `ReadOnlySpan<byte>` の canonical purl から照合できる indexed structure とする。例外数から capacity を一度だけ決め、同一 purl を O(1) で検索する。SPDX identifier は entry ごとに事前正規化し、expression evaluator が component loop 内で policy structure を作り直さない形にする。
+lookup は `Utf8Slice` / `ReadOnlySpan<byte>` の report purl bytes から exact 照合できる indexed structure とする。例外数から capacity を一度だけ決め、同一 purl を O(1) で検索する。SPDX identifier は entry ごとに事前正規化し、expression evaluator が component loop 内で policy structure を作り直さない形にする。
 
 evaluation result は violation だけでなく、次の index/count を explicit data として返す。
 
 - package exception を適用した component
-- 一致したが期限切れだった exception
-- 未使用 exception
+- 各 exception entry の排他的な最終状態
+- 同じ entry に一致した各 component の license/usage decision
 - violation に関連する expired exception
 
 renderer が policy を再評価してこれらを推測してはならない。pooled working storage を result に露出せず、owned result へ使用範囲だけをコピーする。
@@ -175,13 +207,17 @@ renderer が policy を再評価してこれらを推測してはならない。
 
 `--policy-exceptions` は `check --input` と `check --report` の両方で使用できる。report evaluation は exception file と SPDX data 以外の dependency input、cache、registry、repository にアクセスしない。
 
+`usage: development` entry は typed usage と stable inventory mapping を持つ canonical report version 2 を要求する。version 1 report と組み合わせた場合は exit 2 にする。`usage: any` だけの file は version 1 reportにも適用できる。
+
+`--verbose` では、entry state にかかわらず全 entry を bounded かつ決定的な順序で列挙する。`applied` では対象 component identity、license、usage、owner、reason、expiry を結び付ける。件数だけで、どの component が例外によって通過したかを隠さない。
+
 初期実装では次へ option を広げない。
 
 - `scan`: factual report に policy exception を適用しない。
 - `diff`: 現在の `--allow-licenses` policy transition だけを維持する。exception-aware diff は、利用要求と出力契約を別途定義してから追加する。
 - `--update-baseline`: package exception file を生成、編集、または上書きしない。
 
-SARIF violation 集合は text と一致させる。package exception で通過した component を SARIF result にしない。期限切れにより残った violation には、秘密情報や絶対 file path を含めず、owner と expiry date を bounded property として付けられる。
+SARIF violation 集合は text と一致させる。package exception で通過した component を SARIF result にしない代わりに、`run.properties` の policy allowance として component identity、exception purl、license、usage、owner、reason、expiry、evaluation date を記録する。期限切れにより残った violation には、秘密情報や絶対 file path を含めず、owner と expiry date を bounded property として付ける。
 
 ## 実施順序
 
@@ -190,14 +226,21 @@ SARIF violation 集合は text と一致させる。package exception で通過�
 `test-first-development` に従い、parser と policy integration の失敗テストを先に追加する。
 
 1. exact purl と allowed license が一致する component は通過する。
-2. version が変わると exception は unused になり、component は失敗する。
+2. version が変わると exception は unmatched になり、component は失敗する。
 3. license が entry の allow-list 外へ変わると失敗する。
-4. owner、reason、expiresOn の欠落と malformed date は exit 2 になる。
+4. usage、owner、reason、expiresOn の欠落と malformed value は exit 2 になる。
 5. 同じ purl の重複 entry は merge されず exit 2 になる。
 6. 期限当日は有効、翌日は期限切れになる。
 7. unresolved status は package exception で通過しない。
 8. base、development、package exception、baseline の precedence が一意になる。
 9. option 省略時は既存 stdout、SARIF、exit code が変わらない。
+10. `usage: development` の package を同じ purl/version/license のまま runtime へ移すと例外が失効する。
+11. `usage: any` は runtime component に適用できる。
+12. 同じ purl の異なる source ID/component 全てへ entry を照合し、各 usage/license 条件を独立に評価する。
+13. applied、expired、license-mismatch、usage-mismatch、redundant、unmatched の合計が常に entry 数と一致する。
+14. 明示 `--policy-date` により、日付をまたいでも同じ verdict と stdout を再現できる。
+15. `--verbose` と SARIF `run.properties` から、適用 component と exception owner/reason/expiry を逆引きできる。
+16. version 1 report は `usage: any` を評価できるが、`usage: development` との組み合わせを exit 2 にする。
 
 ### Phase 2: versioned reader と immutable policy data を実装する
 
@@ -207,13 +250,13 @@ invalid input の全 equivalence class、上限、duplicate、未知 field を t
 
 ### Phase 3: `LicenseAllowPolicy` と CLI へ接続する
 
-既存の base evaluation を fast path として維持する。package exception lookup は base policy が拒否した matched component にだけ行う。
+exception file を指定しない既存の base evaluation を fast path として維持する。exception file を指定した場合は全 component の purl を lookup し、base/development policy で既に通る entry も `redundant` として分類する。package exception の SPDX evaluation は前段 policy が拒否した matched component にだけ行う。
 
-evaluation date は CLI から一度だけ渡し、境界値 test では fake clock または明示日付を使用する。expired/unused/application count と renderer を接続する。
+evaluation date は CLI から一度だけ渡し、境界値 test では fake clock または明示日付を使用する。entry state、component decision、renderer を接続する。
 
 ### Phase 4: persisted report、SARIF、文書を同期する
 
-同じ report、policy exception file、evaluation date に対して live input と persisted report が同一 verdict と同一 stdout を返すことを固定する。SARIF と text の violation 集合を照合する。
+同じ report、policy exception file、evaluation date に対して live input と persisted report が同一 verdict と同一 stdout を返すことを固定する。SARIF と text の violation 集合、および verbose/SARIF の policy allowance 集合を照合する。
 
 実装後に次を更新する。
 
@@ -233,6 +276,8 @@ policy exception は通常 policy より低頻度でも、component ごとの評
   - 少数 entry が少数 component に一致
   - entry 数と component 数が大きい場合
   - expired entry
+  - 同じ purl の複数 component
+  - redundant、license-mismatch、usage-mismatch の全状態
 - `E2EBenchmark`
   - persisted policy input の I/O と parse costを含む run
 
@@ -253,23 +298,23 @@ policy exception は通常 policy より低頻度でも、component ごとの評
 - license evidence の訂正または concluded license
 - unresolved/conflict/invalid/error の抑制
 - exception file の自動生成、自動更新、期限延長
-- expired または unused entry の自動削除
+- expired または unmatched entry の自動削除
 - deny-list、license category、copyleft の自動分類
 - `diff` の exception-aware policy transition
 
 ## 実装前に確定する判断事項
 
-1. canonical versioned purl の検証を、Ol 内部の既存 identity contract だけで行うか、bounded な共通 purl parser を導入するか。外部 package を追加する場合は native AOT、size、allocation を測定する。
-2. 初期 schema で未知 field を拒否する方針が、将来 schema version を上げる運用と整合することを確認する。
-3. owner と reason の最大 byte length、exception file 全体と entry 数の上限を fixture と実利用例から決める。
-4. 過去日の監査再実行に evaluation date option が必要かを確認する。初期実装では追加しない。
+1. 初期 schema で未知 field を拒否する方針が、将来 schema version を上げる運用と整合することを確認する。
+2. owner と reason の最大 byte length、exception file 全体と entry 数の上限を fixture と実利用例から決める。
+3. 同じ purl の複数 component に複数の非適用理由がある場合、entry の排他的状態に使う先勝ち順序と component-level detail が実例を十分説明できることを fixture で確認する。
 
 ## 成功条件
 
 1. 通常 allow-list を広げず、exact package/version に対してだけ追加 SPDX license を許可できる。
-2. version または license の変化で例外が自動的に外れ、元の violation が再発する。
+2. version、license、または `usage: development` の development-to-runtime 変化で例外が自動的に外れ、元の violation が再発する。
 3. owner、reason、期限が repository でレビュー可能な一つの artifact に残る。
-4. 期限切れと未使用 entry が pass 時にも可視化される。
+4. 全 entry が排他的な状態へ分類され、状態数の合計が entry 数と一致する。
 5. baseline の unresolved-only 境界と factual scan result を変更しない。
-6. `--input` と `--report` が同じ evaluation date で同一 verdict、stdout、SARIF violation 集合を返す。
-7. option 省略時の既存 CLI 契約と policy hot-path 性能を維持する。
+6. `--policy-date` により過去の判定を再現でき、`--input` と `--report` が同じ evaluation date で同一 verdict、stdout、SARIF violation 集合を返す。
+7. verbose と SARIF の policy allowance から、例外を適用した component と owner/reason/expiry を監査できる。
+8. option 省略時の既存 CLI 契約と policy hot-path 性能を維持する。

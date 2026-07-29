@@ -1,7 +1,11 @@
 {
   "schemaVersion": 1,
   "metadata": {
-    "tool": "ol",
+    "tool": {
+      "name": "ol",
+      "version": "0.1.0-dev\u002Bc05fda9d8e0a7f2c4f06848b5994de0f2fc21891",
+      "informationUri": "https://github.com/guitarrapc/ol"
+    },
     "input": {
       "kind": "sbom",
       "format": "cyclonedx",

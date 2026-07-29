@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 
@@ -64,7 +65,12 @@ public sealed class CliScanTests
             await Assert.That(stdout[^2]).IsEqualTo('}');
             await Assert.That(stdout[^1]).IsEqualTo('\n');
             using var report = JsonDocument.Parse(stdout);
-            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cyclonedx");
+            var metadata = report.RootElement.GetProperty("metadata");
+            var tool = metadata.GetProperty("tool");
+            await Assert.That(tool.GetProperty("name").GetString()).IsEqualTo("ol");
+            await Assert.That(tool.GetProperty("version").GetString()).IsEqualTo(ToolVersion);
+            await Assert.That(tool.GetProperty("informationUri").GetString()).IsEqualTo("https://github.com/guitarrapc/ol");
+            await Assert.That(metadata.GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cyclonedx");
         }
         finally
         {
@@ -703,6 +709,10 @@ public sealed class CliScanTests
             await Assert.That(jsonExitCode).IsEqualTo(0);
             await Assert.That(jsonStderr).IsEmpty();
             using var report = JsonDocument.Parse(jsonStdout);
+            var tool = report.RootElement.GetProperty("metadata").GetProperty("tool");
+            await Assert.That(tool.GetProperty("name").GetString()).IsEqualTo("ol");
+            await Assert.That(tool.GetProperty("version").GetString()).IsEqualTo(ToolVersion);
+            await Assert.That(tool.GetProperty("informationUri").GetString()).IsEqualTo("https://github.com/guitarrapc/ol");
             var summary = report.RootElement.GetProperty("summary");
             await Assert.That(summary.GetProperty("matched").GetInt32()).IsEqualTo(3);
             await Assert.That(summary.GetProperty("error").GetInt32()).IsEqualTo(0);
@@ -1577,6 +1587,9 @@ public sealed class CliScanTests
             CliGate.Release();
         }
     }
+
+    private static string ToolVersion
+        => typeof(ScanCommands).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
 
     private static string FindRepositoryRoot(
         [System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")

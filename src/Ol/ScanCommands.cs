@@ -1,6 +1,7 @@
 ﻿using System.Security.Cryptography;
 using System.Buffers;
 using System.Buffers.Text;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using ConsoleAppFramework;
@@ -997,6 +998,12 @@ internal readonly record struct GroupRow(string[] Values, int Count, ScanCompone
 internal static class ReportRenderer
 {
     private const int JsonSchemaVersion = 1;
+    private const string ToolName = "ol";
+    private const string ToolInformationUri = "https://github.com/guitarrapc/ol";
+    private static readonly string ToolVersion =
+        typeof(ReportRenderer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? typeof(ReportRenderer).Assembly.GetName().Version?.ToString()
+        ?? "unknown";
 
     public static string RenderInputHeader(ReportFormat format, ScanInputDescriptor input)
         => format == ReportFormat.Markdown
@@ -1149,7 +1156,7 @@ internal static class ReportRenderer
         writer.WriteStartObject();
         writer.WriteNumber("schemaVersion", JsonSchemaVersion);
         writer.WriteStartObject("metadata");
-        writer.WriteString("tool", "ol");
+        WriteToolMetadata(writer);
         WriteInputMetadata(writer, inventory.Input);
         WriteSpdxMetadata(writer, spdx);
         WritePackageMetadata(writer, metadataSummary);
@@ -1188,7 +1195,7 @@ internal static class ReportRenderer
         writer.WriteStartObject();
         writer.WriteNumber("schemaVersion", JsonSchemaVersion);
         writer.WriteStartObject("metadata");
-        writer.WriteString("tool", "ol");
+        WriteToolMetadata(writer);
         WriteInputMetadata(writer, inventory.Input);
         WriteSpdxMetadata(writer, spdx);
         WritePackageMetadata(writer, metadataSummary);
@@ -1226,6 +1233,15 @@ internal static class ReportRenderer
         writer.WriteEndArray();
         WriteSummary(writer, ScanSummary.Create(groups));
         WriteWarnings(writer, groups);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteToolMetadata(Utf8JsonWriter writer)
+    {
+        writer.WriteStartObject("tool");
+        writer.WriteString("name", ToolName);
+        writer.WriteString("version", ToolVersion);
+        writer.WriteString("informationUri", ToolInformationUri);
         writer.WriteEndObject();
     }
 

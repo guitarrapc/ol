@@ -31,7 +31,11 @@ public sealed class ScanReportInputTests
         {
           "schemaVersion": 1,
           "metadata": {
-            "tool": "ol",
+            "tool": {
+              "name": "ol",
+              "version": "0.1.0-dev",
+              "informationUri": "https://github.com/guitarrapc/ol"
+            },
             "input": { "sourceReference": "sbom.json", "kind": "sbom", "format": "cyclonedx-json" },
             "spdx": { "source": "generated", "licenseListVersion": "5e59516" }
           },
@@ -130,7 +134,7 @@ public sealed class ScanReportInputTests
     [Test]
     public async Task TryRead_WithGroupedReport_FailsWithActionableError()
     {
-        var json = """{ "schemaVersion": 1, "metadata": { "tool": "ol" }, "groups": [ { "key": "MIT", "count": 2 } ] }""";
+        var json = """{ "schemaVersion": 1, "metadata": { "tool": { "name": "ol", "version": "0.1.0-dev", "informationUri": "https://github.com/guitarrapc/ol" } }, "groups": [ { "key": "MIT", "count": 2 } ] }""";
 
         var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
 

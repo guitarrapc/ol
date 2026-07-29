@@ -318,6 +318,8 @@ The canonical summary counts every component status, including `error`, so the s
 
 Top-level `schemaVersion` identifies the breaking report contract. Schema version 1 removes the duplicate component-level `evidence` array and makes candidate provenance subordinate to each `licenseCandidates` item. Consumers must reject or explicitly migrate unsupported schema versions rather than silently interpreting a newer report as an older shape.
 
+The `metadata.tool` object identifies the report producer with `name`, `version`, and `informationUri`. The version is the running Ol assembly's informational version, including pre-release and build metadata when present, so reports retain the exact producer identity independently of the report schema version.
+
 The current schema v1 report emits `metadata.input` and `metadata.spdx` as separate objects. Generic input metadata contains:
 
 - `kind`: the stable input family, currently `sbom` or `package-manager`

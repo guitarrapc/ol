@@ -65,7 +65,7 @@ public static class ScanReportReader
                 }
                 else if (reader.ValueTextEquals("metadata"u8))
                 {
-                    ReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input);
+                    if (!TryReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input, out error)) return false;
                 }
                 else if (reader.ValueTextEquals("inventory"u8))
                 {
@@ -115,19 +115,29 @@ public static class ScanReportReader
         }
     }
 
-    private static void ReadMetadata(
+    private static bool TryReadMetadata(
         ref Utf8JsonReader reader,
         ref string sourceReference,
         ref string licenseListVersion,
-        ref ScanInputDescriptor input)
+        ref ScanInputDescriptor input,
+        out string error)
     {
-        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return;
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+        {
+            error = "The report metadata value must be an object.";
+            return false;
+        }
 
         while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
         {
             if (reader.ValueTextEquals("input"u8))
             {
-                input = ReadInputMetadata(ref reader);
+                if (!TryReadInputMetadata(ref reader, out input))
+                {
+                    error = "The report metadata.input value must be an object.";
+                    return false;
+                }
+
                 sourceReference = input.SourceReference;
             }
             else if (reader.ValueTextEquals("spdx"u8))
@@ -140,11 +150,15 @@ public static class ScanReportReader
                 reader.Skip();
             }
         }
+
+        error = string.Empty;
+        return true;
     }
 
-    private static ScanInputDescriptor ReadInputMetadata(ref Utf8JsonReader reader)
+    private static bool TryReadInputMetadata(ref Utf8JsonReader reader, out ScanInputDescriptor input)
     {
-        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return default;
+        input = default;
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return false;
 
         string kind = string.Empty, format = string.Empty, sourceReference = string.Empty, sourceSha256 = string.Empty;
         string parser = string.Empty, specificationVersion = string.Empty, displayName = string.Empty;
@@ -164,12 +178,13 @@ public static class ScanReportReader
             }
         }
 
-        return new ScanInputDescriptor(
+        input = new ScanInputDescriptor(
             new ScanInputKind(kind),
             new ScanInputFormat(format, parser, displayName.Length == 0 ? format : displayName),
             sourceReference,
             sourceSha256,
             Utf8Slice.FromString(specificationVersion));
+        return true;
     }
 
     private static string ReadNestedString(ref Utf8JsonReader reader, ReadOnlySpan<byte> name)

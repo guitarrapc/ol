@@ -108,6 +108,26 @@ public sealed class ScanReportInputTests
     }
 
     [Test]
+    public async Task TryRead_WithNonObjectInputMetadata_FailsWithActionableError()
+    {
+        var json = $$"""
+        {
+          "schemaVersion": 1,
+          "metadata": {
+            "input": [ { "kind": "sbom" } ],
+            "spdx": { "licenseListVersion": "5e59516" }
+          },
+          "components": [ {{Component()}} ]
+        }
+        """;
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
+
+        await Assert.That(parsed).IsFalse();
+        await Assert.That(error).Contains("metadata.input");
+    }
+
+    [Test]
     public async Task TryRead_WithGroupedReport_FailsWithActionableError()
     {
         var json = """{ "schemaVersion": 1, "metadata": { "tool": "ol" }, "groups": [ { "key": "MIT", "count": 2 } ] }""";

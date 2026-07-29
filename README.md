@@ -24,72 +24,59 @@ ol deliberately starts from a resolved dependency graph: a CycloneDX or SPDX JSO
 
 ## Quick start
 
-Download the archive for your platform from [GitHub Releases](https://github.com/guitarrapc/ol/releases), extract it, and place `ol` (`ol.exe` on Windows) on `PATH`. Release archives are available for Linux, Windows, and macOS on x64 and Arm64.
+Download and extract the binary for your platform from [GitHub Releases](https://github.com/guitarrapc/ol/releases), then put it on `PATH`.
 
-For GitHub Actions, [guitarrapc/setup-ol](https://github.com/guitarrapc/setup-ol) downloads ol and adds it to `PATH`:
+```bash
+# On macOS/Linux, add execute permission if needed
+chmod +x ./ol
+
+# generate sbom
+npx @cyclonedx/cyclonedx-npm --output-format JSON --output-file bom.cdx.json
+
+# Scan a CycloneDX or SPDX JSON SBOM
+ol scan --input bom.cdx.json
+
+# Scan supported resolved dependency inputs under the current directory
+ol scan --input .
+
+# Scan a supported lockfile or package-manager output directly
+ol scan --input package-lock.json
+ol scan --input src/MyProject/obj/project.assets.json
+
+# Write a reviewable Markdown report
+ol scan --input . --format markdown --out-file ol-report.md
+
+# Write a reusable JSON report
+ol scan --input . --format json --out-file ol-report.json
+
+# Show only direct dependencies and group them by license
+ol scan --input . --dependency direct --group-by license
+
+# Check all dependencies against an SPDX license allow-list
+ol check --input . --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
+
+# Re-check a saved report without scanning or network access
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
+
+# Compare license-relevant changes between two saved reports
+ol diff --previous before.json --current after.json
+
+# Use only license evidence already present in the input
+ol scan --input bom.cdx.json --skip-enrichment
+```
+
+In GitHub Actions, [guitarrapc/setup-ol](https://github.com/guitarrapc/setup-ol) installs the latest ol release and adds it to `PATH`:
 
 ```yaml
 steps:
   - uses: actions/checkout@v7
   - uses: guitarrapc/setup-ol@v1.0.0
-  - run: ol --version
+  - run: ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+    env:
+      OL_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-`setup-ol` installs the latest release by default. Set `ol-version` to pin a version:
-
-```yaml
-- uses: guitarrapc/setup-ol@v1.0.0
-  with:
-    ol-version: 0.1.0
-```
-
-### Scan resolved dependencies
-
-Point ol at a supported resolved dependency file or a directory containing one:
-
-```bash
-ol scan --input .
-```
-
-For example, ol discovers `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `Gemfile.lock`, and other [supported inputs](#sbom-and-ecosystem-support). To scan an SBOM explicitly:
-
-```bash
-ol scan --input bom.cdx.json
-```
-
-The text report shows each resolved component, its reconciled license, dependency type, and resolution status:
-
-```text
-Input: package-manager/npm-package-lock
-
-NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS
-example-lib 1.2.3 MIT npm direct matched
-```
-
-Write a reviewable Markdown report with:
-
-```bash
-ol scan --input . --format markdown --out-file ol-report.md
-```
-
-### Enforce a license policy
-
-After reviewing the scan, allow the SPDX License Identifiers accepted by your project:
-
-```bash
-ol check --input . --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
-```
-
-`check` exits `0` when every dependency satisfies the allow-list, `1` for policy violations, and `2` when the check cannot be completed. In GitHub Actions, explicitly map the token if you want authenticated GitHub source-license enrichment:
-
-```yaml
-- uses: guitarrapc/setup-ol@v1.0.0
-- run: ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
-  env:
-    OL_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
-If ol cannot resolve every existing dependency on first adoption, create and review a [baseline](#adopting-check-on-an-existing-project) rather than weakening the allow-list.
+See [SBOM and ecosystem support](#sbom-and-ecosystem-support) for accepted inputs and ecosystem-specific commands.
 
 ## Usage
 
@@ -107,6 +94,31 @@ Commands:
   spdx update     Download SPDX data into the user data directory.
   spdx use        Switch active SPDX data version.
   spdx version    Show the active SPDX data source.
+```
+
+```bash
+$ ol scan --help
+Usage: scan [options...] [-h|--help] [--version]
+
+Scan a resolved dependency input.
+
+Options:
+  --input <string[]?>            Repeatable resolved dependency input files or directories. [Default: null]
+  --input-format <string?>       Input format assertion; defaults to auto detection. [Default: null]
+  --format <ReportFormat>        Output format: text, json, or markdown. [Default: Text]
+  --out, --out-file <string?>    Write output to this path. [Default: null]
+  --verbose                      Include verbose columns and input detection diagnostics.
+  --dependency <string?>         Dependency output filter: root,direct,transitive,unknown. [Default: null]
+  --group-by <string?>           Group output by fields: name,version,license,ecosystem,dependency,status. [Default: null]
+  --sort <string>                Sort keys: ecosystem,name,version,license,dependency,status,purl. [Default: @"ecosystem,name,version"]
+  --sort-order <SortOrder>       Sort order: asc or desc. [Default: Asc]
+  --spdx-data <string?>          Directory containing licenses.json and exceptions.json. [Default: null]
+  --quiet                        Suppress stderr summary.
+  --refresh                      Skip package metadata cache entries.
+  --cache-dir <string?>          Root directory for isolated package-metadata and source-repository caches. [Default: null]
+  --skip-enrichment              Use only evidence already present in the dependency input.
+  --concurrency <int>            Maximum concurrent package metadata lookups. [Default: 0]
+  --retry <int>                  Reserved package metadata retry count. [Default: 1]
 ```
 
 ```bash
@@ -144,31 +156,6 @@ Options:
   --allow-licenses <string?>    Comma-separated SPDX License Identifiers; adds policy verdict transitions. [Default: null]
   --spdx-data <string?>         Directory containing licenses.json and exceptions.json. [Default: null]
   --format <DiffFormat>         Output format. [Default: Text]
-```
-
-```bash
-$ ol scan --help
-Usage: scan [options...] [-h|--help] [--version]
-
-Scan a resolved dependency input.
-
-Options:
-  --input <string[]?>            Repeatable resolved dependency input files or directories. [Default: null]
-  --input-format <string?>       Input format assertion; defaults to auto detection. [Default: null]
-  --format <ReportFormat>        Output format: text, json, or markdown. [Default: Text]
-  --out, --out-file <string?>    Write output to this path. [Default: null]
-  --verbose                      Include verbose columns and input detection diagnostics.
-  --dependency <string?>         Dependency output filter: root,direct,transitive,unknown. [Default: null]
-  --group-by <string?>           Group output by fields: name,version,license,ecosystem,dependency,status. [Default: null]
-  --sort <string>                Sort keys: ecosystem,name,version,license,dependency,status,purl. [Default: @"ecosystem,name,version"]
-  --sort-order <SortOrder>       Sort order: asc or desc. [Default: Asc]
-  --spdx-data <string?>          Directory containing licenses.json and exceptions.json. [Default: null]
-  --quiet                        Suppress stderr summary.
-  --refresh                      Skip package metadata cache entries.
-  --cache-dir <string?>          Root directory for isolated package-metadata and source-repository caches. [Default: null]
-  --skip-enrichment              Use only evidence already present in the dependency input.
-  --concurrency <int>            Maximum concurrent package metadata lookups. [Default: 0]
-  --retry <int>                  Reserved package metadata retry count. [Default: 1]
 ```
 
 `--input-format` defaults to `auto`. ol identifies the input from registered content signatures and rejects unknown or ambiguous documents. Supported assertions are:

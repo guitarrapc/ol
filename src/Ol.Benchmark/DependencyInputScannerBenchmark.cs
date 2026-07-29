@@ -205,6 +205,30 @@ public class DependencyInputScannerBenchmark
            2.6.5
         """);
 
+    private readonly byte[] mavenDependencyTree = Encoding.UTF8.GetBytes(
+        """
+        {
+          "groupId": "com.example",
+          "artifactId": "app",
+          "version": "1.0.0",
+          "type": "jar",
+          "scope": "",
+          "classifier": "",
+          "optional": "false",
+          "children": [
+            {
+              "groupId": "org.example",
+              "artifactId": "library",
+              "version": "2.0.0",
+              "type": "jar",
+              "scope": "compile",
+              "classifier": "",
+              "optional": "false"
+            }
+          ]
+        }
+        """);
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
@@ -250,6 +274,8 @@ public class DependencyInputScannerBenchmark
     private readonly Utf8Slice bundlerPlatform = "ruby";
     private readonly Utf8Slice bundlerRackName = "rack";
     private readonly Utf8Slice bundlerRackVersion = "3.1.8";
+    private readonly Utf8Slice mavenName = "library";
+    private readonly Utf8Slice mavenVersion = "2.0.0";
 
     [Benchmark]
     public DependencyInventory ScanCycloneDx()
@@ -321,6 +347,12 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory ScanBundlerLockInventory()
     {
         return DependencyInputScanner.Scan(bundlerLock, spdx, expectedFormat: ScanInputFormat.BundlerLock);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanMavenDependencyTreeInventory()
+    {
+        return DependencyInputScanner.Scan(mavenDependencyTree, spdx, expectedFormat: ScanInputFormat.MavenDependencyTree);
     }
 
     [Benchmark]
@@ -466,6 +498,30 @@ public class DependencyInputScannerBenchmark
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
             []);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateMavenDependencyTreeInventoryResultFloor()
+    {
+        var component = new ScanComponent(
+            mavenName,
+            mavenVersion,
+            default,
+            "maven",
+            DependencyType.Direct,
+            LicenseStatus.Unknown,
+            Utf8Slice.FromOwnedBytes("pkg:maven/org.example/library@2.0.0"u8.ToArray()),
+            Utf8Slice.FromOwnedBytes("org.example:library:jar::2.0.0"u8.ToArray()),
+            default,
+            [],
+            []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("com.example:app"u8.ToArray()), default, default, default, default, default)],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
+            [new DependencyOccurrenceVariant(0, Utf8Slice.FromOwnedBytes("scope=compile"u8.ToArray()))]);
     }
 
     [Benchmark]

@@ -1,0 +1,40 @@
+{
+  "groupId": "com.example",
+  "artifactId": "demo",
+  "version": "1.0.0",
+  "type": "jar",
+  "scope": "",
+  "classifier": "",
+  "optional": "false",
+  "children": [
+    {
+      "groupId": "org.example",
+      "artifactId": "direct",
+      "version": "2.0.0",
+      "type": "jar",
+      "scope": "compile",
+      "classifier": "",
+      "optional": "false",
+      "children": [
+        {
+          "groupId": "org.example",
+          "artifactId": "transitive",
+          "version": "3.0.0",
+          "type": "test-jar",
+          "scope": "runtime",
+          "classifier": "tests",
+          "optional": "true"
+        }
+      ]
+    },
+    {
+      "groupId": "org.example",
+      "artifactId": "provided",
+      "version": "4.0.0",
+      "type": "jar",
+      "scope": "provided",
+      "classifier": "",
+      "optional": "false"
+    }
+  ]
+}

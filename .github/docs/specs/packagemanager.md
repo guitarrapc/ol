@@ -98,6 +98,20 @@ Each `PLATFORMS` entry becomes a separate resolution context. A spec without a p
 
 Only `GEM` specs whose source is exactly `https://rubygems.org/` receive canonical `pkg:gem/{name}@{version}` identities. Platform-specific identities include the standard `platform` qualifier. Private `GEM`, `GIT`, and `PATH` specs remain graph components with `source=registry`, `source=git`, or `source=path` variants but receive no RubyGems.org enrichment identity; their remote or local paths are not emitted. RubyGems.org enrichment uses the version-specific API v2 endpoint, includes the platform query when present, and projects the listed licenses as an ordered SPDX `OR` claim plus the source-code or homepage repository hint.
 
+## JVM Maven resolved input
+
+The Maven adapter consumes JSON emitted by Maven Dependency Plugin 3.7.0 or later:
+
+```bash
+mvn org.apache.maven.plugins:maven-dependency-plugin:3.11.0:tree -DoutputType=json -DoutputFile=maven-dependency-tree.json
+```
+
+The root artifact becomes one resolution context and is not rendered as a dependency component. Root children are direct dependencies; deeper children are transitive. Every proven root/package and package/package relationship is retained as an edge. Repeated resolved artifact coordinates share one report component and enrichment identity, while each JSON tree node remains a distinct occurrence with its own incoming edge and resolver conditions.
+
+Each dependency retains its effective `scope` and `optional` flag as a sparse occurrence variant. `groupId`, `artifactId`, `version`, `type`, and `classifier` form the resolver-native source identity. Canonical `pkg:maven/{groupId}/{artifactId}@{version}` identities include `classifier` and non-default `type` qualifiers when present. The JSON output does not record the requested `-Dscope`, Maven version, plugin version, repository origin, selected Gradle-style attributes, or license metadata; Ol leaves those values unspecified instead of inferring them from the host or file name.
+
+Maven dependency tree input does not cause Ol to resolve a POM or dependency version. Maven package-registry enrichment is not currently registered, so this graph-only input may retain `unknown` license status. For license-bearing Maven results, generate CycloneDX JSON with the ecosystem build. Gradle's built-in `dependencies`, `dependencyInsight`, and project-report tasks produce human-oriented text or HTML rather than a stable portable graph schema. Ol does not parse those reports or embed the Gradle Tooling API; Gradle users should provide CycloneDX or SPDX JSON.
+
 ## User Experience
 
 Users should not have to specify package manager or ecosystem manually. The CLI derives the ecosystem from component purl and other SBOM metadata where possible.
@@ -115,12 +129,15 @@ The same command gains richer evidence in v2.
 Package metadata support targets:
 
 - npm (JavaScript/Node.js)
+- pnpm (JavaScript/Node.js)
+- yarn (JavaScript/Node.js)
 - NuGet (.NET)
 - Cargo (Rust)
 - Go modules (Go)
 - pip (Python)
 - Composer (PHP)
-- RubyGems (Ruby)
+- Ruby Bundler (Ruby)
+- Maven (Java)
 
 Maven and other ecosystems may be added later.
 

@@ -40,6 +40,27 @@ public sealed class PnpmInputTests
     }
 
     [Test]
+    public async Task Scan_PnpmLockV9_ClassifiesStrictlyDevOccurrenceAsDevelopment()
+    {
+        var inventory = DependencyInputScanner.Scan(
+            await File.ReadAllBytesAsync(GetFixturePath("pnpm-lock.yaml")),
+            Spdx,
+            expectedFormat: ScanInputFormat.PnpmLock);
+
+        await Assert.That(inventory.UsageDeterminedRanges).IsNotNull();
+        await Assert.That(inventory.UsageDeterminedRanges!.Sum(static range => range.Length)).IsEqualTo(inventory.Occurrences.Length);
+
+        var usages = new DependencyUsage[inventory.Components.Length];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        // Strictly-dev is Development; strictly-optional is a production-optional path and must not be mistaken for it.
+        await Assert.That(usages[FindComponentIndex(inventory, "dev-tool@4.0.0")]).IsEqualTo(DependencyUsage.Development);
+        await Assert.That(usages[FindComponentIndex(inventory, "optional-native@3.0.0")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, "shared-package@5.0.0")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, "direct-package@1.0.0(peer-package@2.0.0)")]).IsEqualTo(DependencyUsage.Runtime);
+    }
+
+    [Test]
     public async Task Scan_PnpmLock_AutoDetectsAndRejectsUnsupportedKnownVersion()
     {
         var input = await File.ReadAllBytesAsync(GetFixturePath("pnpm-lock.yaml"));
@@ -60,6 +81,16 @@ public sealed class PnpmInputTests
         await Assert.That(handler.Detector).IsNotNull();
         await Assert.That(handler.Signature.RequiredMarkers.Length).IsEqualTo(0);
         await Assert.That(handler.ComponentIdentityComparison).IsEqualTo(DependencyComponentIdentityComparison.OrdinalWithSourceId);
+    }
+
+    private static int FindComponentIndex(DependencyInventory inventory, string sourceId)
+    {
+        for (var i = 0; i < inventory.Components.Length; i++)
+        {
+            if (inventory.Components[i].SourceId.ToString() == sourceId) return i;
+        }
+
+        throw new InvalidOperationException($"Component not found: {sourceId}");
     }
 
     private static ScanComponent FindComponent(DependencyInventory inventory, string sourceId)

@@ -1,0 +1,3262 @@
+{
+  "schemaVersion": 1,
+  "metadata": {
+    "tool": "ol",
+    "input": {
+      "kind": "sbom",
+      "format": "cyclonedx",
+      "sourceRef": "bom.cdx.json",
+      "sourceSha256": "87bf672a4572816d0fa2ae6f8f0ea3eb1a5b0733db81bf18227c41893354a61b",
+      "parser": "cyclonedx-json",
+      "specificationVersion": "1.7",
+      "sbomRef": "bom.cdx.json",
+      "sbomFormat": "CycloneDX",
+      "sbomSpecVersion": "1.7",
+      "sbomSha256": "87bf672a4572816d0fa2ae6f8f0ea3eb1a5b0733db81bf18227c41893354a61b"
+    },
+    "spdx": {
+      "source": "bundled",
+      "licenseListVersion": "5e59516",
+      "dataRef": "bundled/spdx/builtin",
+      "licensesSha256": "cc0e2ecf29810ab2a2a879ed8edb10fb8a6c264be6ec19fc1a385f94a43ceec1",
+      "exceptionsSha256": "211da1990cef279bced412f7f0ce5b855ff2b3caa3f9664a7eea9fda3e2a3312"
+    },
+    "packageMetadata": {
+      "targetCount": 41,
+      "supportedComponentCount": 41,
+      "cacheHitCount": 41,
+      "cacheMissCount": 0,
+      "refreshedCount": 0,
+      "fetchErrorCount": 0,
+      "unsupportedEcosystemCount": 0,
+      "concurrency": 8,
+      "retryCount": 1
+    },
+    "sourceRepository": {
+      "targetCount": 20,
+      "githubLicenseRequestCount": 0,
+      "cacheHitCount": 20,
+      "cacheMissCount": 0,
+      "fetchErrorCount": 0,
+      "unknownCount": 14
+    },
+    "network": {
+      "githubAuth": "none"
+    }
+  },
+  "inventory": {
+    "contexts": [],
+    "components": [
+      {
+        "name": "Ol",
+        "version": "0.0.0",
+        "ecosystem": "-",
+        "dependency": "root",
+        "purl": "",
+        "sourceId": "Ol@0.0.0"
+      },
+      {
+        "name": "BenchmarkDotNet",
+        "version": "0.15.8",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/BenchmarkDotNet@0.15.8",
+        "sourceId": "pkg:nuget/BenchmarkDotNet@0.15.8"
+      },
+      {
+        "name": "BenchmarkDotNet.Annotations",
+        "version": "0.15.8",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+        "sourceId": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8"
+      },
+      {
+        "name": "CommandLineParser",
+        "version": "2.9.1",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/CommandLineParser@2.9.1",
+        "sourceId": "pkg:nuget/CommandLineParser@2.9.1"
+      },
+      {
+        "name": "ConsoleAppFramework",
+        "version": "5.7.13",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/ConsoleAppFramework@5.7.13",
+        "sourceId": "pkg:nuget/ConsoleAppFramework@5.7.13"
+      },
+      {
+        "name": "EnumerableAsyncProcessor",
+        "version": "3.8.4",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+        "sourceId": "pkg:nuget/EnumerableAsyncProcessor@3.8.4"
+      },
+      {
+        "name": "Gee.External.Capstone",
+        "version": "2.3.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Gee.External.Capstone@2.3.0",
+        "sourceId": "pkg:nuget/Gee.External.Capstone@2.3.0"
+      },
+      {
+        "name": "Iced",
+        "version": "1.21.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Iced@1.21.0",
+        "sourceId": "pkg:nuget/Iced@1.21.0"
+      },
+      {
+        "name": "Microsoft.ApplicationInsights",
+        "version": "2.23.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+        "sourceId": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0"
+      },
+      {
+        "name": "Microsoft.CodeAnalysis.Analyzers",
+        "version": "3.11.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+        "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0"
+      },
+      {
+        "name": "Microsoft.CodeAnalysis.Common",
+        "version": "4.14.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+        "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0"
+      },
+      {
+        "name": "Microsoft.CodeAnalysis.CSharp",
+        "version": "4.14.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+        "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0"
+      },
+      {
+        "name": "Microsoft.Diagnostics.NETCore.Client",
+        "version": "0.2.510501",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+        "sourceId": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501"
+      },
+      {
+        "name": "Microsoft.Diagnostics.Runtime",
+        "version": "3.1.512801",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+        "sourceId": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801"
+      },
+      {
+        "name": "Microsoft.Diagnostics.Tracing.TraceEvent",
+        "version": "3.1.21",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+        "sourceId": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21"
+      },
+      {
+        "name": "Microsoft.DiaSymReader",
+        "version": "2.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+        "sourceId": "pkg:nuget/Microsoft.DiaSymReader@2.0.0"
+      },
+      {
+        "name": "Microsoft.DotNet.ILCompiler",
+        "version": "10.0.10",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
+        "sourceId": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10"
+      },
+      {
+        "name": "Microsoft.DotNet.PlatformAbstractions",
+        "version": "3.1.6",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+        "sourceId": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6"
+      },
+      {
+        "name": "Microsoft.Extensions.DependencyInjection",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.DependencyModel",
+        "version": "6.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2"
+      },
+      {
+        "name": "Microsoft.Extensions.Logging",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.Logging.Abstractions",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.Options",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.Options@6.0.0"
+      },
+      {
+        "name": "Microsoft.Extensions.Primitives",
+        "version": "6.0.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+        "sourceId": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0"
+      },
+      {
+        "name": "Microsoft.NET.ILLink.Tasks",
+        "version": "10.0.10",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
+        "sourceId": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10"
+      },
+      {
+        "name": "Microsoft.Testing.Extensions.CodeCoverage",
+        "version": "18.3.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2"
+      },
+      {
+        "name": "Microsoft.Testing.Extensions.Telemetry",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2"
+      },
+      {
+        "name": "Microsoft.Testing.Extensions.TrxReport",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2"
+      },
+      {
+        "name": "Microsoft.Testing.Extensions.TrxReport.Abstractions",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2"
+      },
+      {
+        "name": "Microsoft.Testing.Platform",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Platform@2.0.2"
+      },
+      {
+        "name": "Microsoft.Testing.Platform.MSBuild",
+        "version": "2.0.2",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+        "sourceId": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2"
+      },
+      {
+        "name": "Perfolizer",
+        "version": "0.6.1",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Perfolizer@0.6.1",
+        "sourceId": "pkg:nuget/Perfolizer@0.6.1"
+      },
+      {
+        "name": "Pragmastat",
+        "version": "3.2.4",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/Pragmastat@3.2.4",
+        "sourceId": "pkg:nuget/Pragmastat@3.2.4"
+      },
+      {
+        "name": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+        "version": "10.0.10",
+        "ecosystem": "nuget",
+        "dependency": "unknown",
+        "purl": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.10",
+        "sourceId": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.10"
+      },
+      {
+        "name": "System.CodeDom",
+        "version": "9.0.5",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/System.CodeDom@9.0.5",
+        "sourceId": "pkg:nuget/System.CodeDom@9.0.5"
+      },
+      {
+        "name": "System.Management",
+        "version": "9.0.5",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/System.Management@9.0.5",
+        "sourceId": "pkg:nuget/System.Management@9.0.5"
+      },
+      {
+        "name": "System.Reflection.TypeExtensions",
+        "version": "4.7.0",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+        "sourceId": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0"
+      },
+      {
+        "name": "TUnit",
+        "version": "1.12.111",
+        "ecosystem": "nuget",
+        "dependency": "direct",
+        "purl": "pkg:nuget/TUnit@1.12.111",
+        "sourceId": "pkg:nuget/TUnit@1.12.111"
+      },
+      {
+        "name": "TUnit.Assertions",
+        "version": "1.12.111",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/TUnit.Assertions@1.12.111",
+        "sourceId": "pkg:nuget/TUnit.Assertions@1.12.111"
+      },
+      {
+        "name": "TUnit.Core",
+        "version": "1.12.111",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/TUnit.Core@1.12.111",
+        "sourceId": "pkg:nuget/TUnit.Core@1.12.111"
+      },
+      {
+        "name": "TUnit.Engine",
+        "version": "1.12.111",
+        "ecosystem": "nuget",
+        "dependency": "transitive",
+        "purl": "pkg:nuget/TUnit.Engine@1.12.111",
+        "sourceId": "pkg:nuget/TUnit.Engine@1.12.111"
+      }
+    ],
+    "occurrences": [
+      {
+        "contextIndex": -1,
+        "componentIndex": 0
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 1
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 2
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 3
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 4
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 5
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 6
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 7
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 8
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 9
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 10
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 11
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 12
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 13
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 14
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 15
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 16
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 17
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 18
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 19
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 20
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 21
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 22
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 23
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 24
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 25
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 26
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 27
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 28
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 29
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 31
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 32
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 33
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 34
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 35
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 36
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 37
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 38
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 39
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 40
+      },
+      {
+        "contextIndex": -1,
+        "componentIndex": 41
+      }
+    ],
+    "edges": [
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 1
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 4
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 16
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 25
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 0,
+        "toOccurrenceIndex": 38
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 2
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 3
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 6
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 7
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 11
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 13
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 14
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 17
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 32
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 1,
+        "toOccurrenceIndex": 36
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 10,
+        "toOccurrenceIndex": 9
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 11,
+        "toOccurrenceIndex": 9
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 11,
+        "toOccurrenceIndex": 10
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 12,
+        "toOccurrenceIndex": 21
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 13,
+        "toOccurrenceIndex": 12
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 14,
+        "toOccurrenceIndex": 12
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 14,
+        "toOccurrenceIndex": 37
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 18,
+        "toOccurrenceIndex": 19
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 21,
+        "toOccurrenceIndex": 18
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 21,
+        "toOccurrenceIndex": 19
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 21,
+        "toOccurrenceIndex": 22
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 21,
+        "toOccurrenceIndex": 23
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 23,
+        "toOccurrenceIndex": 19
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 23,
+        "toOccurrenceIndex": 24
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 26,
+        "toOccurrenceIndex": 15
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 26,
+        "toOccurrenceIndex": 20
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 26,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 27,
+        "toOccurrenceIndex": 8
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 27,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 29,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 28,
+        "toOccurrenceIndex": 29
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 28,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 31,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 32,
+        "toOccurrenceIndex": 33
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 36,
+        "toOccurrenceIndex": 35
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 5
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 29
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 30
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 31
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 41,
+        "toOccurrenceIndex": 40
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 26
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 27
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 28
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 39
+      },
+      {
+        "contextIndex": -1,
+        "fromOccurrenceIndex": 38,
+        "toOccurrenceIndex": 41
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Ol",
+      "version": "0.0.0",
+      "license": "-",
+      "ecosystem": "-",
+      "dependency": "root",
+      "status": "unknown",
+      "purl": "",
+      "sourceId": "Ol@0.0.0",
+      "licenseCandidates": [
+        {
+          "source": "source-repository",
+          "kind": "unavailable",
+          "raw": "",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "source_repository_unavailable"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "source_repository_unavailable"
+      ]
+    },
+    {
+      "name": "BenchmarkDotNet",
+      "version": "0.15.8",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/BenchmarkDotNet@0.15.8",
+      "sourceId": "pkg:nuget/BenchmarkDotNet@0.15.8",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "0619ed9879e5a7b68167a4bc59e4d583fdbb1f75df9644e11306962f7cd94d53",
+            "collectedAt": "2026-07-15T03:35:41.2755756+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/BenchmarkDotNet",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "65d476324696947490debc1b3937b9c543b674a43c9430b04a17323c880625a2",
+            "licensePath": "LICENSE.md",
+            "licenseSha": "6272f97306b54ad0554e1c9ae5530ae1186ccbeb",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/dotnet/BenchmarkDotNet/blob/master/LICENSE.md"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "BenchmarkDotNet.Annotations",
+      "version": "0.15.8",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+      "sourceId": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "e48bf7d28da7743acc5be6d6c87e2f7e0275704344dfdaffc594646e59712026",
+            "collectedAt": "2026-07-15T03:35:41.1718291+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/BenchmarkDotNet",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "65d476324696947490debc1b3937b9c543b674a43c9430b04a17323c880625a2",
+            "licensePath": "LICENSE.md",
+            "licenseSha": "6272f97306b54ad0554e1c9ae5530ae1186ccbeb",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/dotnet/BenchmarkDotNet/blob/master/LICENSE.md"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "CommandLineParser",
+      "version": "2.9.1",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/CommandLineParser@2.9.1",
+      "sourceId": "pkg:nuget/CommandLineParser@2.9.1",
+      "licenseCandidates": [
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "3855f3212e6e189065f2e81c5056fbdd4b14bbefbb4fc429e620fa56c54c07b6",
+            "collectedAt": "2026-07-15T03:35:41.2005549+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "commandlineparser/commandline",
+            "ref": "b0b0ec9f5470bacc0823c013a599ba3b4e115900",
+            "httpStatus": 200,
+            "cacheKeySha256": "2bc61de1e4b360bf8612282a9c3cb61ec391ac7e4c8c7374fb8e254e3007d32b",
+            "licensePath": "License.md",
+            "licenseSha": "ef77a61cb0e3997c0591f2382efc66b407586f61",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/commandlineparser/commandline/blob/b0b0ec9f5470bacc0823c013a599ba3b4e115900/License.md"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "ConsoleAppFramework",
+      "version": "5.7.13",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/ConsoleAppFramework@5.7.13",
+      "sourceId": "pkg:nuget/ConsoleAppFramework@5.7.13",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "3d913f2838dcc78b5e110abddd665a9f8a7d03fdefc3618a2088ff5aebc7d413",
+            "collectedAt": "2026-07-15T03:35:41.3217172+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "Cysharp/ConsoleAppFramework",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "b9c227c89044c0768101bab292a411df580e739397159aed0d45eb3fd416efe7",
+            "licensePath": "LICENSE",
+            "licenseSha": "e847bcde0c6fa2b536c826a97a4419e844dc64c4",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/Cysharp/ConsoleAppFramework/blob/master/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "EnumerableAsyncProcessor",
+      "version": "3.8.4",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+      "sourceId": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "361a1c9525765a364c0c75ebf0e81fd0fb1d51817b8278912cca368220c69f7d",
+            "collectedAt": "2026-07-15T03:35:41.4654413+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "thomhurst/EnumerableAsyncProcessor",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "9983ffaabfe425012b47d9f6cb1ba75e2d5831c0efc04a2c55fcc6e7f5d1adef",
+            "licensePath": "LICENSE",
+            "licenseSha": "53fc5635060f9478d527333adf25ad1d027b7cf9",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/thomhurst/EnumerableAsyncProcessor/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Gee.External.Capstone",
+      "version": "2.3.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Gee.External.Capstone@2.3.0",
+      "sourceId": "pkg:nuget/Gee.External.Capstone@2.3.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "95b6c7e66af76b65664bc1b21c3889aff8f90a96c820b0cab094716ae53016df",
+            "collectedAt": "2026-07-15T03:35:41.4859973+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "9ee1/Capstone.NET",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "dac736ebd3c7022e9f1afa51e7a8ab3ee4eba424e61c2e27ab6a3d1e9d9e79e7",
+            "licensePath": "LICENSE",
+            "licenseSha": "64d019e5c97f47859420d4fe80e761d784631ab4",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/9ee1/Capstone.NET/blob/master/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Iced",
+      "version": "1.21.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Iced@1.21.0",
+      "sourceId": "pkg:nuget/Iced@1.21.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "582e1012fa0c18058d94a47b8219debaa97e997719c5eef9b11037b1f7184b06",
+            "collectedAt": "2026-07-15T03:35:40.8156762+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "icedland/iced",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "aebb8e32b93f6ef98c9197ea2321f16fc724a8ec3dd65b6f67bacff2fe582042",
+            "licensePath": "LICENSE.txt",
+            "licenseSha": "eff62de93f8d891cdd48b24cd4f995522d87de8e",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/icedland/iced/blob/master/LICENSE.txt"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.ApplicationInsights",
+      "version": "2.23.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+      "sourceId": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "6b3f183b580f40048803a1b96b603b37f3e8f4d35600537de2ed6305ad5e7b40",
+            "collectedAt": "2026-07-15T03:35:40.8401613+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "Microsoft/ApplicationInsights-dotnet",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "edff113a00edb2121e86901e6053c047ed863fabd9db24d1b8d8766c007d842a",
+            "licensePath": "LICENSE",
+            "licenseSha": "3423e9584d153a326c1900a759d3b5c2330047d4",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/microsoft/ApplicationInsights-dotnet/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.CodeAnalysis.Analyzers",
+      "version": "3.11.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+      "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "ac4f438471f890f96e5f6322af70846031d0a67e2ff5d8e2490e5a6835ed1555",
+            "collectedAt": "2026-07-15T03:35:42.5935997+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "NOASSERTION",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/roslyn-analyzers",
+            "ref": "default",
+            "httpStatus": 404,
+            "cacheKeySha256": "748b6408d45c75ad179682727e29a01faeff09bf5d5476d29b14a7a50faf3a2d",
+            "licensePath": "",
+            "licenseSha": "",
+            "licenseKey": "",
+            "licenseName": "",
+            "licenseUrl": ""
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.CodeAnalysis.CSharp",
+      "version": "4.14.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+      "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "4f70d0cc0c378d524d21c6a040c53cc4be9ee1886448f7e7bd007433291000b1",
+            "collectedAt": "2026-07-15T03:35:41.7293677+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/roslyn",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "bc0affa4e5c5f2eb90f9e87b111157c8d7603d46f88e713ad172d739ab623efc",
+            "licensePath": "License.txt",
+            "licenseSha": "a616ed188dfce68ee308f674350ad242d8588c2b",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/dotnet/roslyn/blob/main/License.txt"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.CodeAnalysis.Common",
+      "version": "4.14.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+      "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "d12f323f0e7ecb8fa93699737fd1e709dcaaa4fb7d64c8da5a0c3635ab92d48c",
+            "collectedAt": "2026-07-15T03:35:41.6691844+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/roslyn",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "bc0affa4e5c5f2eb90f9e87b111157c8d7603d46f88e713ad172d739ab623efc",
+            "licensePath": "License.txt",
+            "licenseSha": "a616ed188dfce68ee308f674350ad242d8588c2b",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/dotnet/roslyn/blob/main/License.txt"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.DiaSymReader",
+      "version": "2.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+      "sourceId": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "a043bf9b4a78137818e230f67121ede73a2573e9ac2192ed99021770f1ac6d16",
+            "collectedAt": "2026-07-15T03:35:41.8073012+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/symreader",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "e00ae0edecfa09918c871483abbe53c4d11e584735bfbbe8332dd3e2f086a052",
+            "licensePath": "License.txt",
+            "licenseSha": "a616ed188dfce68ee308f674350ad242d8588c2b",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/dotnet/symreader/blob/main/License.txt"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Diagnostics.NETCore.Client",
+      "version": "0.2.510501",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+      "sourceId": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "3bfaf5178f664cca25ca97acef974650048128ddca4884acba3262c3492d7a8d",
+            "collectedAt": "2026-07-15T03:35:41.5793815+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/diagnostics",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "71ac4c54116298aa5eaeb1e56fd423527ba6ced35f913c5eca1d1fdc816ea779",
+            "licensePath": "LICENSE.TXT",
+            "licenseSha": "984713a49622a96da110443c15477613bc12656b",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/dotnet/diagnostics/blob/main/LICENSE.TXT"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Diagnostics.Runtime",
+      "version": "3.1.512801",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+      "sourceId": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "f58007415e225985cda8d6191c02d4d60838cccc2082116b71c059d1abc01b2a",
+            "collectedAt": "2026-07-15T03:35:42.3234931+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "Microsoft/clrmd",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "4e0d7276763662ee0cf3aa2e5ecef2e1db35747724617f17d8be3ca12e2a65ea",
+            "licensePath": "LICENSE",
+            "licenseSha": "984713a49622a96da110443c15477613bc12656b",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/microsoft/clrmd/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Diagnostics.Tracing.TraceEvent",
+      "version": "3.1.21",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+      "sourceId": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "5ae0a8ceeb1853848c09730660ffa99678bbb1bcca9b00db92535f45a2bc2525",
+            "collectedAt": "2026-07-15T03:35:42.0952853+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "Microsoft/perfview",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "f9d8266b813d3eddbcb5b073be04d850862e26ed409bb5e164ba37cf48bce183",
+            "licensePath": "LICENSE.TXT",
+            "licenseSha": "984713a49622a96da110443c15477613bc12656b",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/microsoft/perfview/blob/main/LICENSE.TXT"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.DotNet.ILCompiler",
+      "version": "10.0.10",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
+      "sourceId": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "095a51c5915ccb801f4b0cad1014f9f9d739a386b69475f33d04b00983145dc1",
+            "collectedAt": "2026-07-28T06:13:27.5931604+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/dotnet",
+            "ref": "f7d90799ce4ef09a0bb257852a57248d2a8fb8dd",
+            "httpStatus": 200,
+            "cacheKeySha256": "92a091d726699ba5937a0825cbae3d7bddc0b47ea0a989466f5b1967dfed64ca",
+            "licensePath": "LICENSE.TXT",
+            "licenseSha": "a616ed188dfce68ee308f674350ad242d8588c2b",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/dotnet/dotnet/blob/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd/LICENSE.TXT"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.DotNet.PlatformAbstractions",
+      "version": "3.1.6",
+      "license": "-",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "unknown",
+      "purl": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+      "sourceId": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+      "licenseCandidates": [
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "fadbbfad4eb5c74d183abc25012d26540e32c1771df114e2fb60976ad15d965e",
+            "collectedAt": "2026-07-15T03:35:42.351685+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "NOASSERTION",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/core-setup",
+            "ref": "3acd9b0cd16596bad450c82be08780875a73c05c",
+            "httpStatus": 404,
+            "cacheKeySha256": "9c957dcfcb09018e10c69df35618c7c1ad709fa53fd715741eb7d8b42a183ea1",
+            "licensePath": "",
+            "licenseSha": "",
+            "licenseKey": "",
+            "licenseName": "",
+            "licenseUrl": ""
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Extensions.DependencyInjection",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "fd0d548571b6b224d46c13a5f502408e0d80b3e9a0e65b6c0daa3543351628f1",
+            "collectedAt": "2026-07-15T03:35:42.0610653+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://dot.net/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "91ae011aff8f81d66f95d665b74bbd26a6771a3d9b5084038d5c72e4bd742640",
+            "collectedAt": "2026-07-15T03:35:42.368402+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://dot.net/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "Microsoft.Extensions.DependencyModel",
+      "version": "6.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "2d57fccdfeb46e4ab53d753bb215ce33c4ea5e849ae5b2da39c19d117266a875",
+            "collectedAt": "2026-07-15T03:35:42.1722416+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://dot.net/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "Microsoft.Extensions.Logging",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "4cbe907d64222dc2fdc504579045b7f0cd0ea0cb97288920a210b9b44f4e2bc6",
+            "collectedAt": "2026-07-15T03:35:43.139607+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://dot.net/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "5c1daea205f21151c4794457e2ba57eb36cf6bccfdd0668e1bbe0bbc4c88d783",
+            "collectedAt": "2026-07-15T03:35:42.9993833+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://dot.net/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "Microsoft.Extensions.Options",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "98c82fd8b45a0b608f23a0ee5cfe0e10004b92d80c0dbe4d8aea0714258da60b",
+            "collectedAt": "2026-07-15T03:35:43.213716+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://dot.net/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "Microsoft.Extensions.Primitives",
+      "version": "6.0.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+      "sourceId": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "e5d015965616d32b6da64cdc12c206e1a864efe6cda8e3a6731788adbe4a2098",
+            "collectedAt": "2026-07-15T03:35:43.0467219+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://dot.net/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "Microsoft.NET.ILLink.Tasks",
+      "version": "10.0.10",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
+      "sourceId": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "f9e64c99f4a8fba208abd641bb596fc69ca960c6efd71b79a4f80fe284f2f20f",
+            "collectedAt": "2026-07-28T06:13:27.6031228+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/dotnet",
+            "ref": "f7d90799ce4ef09a0bb257852a57248d2a8fb8dd",
+            "httpStatus": 200,
+            "cacheKeySha256": "92a091d726699ba5937a0825cbae3d7bddc0b47ea0a989466f5b1967dfed64ca",
+            "licensePath": "LICENSE.TXT",
+            "licenseSha": "a616ed188dfce68ee308f674350ad242d8588c2b",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/dotnet/dotnet/blob/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd/LICENSE.TXT"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Extensions.CodeCoverage",
+      "version": "18.3.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+      "licenseCandidates": [
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "014a6b2ac3f1eb5dbdce7d6a0f700ed66d71a637050ac8fcb63380856f77ddad",
+            "collectedAt": "2026-07-15T03:35:43.7286671+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "microsoft/codecoverage",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "5f6cc7b1ee3344b76f4fb2688ecc74f722103bab80e1ccec1025a7ab00791233",
+            "licensePath": "LICENSE",
+            "licenseSha": "9e841e7a26e4eb057b24511e7b92d42b257a80e5",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/microsoft/codecoverage/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Extensions.Telemetry",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "50f6cd07441c97fbaa56ee5a77baec3af784c041acedee9534148c4ef05abfaa",
+            "collectedAt": "2026-07-15T03:35:42.8392277+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "microsoft/testfx",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "87e6e8314d9e59724c334b86ed64be8fbb28855b21d4ee1a62953031fa7a436c",
+            "licensePath": "LICENSE",
+            "licenseSha": "d859446c6968eaeff058d8c5de28e607ffb4c717",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/microsoft/testfx/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Extensions.TrxReport",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "a5b9a7259f32ea5d99b6ffe7ed8fa80f932e27a91439fbd5cac97c7ab80dbdfc",
+            "collectedAt": "2026-07-15T03:35:43.5173925+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "microsoft/testfx",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "87e6e8314d9e59724c334b86ed64be8fbb28855b21d4ee1a62953031fa7a436c",
+            "licensePath": "LICENSE",
+            "licenseSha": "d859446c6968eaeff058d8c5de28e607ffb4c717",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/microsoft/testfx/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Extensions.TrxReport.Abstractions",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "fc2bbab2d3074c30912bdfe3c8c7c46be5bc17bef1135eb36700c53b334db24c",
+            "collectedAt": "2026-07-15T03:35:43.9900321+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "microsoft/testfx",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "87e6e8314d9e59724c334b86ed64be8fbb28855b21d4ee1a62953031fa7a436c",
+            "licensePath": "LICENSE",
+            "licenseSha": "d859446c6968eaeff058d8c5de28e607ffb4c717",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/microsoft/testfx/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Platform",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "cbda5cf9ab1535238447b6036d3880b557d13e0b7a5651cc9453d57208c3dc21",
+            "collectedAt": "2026-07-15T03:35:43.5133461+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "microsoft/testfx",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "87e6e8314d9e59724c334b86ed64be8fbb28855b21d4ee1a62953031fa7a436c",
+            "licensePath": "LICENSE",
+            "licenseSha": "d859446c6968eaeff058d8c5de28e607ffb4c717",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/microsoft/testfx/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Microsoft.Testing.Platform.MSBuild",
+      "version": "2.0.2",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+      "sourceId": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "77d6e5620537bee28d72cb42bccbbea3e6a8398f034b26e50c9c58acb392c44a",
+            "collectedAt": "2026-07-15T03:35:43.8756539+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "microsoft/testfx",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "87e6e8314d9e59724c334b86ed64be8fbb28855b21d4ee1a62953031fa7a436c",
+            "licensePath": "LICENSE",
+            "licenseSha": "d859446c6968eaeff058d8c5de28e607ffb4c717",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/microsoft/testfx/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Perfolizer",
+      "version": "0.6.1",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Perfolizer@0.6.1",
+      "sourceId": "pkg:nuget/Perfolizer@0.6.1",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "f9bd7b205fe4b84375c6cbb38b3d0384b029e1a099ff40e491f57953c81f3f7f",
+            "collectedAt": "2026-07-15T03:35:43.7674109+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "AndreyAkinshin/perfolizer",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "c7978a0124c802a9cf03aec0606c3d0d236cc416bc82741554b472745183dc7f",
+            "licensePath": "LICENSE.md",
+            "licenseSha": "ecb1118956cd1aae386db44ec507d7d44a9a8fab",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/AndreyAkinshin/perfolizer/blob/main/LICENSE.md"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "Pragmastat",
+      "version": "3.2.4",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/Pragmastat@3.2.4",
+      "sourceId": "pkg:nuget/Pragmastat@3.2.4",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "6eb97aff28c6ecdf3f246e2fd542c02ca1e0c320a6200c39269a88eb57fb2031",
+            "collectedAt": "2026-07-15T03:35:44.0663031+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://pragmastat.dev/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "System.CodeDom",
+      "version": "9.0.5",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/System.CodeDom@9.0.5",
+      "sourceId": "pkg:nuget/System.CodeDom@9.0.5",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "2a8ac0bd218b3b11d7b33ea02cb0c900952b30bd74bd631ee66b03a6c5e9d3cb",
+            "collectedAt": "2026-07-15T03:35:44.1600284+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://dot.net/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "System.Management",
+      "version": "9.0.5",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/System.Management@9.0.5",
+      "sourceId": "pkg:nuget/System.Management@9.0.5",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "14007ced5341bd4053ba0c1f3d3c4b8b2db3925df6f91a6356e97d6ef0407469",
+            "collectedAt": "2026-07-15T03:35:44.1512388+00:00"
+          }
+        },
+        {
+          "source": "source-repository",
+          "kind": "unsupported",
+          "raw": "https://dot.net/",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [
+            "unsupported_source_repository"
+          ],
+          "evidence": {
+            "type": "source-repository"
+          }
+        }
+      ],
+      "warnings": [
+        "unsupported_source_repository"
+      ]
+    },
+    {
+      "name": "System.Reflection.TypeExtensions",
+      "version": "4.7.0",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+      "sourceId": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "42940417bbfa1d79feb2183d39d012000322cfe9a13e47dccf3f76db17fbb2cb",
+            "collectedAt": "2026-07-15T03:35:44.1276991+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "NOASSERTION",
+          "normalized": "",
+          "status": "unknown",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/corefx",
+            "ref": "default",
+            "httpStatus": 404,
+            "cacheKeySha256": "8416f4e01be8d9f7f924b3a404607d7827669fcfa1675b4bea226ee38e340594",
+            "licensePath": "",
+            "licenseSha": "",
+            "licenseKey": "",
+            "licenseName": "",
+            "licenseUrl": ""
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "TUnit",
+      "version": "1.12.111",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "direct",
+      "status": "matched",
+      "purl": "pkg:nuget/TUnit@1.12.111",
+      "sourceId": "pkg:nuget/TUnit@1.12.111",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "eb72502f445cef45c2e2d0ed1ec06a4eba25447b46907817a6e2944855953f9e",
+            "collectedAt": "2026-07-15T03:35:44.5528056+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "thomhurst/TUnit",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "f268d796f13343c850625b503576dfa6e384e764c31f384ad33b2b49666a76b2",
+            "licensePath": "LICENSE",
+            "licenseSha": "31267dbb0b3f2645048995e40e8457b5e25571c9",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/thomhurst/TUnit/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "TUnit.Assertions",
+      "version": "1.12.111",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/TUnit.Assertions@1.12.111",
+      "sourceId": "pkg:nuget/TUnit.Assertions@1.12.111",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "b6eba53769a47e4feaf3bc686cf858aba0459da9f04a5d0348d867d9643fb7cc",
+            "collectedAt": "2026-07-15T03:35:44.6133767+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "thomhurst/TUnit",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "f268d796f13343c850625b503576dfa6e384e764c31f384ad33b2b49666a76b2",
+            "licensePath": "LICENSE",
+            "licenseSha": "31267dbb0b3f2645048995e40e8457b5e25571c9",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/thomhurst/TUnit/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "TUnit.Core",
+      "version": "1.12.111",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/TUnit.Core@1.12.111",
+      "sourceId": "pkg:nuget/TUnit.Core@1.12.111",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "1b70b2c7500eaa3b7d31f929d9af4ed9cc6e89463aed9790052a144f02a913b8",
+            "collectedAt": "2026-07-15T03:35:44.6671963+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "thomhurst/TUnit",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "f268d796f13343c850625b503576dfa6e384e764c31f384ad33b2b49666a76b2",
+            "licensePath": "LICENSE",
+            "licenseSha": "31267dbb0b3f2645048995e40e8457b5e25571c9",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/thomhurst/TUnit/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "TUnit.Engine",
+      "version": "1.12.111",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "transitive",
+      "status": "matched",
+      "purl": "pkg:nuget/TUnit.Engine@1.12.111",
+      "sourceId": "pkg:nuget/TUnit.Engine@1.12.111",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "2021e2fa6d67026a41a9463b1752a07d5a922f41a69bbf4b5c54f67308241614",
+            "collectedAt": "2026-07-15T03:35:44.6660809+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "thomhurst/TUnit",
+            "ref": "default",
+            "httpStatus": 200,
+            "cacheKeySha256": "f268d796f13343c850625b503576dfa6e384e764c31f384ad33b2b49666a76b2",
+            "licensePath": "LICENSE",
+            "licenseSha": "31267dbb0b3f2645048995e40e8457b5e25571c9",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/thomhurst/TUnit/blob/main/LICENSE"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
+      "version": "10.0.10",
+      "license": "MIT",
+      "ecosystem": "nuget",
+      "dependency": "unknown",
+      "status": "matched",
+      "purl": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.10",
+      "sourceId": "pkg:nuget/runtime.win-x64.Microsoft.DotNet.ILCompiler@10.0.10",
+      "licenseCandidates": [
+        {
+          "source": "sbom",
+          "kind": "id",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "sbom",
+            "field": "licenses"
+          }
+        },
+        {
+          "source": "nuget-registry",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "package-registry",
+            "cacheKeySha256": "220499f276e0fa540b3fdfdcc0287f5c847906891f17c6923a8fe80dddec119d",
+            "collectedAt": "2026-07-28T06:13:27.5795573+00:00"
+          }
+        },
+        {
+          "source": "github-license-api",
+          "kind": "license",
+          "raw": "MIT",
+          "normalized": "MIT",
+          "status": "matched",
+          "deprecated": false,
+          "warnings": [],
+          "evidence": {
+            "type": "source-repository",
+            "repository": "dotnet/dotnet",
+            "ref": "f7d90799ce4ef09a0bb257852a57248d2a8fb8dd",
+            "httpStatus": 200,
+            "cacheKeySha256": "92a091d726699ba5937a0825cbae3d7bddc0b47ea0a989466f5b1967dfed64ca",
+            "licensePath": "LICENSE.TXT",
+            "licenseSha": "a616ed188dfce68ee308f674350ad242d8588c2b",
+            "licenseKey": "mit",
+            "licenseName": "MIT License",
+            "licenseUrl": "https://github.com/dotnet/dotnet/blob/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd/LICENSE.TXT"
+          }
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "summary": {
+    "matched": 40,
+    "conflict": 0,
+    "unknown": 2,
+    "ambiguous": 0,
+    "invalid": 0,
+    "error": 0
+  },
+  "warnings": []
+}

@@ -418,14 +418,45 @@ ol scan --input bom.cdx.json
 ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
 ```
 
-**Resolved package-manager input:** ol scans npm `package-lock.json` version 2/3, pnpm `pnpm-lock.yaml` version 9, Yarn Classic `yarn.lock` version 1, and Yarn Berry `yarn.lock` metadata version 8:
+**Resolved package-manager input:** Pass a supported lockfile or directory directly.
+
+#### npm
+
+ol scans `package-lock.json` version 2/3:
 
 ```bash
 ol scan --input package-lock.json
 ol check --input package-lock.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
 ```
 
-Pass a lockfile or directory. Workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
+#### pnpm
+
+ol scans `pnpm-lock.yaml` version 9:
+
+```bash
+ol scan --input pnpm-lock.yaml
+ol check --input pnpm-lock.yaml --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
+```
+
+#### Yarn Classic
+
+ol scans `yarn.lock` version 1:
+
+```bash
+ol scan --input yarn.lock
+ol check --input yarn.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
+```
+
+#### Yarn Berry
+
+ol scans `yarn.lock` metadata version 8:
+
+```bash
+ol scan --input yarn.lock
+ol check --input yarn.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
+```
+
+Workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
 
 ### Rust
 

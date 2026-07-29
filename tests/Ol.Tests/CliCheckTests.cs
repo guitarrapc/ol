@@ -362,7 +362,9 @@ public sealed class CliCheckTests
         var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
         try
         {
-            await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json", "--out-file", reportPath);
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
             var fromInput = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
             var fromReport = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
 
@@ -386,7 +388,9 @@ public sealed class CliCheckTests
         var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
         try
         {
-            await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json", "--out-file", reportPath);
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
             var update = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", baselinePath, "--update-baseline");
 
             await Assert.That(update.ExitCode).IsEqualTo(0);

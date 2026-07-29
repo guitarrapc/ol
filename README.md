@@ -44,10 +44,10 @@ ol scan --input package-lock.json
 ol scan --input src/MyProject/obj/project.assets.json
 
 # Write a reviewable Markdown report
-ol scan --input . --format markdown --out-file ol-report.md
+ol scan --input . --format markdown > ol-report.md
 
 # Write a reusable JSON report
-ol scan --input . --format json --out-file ol-report.json
+ol scan --input . --format json > ol-report.json
 
 # Show only direct dependencies and group them by license
 ol scan --input . --dependency direct --group-by license
@@ -106,7 +106,6 @@ Options:
   --input <string[]?>            Repeatable resolved dependency input files or directories. [Default: null]
   --input-format <string?>       Input format assertion; defaults to auto detection. [Default: null]
   --format <ReportFormat>        Output format: text, json, or markdown. [Default: Text]
-  --out, --out-file <string?>    Write output to this path. [Default: null]
   --verbose                      Include verbose columns and input detection diagnostics.
   --dependency <string?>         Dependency output filter: root,direct,transitive,unknown. [Default: null]
   --group-by <string?>           Group output by fields: name,version,license,ecosystem,dependency,status. [Default: null]
@@ -285,7 +284,7 @@ Ol cannot identify every forbidden license: an unnormalizable string such as `GP
 Save a report once, then evaluate any policy against it offline. No input parsing, no registry or repository calls, no network:
 
 ```bash
-ol scan --input . --format Json --out-file ol-report.json
+ol scan --input . --format Json > ol-report.json
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```
 
@@ -409,7 +408,6 @@ Scan summary
   Source repositories (full scan): 20 targets; 0 GitHub requests; 20 cache hits; 0 cache misses; 0 fetch errors; 14 components without source license
   Run: concurrency 8; retries 1; GitHub auth none
   Input: cyclonedx-sample.json; input format CycloneDX; SPDX 5e59516 (bundled)
-  Output file: output.md
 
 </details>
 
@@ -806,7 +804,7 @@ Review its raw evidence first. When adopting `check` on an existing project, a g
 Yes. Persist a JSON report and pass it to `check`:
 
 ```bash
-ol scan --input . --format json --out-file ol-report.json
+ol scan --input . --format json > ol-report.json
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```
 

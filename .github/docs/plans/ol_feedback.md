@@ -26,7 +26,7 @@ ranking の前提になるため、推測ではなく登録済みの実体で確
 | reconciliation | matched / conflict / unknown / ambiguous / invalid / error の 6 状態 | [LicenseReconciler.cs](../../../src/Ol.Core/Licensing/LicenseReconciler.cs) |
 | SPDX | 版を固定した**識別子**データ。本文・template は持たない（生成物 22KB） | [SpdxGeneratedLicenseData.g.cs](../../../src/Ol.Core/Generated/SpdxGeneratedLicenseData.g.cs)、[specs/spdx.md](../specs/spdx.md) |
 | policy | `check --allow-licenses` の SPDX 識別子 allow-list。`AND` / `OR` / `WITH` を fail-closed 評価。**承認 baseline**と**永続 report 評価**を持つ | [CheckCommands.cs](../../../src/Ol/CheckCommands.cs)、[LicenseAllowPolicy.cs](../../../src/Ol.Core/Licensing/LicenseAllowPolicy.cs)、[LicenseBaseline.cs](../../../src/Ol.Core/Licensing/LicenseBaseline.cs) |
-| 出力 | `scan` が text / Markdown / JSON と `--out-file`。`check` は text と **SARIF**。**`diff`** が text / JSON | [ScanCommands.cs](../../../src/Ol/ScanCommands.cs)、[SarifRenderer.cs](../../../src/Ol/SarifRenderer.cs)、[DiffCommands.cs](../../../src/Ol/DiffCommands.cs) |
+| 出力 | `scan` が stdout に text / Markdown / JSON。`check` は text と **SARIF**。**`diff`** が text / JSON | [ScanCommands.cs](../../../src/Ol/ScanCommands.cs)、[SarifRenderer.cs](../../../src/Ol/SarifRenderer.cs)、[DiffCommands.cs](../../../src/Ol/DiffCommands.cs) |
 | 永続 report の再利用 | canonical JSON を入力契約として兼用。`check --report` は parse も network も行わない | [ScanReportReader.cs](../../../src/Ol.Core/Reporting/ScanReportReader.cs) |
 | cache | TTL なしの永続 cache。`--refresh` でのみ無効化 | [specs/cache_format.md](../specs/cache_format.md) |
 

@@ -19,6 +19,7 @@ public sealed class CliScanTests
         await Assert.That(stderr).IsEmpty();
         await Assert.That(stdout).Contains("--input <string[]?>");
         await Assert.That(stdout).DoesNotContain("--sbom");
+        await Assert.That(stdout).DoesNotContain("--out");
     }
 
     [Test]
@@ -30,6 +31,20 @@ public sealed class CliScanTests
 
         await Assert.That(exitCode).IsEqualTo(1);
         await Assert.That(stdout.Trim()).IsEqualTo("Argument '--sbom' is not recognized.");
+        await Assert.That(stderr).IsEmpty();
+    }
+
+    [Test]
+    [Arguments("--out")]
+    [Arguments("--out-file")]
+    public async Task Scan_WithRemovedOutputFileOption_ReturnsUnknownOptionError(string option)
+    {
+        var root = FindRepositoryRoot();
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", option, "removed.json");
+
+        await Assert.That(exitCode).IsEqualTo(1);
+        await Assert.That(stdout.Trim()).IsEqualTo($"Argument '{option}' is not recognized.");
         await Assert.That(stderr).IsEmpty();
     }
 
@@ -651,79 +666,6 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithOutFile_WritesFileAndKeepsPrimaryOutputOnStdout()
-    {
-        var root = FindRepositoryRoot();
-        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-out-{Guid.NewGuid():N}.json");
-        var outPath = Path.Combine(Path.GetTempPath(), $"ol-out-{Guid.NewGuid():N}.md");
-        await File.WriteAllTextAsync(
-            sbomPath,
-            """
-            {
-              "bomFormat": "CycloneDX",
-              "components": [
-                { "name": "a", "version": "1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] }
-              ]
-            }
-            """,
-            Encoding.UTF8);
-
-        try
-        {
-            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "markdown", "--out", outPath);
-
-            await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(File.Exists(outPath)).IsTrue();
-            var fileText = await File.ReadAllTextAsync(outPath);
-            await Assert.That(stdout).Contains("| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |");
-            await Assert.That(stdout).IsEqualTo(fileText);
-        }
-        finally
-        {
-            File.Delete(sbomPath);
-            File.Delete(outPath);
-        }
-    }
-
-    [Test]
-    [Arguments("text", "txt")]
-    [Arguments("markdown", "md")]
-    [Arguments("json", "json")]
-    public async Task Scan_WithOutFile_TerminatesEveryFormatWithLineFeed(string format, string extension)
-    {
-        var root = FindRepositoryRoot();
-        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-newline-{Guid.NewGuid():N}.json");
-        var outPath = Path.Combine(Path.GetTempPath(), $"ol-newline-{Guid.NewGuid():N}.{extension}");
-        await File.WriteAllTextAsync(
-            sbomPath,
-            """
-            {
-              "bomFormat": "CycloneDX",
-              "components": [
-                { "name": "a", "version": "1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] }
-              ]
-            }
-            """,
-            Encoding.UTF8);
-
-        try
-        {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", format, "--skip-enrichment", "--quiet", "--out", outPath);
-
-            await Assert.That(exitCode).IsEqualTo(0);
-            var fileText = await File.ReadAllTextAsync(outPath);
-            await Assert.That(fileText.EndsWith('\n')).IsTrue();
-            await Assert.That(stdout).IsEqualTo(fileText);
-            await Assert.That(stderr).IsEmpty();
-        }
-        finally
-        {
-            File.Delete(sbomPath);
-            File.Delete(outPath);
-        }
-    }
-
-    [Test]
     public async Task Scan_WithGroupByLicense_RendersGroupedRowsAndCanonicalJsonSummary()
     {
         var root = FindRepositoryRoot();
@@ -1144,31 +1086,6 @@ public sealed class CliScanTests
             await Assert.That(invalidStdout).IsEmpty();
             await Assert.That(invalidStderr).StartsWith("Unable to load SPDX data:");
             await Assert.That(invalidStderr).DoesNotContain("   at ");
-        }
-        finally
-        {
-            Directory.Delete(temporaryDirectory, recursive: true);
-        }
-    }
-
-    [Test]
-    public async Task Scan_WithDirectoryAsOutFile_ReturnsConciseErrorWithoutPrimaryOutput()
-    {
-        var root = FindRepositoryRoot();
-        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-invalid-out-{Guid.NewGuid():N}");
-        var sbomPath = Path.Combine(temporaryDirectory, "bom.json");
-        var outDirectory = Path.Combine(temporaryDirectory, "report");
-        Directory.CreateDirectory(outDirectory);
-        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [] }""", Encoding.UTF8);
-
-        try
-        {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", "--out", outDirectory);
-
-            await Assert.That(exitCode).IsEqualTo(1);
-            await Assert.That(stdout).IsEmpty();
-            await Assert.That(stderr).StartsWith("Unable to write report:");
-            await Assert.That(stderr).DoesNotContain("   at ");
         }
         finally
         {

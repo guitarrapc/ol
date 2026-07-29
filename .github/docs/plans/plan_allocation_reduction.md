@@ -229,7 +229,7 @@ dedup の品質が落ちていないことは、実装前に characterization te
 `SpdxData` から 2 本の string フィールドを外し、「どう導出するか」だけを持つ `SpdxDataDigest` に置き換えた。text / Markdown 出力では **1 バイトも計算しない**。
 
 - 計算プロパティではなく `GetLicensesSha256()` という**メソッド名**にした。ただの読み取りに見える property が 33 KB を確保するのは罠であり、[P1-2](#p1-2-計算プロパティを確定値に変え正規化を-dedup-の後ろへ移す実施済み) で消したのと同じ形だから
-- `SpdxDataDigest` は struct ではなく class にして結果を保持する。`--format json --out-file` は `WriteJson` を出力先と標準出力の 2 回呼ぶため、毎回計算する形にすると 66 KB に増えてしまう
+- `SpdxDataDigest` は struct ではなく class にして結果を保持する。当時存在した `--format json --out-file` は `WriteJson` を出力先と標準出力の 2 回呼んでいたため、毎回計算する形にすると 66 KB に増えてしまった（現在の `scan` は stdout のみに出力する）
 - user-installed SPDX data（`--spdx-data` / `ol spdx use`）では、`HashFile` が licenses.json と exceptions.json を**もう一度全部読み直していた**（`ReadSpdxData` が既に読んだ後で）。text 出力ではこの再読み込みも起きなくなった。実 SPDX データはこの 2 ファイルが大きいため、生成データより削減幅は大きい
 
 digest の値が変わっていないことは、実装前に characterization test で固定した（bundled は生成識別子から、user directory は実ファイルから、テスト側で独立に再計算して照合）。`E2E`、`JsonReportRenderer`（0 B 維持）、`TextReportRenderer`（0 B 維持）に変化なし。

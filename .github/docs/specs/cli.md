@@ -109,7 +109,7 @@ Examples of whole-command failures:
 - input format is unsupported or does not match the input content.
 - input is malformed enough that components cannot be extracted.
 - SPDX data cannot be loaded.
-- stdout or `--out` cannot be written.
+- stdout cannot be written.
 
 Expected input, option, SPDX-data, and I/O failures return a non-zero exit code with a concise cause on stderr. They do not emit a runtime stack trace or partial primary output. View options are validated before enrichment starts so an invalid report request does not perform external evidence collection.
 
@@ -137,10 +137,10 @@ ol scan --input bom.json --format json
 ol scan --input bom.json --format markdown
 ```
 
-`--out` writes the same format selected by `--format` to the given file. It does not suppress stdout. Primary output and the file contain identical content and end with a line feed in every format.
+Primary output is written only to stdout and ends with a line feed in every format. Persist a report with shell redirection so the same output contract remains usable in pipelines:
 
 ```bash
-ol scan --input bom.json --format markdown --out licenses.md
+ol scan --input bom.json --format markdown > licenses.md
 ```
 
 For human-readable `text` and `markdown` output, a labeled scan summary is separated from the report by a blank line and written to stderr. JSON already contains canonical summary, warning, cache, network, input, and SPDX metadata, so successful JSON output does not emit a duplicate stderr summary. This keeps redirected and interactive JSON output free from an unexpected second representation of the same information.
@@ -399,7 +399,7 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 `--allow-licenses` is one comma-separated list of SPDX License Identifiers. Surrounding ASCII whitespace is ignored. Matching is case-insensitive and identifiers are normalized to the official casing from the active SPDX data. Empty entries, unknown identifiers, SPDX expressions, exception identifiers, natural-language names, and an empty list are invalid check options. Duplicate identifiers after normalization have no additional effect.
 
-`check` accepts the scan controls needed to produce the completed result: `--input`, `--input-format`, `--spdx-data`, `--cache-dir`, `--refresh`, `--skip-enrichment`, `--concurrency`, `--retry`, and `--verbose`. It additionally accepts `--baseline` and `--update-baseline`, defined below. The initial command does not accept scan view or report controls such as `--dependency`, `--group-by`, `--sort`, `--format`, or `--out`; policy always evaluates every component in the completed result and emits one deterministic text result.
+`check` accepts the scan controls needed to produce the completed result: `--input`, `--input-format`, `--spdx-data`, `--cache-dir`, `--refresh`, `--skip-enrichment`, `--concurrency`, `--retry`, and `--verbose`. It additionally accepts `--baseline` and `--update-baseline`, defined below. The initial command does not accept scan view or report controls such as `--dependency`, `--group-by`, `--sort`, or `--format`; policy always evaluates every component in the completed result and emits one deterministic text result.
 
 For a component with status `matched`, the normalized SPDX expression is evaluated as a Boolean expression where an allowed license identifier is true and every other license identifier is false:
 
@@ -455,7 +455,7 @@ Whenever a baseline is supplied, `check` reports how many components it acknowle
 `--report <file>` evaluates a previously written JSON scan report instead of scanning an input:
 
 ```text
-ol scan --input . --format Json --out-file ol-report.json
+ol scan --input . --format Json > ol-report.json
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```
 

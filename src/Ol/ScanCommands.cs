@@ -33,7 +33,6 @@ internal sealed class ScanCommands
     /// <param name="input">Repeatable resolved dependency input files or directories.</param>
     /// <param name="inputFormat">Input format: auto (default), cyclonedx, spdx, or nuget-assets.</param>
     /// <param name="format">Output format: text, json, or markdown.</param>
-    /// <param name="outFile">--out, Write output to this path.</param>
     /// <param name="verbose">Include verbose columns and input detection diagnostics.</param>
     /// <param name="dependency">Dependency output filter: root,direct,transitive,unknown.</param>
     /// <param name="groupBy">Group output by fields: name,version,license,ecosystem,dependency,status.</param>
@@ -51,7 +50,6 @@ internal sealed class ScanCommands
         [InputPathsParser] string[]? input = null,
         string? inputFormat = null,
         ReportFormat format = ReportFormat.Text,
-        string? outFile = null,
         bool verbose = false,
         string? dependency = null,
         string? groupBy = null,
@@ -104,20 +102,6 @@ internal sealed class ScanCommands
         var groups = groupBy is null or "" ? null : ScanView.Group(components, groupBy);
         if (format == ReportFormat.Json)
         {
-            if (outFile is { Length: > 0 })
-            {
-                try
-                {
-                    using var output = File.Create(outFile);
-                    WriteJson(output, scanResult.Inventory, components, groups, groupBy, spdx, packageMetadataSummary, sourceRepositorySummary);
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-                {
-                    Console.Error.WriteLine($"Unable to write report: {exception.Message}");
-                    return 1;
-                }
-            }
-
             try
             {
                 WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, groups, groupBy, spdx, packageMetadataSummary, sourceRepositorySummary);
@@ -133,20 +117,6 @@ internal sealed class ScanCommands
 
         if (format == ReportFormat.Text)
         {
-            if (outFile is { Length: > 0 })
-            {
-                try
-                {
-                    using var output = File.Create(outFile);
-                    WriteText(output, scanResult.Inventory.Input, components, groups, groupBy, verbose);
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-                {
-                    Console.Error.WriteLine($"Unable to write report: {exception.Message}");
-                    return 1;
-                }
-            }
-
             try
             {
                 WriteText(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory.Input, components, groups, groupBy, verbose);
@@ -166,19 +136,6 @@ internal sealed class ScanCommands
             if (!text.EndsWith('\n'))
             {
                 text += '\n';
-            }
-
-            if (outFile is { Length: > 0 })
-            {
-                try
-                {
-                    File.WriteAllText(outFile, text, Encoding.UTF8);
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-                {
-                    Console.Error.WriteLine($"Unable to write report: {exception.Message}");
-                    return 1;
-                }
             }
 
             try
@@ -208,11 +165,6 @@ internal sealed class ScanCommands
             if (dependency is not null and not "")
             {
                 Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} components excluded; {excludedUnknownCount} with unknown dependency type");
-            }
-
-            if (outFile is { Length: > 0 })
-            {
-                Console.Error.WriteLine($"  Output file: {Path.GetFileName(outFile)}");
             }
         }
 

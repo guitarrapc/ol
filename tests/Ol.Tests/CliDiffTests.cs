@@ -141,7 +141,9 @@ public sealed class CliDiffTests
         ] }
         """;
         await File.WriteAllTextAsync(inputPath, json, Encoding.UTF8);
-        await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json", "--out-file", reportPath);
+        var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+        await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+        await File.WriteAllTextAsync(reportPath, scan.Stdout);
         File.Delete(inputPath);
         return reportPath;
     }

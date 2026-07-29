@@ -97,9 +97,9 @@ jobs:
         run: |
           $ol = "src/Ol/bin/Release/net10.0/ol.dll"
           function Invoke-OlScan([string] $InputPath, [string] $ReportPrefix) {
-            dotnet $ol scan --input $InputPath --format text --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/$ReportPrefix.txt" | Out-Null
-            dotnet $ol scan --input $InputPath --format markdown --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/$ReportPrefix.md" | Out-Null
-            dotnet $ol scan --input $InputPath --format json --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" --out "$env:RUNNER_TEMP/$ReportPrefix.json" | Out-Null
+            dotnet $ol scan --input $InputPath --format text --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" > "$env:RUNNER_TEMP/$ReportPrefix.txt"
+            dotnet $ol scan --input $InputPath --format markdown --quiet --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" > "$env:RUNNER_TEMP/$ReportPrefix.md"
+            dotnet $ol scan --input $InputPath --format json --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" > "$env:RUNNER_TEMP/$ReportPrefix.json"
           }
 
           Invoke-OlScan "$env:RUNNER_TEMP/ecosystem.cdx.json" report

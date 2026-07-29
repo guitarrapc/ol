@@ -83,9 +83,8 @@ public sealed class SarifOutputTests
                 "--sort",
                 "name",
                 "--sort-order",
-                "desc",
-                "--out-file",
-                reportPath);
+                "desc");
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
             var check = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--sarif", sarifPath);
 
             await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);

@@ -139,7 +139,7 @@ Package metadata support targets:
 - Ruby Bundler (Ruby)
 - Maven (Java)
 
-Maven and other ecosystems may be added later.
+Maven package-metadata support and other ecosystems may be added later.
 
 Each ecosystem is an independently registered metadata provider. A provider owns the versioned-purl acceptance rules, registry endpoint, and normalized response evidence for that ecosystem. This keeps ecosystem-specific changes local: adding or removing a provider does not change central request parsing, registry dispatch, or SBOM ecosystem detection. Provider registration is immutable for a scan so repeated component processing performs only data lookup, not runtime configuration work.
 

@@ -212,6 +212,22 @@ public sealed class MavenInputTests
     }
 
     [Test]
+    public async Task Parser_WithoutRetainedGraph_DoesNotAllocateDiscardedOccurrenceVariants()
+    {
+        var emptyScope = Encoding.UTF8.GetBytes(CreateSingleDependencyJson(""));
+        var compileScope = Encoding.UTF8.GetBytes(CreateSingleDependencyJson("compile"));
+        DependencyInputRegistry.Default.TryGetInputFormat(ScanInputFormat.MavenDependencyTree.Name, out var handler);
+        var parser = handler.Parser!;
+        _ = parser(emptyScope, 0, Spdx, retainGraph: false);
+        _ = parser(compileScope, 0, Spdx, retainGraph: false);
+
+        var emptyScopeBytes = MeasureAllocations(parser, emptyScope);
+        var compileScopeBytes = MeasureAllocations(parser, compileScope);
+
+        await Assert.That(compileScopeBytes).IsEqualTo(emptyScopeBytes);
+    }
+
+    [Test]
     public async Task Scan_DeeplyNestedMavenDependencyTree_FailsWithinConfiguredDepth()
     {
         var builder = new StringBuilder();
@@ -264,6 +280,35 @@ public sealed class MavenInputTests
         => inventory.Edges.Any(edge => edge.ContextIndex == 0
             && edge.FromOccurrenceIndex == fromOccurrenceIndex
             && edge.ToOccurrenceIndex == toOccurrenceIndex);
+
+    private static string CreateSingleDependencyJson(string scope)
+        => $$"""
+            {
+              "groupId": "com.example",
+              "artifactId": "demo",
+              "version": "1.0.0",
+              "type": "jar",
+              "scope": "",
+              "classifier": "",
+              "optional": "false",
+              "children": [{
+                "groupId": "org.example",
+                "artifactId": "library",
+                "version": "2.0.0",
+                "type": "jar",
+                "scope": "{{scope}}",
+                "classifier": "",
+                "optional": "false"
+              }]
+            }
+            """;
+
+    private static long MeasureAllocations(DependencyInputParser parser, byte[] source)
+    {
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var iteration = 0; iteration < 32; iteration++) _ = parser(source, 0, Spdx, retainGraph: false);
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    }
 
     private static string GetFixturePath(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 }

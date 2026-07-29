@@ -131,11 +131,11 @@ internal static class MavenDependencyTreeInputParser
         if (nodes.IsEmpty) throw new JsonException("Maven dependency tree must contain a root project.");
         var componentCapacity = Math.Max(1, nodes.Length - 1);
         var components = ArrayPool<ScanComponent>.Shared.Rent(componentCapacity);
-        var occurrences = ArrayPool<DependencyOccurrence>.Shared.Rent(componentCapacity);
-        var variants = ArrayPool<DependencyOccurrenceVariant>.Shared.Rent(componentCapacity);
-        var edges = ArrayPool<DependencyEdge>.Shared.Rent(componentCapacity);
         var componentByNode = ArrayPool<int>.Shared.Rent(nodes.Length);
         var componentIndexes = ArrayPool<int>.Shared.Rent(GetIndexCapacity(nodes.Length));
+        DependencyOccurrence[]? occurrences = null;
+        DependencyOccurrenceVariant[]? variants = null;
+        DependencyEdge[]? edges = null;
         var componentCount = 0;
         var variantCount = 0;
         try
@@ -179,23 +179,26 @@ internal static class MavenDependencyTreeInputParser
                         []);
                     componentCount++;
                 }
-
-                var occurrenceIndex = nodeIndex - 1;
-                occurrences[occurrenceIndex] = new DependencyOccurrence(0, componentByNode[nodeIndex]);
-                var variant = CreateVariant(node.Scope, node.Optional);
-                if (!variant.IsEmpty)
-                {
-                    variants[variantCount++] = new DependencyOccurrenceVariant(occurrenceIndex, variant);
-                }
             }
 
             if (retainGraph)
             {
+                occurrences = ArrayPool<DependencyOccurrence>.Shared.Rent(componentCapacity);
+                variants = ArrayPool<DependencyOccurrenceVariant>.Shared.Rent(componentCapacity);
+                edges = ArrayPool<DependencyEdge>.Shared.Rent(componentCapacity);
                 for (var nodeIndex = 1; nodeIndex < nodes.Length; nodeIndex++)
                 {
+                    var occurrenceIndex = nodeIndex - 1;
+                    occurrences[occurrenceIndex] = new DependencyOccurrence(0, componentByNode[nodeIndex]);
+                    var variant = CreateVariant(nodes[nodeIndex].Scope, nodes[nodeIndex].Optional);
+                    if (!variant.IsEmpty)
+                    {
+                        variants[variantCount++] = new DependencyOccurrenceVariant(occurrenceIndex, variant);
+                    }
+
                     var parent = nodes[nodeIndex].ParentIndex;
                     var from = parent == 0 ? DependencyOccurrence.ContextRoot : parent - 1;
-                    edges[nodeIndex - 1] = new DependencyEdge(0, from, nodeIndex - 1);
+                    edges[occurrenceIndex] = new DependencyEdge(0, from, occurrenceIndex);
                 }
             }
 
@@ -205,16 +208,16 @@ internal static class MavenDependencyTreeInputParser
                 new ScanInputDescriptor(default, default, string.Empty, string.Empty, default),
                 [new DependencyResolutionContext(CreateProjectOrigin(root.GroupId, root.ArtifactId), default, default, default, default, default)],
                 components.AsSpan(0, componentCount).ToArray(),
-                retainGraph ? occurrences.AsSpan(0, occurrenceCount).ToArray() : [],
-                retainGraph ? edges.AsSpan(0, occurrenceCount).ToArray() : [],
-                retainGraph && variantCount != 0 ? variants.AsSpan(0, variantCount).ToArray() : []);
+                retainGraph ? occurrences!.AsSpan(0, occurrenceCount).ToArray() : [],
+                retainGraph ? edges!.AsSpan(0, occurrenceCount).ToArray() : [],
+                retainGraph && variantCount != 0 ? variants!.AsSpan(0, variantCount).ToArray() : []);
         }
         finally
         {
             ArrayPool<ScanComponent>.Shared.Return(components, clearArray: true);
-            ArrayPool<DependencyOccurrence>.Shared.Return(occurrences);
-            ArrayPool<DependencyOccurrenceVariant>.Shared.Return(variants, clearArray: true);
-            ArrayPool<DependencyEdge>.Shared.Return(edges);
+            if (occurrences is not null) ArrayPool<DependencyOccurrence>.Shared.Return(occurrences);
+            if (variants is not null) ArrayPool<DependencyOccurrenceVariant>.Shared.Return(variants, clearArray: true);
+            if (edges is not null) ArrayPool<DependencyEdge>.Shared.Return(edges);
             ArrayPool<int>.Shared.Return(componentByNode);
             ArrayPool<int>.Shared.Return(componentIndexes);
         }

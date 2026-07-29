@@ -19,7 +19,7 @@ ranking の前提になるため、推測ではなく登録済みの実体で確
 
 | 能力 | 実体 | 根拠 |
 |---|---|---|
-| resolved dependency input | CycloneDX、SPDX、NuGet assets、npm、pnpm、Yarn Classic / Berry、Cargo、Go module graph、pip inspect、Composer、**Bundler** の 12 形式と collection | [DependencyInputRegistry.cs](../../../src/Ol.Core/DependencyInputRegistry.cs)、[DependencyInventory.cs](../../../src/Ol.Core/DependencyInventory.cs) |
+| resolved dependency input | CycloneDX、SPDX、NuGet assets、npm、pnpm、Yarn Classic / Berry、Cargo、Go module graph、pip inspect、Composer、Bundler、Maven の 13 形式と collection | [DependencyInputRegistry.cs](../../../src/Ol.Core/DependencyInputRegistry.cs)、[DependencyInventory.cs](../../../src/Ol.Core/DependencyInventory.cs) |
 | registry metadata provider | npm、NuGet、Cargo、Go、PyPI、Packagist、**RubyGems** の 7 種 | [OlDefaults.cs](../../../src/Ol.Core/OlDefaults.cs) |
 | source repository evidence | GitHub License API のみ。repository / ref / path / blob SHA / http status を保持 | [GitHubLicenseApiClient.cs](../../../src/Ol.Core/GitHub/GitHubLicenseApiClient.cs)、[specs/source.md](../specs/source.md) |
 | evidence 保持 | source / kind / raw / normalized / status / deprecated / warnings / typed provenance | [LicenseCandidate.cs](../../../src/Ol.Core/Licensing/LicenseCandidate.cs) |
@@ -38,7 +38,7 @@ ranking の前提になるため、推測ではなく登録済みの実体で確
 
 | 軸 | DESIGN の約束 | 現状 | 差分 |
 |---|---|---|---|
-| A. 数え落とさない | 完全な inventory と graph を先に確定し、filter は view | 12 input が root / direct / transitive と context 別 graph を保持。SARIF が root からの経路を出す | **ほぼ果たされている**。残るのは ecosystem 数（Gap 7） |
+| A. 数え落とさない | 完全な inventory と graph を先に確定し、filter は view | 13 input が root / direct / transitive と context 別 graph を保持。SARIF が root からの経路を出す | **ほぼ果たされている**。残るのは ecosystem 数（Gap 7） |
 | B. 判定の理由が残る | evidence を上書きせず provenance 付きで保持 | 3 系統の typed evidence、6 状態、警告を保持。承認は evidence を消さず violation だけを除く | **果たされている**。事実の訂正（curation）は未実装だが合否には不要（Gap 2） |
 | C. 同じ入力なら同じ結果 | 版を固定した SPDX、TTL なし cache、決定的順序 | 識別子検証の範囲で成立。永続 report の再評価も byte 一致 | **果たされている**。本文同定を足すと崩れる（Gap 4） |
 | D. 止まったときに前へ進める | 「policy が何を禁じるかを決める」 | allow-list に加え、証拠指紋つきの承認 baseline を持つ | **埋まった**（Gap 1） |
@@ -165,9 +165,9 @@ Introduced through pkg:npm/direct@1.0.0 > pkg:npm/poison@2.0.0
 
 ### Gap 7 / P2: ecosystem coverage
 
-現状は上表のとおり 12 input / 7 provider で、Ruby は対応済みである。参照ツール群と比べて残る主な空白は次になる。
+現状は上表のとおり 13 input / 7 provider で、RubyとMaven resolved inputは対応済みである。参照ツール群と比べて残る主な空白は次になる。
 
-1. **JVM: Maven / Gradle** — 利用規模が最大。Maven Central / POM に license と SCM metadata がある。multi-module、scope、dependency management、Gradle variant が難所。
+1. **JVM metadata / Gradle** — Maven Central / POM の license と SCM metadata provider、およびGradle resolved inputは未対応。multi-module、dependency management、Gradle variantが難所。
 2. **Apple: SwiftPM / CocoaPods** — package graph と Git provenance は取りやすいが、registry metadata より source legal files の比重が高く、Gap 4 の未決事項に依存する。
 3. **Dart / Flutter: Pub** — lockfile と pub.dev metadata を使える。
 4. Erlang / Elixir、Haskell、Conan 等。

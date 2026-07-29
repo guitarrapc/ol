@@ -102,6 +102,7 @@ Options:
 | Python | `pip-inspect` |
 | PHP | `composer-lock` |
 | Ruby | `bundler-lock` |
+| Java / JVM | `maven-dependency-tree` |
 
 `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
 

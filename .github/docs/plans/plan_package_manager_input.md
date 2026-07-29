@@ -408,7 +408,7 @@ Phase 13では次の境界に確定した。
 - Gradle 9.6.1の組み込み`dependencies`、`dependencyInsight`、project-reportは人間向けtext/HTMLであり、configurationとselected variantを保持するstable portable schemaがない。Tooling APIはbuild/daemonを実行するJava integration boundaryで、Olのfile input、Native AOT、side-effect境界に合わないためadapterを追加しない。Gradleは既存CycloneDX/SPDX JSON経路を推奨する。
 - Maven JSONにもlicense metadataはなく、現時点のOlにはMaven registry providerがないため、入力だけではlicense statusがunknownになり得る。POM XML transport/providerの追加はresolved input adapterとは別のenrichment課題とする。
 - parserは`Utf8JsonReader`、source-backed `Utf8Slice`、pooled node/index/component/edge buffer、span-based open addressingを使い、DOM、LINQ、transient string、per-node collection allocationを持たない。reader depthを64に制限し、malformed/pathological nestingをbounded errorにする。
-- 1 component focused benchmarkではMaven ingestionが4.533 µs / 672 B、同じowned result floorが130.1 ns / 672 Bで、parser固有のmanaged allocationは0 Bだった。
+- 3 warmup / 15 iteration / 3 launchの1 component focused benchmarkではMaven ingestionが5.529 µs / 672 B、同じowned result floorが172.8 ns / 672 Bで、parser固有のmanaged allocationは0 Bだった。
 
 ### Phase 14: Swift SwiftPM / CocoaPods resolved input調査
 

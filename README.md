@@ -540,7 +540,9 @@ ol check --input Gemfile.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 The lockfile `DEPENDENCIES` section identifies direct dependencies, and resolved spec dependencies provide transitive edges. Each recorded platform becomes a separate resolution context. Only gems resolved from `https://rubygems.org/` receive `pkg:gem` identities and RubyGems.org metadata enrichment; private registry, Git, and path sources are retained without exposing their remote or local paths.
 
-### Java / Maven
+### Java / JVM
+
+#### Maven
 
 **SBOM:** Generate aggregate CycloneDX JSON from the resolved Maven reactor with the [CycloneDX Maven plugin](https://github.com/CycloneDX/cyclonedx-maven-plugin):
 
@@ -559,7 +561,7 @@ ol scan --input maven-dependency-tree.json
 
 The root artifact becomes one resolution context. Root children are direct dependencies, deeper nodes are transitive, and each node retains its effective scope, optional flag, type, classifier, and incoming edge. Repeated coordinates share one report component while remaining distinct graph occurrences. The dependency-tree JSON contains no license metadata, and ol does not currently enrich Maven packages from a registry, so prefer CycloneDX JSON when license evidence or `ol check` is required.
 
-### Java / Gradle
+#### Gradle
 
 **SBOM:** Apply the [CycloneDX Gradle plugin](https://github.com/CycloneDX/cyclonedx-gradle-plugin) to the root project:
 

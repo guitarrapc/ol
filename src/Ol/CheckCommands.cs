@@ -151,7 +151,11 @@ internal sealed class CheckCommands
             acknowledgements = LicenseBaseline.FromEntries(entries);
         }
 
-        var violations = policy.Evaluate(components, acknowledgements, out var acknowledgedCount);
+        var violations = policy.Evaluate(
+            components,
+            acknowledgements,
+            out var acknowledgedCount,
+            out var policyComponentCount);
 
         // SARIF carries the same violation set as the text result; it is an additional projection, not a filter.
         if (!string.IsNullOrWhiteSpace(sarif))
@@ -167,7 +171,11 @@ internal sealed class CheckCommands
             }
         }
 
-        var text = CheckRenderer.Render(components, violations, baselinePath is null ? -1 : acknowledgedCount);
+        var text = CheckRenderer.Render(
+            components,
+            violations,
+            policyComponentCount,
+            baselinePath is null ? -1 : acknowledgedCount);
         try
         {
             Console.Write(text);
@@ -268,13 +276,17 @@ internal static class BaselineFile
 
 internal static class CheckRenderer
 {
-    public static string Render(ReadOnlySpan<ScanComponent> components, ReadOnlySpan<LicensePolicyViolation> violations, int acknowledgedCount = -1)
+    public static string Render(
+        ReadOnlySpan<ScanComponent> components,
+        ReadOnlySpan<LicensePolicyViolation> violations,
+        int policyComponentCount,
+        int acknowledgedCount = -1)
     {
         if (violations.IsEmpty)
         {
             return string.Concat(
                 Acknowledgement(acknowledgedCount),
-                $"License check passed: {components.Length} component{(components.Length == 1 ? string.Empty : "s")} satisf{(components.Length == 1 ? "ies" : "y")} the allow-list.{Environment.NewLine}");
+                $"License check passed: {policyComponentCount} component{(policyComponentCount == 1 ? string.Empty : "s")} satisf{(policyComponentCount == 1 ? "ies" : "y")} the allow-list.{Environment.NewLine}");
         }
 
         var builder = new StringBuilder();

@@ -68,6 +68,15 @@ public sealed class LicenseBaselineTests
     }
 
     [Test]
+    public async Task CanAcknowledge_WithRoot_ReturnsFalse()
+    {
+        var policy = CreatePolicy("MIT");
+        var component = CreateComponent(LicenseStatus.Unknown) with { DependencyType = DependencyType.Root };
+
+        await Assert.That(policy.CanAcknowledge(component)).IsFalse();
+    }
+
+    [Test]
     public async Task CanAcknowledge_AfterTighteningAllowList_RejectsPreviouslyAcknowledgeableComponent()
     {
         var component = CreateComponent(
@@ -143,6 +152,22 @@ public sealed class LicenseBaselineTests
 
         await Assert.That(entries).Count().IsEqualTo(1);
         await Assert.That(entries[0].Name).IsEqualTo("acknowledgeable");
+    }
+
+    [Test]
+    public async Task CreateEntries_WithUnknownRootAndDependency_RecordsOnlyDependency()
+    {
+        var policy = CreatePolicy("MIT");
+        ScanComponent[] components =
+        [
+            CreateComponent(LicenseStatus.Unknown, name: "application") with { DependencyType = DependencyType.Root },
+            CreateComponent(LicenseStatus.Unknown, name: "dependency"),
+        ];
+
+        var entries = LicenseBaseline.CreateEntries(components, policy);
+
+        await Assert.That(entries).Count().IsEqualTo(1);
+        await Assert.That(entries[0].Name).IsEqualTo("dependency");
     }
 
     [Test]

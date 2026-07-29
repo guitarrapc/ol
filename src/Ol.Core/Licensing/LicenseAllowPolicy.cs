@@ -81,6 +81,11 @@ public sealed class LicenseAllowPolicy
     /// </remarks>
     public bool CanAcknowledge(in ScanComponent component)
     {
+        if (component.DependencyType == DependencyType.Root)
+        {
+            return false;
+        }
+
         if (component.Status is not (LicenseStatus.Unknown or LicenseStatus.Ambiguous or LicenseStatus.Conflict or LicenseStatus.Invalid))
         {
             return false;
@@ -100,17 +105,28 @@ public sealed class LicenseAllowPolicy
         return true;
     }
 
-    /// <summary>Evaluates every completed component and returns all violations in component order.</summary>
+    /// <summary>Evaluates every non-root completed component and returns all violations in component order.</summary>
     public LicensePolicyViolation[] Evaluate(ReadOnlySpan<ScanComponent> components)
         => Evaluate(components, null, out _);
 
     /// <summary>
-    /// Evaluates every completed component, removing violations for unresolved components the baseline
+    /// Evaluates every non-root completed component, removing violations for unresolved components the baseline
     /// acknowledges. Acknowledgement removes a violation only; component status and evidence are unchanged.
     /// </summary>
     public LicensePolicyViolation[] Evaluate(ReadOnlySpan<ScanComponent> components, LicenseBaseline? baseline, out int acknowledgedCount)
+        => Evaluate(components, baseline, out acknowledgedCount, out _);
+
+    /// <summary>
+    /// Evaluates every non-root completed component and returns both acknowledged and evaluated component counts.
+    /// </summary>
+    public LicensePolicyViolation[] Evaluate(
+        ReadOnlySpan<ScanComponent> components,
+        LicenseBaseline? baseline,
+        out int acknowledgedCount,
+        out int evaluatedCount)
     {
         acknowledgedCount = 0;
+        evaluatedCount = 0;
         if (components.IsEmpty) return [];
 
         var violations = ArrayPool<LicensePolicyViolation>.Shared.Rent(components.Length);
@@ -120,6 +136,12 @@ public sealed class LicenseAllowPolicy
             for (var i = 0; i < components.Length; i++)
             {
                 var component = components[i];
+                if (component.DependencyType == DependencyType.Root)
+                {
+                    continue;
+                }
+
+                evaluatedCount++;
                 LicensePolicyViolationKind kind;
                 if (component.Status == LicenseStatus.Matched)
                 {

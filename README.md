@@ -185,7 +185,7 @@ dotnet run --project src/ol -- scan --input sandbox/sbom/cyclonedx-sample.json -
 
 ### Check licenses
 
-Use `check` in CI to allow only selected SPDX License Identifiers. `check` runs the same input detection and license enrichment as `scan`, evaluates every resolved component, and reports all violations.
+Use `check` in CI to allow only selected SPDX License Identifiers. `check` runs the same input detection and license enrichment as `scan`, evaluates every non-root component, and reports all violations. An SBOM root describes the application being checked, so `scan` retains it as evidence while `check` excludes it from dependency policy.
 
 Check a lockfile, package-manager output, SBOM, or directory:
 
@@ -223,7 +223,7 @@ Exit codes are suitable for CI:
 
 | Exit code | Meaning |
 | ---: | --- |
-| `0` | Every component satisfies the allow-list. |
+| `0` | Every non-root component satisfies the allow-list. |
 | `1` | One or more policy violations were found. |
 | `2` | The check could not be completed because of invalid configuration, input, evidence collection, or output. |
 

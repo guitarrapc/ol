@@ -14,6 +14,11 @@ internal static class ComposerLockInputParser
     private static ReadOnlySpan<byte> PurlPrefix => "pkg:composer/"u8;
     private static ReadOnlySpan<byte> DevVariant => "dev"u8;
 
+    // Root requirement owners. Both are negative so the graph and edge projection continue to treat them as the
+    // project root, while reachability can still tell a production `require` seed from a `require-dev` seed.
+    private const int ProductionRootOwner = -1;
+    private const int DevelopmentRootOwner = -2;
+
     internal static DependencyInventory Parse(byte[][] sources, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph)
     {
         if (sources.Length != 2) throw new JsonException("Composer input requires composer.json and composer.lock.");
@@ -24,10 +29,12 @@ internal static class ComposerLockInputParser
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
         var occurrences = ArrayPool<DependencyOccurrence>.Shared.Rent(16);
         var variants = ArrayPool<DependencyOccurrenceVariant>.Shared.Rent(8);
+        var developmentOccurrences = ArrayPool<int>.Shared.Rent(8);
         var edges = ArrayPool<DependencyEdge>.Shared.Rent(32);
         int[]? nodeIndexes = null;
         int[]? depths = null;
         int[]? queue = null;
+        bool[]? productionReachable = null;
         var nodeCount = 0;
         var requirementCount = 0;
         var linkCount = 0;
@@ -70,6 +77,27 @@ internal static class ComposerLockInputParser
                 depths.AsSpan(0, nodeCount),
                 queue.AsSpan(0, nodeCount));
 
+            // Production reachability validates the lock buckets: usage is not read from packages-dev membership alone.
+            // The depth queue is free once ResolveDepths returns, so the reach BFS reuses it instead of renting again.
+            productionReachable = ArrayPool<bool>.Shared.Rent(Math.Max(nodeCount, 1));
+            ResolveProductionReach(
+                nodes.AsSpan(0, nodeCount),
+                requirements.AsSpan(0, requirementCount),
+                links.AsSpan(0, linkCount),
+                nodeIndexes,
+                indexCapacity,
+                productionReachable.AsSpan(0, nodeCount),
+                queue.AsSpan(0, nodeCount));
+
+            for (var nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++)
+            {
+                // A packages-dev entry that a production requirement can reach is a stale or hand-merged bundle.
+                if (nodes[nodeIndex].Dev && productionReachable[nodeIndex])
+                {
+                    throw new JsonException("composer.lock packages-dev entry is reachable from a production requirement; the input is inconsistent.");
+                }
+            }
+
             for (var nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++)
             {
                 var node = nodes[nodeIndex];
@@ -87,12 +115,21 @@ internal static class ComposerLockInputParser
             }
 
             var occurrenceVariantCount = 0;
+            var developmentOccurrenceCount = 0;
             if (retainGraph)
             {
                 for (var nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++)
                 {
                     EnsureCapacity(ref occurrences, nodeIndex);
                     occurrences[nodeIndex] = new DependencyOccurrence(0, nodeIndex);
+
+                    // Development-only means the lock places it in packages-dev and no production requirement reaches it.
+                    if (nodes[nodeIndex].Dev && !productionReachable[nodeIndex])
+                    {
+                        EnsureCapacity(ref developmentOccurrences, developmentOccurrenceCount);
+                        developmentOccurrences[developmentOccurrenceCount++] = nodeIndex;
+                    }
+
                     if (!nodes[nodeIndex].Dev) continue;
                     EnsureCapacity(ref variants, occurrenceVariantCount);
                     variants[occurrenceVariantCount++] = new DependencyOccurrenceVariant(
@@ -118,7 +155,9 @@ internal static class ComposerLockInputParser
                 components.AsSpan(0, nodeCount).ToArray(),
                 retainGraph ? occurrences.AsSpan(0, nodeCount).ToArray() : [],
                 retainGraph ? edges.AsSpan(0, edgeCount).ToArray() : [],
-                retainGraph && occurrenceVariantCount != 0 ? variants.AsSpan(0, occurrenceVariantCount).ToArray() : []);
+                retainGraph && occurrenceVariantCount != 0 ? variants.AsSpan(0, occurrenceVariantCount).ToArray() : [],
+                retainGraph && nodeCount > 0 ? [new DependencyUsageRange(0, nodeCount)] : null,
+                retainGraph && developmentOccurrenceCount > 0 ? developmentOccurrences.AsSpan(0, developmentOccurrenceCount).ToArray() : null);
         }
         finally
         {
@@ -129,10 +168,12 @@ internal static class ComposerLockInputParser
             ArrayPool<ScanComponent>.Shared.Return(components, clearArray: true);
             ArrayPool<DependencyOccurrence>.Shared.Return(occurrences);
             ArrayPool<DependencyOccurrenceVariant>.Shared.Return(variants, clearArray: true);
+            ArrayPool<int>.Shared.Return(developmentOccurrences);
             ArrayPool<DependencyEdge>.Shared.Return(edges);
             if (nodeIndexes is not null) ArrayPool<int>.Shared.Return(nodeIndexes);
             if (depths is not null) ArrayPool<int>.Shared.Return(depths);
             if (queue is not null) ArrayPool<int>.Shared.Return(queue);
+            if (productionReachable is not null) ArrayPool<bool>.Shared.Return(productionReachable);
         }
     }
 
@@ -156,11 +197,11 @@ internal static class ComposerLockInputParser
             }
             else if (reader.ValueTextEquals("require"u8))
             {
-                ReadRequirementMap(ref reader, source, offset, -1, ref requirements, ref requirementCount);
+                ReadRequirementMap(ref reader, source, offset, ProductionRootOwner, ref requirements, ref requirementCount);
             }
             else if (reader.ValueTextEquals("require-dev"u8))
             {
-                ReadRequirementMap(ref reader, source, offset, -1, ref requirements, ref requirementCount);
+                ReadRequirementMap(ref reader, source, offset, DevelopmentRootOwner, ref requirements, ref requirementCount);
             }
             else
             {
@@ -397,6 +438,51 @@ internal static class ComposerLockInputParser
                 }
 
                 depths[targetIndex] = nextDepth;
+                queue[tail++] = targetIndex;
+            }
+        }
+    }
+
+    // Marks every node reachable from the project's production `require` closure. The development classification is
+    // the packages-dev bucket confirmed by absence from this set, which is fail-closed: a mislabeled production bucket
+    // stays runtime, and a dev bucket that turns out production-reachable is rejected as inconsistent input.
+    private static void ResolveProductionReach(
+        ReadOnlySpan<ComposerNode> nodes,
+        ReadOnlySpan<ComposerRequirement> requirements,
+        ReadOnlySpan<ComposerLink> links,
+        ReadOnlySpan<int> nodeIndexes,
+        int indexCapacity,
+        Span<bool> productionReachable,
+        Span<int> queue)
+    {
+        productionReachable.Clear();
+        var head = 0;
+        var tail = 0;
+        for (var requirementIndex = 0; requirementIndex < requirements.Length; requirementIndex++)
+        {
+            var requirement = requirements[requirementIndex];
+            if (requirement.OwnerIndex != ProductionRootOwner || IsPlatformRequirement(requirement.Name.Span)) continue;
+            if (!TryResolveRequirement(nodes, links, nodeIndexes, indexCapacity, requirement.Name.Span, out var targetIndex)) continue;
+            if (productionReachable[targetIndex]) continue;
+            productionReachable[targetIndex] = true;
+            queue[tail++] = targetIndex;
+        }
+
+        while (head < tail)
+        {
+            var ownerIndex = queue[head++];
+            var node = nodes[ownerIndex];
+            for (var offset = 0; offset < node.RequirementCount; offset++)
+            {
+                var requirement = requirements[node.RequirementStart + offset];
+                if (IsPlatformRequirement(requirement.Name.Span)
+                    || !TryResolveRequirement(nodes, links, nodeIndexes, indexCapacity, requirement.Name.Span, out var targetIndex)
+                    || productionReachable[targetIndex])
+                {
+                    continue;
+                }
+
+                productionReachable[targetIndex] = true;
                 queue[tail++] = targetIndex;
             }
         }

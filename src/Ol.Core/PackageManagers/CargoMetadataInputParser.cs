@@ -27,6 +27,7 @@ internal static class CargoMetadataInputParser
         var occurrences = ArrayPool<DependencyOccurrence>.Shared.Rent(32);
         var occurrenceVariants = ArrayPool<DependencyOccurrenceVariant>.Shared.Rent(16);
         var edges = ArrayPool<DependencyEdge>.Shared.Rent(32);
+        var developmentOccurrences = ArrayPool<int>.Shared.Rent(16);
         var uniqueKinds = ArrayPool<Utf8Slice>.Shared.Rent(4);
         var uniqueTargets = ArrayPool<Utf8Slice>.Shared.Rent(4);
         int[]? nodeIndexes = null;
@@ -34,6 +35,7 @@ internal static class CargoMetadataInputParser
         int[]? depths = null;
         int[]? queue = null;
         int[]? occurrenceByNode = null;
+        bool[]? productionReachable = null;
         int[]? firstIncoming = null;
         int[]? nextIncoming = null;
         var nodeCount = 0;
@@ -45,6 +47,7 @@ internal static class CargoMetadataInputParser
         var componentCount = 0;
         var occurrenceCount = 0;
         var occurrenceVariantCount = 0;
+        var developmentOccurrenceCount = 0;
         var edgeCount = 0;
         try
         {
@@ -132,6 +135,7 @@ internal static class CargoMetadataInputParser
             depths = ArrayPool<int>.Shared.Rent(nodeCount);
             queue = ArrayPool<int>.Shared.Rent(nodeCount);
             occurrenceByNode = ArrayPool<int>.Shared.Rent(nodeCount);
+            productionReachable = ArrayPool<bool>.Shared.Rent(nodeCount);
             firstIncoming = ArrayPool<int>.Shared.Rent(nodeCount);
             firstIncoming.AsSpan(0, nodeCount).Fill(-1);
             nextIncoming = ArrayPool<int>.Shared.Rent(Math.Max(dependencyCount, 1));
@@ -150,6 +154,16 @@ internal static class CargoMetadataInputParser
                     dependencies.AsSpan(0, dependencyCount),
                     rootNodeIndex,
                     depths.AsSpan(0, nodeCount),
+                    queue.AsSpan(0, nodeCount));
+
+                // The traverse above follows every edge, so a dev-only crate is reachable. Production reachability
+                // follows only normal and build edges, so a crate reachable but not production-reachable is dev-only.
+                ResolveProductionReach(
+                    nodes.AsSpan(0, nodeCount),
+                    dependencies.AsSpan(0, dependencyCount),
+                    dependencyKinds.AsSpan(0, dependencyKindCount),
+                    rootNodeIndex,
+                    productionReachable.AsSpan(0, nodeCount),
                     queue.AsSpan(0, nodeCount));
 
                 occurrenceByNode.AsSpan(0, nodeCount).Fill(-1);
@@ -171,6 +185,12 @@ internal static class CargoMetadataInputParser
                     var occurrenceIndex = occurrenceCount;
                     occurrenceByNode[nodeIndex] = occurrenceIndex;
                     occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex);
+
+                    if (depths[nodeIndex] != int.MinValue && !productionReachable[nodeIndex])
+                    {
+                        EnsureCapacity(ref developmentOccurrences, developmentOccurrenceCount);
+                        developmentOccurrences[developmentOccurrenceCount++] = occurrenceIndex;
+                    }
 
                     var kindCount = 0;
                     var targetCount = 0;
@@ -210,7 +230,9 @@ internal static class CargoMetadataInputParser
                 components.AsSpan(0, componentCount).ToArray(),
                 occurrences.AsSpan(0, occurrenceCount).ToArray(),
                 edges.AsSpan(0, edgeCount).ToArray(),
-                occurrenceVariants.AsSpan(0, occurrenceVariantCount).ToArray());
+                occurrenceVariants.AsSpan(0, occurrenceVariantCount).ToArray(),
+                occurrenceCount > 0 ? [new DependencyUsageRange(0, occurrenceCount)] : null,
+                developmentOccurrenceCount != 0 ? developmentOccurrences.AsSpan(0, developmentOccurrenceCount).ToArray() : null);
         }
         finally
         {
@@ -224,6 +246,7 @@ internal static class CargoMetadataInputParser
             ArrayPool<DependencyOccurrence>.Shared.Return(occurrences);
             ArrayPool<DependencyOccurrenceVariant>.Shared.Return(occurrenceVariants, clearArray: true);
             ArrayPool<DependencyEdge>.Shared.Return(edges);
+            ArrayPool<int>.Shared.Return(developmentOccurrences);
             ArrayPool<Utf8Slice>.Shared.Return(uniqueKinds, clearArray: true);
             ArrayPool<Utf8Slice>.Shared.Return(uniqueTargets, clearArray: true);
             if (nodeIndexes is not null) ArrayPool<int>.Shared.Return(nodeIndexes);
@@ -231,6 +254,7 @@ internal static class CargoMetadataInputParser
             if (depths is not null) ArrayPool<int>.Shared.Return(depths);
             if (queue is not null) ArrayPool<int>.Shared.Return(queue);
             if (occurrenceByNode is not null) ArrayPool<int>.Shared.Return(occurrenceByNode);
+            if (productionReachable is not null) ArrayPool<bool>.Shared.Return(productionReachable);
             if (firstIncoming is not null) ArrayPool<int>.Shared.Return(firstIncoming);
             if (nextIncoming is not null) ArrayPool<int>.Shared.Return(nextIncoming);
         }
@@ -604,6 +628,46 @@ internal static class CargoMetadataInputParser
                 queue[tail++] = targetIndex;
             }
         }
+    }
+
+    // Follows only normal and build edges from the workspace root. Build dependencies are treated as production so a
+    // crate needed to build the shipped artifact is never admitted by the development allow-list (fail-closed).
+    private static void ResolveProductionReach(
+        ReadOnlySpan<PackageNode> nodes,
+        ReadOnlySpan<CargoDependency> dependencies,
+        ReadOnlySpan<DependencyKind> dependencyKinds,
+        int rootNodeIndex,
+        Span<bool> productionReachable,
+        Span<int> queue)
+    {
+        productionReachable.Clear();
+        productionReachable[rootNodeIndex] = true;
+        var head = 0;
+        var tail = 0;
+        queue[tail++] = rootNodeIndex;
+        while (head < tail)
+        {
+            var node = nodes[queue[head++]];
+            for (var dependencyIndex = node.DependencyStart; dependencyIndex < node.DependencyStart + node.DependencyCount; dependencyIndex++)
+            {
+                var dependency = dependencies[dependencyIndex];
+                if (!IsProductionEdge(dependency, dependencyKinds) || productionReachable[dependency.TargetIndex]) continue;
+                productionReachable[dependency.TargetIndex] = true;
+                queue[tail++] = dependency.TargetIndex;
+            }
+        }
+    }
+
+    private static bool IsProductionEdge(CargoDependency dependency, ReadOnlySpan<DependencyKind> dependencyKinds)
+    {
+        for (var kindIndex = dependency.KindStart; kindIndex < dependency.KindStart + dependency.KindCount; kindIndex++)
+        {
+            // A null (empty) kind is a normal dependency; "build" is required to build the shipped crate. Only "dev" is not.
+            var kind = dependencyKinds[kindIndex].Kind;
+            if (kind.IsEmpty || kind.Span.SequenceEqual("build"u8)) return true;
+        }
+
+        return false;
     }
 
     private static void ProjectEdges(

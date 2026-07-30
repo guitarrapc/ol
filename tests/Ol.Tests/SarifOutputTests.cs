@@ -209,6 +209,73 @@ public sealed class SarifOutputTests
         }
     }
 
+    [Test]
+    public async Task Sarif_WithAllowDevLicenses_RecordsAllowanceInRunPropertiesNotResults()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmDevLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+            var run = document.RootElement.GetProperty("runs")[0];
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            // A component admitted by the development policy is not a finding, so it must not appear in results.
+            await Assert.That(run.GetProperty("results").GetArrayLength()).IsEqualTo(0);
+
+            var allowances = run.GetProperty("properties").GetProperty("developmentPolicyAllowances");
+            await Assert.That(allowances.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(allowances[0].GetProperty("purl").GetString()).IsEqualTo("pkg:npm/dev-pkg@1.0.0");
+            await Assert.That(allowances[0].GetProperty("license").GetString()).IsEqualTo("CC-BY-4.0");
+            await Assert.That(allowances[0].GetProperty("policySource").GetString()).IsEqualTo("allow-dev-licenses");
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    [Test]
+    public async Task Sarif_WithoutDevAllowance_OmitsRunProperties()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "GPL-3.0-only", transitiveLicense: "MIT");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+            var run = document.RootElement.GetProperty("runs")[0];
+
+            await Assert.That(run.TryGetProperty("properties", out _)).IsFalse();
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    private static async Task<string> WriteNpmDevLockAsync(string devLicense, string runtimeLicense)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-sarif-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "package-lock.json");
+        var json = $$"""
+        {
+          "lockfileVersion": 3,
+          "packages": {
+            "": { "name": "app", "dependencies": { "run-pkg": "^1.0.0" }, "devDependencies": { "dev-pkg": "^1.0.0" } },
+            "node_modules/run-pkg": { "name": "run-pkg", "version": "1.0.0", "license": "{{runtimeLicense}}" },
+            "node_modules/dev-pkg": { "name": "dev-pkg", "version": "1.0.0", "dev": true, "license": "{{devLicense}}" }
+          }
+        }
+        """;
+        await File.WriteAllTextAsync(path, json, Encoding.UTF8);
+        return path;
+    }
+
     private static void Cleanup(params string[] paths)
     {
         foreach (var path in paths)

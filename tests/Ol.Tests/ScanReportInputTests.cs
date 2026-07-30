@@ -68,6 +68,24 @@ public sealed class ScanReportInputTests
     }
 
     [Test]
+    public async Task TryRead_RestoresPerComponentDevelopmentUsage()
+    {
+        const string components = """
+            { "name": "dev-pkg", "version": "1.0.0", "license": "MIT", "ecosystem": "npm", "dependency": "direct", "status": "matched", "purl": "pkg:npm/dev-pkg@1.0.0", "sourceId": "dev-pkg", "usage": "development", "warnings": [] },
+            { "name": "run-pkg", "version": "1.0.0", "license": "MIT", "ecosystem": "npm", "dependency": "direct", "status": "matched", "purl": "pkg:npm/run-pkg@1.0.0", "sourceId": "run-pkg", "usage": "runtime", "warnings": [] },
+            { "name": "plain-pkg", "version": "1.0.0", "license": "MIT", "ecosystem": "npm", "dependency": "direct", "status": "matched", "purl": "pkg:npm/plain-pkg@1.0.0", "sourceId": "plain-pkg", "warnings": [] }
+            """;
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(Report(components)), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.ComponentUsages).Count().IsEqualTo(3);
+        await Assert.That(report.ComponentUsages[0]).IsEqualTo(DependencyUsage.Development);
+        await Assert.That(report.ComponentUsages[1]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(report.ComponentUsages[2]).IsEqualTo(DependencyUsage.Unknown);
+    }
+
+    [Test]
     public async Task TryRead_PreservesCandidatesNeededForPolicyAndBaseline()
     {
         var json = Report(Component(status: "conflict", license: "MIT, GPL-3.0-only (?)", raw: "MIT"));

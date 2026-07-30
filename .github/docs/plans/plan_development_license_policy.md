@@ -2,11 +2,18 @@
 
 ## 背景
 
-`ol check` のライセンスポリシーは、解決済みの全コンポーネントへ一つの `--allow-licenses` を適用する。これは全 dependency scope を一律に検査する場合には明快だが、Vite のような開発ツールと、その推移的依存だけに現れるライセンスを区別できない。
+`ol check` のライセンスポリシーは、解決済みの全コンポーネントへ一つの `--allow-licenses` を適用する。これは全 dependency scope を一律に検査する場合には明快だが、開発ツールと、その推移的依存だけに現れるライセンスを区別できない。
 
-組織のポリシーとして「resolver が development scope だけから到達すると記録した依存では LGPL を許可する」は成立し得る。現在はこの差を表現する手段がなく、利用者は次のどちらかを選ばざるを得ない。
+再現例（2026-07 に npm で lockfile を生成し registry のライセンスを確認）:
 
-- `--allow-licenses` へ LGPL を加え、runtime 依存にも同じ許可を広げる。
+- `vite` 単体（5/6/7 いずれも）: 推移依存はすべて MIT/ISC/BSD-3-Clause。**LGPL は存在しない。**
+- `vite` + `@vitejs/plugin-react` + `typescript` + `eslint` + `vitest` + `sass` の現実的な dev ツールチェーン: 255 エントリ（dev 250 / prod 5）。ここに `caniuse-lite`(**CC-BY-4.0**) と Python-2.0 のパッケージが **dev=true** で現れる。どちらも本番 artifact に影響しないが、`--allow-licenses MIT,Apache-2.0,BSD-3-Clause` を fail させる。
+
+つまり「permissive allow-list を弾く dev-only 推移依存」という課題は実在する。ただし当初想定した LGPL ではなく、実測では CC-BY-4.0 などが該当する。本 plan の機構はライセンス非依存（`--allow-dev-licenses` は任意の SPDX Identifier を受け付ける）なので、対象が LGPL でも CC-BY-4.0 でも同じ設計で扱える。
+
+組織のポリシーとして「resolver が development scope だけから到達すると記録した依存では、指定した追加ライセンスを許可する」は成立し得る。現在はこの差を表現する手段がなく、利用者は次のどちらかを選ばざるを得ない。
+
+- `--allow-licenses` へ dev 専用ライセンスを加え、runtime 依存にも同じ許可を広げる。
 - development scope の違反を受け入れず、`check` を CI policy として使用しない。
 
 dev scope の依存を検査対象から除外する方法は採らない。依存 inventory とライセンス証拠には残し、どのポリシーによって許可されたかを可視化する。
@@ -18,10 +25,12 @@ dev scope の依存を検査対象から除外する方法は採らない。依�
 ```text
 ol check --input package-lock.json \
   --allow-licenses MIT,Apache-2.0,BSD-3-Clause \
-  --allow-dev-licenses LGPL-2.1-only,LGPL-2.1-or-later
+  --allow-dev-licenses CC-BY-4.0,LGPL-2.1-only
 ```
 
-`--allow-dev-licenses` は任意とする。省略時の `check` verdict、text、SARIF violation 集合は現在と変えない。指定時も `--allow-licenses` を置き換えず、resolver 上で development scope に限定されたコンポーネントにだけ追加する。安定した component mapping と usage persistence のため、canonical JSON report schema は後述のとおり version 2 へ変更する。
+`--allow-dev-licenses` は任意とする。省略時の `check` verdict、text、SARIF violation 集合は現在と変えない。指定時も `--allow-licenses` を置き換えず、resolver 上で development scope に限定されたコンポーネントにだけ追加する。
+
+**canonical report schema は version 1 のまま**、typed usage を保持する形へ直接拡張する。ol は未リリースなので v1→v2 の互換維持や移行分岐は設けず、最初から最も好ましい形へ一直線で向かう。
 
 この plan は組織全体の scope policy を扱う。特定パッケージだけを承認する例外は [exact versioned PURL のライセンスポリシー例外](plan_package_license_exceptions.md) で別に扱う。
 
@@ -83,9 +92,10 @@ Composer の `packages-dev` は監査情報と整合性検証に使用するが�
 - production reachability と `packages-dev` の所属が矛盾する bundle は、development policy を適用せず入力不整合の command error にする。
 - `composer.lock` の bucket だけを変更した stale/manual-merge input が runtime package を `Development` にしないことを negative fixture で固定する。
 
+Yarn は `Unknown`（fail-closed）とする。`yarn.lock` 単体は dev scope を持たず、隣の `package.json` と結合する案は一度実装したが撤回した（理由は後述の Slice 5a を参照）。
+
 次は初期対応に含めない。
 
-- Yarn lock 単体: root manifest の dev relationship を証明できない形式では `Unknown` とする。
 - CycloneDX / SPDX: 現在の共通 inventory が development usage として正規化していないため、SBOM 固有 scope を直ちに policy へ流用しない。
 - Maven: `test`、`provided`、`optional` は同じ意味ではない。`DevelopmentOnly` として認める scope を仕様化してから追加する。
 - Cargo: `dev`、`build`、target condition と複数 incoming kind の意味を整理し、全到達経路を証明できるようにしてから追加する。
@@ -100,23 +110,27 @@ Composer の `packages-dev` は監査情報と整合性検証に使用するが�
 入力 adapter が resolver 固有 semantics を解釈し、共通の typed data へ投影する。
 
 ```text
-DependencyUsage
-  Unknown
-  Runtime
-  Development
+DependencyUsage : byte
+  Unknown = 0
+  Runtime = 1
+  Development = 2
 ```
 
 occurrence と一対一の owned `DependencyUsage[]` は採用しない。canonical report のため policy option の有無にかかわらず保持すると、通常の `scan` と `check` に occurrence 数比例の新しい allocation を常設するためである。
 
-初期実装では次の sparse representation を第一候補とし、実装前 benchmark で確定する。
+採用する sparse representation（occurrence-index keyed、`DependencyOccurrenceVariant` と同じ owner に併置）:
 
-- input または occurrence range ごとに、development usage を完全に判定できるかを表す typed capability を持つ。
-- capability がある range では、通常 occurrence を `Runtime` とし、`Development` だけを sparse typed flag として保持する。
-- capability がない range はすべて `Unknown` とする。
-- typed flag は、可能なら既存の sparse `DependencyOccurrenceVariant` と同じ owned entry に同居させる。policy verdict は `Value` の文字列解析ではなく flag を読む。
-- collection inventory は子 inventory の capability range と sparse flag を occurrence offset に合わせて結合する。一つの未対応 input によって、対応済み input の usage を全て `Unknown` に落としてはならない。
+- `DependencyInventory` に nullable な 2 要素を追加する。両方 `null` のとき usage は全 occurrence `Unknown` で、**追加 allocation は 0B**。
+  - `UsageDeterminedRanges` : usage を確定できた occurrence-index の連続 range 集合。range 内の occurrence は既定で `Runtime`。
+  - `DevelopmentOccurrences` : `Development` の occurrence-index を昇順 sparse に保持。必ず determined range 内に位置する。
+- occurrence i の usage = `DevelopmentOccurrences` に含まれれば `Development`、どれかの range 内なら `Runtime`、いずれでもなければ `Unknown`。
+- capability がない input（SBOM/NuGet/Yarn 等）は両方 `null` のまま。一つの未対応 input が、対応済み input の usage を `Unknown` に落とさない。
+- collection combiner は子 inventory の range を occurrence offset で rebase し、`DevelopmentOccurrences` を offset 加算して昇順連結する（子は occurrence 順に append されるため順序が保たれる）。
+- policy verdict は `DependencyOccurrenceVariant.Value` の文字列解析ではなく、この typed 情報を読む。
 
-実測で sparse range が dense/packed representation より遅い場合だけ、2 bit/occurrence 以下の packed storage を比較候補にする。byte または既定 enum の dense array を無条件に追加しない。
+per-component 集約は max-merge で表現できる（順序 `none < Development < Unknown < Runtime`）。`Runtime` は吸収的、`Unknown` は `Development` を吸収、component に occurrence が無ければ `Unknown`。結果が `Development` のときだけ dev allow-list を適用する。
+
+この representation は provisional とし、`DependencyInputScannerBenchmark` / `LicensePolicyBenchmark` で確定する。`Development` が多数を占める dev-tool lockfile で sparse dev-index が dense byte array より不利なら、range ごとの default + 少数側 exception（2 bit/occurrence 以下の packed）を比較候補にする。dense array を無条件には追加しない。
 
 この形には次の性質が必要である。
 
@@ -128,19 +142,16 @@ occurrence と一対一の owned `DependencyUsage[]` は採用しない。canoni
 
 `Runtime` と `Development` の両方が集約された状態は、公開 enum を増やさず集約中の mixed state として扱える。最終判定は `DevelopmentOnly` ではない。
 
-## report component と inventory component の対応
+## live 評価と persisted report
 
-canonical JSON report の top-level `components` は表示順であり、`inventory.components` は input order である。policy violation の index を inventory index として使用してはならない。
+live `check --input` では、reconciled `components` が `inventory.Components` と index で 1:1 に対応し、`inventory.Occurrences` の `ComponentIndex` も同じ index を指す。したがって occurrence usage を per-component へ集約し、そのまま policy へ渡せる。**初期スコープ（npm/pnpm の live `--input`）は schema 変更を要さない。**
 
-name、version、purl、source ID、ecosystem から identity を再探索する方法は採用しない。collection combiner の identity は input format と handler 固有 comparison を含み、top-level component の表示 field だけでは一意に復元できないためである。
+persisted `check --report`（Slice 4 で実装）は、当初想定した `inventoryComponentIndex` による display↔inventory mapping ではなく、**per-component usage を top-level component に直接保存する**方式を採った。usage は表示 component と一緒に sort を通って永続化されるため、index mapping も Resolve の再実行も不要で最小構成になる。
 
-- canonical JSON の各 top-level component に `inventoryComponentIndex` を記録する。
-- scan view の sort/filter 前に original inventory index を component と対にし、表示順を変えても index を保持する。
-- reader は index の範囲、重複、component identity との整合を検証し、欠落または矛盾を partial mapping として受け入れない。
-- live `check --input` は original inventory order の対応を直接使用し、persisted `check --report` は保存済み index を使用する。
-- SARIF dependency path も同じ index を使用し、現在の先頭一致 helper を policy の正しさへ持ち込まない。
-
-この変更で canonical report schema を version 2 に上げる。version 1 report は通常の `--allow-licenses` と baseline による再評価を引き続き許可するが、usage capability と安定 index を持たないため `--allow-dev-licenses` との組み合わせは exit 2 にする。version 1 を暗黙に `Unknown` として live input と異なる verdict を返してはならない。
+- `scan --format json` は書き出し前に `DependencyUsageResolver.Resolve` で per-component usage を求め、view の sort と同じ順序で並べ替えて各 top-level component に `usage`（`development`/`runtime`、Unknown は省略）を書く。usage capability の無い inventory・非 JSON 形式では何も書かない（0B）。
+- reader は `usage` を `ScanReport.ComponentUsages`（components と平行配列）へ復元する。`usage` を持たない component は `Unknown`。
+- `check --report` は `ComponentUsages` をそのまま policy へ渡す。usage を保存しない旧 report は全 `Unknown` で fail-closed。
+- SARIF の `FindInventoryComponentIndex`（identity 先頭一致）は usage parity と無関係な既存の別課題なので本スコープでは触れない。
 
 ## CLI と出力
 
@@ -157,9 +168,9 @@ License check passed: 142 components satisfy the policy.
 
 violation 一覧は従来どおり禁止ライセンスを表示する。development allow-list が適用されなかった場合は、`runtime occurrence` または `usage unknown` を区別できるようにする。絶対入力 path、cache path、token は出力しない。
 
-`--verbose` では、development policy で通過した各 component の stable identity、license expression、resolver usage を決定的な順序で列挙する。件数だけで、どの LGPL component が許可されたかを隠さない。
+`--verbose` では、development policy で通過した各 component の stable identity、license expression、resolver usage を決定的な順序で列挙する。件数だけで、どの component が許可されたかを隠さない。
 
-SARIF は text と同じ violation 集合を維持する。追加 allow-list で通過したコンポーネントを SARIF result にしない代わりに、`run.properties` の機械可読 policy allowance として component identity、license、policy source を記録する。persisted report は既存 inventory、新しい typed usage、安定した component index を保存し、同じ schema version の `--input` と `--report` が同一 verdict と同一 stdout を返す。
+SARIF は text と同じ violation 集合を維持する。追加 allow-list で通過したコンポーネントを SARIF result にしない代わりに、`run.properties` の機械可読 policy allowance として component identity、license、policy source を記録する。persisted report への typed usage 保存は後続スコープとし、保存後は `--input` と `--report` が同一 verdict・同一 stdout を返す。
 
 ## baseline との境界
 
@@ -172,50 +183,76 @@ baseline は unresolved evidence の reviewed snapshot であり、解決済み�
 
 ## 実施順序
 
-### Phase 1: policy 契約をテストで固定する
+schema 移行を伴わないので、live `--input` の縦スライスを最短で通し、adapter と persist を段階追加する。
+
+### Slice 1: 共通 typed usage + policy + npm live（本スライス）
 
 `test-first-development` に従い、実装前に次の失敗テストを追加する。
 
-1. resolver 上の `DevelopmentOnly` LGPL は、通常 allow-list が MIT、development allow-list が LGPL のとき通過する。
-2. 同じ LGPL component に runtime occurrence が一つでもあれば失敗する。
-3. usage が unknown の LGPL component は失敗する。
-4. development allow-list に無い GPL は `DevelopmentOnly` でも失敗する。
+1. resolver 上の `Development` component は、通常 allow-list が MIT、development allow-list が対象ライセンスのとき通過する。
+2. 同じ component に runtime occurrence が一つでもあれば失敗する。
+3. usage が unknown の component は失敗する。
+4. development allow-list に無いライセンスは `Development` でも失敗する。
 5. `AND` / `OR` / `WITH` は通常と development の allow-list の和集合で既存 SPDX semantics を保つ。
 6. unresolved status と baseline の挙動は変わらない。
-7. option 省略時は既存の policy test と byte 単位で同じ stdout を返す。
-8. resolver 上は dev でも production source へ bundle され得るため、CLI help と README が artifact 非包含を保証しない。
+7. option 省略時は既存の policy test と byte 単位で同じ stdout を返す（`Evaluate` の allocation も不変）。
+8. npm parser: direct dev / transitive dev / dev と runtime の両経路から到達する同一 package / optional・peer を dev と誤認しない、を fixture で固定する。
+9. combiner: 対応 input（npm）と未対応 input（SBOM 等）を含む collection で、未対応側だけ `Unknown`、対応側の usage を保持する。
+10. E2E: 実際の vite dev tooling lock で、CC-BY-4.0 を `--allow-dev-licenses CC-BY-4.0` が通し、runtime component には効かない。
 
-### Phase 2: typed usage を inventory へ追加する
+実装対象:
 
-共通 enum、usage capability range、sparse typed flag を追加する。collection combiner、reader/writer の schema versioning、range と occurrence index の妥当性を検証する。dense、sparse、packed の代表 graph を同一 benchmark で比較し、owned memory と走査時間を記録して representation を確定する。
+- `DependencyUsage` enum、`DependencyInventory` への `UsageDeterminedRanges`/`DevelopmentOccurrences`、combiner の rebase。
+- npm parser で dev-only node を `Development` occurrence として emit（既存 `NodeFlags.Dev`）。
+- per-component 集約 helper（max-merge、pooled scratch、option 指定時のみ実行）。
+- `LicenseAllowPolicy` に dev allow-list（`allowed ∪ dev` の union frozen set を起動時 1 回構築）と usage を読む `Evaluate` overload。既存 overload の挙動と allocation は不変。
+- `check --allow-dev-licenses` CLI、`Allowed by development policy: N components.` 出力、runtime/usage-unknown 区別。
 
-npm、pnpm、Composer adapter を一つずつ red-green で対応する。各 adapter では次を fixture で固定する。
+### Slice 2: pnpm live
 
-- direct dev dependency
-- dev dependency の transitive dependency
-- production と development の両経路から到達する同一 package/version
-- workspace または複数 context
-- 対応済み input と未対応 input を含む collection
-- dev 以外の optional/peer 条件を development と誤認しない
-- Composer の `require` と `require-dev` の区別
-- Composer manifest の production requirement と lock `packages-dev` が矛盾する入力
+pnpm の `strictlyDev`（既に算出済み）を `Development` occurrence として surface する。fixture: importer 直下 dev / transitive dev / production と両経路 / workspace 複数 importer / strictly-optional を dev と誤認しない。
 
-### Phase 3: policy evaluation と CLI を接続する
+### Slice 3: Composer live（実装済み）
 
-policy input は run ごとに一度だけ SPDX casing へ正規化し、immutable lookup として保持する。inventory usage を component 単位へ一度だけ集約し、既存 `LicenseAllowPolicy` の expression evaluation を再利用する。
+root の `require` と `require-dev` を別 owner（`-1`/`-2`）として読み、production `require` 閉包の到達可能性を単色 BFS で求める（既存 `queue` を再利用し追加 rent を避ける）。usage は次のとおり fail-closed に決める。
 
-evaluation result は violation 配列に加えて development policy を適用した component index と件数を返せる explicit data とする。renderer が再評価して件数を推測してはならない。
+- `packages-dev` bucket かつ production 未到達 → `Development`。
+- production 到達（bucket 問わず）→ `Runtime`。
+- `packages-dev` bucket なのに production 到達 → stale/hand-merge の不整合として command error。
+- `packages` bucket が graph 上 production 未到達でも `Runtime` のまま（bucket を production 側の根拠として優先）。
 
-### Phase 4: persisted report、SARIF、文書を同期する
+`packages-dev` を単独根拠にせず graph の production 到達で確認する。runtime package を bucket 移動だけで `Development` にできない（不整合 error になる）ことを negative fixture で固定した。`DependencyType`（`require`/`require-dev` 両方を depth 0 に seed）と edge projection は不変。
 
-canonical JSON version 2 round-trip、version 1 の base-policy compatibility、version 1 と development policy の明示的な exit 2、cross-format identity collision、`check --report`、SARIF の violation equivalence と policy allowance properties を追加する。実装後に次を更新する。
+### Slice 4: persisted report と parity（実装済み）
 
-- `specs/cli.md`: `check` の scope policy、出力、baseline との境界
-- `specs/packagemanager.md`: 各 adapter が保証する typed usage semantics
-- `README.md`: CLI 例と対応入力
-- `backlog.md`: dependency-scope policy を initial scope 外とする記述と残課題
+report へ per-component usage を保存し、`check --report --allow-dev-licenses` を `--input` と一致させた（上記「live 評価と persisted report」参照）。`inventoryComponentIndex` は不要と判明したため採用せず、per-component 保存で最小化した。
 
-仕様文書には確定した WHAT/WHY と実装で判明した lessons learned を残し、配列構築や lookup の詳細 HOW は移さない。
+SARIF policy allowance も実装した。`--allow-dev-licenses` で許可された component は違反ではないので SARIF `results` にせず、`runs[].properties.developmentPolicyAllowances`（identity・license・`policySource`）へ機械可読に記録する。policy の `Evaluate` は件数ではなく許可 component の index 配列を返すよう変更し（dev allow-list が無ければ pooled rent もしない＝option 省略時 0B 不変）、renderer は許可が 1 件以上のときだけ run-level `properties` を書く。
+
+仕様文書には確定した WHAT/WHY と実装で判明した lessons learned を残し、配列構築や lookup の詳細 HOW は移さない。cli.md / README を更新済み。
+
+- **lessons learned**: top-level `components` は既定 sort（`ecosystem,name,version`）で並ぶため inventory 順と一致しない。usage を「表示 component と同じ配列」に載せて sort を通すことで、display↔inventory の index mapping を一切持たずに parity を得られた。usage capability の無い入力・非 JSON 形式では usage 配列を確保せず 0B を維持する。multi-component report の violation **順序** parity（live=inventory 順 vs report=表示順）は本 slice の usage とは別の既存事項。
+
+### Slice 5a: Yarn（実装したが撤回）
+
+一度は実装した。入力契約に汎用の optional companion（`OptionalCompanionFileName` / `CompanionParser`）を足し、`yarn.lock` の隣の `package.json` を読んで、その `dependencies` 系を production root・`devDependencies` を dev root として occurrence に seed し、edge を辿って `dev 到達 && !production 到達` を `Development` としていた。
+
+**撤回した。** 他の 5 アダプタが「解決済み入力の中の情報」から usage を導くのに対し、Yarn だけが **2 ファイルをパッケージ名という弱いキーで結合**する。Yarn の解決キーは descriptor（`name@range`）であり、descriptor は parse 時の `YarnNode` にしか存在せず inventory には残らないため、名前結合しか選べなかった。結果としてレビューで fail-open / 虚偽報告が 3 件出た。
+
+1. 同名の全 occurrence を seed し、manifest が宣言していない別バージョンまで `Development` にしていた。
+2. それを「一意な名前だけ seed」に直すと、今度は**曖昧な production 宣言が seed されず production 到達が縮み**、その依存が `Development` に落ちた（`Development = dev ∧ ¬production` なので production 側の保守化は逆効果）。
+3. manifest がどの entry にも一致しない場合に全件 `runtime` と報告していた。
+
+正しくするには非対称近似（production は過大近似・dev は過小近似）が必要で、直感に反し間違えやすい。ドロップの代償は Yarn 利用者の**利便性**のみ（usage は `Unknown` のままで primary allow-list で運用できる）に対し、維持の代償は**コンプライアンスゲートでの誤許可**であり、割に合わない。optional companion 機構も利用者がゼロになるため入力契約ごと削除した。
+
+再挑戦するなら descriptor 厳密照合が前提: Classic は entry の descriptor list に `name@range` を照合、Berry は workspace entry の dependency list で照合する。workspace は untrusted glob 由来の filesystem 列挙（path traversal・DoS）surface のため、いずれにせよ対象外。
+
+### Slice 6: Maven / Cargo（実装済み）
+
+- Maven: `mvn dependency:tree` の各 node は解決済みの単一 scope を持つ。`test` scope の occurrence を `Development` とし、`compile`/`runtime`/`provided`/`system`/`optional` は `Runtime`（保守的）。scope は既に parse 済みのため追加コストは range 配列 1 個のみ。
+- Cargo: full traverse は全 edge を辿るので dev-only crate も reachable。production 到達を normal/build edge のみの BFS で求め、`reachable && !production 到達` を `Development` とする（composer と同型、context ごと）。**build edge は production 扱い**（shipped crate のビルドに要るため、dev 許可しない fail-closed）。direct edge の kind ではなく到達を伝播させる点が要（dev crate の normal 子も Development）。
+
+NuGet/Go/pip/Bundler/SBOM は標準入力に dev scope が無いため `Unknown`（fail-closed）継続。
 
 ## 性能検証
 
@@ -225,11 +262,12 @@ canonical JSON version 2 round-trip、version 1 の base-policy compatibility、
 - `LicensePolicyBenchmark`: option 省略、全 runtime、全 development、mixed usage
 - `E2EBenchmark`: stage 間でコストを移していないこと
 
-受け入れ条件は次とする。
+受け入れ条件は次とする（メモリは可能な限り 0B を目指す）。
 
-- option 省略時にも canonical report の再評価に必要な usage facts は保持するため、ゼロ増加を無条件には約束しない。追加する owned memory は sparse/packed representation の実測値で説明し、dense enum array を baseline にしない。
-- usage を提供しない input の scan/check に occurrence 数比例の storage を追加しない。
-- development policy 指定時の working allocation を component/occurrence 数から説明できる。
+- `--allow-dev-licenses` 省略時、`Evaluate` の allocation とタイミングは現状と不変（既存 overload に dev 経路を混ぜない）。
+- usage を提供しない input（SBOM/NuGet/Yarn 等）の scan/check は、両 usage field が `null` で **追加 storage 0B**。
+- usage を提供する input（npm/pnpm/Composer）の追加 owned memory は sparse representation の実測値で説明し、dense enum array を baseline にしない。
+- development policy 指定時の per-component 集約は pooled scratch のみで owned allocation 0B、working set は component/occurrence 数から説明できる。
 - component loop に LINQ、closure、regex、transient string、interface dispatch を追加しない。
 - mean time または allocated bytes の説明できない regression を残さない。
 
@@ -246,10 +284,10 @@ canonical JSON version 2 round-trip、version 1 の base-policy compatibility、
 
 ## 成功条件
 
-1. Vite のような npm/pnpm の development scope だけから到達する LGPL component を、runtime allow-list を広げずに許可できる。
+1. npm/pnpm の development scope だけから到達する非 permissive component（実測では CC-BY-4.0 等）を、runtime allow-list を広げずに許可できる。
 2. 同じ component に runtime または unknown occurrence があれば、追加許可は適用されない。
 3. scan/report には component、license evidence、occurrence、usage が残り、除外による不可視化が起きない。
-4. canonical report version 2 の安定した inventory index により、`--input` と `--report` の verdict、stdout、SARIF violation 集合、policy allowance 集合が一致する。
+4. persisted report への usage 保存後、安定した inventory index により `--input` と `--report` の verdict、stdout、SARIF violation 集合、policy allowance 集合が一致する。
 5. baseline の fail-closed 境界を弱めない。
 6. CLI、README、spec が resolver scope と artifact inclusion を区別し、production artifact/SBOM の通常 check を release gate として示す。
 7. usage を提供しない入力の hot path を維持し、対応入力の追加 memory/time を同一 revision benchmark で説明できる。

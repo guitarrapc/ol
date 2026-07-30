@@ -129,6 +129,7 @@ Check a resolved dependency input against allowed SPDX licenses.
 Options:
   --input <string[]?>           Repeatable resolved dependency input files or directories. [Default: null]
   --allow-licenses <string?>    Comma-separated SPDX License Identifiers. [Default: null]
+  --allow-dev-licenses <string?>  Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
   --input-format <string?>      Input format assertion; defaults to auto detection. [Default: null]
   --spdx-data <string?>         Directory containing licenses.json and exceptions.json. [Default: null]
   --verbose                     Include input detection diagnostics.
@@ -196,6 +197,12 @@ ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0
 ```
 
 `--allow-licenses` is a required comma-separated list of SPDX License Identifiers. Matching is case-insensitive and normalized to official SPDX casing. Natural-language names, SPDX expressions, exception identifiers, unknown identifiers, and empty entries are rejected as configuration errors.
+
+`--allow-dev-licenses` is an optional second allow-list, validated the same way, that applies only to components reachable exclusively through a development path — for example a license pulled in solely by dev tooling such as a Vite toolchain. Usage is taken from the resolver (npm `package-lock.json`, pnpm `pnpm-lock.yaml`, the Composer pair, Maven `test` scope, and Cargo dev-only reachability) and aggregated across all occurrences, so a single runtime or usage-unknown occurrence keeps the component on the primary allow-list; names are never used to infer development usage. For Composer, a `packages-dev` entry that a production `require` can still reach is treated as inconsistent input rather than silently allowed. Yarn leaves usage unknown, because `yarn.lock` records no development scope. The resolved usage is saved in the JSON report, so `check --report --allow-dev-licenses` reaches the same verdict as `check --input`; a report without usage fails closed. It states an organization policy, not that the package is absent from a production build, so keep checking the production artifact with the primary allow-list alone.
+
+```bash
+ol check --input package-lock.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --allow-dev-licenses CC-BY-4.0
+```
 
 SPDX expressions found in dependencies are evaluated using SPDX semantics:
 

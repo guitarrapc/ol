@@ -25,6 +25,7 @@ internal static class NpmPackageLockInputParser
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
         var occurrences = ArrayPool<DependencyOccurrence>.Shared.Rent(32);
         var occurrenceVariants = ArrayPool<DependencyOccurrenceVariant>.Shared.Rent(8);
+        var developmentOccurrences = ArrayPool<int>.Shared.Rent(8);
         var edges = ArrayPool<DependencyEdge>.Shared.Rent(32);
         int[]? nodeIndexes = null;
         int[]? componentByNode = null;
@@ -38,6 +39,7 @@ internal static class NpmPackageLockInputParser
         var componentCount = 0;
         var occurrenceCount = 0;
         var occurrenceVariantCount = 0;
+        var developmentOccurrenceCount = 0;
         var edgeCount = 0;
         try
         {
@@ -165,6 +167,14 @@ internal static class NpmPackageLockInputParser
                         EnsureCapacity(ref occurrenceVariants, occurrenceVariantCount);
                         occurrenceVariants[occurrenceVariantCount++] = new DependencyOccurrenceVariant(occurrenceCount - 1, nodes[nodeIndex].Variant);
                     }
+
+                    // npm records dev-only reachability per package entry, so the whole occurrence range is
+                    // usage-determined and dev-only entries are appended in ascending occurrence order.
+                    if (nodes[nodeIndex].Development)
+                    {
+                        EnsureCapacity(ref developmentOccurrences, developmentOccurrenceCount);
+                        developmentOccurrences[developmentOccurrenceCount++] = occurrenceCount - 1;
+                    }
                 }
 
                 ProjectEdges(
@@ -185,7 +195,9 @@ internal static class NpmPackageLockInputParser
                 components.AsSpan(0, componentCount).ToArray(),
                 retainGraph ? occurrences.AsSpan(0, occurrenceCount).ToArray() : [],
                 retainGraph ? edges.AsSpan(0, edgeCount).ToArray() : [],
-                retainGraph ? occurrenceVariants.AsSpan(0, occurrenceVariantCount).ToArray() : []);
+                retainGraph ? occurrenceVariants.AsSpan(0, occurrenceVariantCount).ToArray() : [],
+                retainGraph && occurrenceCount > 0 ? [new DependencyUsageRange(0, occurrenceCount)] : null,
+                retainGraph && developmentOccurrenceCount > 0 ? developmentOccurrences.AsSpan(0, developmentOccurrenceCount).ToArray() : null);
         }
         finally
         {
@@ -196,6 +208,7 @@ internal static class NpmPackageLockInputParser
             ArrayPool<ScanComponent>.Shared.Return(components, clearArray: true);
             ArrayPool<DependencyOccurrence>.Shared.Return(occurrences);
             ArrayPool<DependencyOccurrenceVariant>.Shared.Return(occurrenceVariants, clearArray: true);
+            ArrayPool<int>.Shared.Return(developmentOccurrences);
             ArrayPool<DependencyEdge>.Shared.Return(edges);
             if (nodeIndexes is not null) ArrayPool<int>.Shared.Return(nodeIndexes);
             if (componentByNode is not null) ArrayPool<int>.Shared.Return(componentByNode);
@@ -382,6 +395,7 @@ internal static class NpmPackageLockInputParser
                 license,
                 resolved,
                 CreateVariant(flags, restrictions.AsSpan(osStart, osCount), restrictions.AsSpan(cpuStart, cpuCount)),
+                (flags & NodeFlags.Dev) != 0,
                 (flags & NodeFlags.Link) != 0,
                 isRegistryPackage,
                 dependencyStart,
@@ -849,6 +863,7 @@ internal static class NpmPackageLockInputParser
         Utf8Slice License,
         Utf8Slice Resolved,
         Utf8Slice Variant,
+        bool Development,
         bool Link,
         bool IsRegistryPackage,
         int DependencyStart,

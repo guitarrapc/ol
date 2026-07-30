@@ -412,6 +412,28 @@ For a component with status `matched`, the normalized SPDX expression is evaluat
 
 For example, with `--allow-licenses MIT,Apache-2.0`, `MIT`, `MIT AND Apache-2.0`, and `MIT OR GPL-3.0-only` pass; `MIT AND GPL-3.0-only` and `GPL-3.0-only WITH Classpath-exception-2.0` fail.
 
+#### Development-only allow-list
+
+`--allow-dev-licenses` is an optional second comma-separated allow-list, validated by the same rules as `--allow-licenses`, applied only to components the resolver reaches exclusively through a development path. It exists because development tooling routinely pulls transitive licenses that a permissive production allow-list rejects — for example a Vite dev toolchain reaches `caniuse-lite` (`CC-BY-4.0`) — even though those packages never enter a production artifact.
+
+```text
+ol check --input package-lock.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --allow-dev-licenses CC-BY-4.0
+```
+
+A `matched` component that the primary allow-list rejects is re-evaluated against `primary ∪ development` **only** when its resolver usage is development-only. Usage is aggregated across every occurrence of the component: a single runtime or usage-unknown occurrence keeps the component on the primary allow-list, and package or dependency names are never used to infer development usage. Usage comes only from inputs whose resolver records it: npm `package-lock.json`, pnpm `pnpm-lock.yaml`, the Composer pair, Maven `maven-dependency-tree.json`, and Cargo `cargo-metadata.json`. Each is classified conservatively:
+
+- npm: development-only when the lockfile marks the entry `dev` (npm's own dev-only reachability); `optional`, `devOptional`, and `peer` stay runtime.
+- pnpm: development-only when importer reachability is dev and neither production nor optional, so a strictly-optional package — which a production install still fetches — stays runtime.
+- Composer: development-only when the package sits in `packages-dev` **and** no production `require` closure reaches it. The `require`/`require-dev` split is resolved before graph walking; a `packages-dev` entry that a production requirement can reach is a stale or hand-merged bundle and is rejected as inconsistent input.
+- Maven: development-only when the resolved dependency-tree scope is `test`. `compile`, `runtime`, `provided`, `system`, and `optional` stay runtime, because only `test` is never part of a production build.
+- Cargo: development-only when a crate is reachable but not reachable through the production closure of `normal` and `build` edges from the workspace roots. Reachability is propagated, so a `normal` dependency of a `dev`-dependency is still development-only; `build` dependencies are treated as production so a crate required to build the shipped artifact is never admitted.
+
+Inputs without development reachability leave every component usage-unknown, so `--allow-dev-licenses` never relaxes them.
+
+The resolved development usage is persisted per component in the canonical JSON report (a `usage` value of `development` or `runtime`; absent means unknown), so `check --report --allow-dev-licenses` reaches the same verdict as `check --input --allow-dev-licenses`. A report whose components carry no `usage` field is treated as usage-unknown and fails closed under `--allow-dev-licenses`, exactly as an input that cannot express development scope.
+
+This option is an organization policy statement, not a claim about artifact inclusion: a resolver's development scope does not prove a bundler, code generator, or plugin excludes the package from a production build. Release gates should still check the production artifact or a production SBOM with the primary allow-list alone. When supplied, `check` prints `Allowed by development policy: N components.` — including `0` — so a lost or newly inapplicable exception is visible in CI logs. Omitting the option leaves the verdict, output, and SARIF violation set byte-for-byte unchanged.
+
 Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain, unless an unresolved component is acknowledged by a baseline as defined below. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.
 
 `check` writes its pass result or complete violation list to stdout. Expected option, input, SPDX-data, whole-command evidence-pipeline, and output failures write a concise cause to stderr without a stack trace or partial policy result. A component-level registry or source failure remains evidence in the completed result and is evaluated as a policy violation when it leaves that component unresolved; it is not an exit-2 command failure. Exit codes are:
@@ -476,6 +498,8 @@ Active SPDX data still normalizes the allow-list, so a report may be evaluated u
 Each violation kind has a stable rule ID so annotations remain comparable across runs: `OL0001` not allowed, `OL0002` evidence conflict, `OL0003` unresolved, `OL0004` ambiguous, `OL0005` invalid expression, `OL0006` evidence error.
 
 Ol reads resolved graphs rather than manifests, so a violation has no trustworthy file position and Ol does not invent one. Results carry a logical location plus the component's purl, ecosystem, status, license, and dependency classification. When the graph is available, a result also carries the deterministic shortest root-to-component dependency path, and the message names it. That path is the actionable part of a transitive violation: it identifies the direct dependency to upgrade or remove, which is the only thing the user can change. A canonical persisted report carries the complete inventory and graph, so evaluating it preserves the same dependency path without re-reading the original dependency input.
+
+A component admitted by `--allow-dev-licenses` is not a violation, so it is never a SARIF result. Instead the run records these under `runs[].properties.developmentPolicyAllowances` — a machine-readable array of `{ name, version, ecosystem, purl, sourceId, license, policySource: "allow-dev-licenses" }` — so a reviewer can audit which packages passed only under the development policy without treating them as findings. The property is written only when at least one component was admitted; a run with no development allowances writes no run-level `properties`.
 
 Policy files, deny-lists, per-package policy exceptions, license curation and concluded licenses, and dependency-scope policy remain outside the `check` scope.
 

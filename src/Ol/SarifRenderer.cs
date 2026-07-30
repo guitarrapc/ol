@@ -24,8 +24,16 @@ internal static class SarifRenderer
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<LicensePolicyViolation> violations,
         string toolVersion)
+        => Render(inventory, components, violations, [], toolVersion);
+
+    public static byte[] Render(
+        in DependencyInventory inventory,
+        ReadOnlySpan<ScanComponent> components,
+        ReadOnlySpan<LicensePolicyViolation> violations,
+        ReadOnlySpan<int> developmentAllowedComponents,
+        string toolVersion)
     {
-        var buffer = new ArrayBufferWriter<byte>(512 + (violations.Length * 320));
+        var buffer = new ArrayBufferWriter<byte>(512 + (violations.Length * 320) + (developmentAllowedComponents.Length * 160));
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
         {
             writer.WriteStartObject();
@@ -50,12 +58,43 @@ internal static class SarifRenderer
             }
 
             writer.WriteEndArray();
+            WriteDevelopmentAllowances(writer, components, developmentAllowedComponents);
             writer.WriteEndObject();
             writer.WriteEndArray();
             writer.WriteEndObject();
         }
 
         return buffer.WrittenSpan.ToArray();
+    }
+
+    // Components admitted by the development allow-list are not violations, so they are not SARIF results. They are
+    // recorded as run-level tool metadata so a reviewer can audit which packages passed only under the development
+    // policy, and under which license, without treating them as findings.
+    private static void WriteDevelopmentAllowances(Utf8JsonWriter writer, ReadOnlySpan<ScanComponent> components, ReadOnlySpan<int> developmentAllowedComponents)
+    {
+        if (developmentAllowedComponents.Length == 0)
+        {
+            return;
+        }
+
+        writer.WriteStartObject("properties"u8);
+        writer.WriteStartArray("developmentPolicyAllowances"u8);
+        for (var i = 0; i < developmentAllowedComponents.Length; i++)
+        {
+            var component = components[developmentAllowedComponents[i]];
+            writer.WriteStartObject();
+            writer.WriteString("name"u8, component.Name.Span);
+            writer.WriteString("version"u8, component.Version.Span);
+            writer.WriteString("ecosystem"u8, component.Ecosystem ?? string.Empty);
+            if (!component.Purl.IsEmpty) writer.WriteString("purl"u8, component.Purl.Span);
+            if (!component.SourceId.IsEmpty) writer.WriteString("sourceId"u8, component.SourceId.Span);
+            if (!component.License.IsEmpty) writer.WriteString("license"u8, component.License.Span);
+            writer.WriteString("policySource"u8, "allow-dev-licenses");
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WriteEndObject();
     }
 
     private static void WriteRules(Utf8JsonWriter writer)

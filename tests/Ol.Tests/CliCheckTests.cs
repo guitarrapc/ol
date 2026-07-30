@@ -553,6 +553,159 @@ public sealed class CliCheckTests
         }
     }
 
+    [Test]
+    public async Task Check_WithAllowDevLicenses_AllowsDevelopmentOnlyComponent()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteNpmLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
+        try
+        {
+            var withoutDev = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var withDev = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment");
+
+            await Assert.That(withoutDev.ExitCode).IsEqualTo(1).Because(withoutDev.Stderr);
+            await Assert.That(withDev.ExitCode).IsEqualTo(0).Because(withDev.Stderr);
+            await Assert.That(withDev.Stderr).IsEmpty();
+            await Assert.That(withDev.Stdout).Contains("Allowed by development policy: 1 component.");
+            await Assert.That(withDev.Stdout).Contains("2 components satisfy the allow-list.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithAllowDevLicenses_DoesNotAllowRuntimeComponent()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteNpmLockAsync(devLicense: "MIT", runtimeLicense: "CC-BY-4.0");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment");
+
+            await Assert.That(result.ExitCode).IsEqualTo(1).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("License check failed: 1 violation.");
+            await Assert.That(result.Stdout).Contains("CC-BY-4.0");
+            await Assert.That(result.Stdout).Contains("Allowed by development policy: 0 components.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithAllowDevLicensesAcrossCombinedInputs_AllowsDevelopmentOnlyComponent()
+    {
+        var root = FindRepositoryRoot();
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}");
+        var firstDirectory = Path.Combine(directory, "first");
+        var secondDirectory = Path.Combine(directory, "second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        var first = Path.Combine(firstDirectory, "package-lock.json");
+        var second = Path.Combine(secondDirectory, "package-lock.json");
+        await File.WriteAllTextAsync(first, NpmLockJson(devLicense: "CC-BY-4.0", runtimeLicense: "MIT"), Encoding.UTF8);
+        await File.WriteAllTextAsync(second, """{ "lockfileVersion": 3, "packages": { "": { "name": "second" }, "node_modules/b": { "name": "b", "version": "1.0.0", "license": "MIT" } } }""", Encoding.UTF8);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", first, "--input", second, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Allowed by development policy: 1 component.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithInvalidAllowDevLicenses_ReturnsTwoWithoutPolicyOutput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteNpmLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "Unknown-License", "--skip-enrichment");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("Invalid license policy:");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_ReportWithAllowDevLicenses_MatchesScanningTheInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteNpmLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
+
+            var fromInput = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment");
+            var fromReport = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0");
+
+            await Assert.That(fromInput.ExitCode).IsEqualTo(0).Because(fromInput.Stderr);
+            await Assert.That(fromReport.ExitCode).IsEqualTo(fromInput.ExitCode).Because(fromReport.Stderr);
+            await Assert.That(fromReport.Stdout).IsEqualTo(fromInput.Stdout);
+            await Assert.That(fromReport.Stdout).Contains("Allowed by development policy: 1 component.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_ReportWithoutPersistedUsage_FailsClosedUnderAllowDevLicenses()
+    {
+        var root = FindRepositoryRoot();
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        // A report whose components carry no usage field must not be relaxed by --allow-dev-licenses.
+        var report = """
+            { "schemaVersion": 1, "metadata": { "input": { "kind": "package-manager", "format": "npm-package-lock" }, "spdx": { "licenseListVersion": "3.0" } },
+              "components": [ { "name": "dev-pkg", "version": "1.0.0", "ecosystem": "npm", "purl": "pkg:npm/dev-pkg@1.0.0", "sourceId": "node_modules/dev-pkg", "dependency": "direct", "status": "matched", "license": "CC-BY-4.0" } ] }
+            """;
+        await File.WriteAllTextAsync(reportPath, report);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0");
+
+            await Assert.That(result.ExitCode).IsEqualTo(1).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("License check failed: 1 violation.");
+            await Assert.That(result.Stdout).Contains("Allowed by development policy: 0 components.");
+        }
+        finally
+        {
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    private static async Task<string> WriteNpmLockAsync(string devLicense, string runtimeLicense)
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}", "package-lock.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(inputPath)!);
+        await File.WriteAllTextAsync(inputPath, NpmLockJson(devLicense, runtimeLicense), Encoding.UTF8);
+        return inputPath;
+    }
+
+    private static string NpmLockJson(string devLicense, string runtimeLicense) => string.Concat(
+        "{ \"name\": \"app\", \"lockfileVersion\": 3, \"packages\": { ",
+        "\"\": { \"name\": \"app\", \"dependencies\": { \"run-pkg\": \"1.0.0\" }, \"devDependencies\": { \"dev-pkg\": \"1.0.0\" } }, ",
+        "\"node_modules/run-pkg\": { \"version\": \"1.0.0\", \"license\": \"", runtimeLicense, "\" }, ",
+        "\"node_modules/dev-pkg\": { \"version\": \"1.0.0\", \"dev\": true, \"license\": \"", devLicense, "\" } } }");
+
     private static async Task<string> WriteCycloneDxAsync(string? license, string version = "1.0.0")
     {
         var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");

@@ -61,6 +61,12 @@ Remaining:
 - Record more SBOM generation conditions when available, such as generator name/version, build target, platform, lockfile hash, commit hash, and dependency scope.
 - Decide how much generation metadata belongs in scan reports versus upstream SBOM documents.
 
+## Dependency Scope Policy (`--allow-dev-licenses`)
+
+- Development usage is classified for npm, pnpm, Composer, Maven (`test` scope), and Cargo (dev-only reachability). Every supported adapter derives usage from data inside the resolved input itself.
+- Yarn was implemented and then withdrawn. `yarn.lock` records no development scope, so classification required joining the lockfile with a sibling `package.json` by **package name** — a weak key, because Yarn resolves by descriptor (`name@range`) and descriptors are only available during parsing, not in the inventory. That join produced three fail-open or misleading defects in review: seeding every same-named entry (admitting entries the manifest never declared), then, after making seeding unambiguous-only, shrinking production reachability so a dependency of an ambiguous production declaration became development-only, plus reporting every entry as runtime when the manifest matched nothing. Correctness needs asymmetric approximation (over-approximate production, under-approximate development), which is subtle and easy to invert. Dropping costs Yarn users only convenience — usage stays unknown and they keep using the primary allow-list — while keeping it risked admitting licenses in a compliance gate. Revisit only with descriptor-precise matching: `name@range` against the entry's descriptor list for Classic, and the workspace entry's dependency list for Berry. Workspaces remain out of scope regardless: discovering each workspace's manifest from untrusted `workspaces` globs is a path-traversal and filesystem-enumeration surface.
+- Ecosystems that leave usage unknown (fail-closed) because their standard input records no development scope: CycloneDX/SPDX, Yarn `yarn.lock`, NuGet `project.assets.json`, Go module graph, pip inspect, and Bundler `Gemfile.lock` (its groups are not in the lock).
+
 ## Review Notes
 
 - Items should move out of this backlog only when their WHAT/WHY are added to a spec and their detailed work is added to an implementation plan.

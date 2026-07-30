@@ -42,6 +42,7 @@ internal static class PnpmLockInputParser
         var components = ArrayPool<ScanComponent>.Shared.Rent(16);
         var occurrences = ArrayPool<DependencyOccurrence>.Shared.Rent(32);
         var occurrenceVariants = ArrayPool<DependencyOccurrenceVariant>.Shared.Rent(8);
+        var developmentOccurrences = ArrayPool<int>.Shared.Rent(8);
         var edges = ArrayPool<DependencyEdge>.Shared.Rent(32);
         int[]? snapshotIndexes = null;
         int[]? componentByNode = null;
@@ -57,6 +58,7 @@ internal static class PnpmLockInputParser
         var componentCount = 0;
         var occurrenceCount = 0;
         var occurrenceVariantCount = 0;
+        var developmentOccurrenceCount = 0;
         var edgeCount = 0;
         try
         {
@@ -162,11 +164,20 @@ internal static class PnpmLockInputParser
                     EnsureCapacity(ref occurrences, occurrenceCount);
                     occurrenceByNode[nodeIndex] = occurrenceCount;
                     occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex);
-                    var variant = ComposeOccurrenceVariant(nodes[nodeIndex].BaseVariant, (ReachKind)reachKinds[nodeIndex]);
+                    var reach = (ReachKind)reachKinds[nodeIndex];
+                    var variant = ComposeOccurrenceVariant(nodes[nodeIndex].BaseVariant, reach);
                     if (!variant.IsEmpty)
                     {
                         EnsureCapacity(ref occurrenceVariants, occurrenceVariantCount);
                         occurrenceVariants[occurrenceVariantCount++] = new DependencyOccurrenceVariant(occurrenceCount - 1, variant);
+                    }
+
+                    // Development-only means reachable through dev edges and nothing else. A production or optional path
+                    // (optional dependencies are installed in production) keeps the occurrence on the primary policy.
+                    if (reach == ReachKind.Dev)
+                    {
+                        EnsureCapacity(ref developmentOccurrences, developmentOccurrenceCount);
+                        developmentOccurrences[developmentOccurrenceCount++] = occurrenceCount - 1;
                     }
                 }
 
@@ -189,7 +200,9 @@ internal static class PnpmLockInputParser
                 components.AsSpan(0, componentCount).ToArray(),
                 retainGraph ? occurrences.AsSpan(0, occurrenceCount).ToArray() : [],
                 retainGraph ? edges.AsSpan(0, edgeCount).ToArray() : [],
-                retainGraph ? occurrenceVariants.AsSpan(0, occurrenceVariantCount).ToArray() : []);
+                retainGraph ? occurrenceVariants.AsSpan(0, occurrenceVariantCount).ToArray() : [],
+                retainGraph && occurrenceCount > 0 ? [new DependencyUsageRange(0, occurrenceCount)] : null,
+                retainGraph && developmentOccurrenceCount > 0 ? developmentOccurrences.AsSpan(0, developmentOccurrenceCount).ToArray() : null);
         }
         finally
         {
@@ -201,6 +214,7 @@ internal static class PnpmLockInputParser
             ArrayPool<ScanComponent>.Shared.Return(components, clearArray: true);
             ArrayPool<DependencyOccurrence>.Shared.Return(occurrences);
             ArrayPool<DependencyOccurrenceVariant>.Shared.Return(occurrenceVariants, clearArray: true);
+            ArrayPool<int>.Shared.Return(developmentOccurrences);
             ArrayPool<DependencyEdge>.Shared.Return(edges);
             if (snapshotIndexes is not null) ArrayPool<int>.Shared.Return(snapshotIndexes);
             if (componentByNode is not null) ArrayPool<int>.Shared.Return(componentByNode);

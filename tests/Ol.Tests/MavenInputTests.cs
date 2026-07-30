@@ -212,6 +212,39 @@ public sealed class MavenInputTests
     }
 
     [Test]
+    public async Task Scan_MavenDependencyTree_ClassifiesTestScopeAsDevelopment()
+    {
+        // demo -> prod(compile), provided(provided), testtool(test) -> shared(test), prodparent(compile) -> shared(runtime)
+        const string json = """
+            {
+              "groupId": "org.example", "artifactId": "demo", "version": "1.0.0", "type": "jar", "scope": "", "classifier": "", "optional": "false",
+              "children": [
+                { "groupId": "org.example", "artifactId": "prod", "version": "1.0.0", "type": "jar", "scope": "compile", "classifier": "", "optional": "false" },
+                { "groupId": "org.example", "artifactId": "providedep", "version": "1.0.0", "type": "jar", "scope": "provided", "classifier": "", "optional": "false" },
+                { "groupId": "org.example", "artifactId": "testtool", "version": "1.0.0", "type": "jar", "scope": "test", "classifier": "", "optional": "false",
+                  "children": [ { "groupId": "org.example", "artifactId": "shared", "version": "2.0.0", "type": "jar", "scope": "test", "classifier": "", "optional": "false" } ] },
+                { "groupId": "org.example", "artifactId": "prodparent", "version": "1.0.0", "type": "jar", "scope": "compile", "classifier": "", "optional": "false",
+                  "children": [ { "groupId": "org.example", "artifactId": "shared", "version": "2.0.0", "type": "jar", "scope": "runtime", "classifier": "", "optional": "false" } ] }
+              ]
+            }
+            """;
+
+        var inventory = DependencyInputScanner.Scan(Encoding.UTF8.GetBytes(json), Spdx, expectedFormat: ScanInputFormat.MavenDependencyTree);
+
+        await Assert.That(inventory.UsageDeterminedRanges).IsNotNull();
+        await Assert.That(inventory.UsageDeterminedRanges!.Sum(static range => range.Length)).IsEqualTo(inventory.Occurrences.Length);
+
+        var usages = new DependencyUsage[inventory.Components.Length];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[FindComponentIndex(inventory, "org.example:testtool:jar::1.0.0")]).IsEqualTo(DependencyUsage.Development);
+        await Assert.That(usages[FindComponentIndex(inventory, "org.example:prod:jar::1.0.0")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, "org.example:providedep:jar::1.0.0")]).IsEqualTo(DependencyUsage.Runtime);
+        // shared is reached by both a test path and a runtime path, so a single non-test occurrence keeps it runtime.
+        await Assert.That(usages[FindComponentIndex(inventory, "org.example:shared:jar::2.0.0")]).IsEqualTo(DependencyUsage.Runtime);
+    }
+
+    [Test]
     public async Task Parser_WithoutRetainedGraph_DoesNotAllocateDiscardedOccurrenceVariants()
     {
         var emptyScope = Encoding.UTF8.GetBytes(CreateSingleDependencyJson(""));
@@ -303,11 +336,23 @@ public sealed class MavenInputTests
             }
             """;
 
+    /// <summary>
+    /// Returns the pool-warm allocation of repeated parses. The parser rents from <see cref="ArrayPool{T}"/>.Shared,
+    /// which is process-global and shared with concurrently running tests, so a rent that misses the pool allocates a
+    /// fresh buffer and inflates a single sample. The minimum across samples is the steady-state cost this test asserts.
+    /// </summary>
     private static long MeasureAllocations(DependencyInputParser parser, byte[] source)
     {
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var iteration = 0; iteration < 32; iteration++) _ = parser(source, 0, Spdx, retainGraph: false);
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        var lowest = long.MaxValue;
+        for (var sample = 0; sample < 5; sample++)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var iteration = 0; iteration < 32; iteration++) _ = parser(source, 0, Spdx, retainGraph: false);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            if (allocated < lowest) lowest = allocated;
+        }
+
+        return lowest;
     }
 
     private static string GetFixturePath(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);

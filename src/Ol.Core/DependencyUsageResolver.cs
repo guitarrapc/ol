@@ -41,15 +41,31 @@ public static class DependencyUsageResolver
         {
             var codes = rented.AsSpan(0, componentCount);
             codes.Clear();
+
+            // Occurrences are visited in ascending index order and DevelopmentOccurrences is ascending, so a cursor
+            // that only moves forward decides development membership in one pass instead of a search per occurrence.
+            var developmentCursor = 0;
             for (var occurrenceIndex = 0; occurrenceIndex < occurrences.Length; occurrenceIndex++)
             {
+                // Advance before the component check so the cursor stays aligned even when an occurrence is skipped.
+                if (developmentOccurrences is not null)
+                {
+                    while (developmentCursor < developmentOccurrences.Length && developmentOccurrences[developmentCursor] < occurrenceIndex)
+                    {
+                        developmentCursor++;
+                    }
+                }
+
                 var componentIndex = occurrences[occurrenceIndex].ComponentIndex;
                 if ((uint)componentIndex >= (uint)componentCount)
                 {
                     continue;
                 }
 
-                var code = OccurrenceCode(occurrenceIndex, ranges, developmentOccurrences);
+                var isDevelopment = developmentOccurrences is not null
+                    && developmentCursor < developmentOccurrences.Length
+                    && developmentOccurrences[developmentCursor] == occurrenceIndex;
+                var code = isDevelopment ? DevelopmentCode : IsDetermined(occurrenceIndex, ranges) ? RuntimeCode : UnknownCode;
                 if (codes[componentIndex] < code)
                 {
                     codes[componentIndex] = code;
@@ -72,36 +88,14 @@ public static class DependencyUsageResolver
         }
     }
 
-    private static byte OccurrenceCode(int occurrenceIndex, DependencyUsageRange[] ranges, int[]? developmentOccurrences)
+    private static bool IsDetermined(int occurrenceIndex, DependencyUsageRange[] ranges)
     {
-        if (developmentOccurrences is not null && Contains(developmentOccurrences, occurrenceIndex))
-        {
-            return DevelopmentCode;
-        }
-
         for (var i = 0; i < ranges.Length; i++)
         {
-            var start = ranges[i].StartOccurrenceIndex;
-            if ((uint)(occurrenceIndex - start) < (uint)ranges[i].Length)
+            if ((uint)(occurrenceIndex - ranges[i].StartOccurrenceIndex) < (uint)ranges[i].Length)
             {
-                return RuntimeCode;
+                return true;
             }
-        }
-
-        return UnknownCode;
-    }
-
-    private static bool Contains(int[] sortedValues, int value)
-    {
-        var low = 0;
-        var high = sortedValues.Length - 1;
-        while (low <= high)
-        {
-            var mid = (int)(((uint)low + (uint)high) >> 1);
-            var current = sortedValues[mid];
-            if (current == value) return true;
-            if (current < value) low = mid + 1;
-            else high = mid - 1;
         }
 
         return false;

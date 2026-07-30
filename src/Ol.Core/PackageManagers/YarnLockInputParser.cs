@@ -461,8 +461,15 @@ internal static class YarnLockGraphParser
 
             // Seed each root occurrence by matching its package name against the manifest declarations, then propagate
             // through the resolved dependency edges. Production reachability wins, so a package on both paths stays runtime.
-            SeedAndPropagate(occurrences, components, edges, prodNames, productionReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount), firstOutgoing.AsSpan(0, occurrenceCount), nextOutgoing.AsSpan(0, edges.Length));
-            SeedAndPropagate(occurrences, components, edges, devNames, developmentReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount), firstOutgoing.AsSpan(0, occurrenceCount), nextOutgoing.AsSpan(0, edges.Length));
+            var productionReached = SeedAndPropagate(occurrences, components, edges, prodNames, productionReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount), firstOutgoing.AsSpan(0, occurrenceCount), nextOutgoing.AsSpan(0, edges.Length));
+            var developmentReached = SeedAndPropagate(occurrences, components, edges, devNames, developmentReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount), firstOutgoing.AsSpan(0, occurrenceCount), nextOutgoing.AsSpan(0, edges.Length));
+
+            // No manifest declaration reached any occurrence, so this manifest and lockfile determine nothing together.
+            // Reporting every occurrence as runtime would assert a fact the pair does not support, so usage stays unknown.
+            if (productionReached == 0 && developmentReached == 0)
+            {
+                return inventory;
+            }
 
             var developmentCount = 0;
             for (var occurrenceIndex = 0; occurrenceIndex < occurrenceCount; occurrenceIndex++)
@@ -490,7 +497,8 @@ internal static class YarnLockGraphParser
         }
     }
 
-    private static void SeedAndPropagate(
+    /// <summary>Marks every occurrence reachable from the named manifest roots and returns how many were reached.</summary>
+    private static int SeedAndPropagate(
         ReadOnlySpan<DependencyOccurrence> occurrences,
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<DependencyEdge> edges,
@@ -520,6 +528,8 @@ internal static class YarnLockGraphParser
                 queue[tail++] = target;
             }
         }
+
+        return tail;
     }
 
     private static bool NameListContains(ReadOnlySpan<Utf8Slice> names, ReadOnlySpan<byte> value)

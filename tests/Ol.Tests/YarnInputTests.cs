@@ -207,6 +207,43 @@ public sealed class YarnInputTests
     }
 
     [Test]
+    [Arguments("""{ "name": "app", "dependencies": { "not-in-lock": "^1.0.0" }, "devDependencies": { "also-absent": "^1.0.0" } }""")]
+    [Arguments("""{ "name": "app" }""")]
+    [Arguments("""{ "name": "app", "dependencies": {}, "devDependencies": {} }""")]
+    public async Task Scan_YarnManifestMatchingNoOccurrence_LeavesUsageUnknown(string manifest)
+    {
+        var inventory = DependencyInputScanner.Scan(
+            Encoding.UTF8.GetBytes(ClassicLock),
+            Encoding.UTF8.GetBytes(manifest),
+            Spdx,
+            expectedFormat: ScanInputFormat.YarnClassicLock);
+
+        // Nothing in the manifest reaches the lockfile, so no usage was determined. Claiming every occurrence is
+        // runtime would assert a fact the pair does not support.
+        await Assert.That(inventory.UsageDeterminedRanges).IsNull();
+        await Assert.That(inventory.DevelopmentOccurrences).IsNull();
+    }
+
+    [Test]
+    public async Task Scan_YarnManifestMatchingOnlyDevDependencies_ClassifiesUsage()
+    {
+        const string manifest = """{ "name": "app", "devDependencies": { "dev-pkg": "^1.0.0" } }""";
+
+        var inventory = DependencyInputScanner.Scan(
+            Encoding.UTF8.GetBytes(ClassicLock),
+            Encoding.UTF8.GetBytes(manifest),
+            Spdx,
+            expectedFormat: ScanInputFormat.YarnClassicLock);
+
+        // A manifest with no production dependencies still determines usage: dev reachability was established.
+        await Assert.That(inventory.UsageDeterminedRanges).IsNotNull();
+
+        var usages = new DependencyUsage[inventory.Components.Length];
+        DependencyUsageResolver.Resolve(inventory, usages);
+        await Assert.That(usages[FindComponentIndex(inventory, "dev-pkg")]).IsEqualTo(DependencyUsage.Development);
+    }
+
+    [Test]
     public async Task Scan_YarnWorkspaceManifest_DoesNotClassifyUsage()
     {
         const string workspaceManifest = """{ "name": "root", "workspaces": ["packages/*"], "devDependencies": { "dev-pkg": "^1.0.0" } }""";

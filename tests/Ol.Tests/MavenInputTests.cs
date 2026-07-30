@@ -336,11 +336,23 @@ public sealed class MavenInputTests
             }
             """;
 
+    /// <summary>
+    /// Returns the pool-warm allocation of repeated parses. The parser rents from <see cref="ArrayPool{T}"/>.Shared,
+    /// which is process-global and shared with concurrently running tests, so a rent that misses the pool allocates a
+    /// fresh buffer and inflates a single sample. The minimum across samples is the steady-state cost this test asserts.
+    /// </summary>
     private static long MeasureAllocations(DependencyInputParser parser, byte[] source)
     {
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var iteration = 0; iteration < 32; iteration++) _ = parser(source, 0, Spdx, retainGraph: false);
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        var lowest = long.MaxValue;
+        for (var sample = 0; sample < 5; sample++)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var iteration = 0; iteration < 32; iteration++) _ = parser(source, 0, Spdx, retainGraph: false);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            if (allocated < lowest) lowest = allocated;
+        }
+
+        return lowest;
     }
 
     private static string GetFixturePath(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);

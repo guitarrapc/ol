@@ -442,15 +442,27 @@ internal static class YarnLockGraphParser
         var developmentReachable = ArrayPool<bool>.Shared.Rent(occurrenceCount);
         var queue = ArrayPool<int>.Shared.Rent(occurrenceCount);
         var developmentOccurrences = ArrayPool<int>.Shared.Rent(Math.Max(occurrenceCount, 1));
+        // Outgoing-edge index built once so each traversal stays linear in occurrences plus edges. Without it every
+        // dequeued occurrence would rescan the whole edge array, which is quadratic on a real lockfile.
+        var firstOutgoing = ArrayPool<int>.Shared.Rent(occurrenceCount);
+        var nextOutgoing = ArrayPool<int>.Shared.Rent(Math.Max(edges.Length, 1));
         try
         {
             productionReachable.AsSpan(0, occurrenceCount).Clear();
             developmentReachable.AsSpan(0, occurrenceCount).Clear();
+            firstOutgoing.AsSpan(0, occurrenceCount).Fill(-1);
+            for (var edgeIndex = edges.Length - 1; edgeIndex >= 0; edgeIndex--)
+            {
+                var from = edges[edgeIndex].FromOccurrenceIndex;
+                if ((uint)from >= (uint)occurrenceCount) continue;
+                nextOutgoing[edgeIndex] = firstOutgoing[from];
+                firstOutgoing[from] = edgeIndex;
+            }
 
             // Seed each root occurrence by matching its package name against the manifest declarations, then propagate
             // through the resolved dependency edges. Production reachability wins, so a package on both paths stays runtime.
-            SeedAndPropagate(occurrences, components, edges, prodNames, productionReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount));
-            SeedAndPropagate(occurrences, components, edges, devNames, developmentReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount));
+            SeedAndPropagate(occurrences, components, edges, prodNames, productionReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount), firstOutgoing.AsSpan(0, occurrenceCount), nextOutgoing.AsSpan(0, edges.Length));
+            SeedAndPropagate(occurrences, components, edges, devNames, developmentReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount), firstOutgoing.AsSpan(0, occurrenceCount), nextOutgoing.AsSpan(0, edges.Length));
 
             var developmentCount = 0;
             for (var occurrenceIndex = 0; occurrenceIndex < occurrenceCount; occurrenceIndex++)
@@ -473,6 +485,8 @@ internal static class YarnLockGraphParser
             ArrayPool<bool>.Shared.Return(developmentReachable);
             ArrayPool<int>.Shared.Return(queue);
             ArrayPool<int>.Shared.Return(developmentOccurrences);
+            ArrayPool<int>.Shared.Return(firstOutgoing);
+            ArrayPool<int>.Shared.Return(nextOutgoing);
         }
     }
 
@@ -482,7 +496,9 @@ internal static class YarnLockGraphParser
         ReadOnlySpan<DependencyEdge> edges,
         ReadOnlySpan<Utf8Slice> rootNames,
         Span<bool> reachable,
-        Span<int> queue)
+        Span<int> queue,
+        ReadOnlySpan<int> firstOutgoing,
+        ReadOnlySpan<int> nextOutgoing)
     {
         var head = 0;
         var tail = 0;
@@ -496,11 +512,9 @@ internal static class YarnLockGraphParser
         while (head < tail)
         {
             var fromOccurrence = queue[head++];
-            for (var edgeIndex = 0; edgeIndex < edges.Length; edgeIndex++)
+            for (var edgeIndex = firstOutgoing[fromOccurrence]; edgeIndex >= 0; edgeIndex = nextOutgoing[edgeIndex])
             {
-                var edge = edges[edgeIndex];
-                if (edge.FromOccurrenceIndex != fromOccurrence) continue;
-                var target = edge.ToOccurrenceIndex;
+                var target = edges[edgeIndex].ToOccurrenceIndex;
                 if ((uint)target >= (uint)reachable.Length || reachable[target]) continue;
                 reachable[target] = true;
                 queue[tail++] = target;

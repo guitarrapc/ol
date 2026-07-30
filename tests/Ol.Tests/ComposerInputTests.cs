@@ -60,6 +60,44 @@ public sealed class ComposerInputTests
     }
 
     [Test]
+    public async Task ScanBundle_ComposerResolvedPair_ClassifiesRequireDevReachabilityAsDevelopment()
+    {
+        var inventory = DependencyInputScanner.ScanBundle(
+            [
+                await File.ReadAllBytesAsync(GetFixturePath("composer.json")),
+                await File.ReadAllBytesAsync(GetFixturePath("composer.lock")),
+            ],
+            Spdx,
+            ScanInputFormat.ComposerLock);
+
+        await Assert.That(inventory.UsageDeterminedRanges).IsNotNull();
+        await Assert.That(inventory.UsageDeterminedRanges!.Sum(static range => range.Length)).IsEqualTo(inventory.Occurrences.Length);
+
+        var usages = new DependencyUsage[inventory.Components.Length];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[FindComponentIndex(inventory, "monolog/monolog@3.9.0")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, "psr/log@3.0.2")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, "example/container@1.1.0")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, "phpunit/phpunit@11.5.0")]).IsEqualTo(DependencyUsage.Development);
+        await Assert.That(usages[FindComponentIndex(inventory, "sebastian/version@5.0.2")]).IsEqualTo(DependencyUsage.Development);
+    }
+
+    [Test]
+    public async Task ScanBundle_WithProductionRequiredPackageInDevBucket_RejectsInconsistentInput()
+    {
+        // A stale or hand-merged lock that only moved a production-required package into packages-dev must not be
+        // reinterpreted as development-only; the contradiction is an input error.
+        byte[][] inputs =
+        [
+            """{ "name": "example/app", "require": { "example/package": "*" } }"""u8.ToArray(),
+            """{ "packages": [], "packages-dev": [{ "name": "example/package", "version": "1.0.0" }] }"""u8.ToArray(),
+        ];
+
+        await Assert.That(() => DependencyInputScanner.ScanBundle(inputs, Spdx, ScanInputFormat.ComposerLock)).Throws<JsonException>();
+    }
+
+    [Test]
     public async Task Registry_Default_ComposerHandlerOwnsResolvedPairAndIdentity()
     {
         var found = DependencyInputRegistry.Default.TryGetInputFormat("COMPOSER-LOCK", out var handler);
@@ -196,6 +234,9 @@ public sealed class ComposerInputTests
 
         await Assert.That(() => DependencyInputScanner.ScanBundle(inputs, Spdx, ScanInputFormat.ComposerLock)).Throws<JsonException>();
     }
+
+    private static int FindComponentIndex(DependencyInventory inventory, string sourceId)
+        => Array.FindIndex(inventory.Components, component => component.SourceId.ToString() == sourceId);
 
     private static ScanComponent FindComponent(DependencyInventory inventory, string sourceId)
         => inventory.Components.Single(component => component.SourceId.ToString() == sourceId);

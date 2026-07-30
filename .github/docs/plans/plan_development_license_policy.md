@@ -211,9 +211,16 @@ schema 移行を伴わないので、live `--input` の縦スライスを最短�
 
 pnpm の `strictlyDev`（既に算出済み）を `Development` occurrence として surface する。fixture: importer 直下 dev / transitive dev / production と両経路 / workspace 複数 importer / strictly-optional を dev と誤認しない。
 
-### Slice 3: Composer live
+### Slice 3: Composer live（実装済み）
 
-root の `require` と `require-dev` を区別してから graph を解決する（現状は同じ requirement へ潰れている）。`require` 到達は `Runtime`、`require-dev` のみ到達は `Development`、両方到達は `Runtime`。lock `packages-dev` は監査用で単独根拠にしない。production 到達と `packages-dev` が矛盾する bundle は入力不整合の command error。
+root の `require` と `require-dev` を別 owner（`-1`/`-2`）として読み、production `require` 閉包の到達可能性を単色 BFS で求める（既存 `queue` を再利用し追加 rent を避ける）。usage は次のとおり fail-closed に決める。
+
+- `packages-dev` bucket かつ production 未到達 → `Development`。
+- production 到達（bucket 問わず）→ `Runtime`。
+- `packages-dev` bucket なのに production 到達 → stale/hand-merge の不整合として command error。
+- `packages` bucket が graph 上 production 未到達でも `Runtime` のまま（bucket を production 側の根拠として優先）。
+
+`packages-dev` を単独根拠にせず graph の production 到達で確認する。runtime package を bucket 移動だけで `Development` にできない（不整合 error になる）ことを negative fixture で固定した。`DependencyType`（`require`/`require-dev` 両方を depth 0 に seed）と edge projection は不変。
 
 ### Slice 4: persisted report、SARIF、文書
 

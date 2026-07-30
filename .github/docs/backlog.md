@@ -61,6 +61,12 @@ Remaining:
 - Record more SBOM generation conditions when available, such as generator name/version, build target, platform, lockfile hash, commit hash, and dependency scope.
 - Decide how much generation metadata belongs in scan reports versus upstream SBOM documents.
 
+## Dependency Scope Policy (`--allow-dev-licenses`)
+
+- Yarn workspaces: single-package Yarn is classified via the optional `package.json` companion, but a workspace project needs each workspace's own `package.json` (discovered from the root `workspaces` globs) to classify per-workspace development scope. Until then, workspace lockfiles stay usage-unknown (fail-closed).
+- Persisted report parity: saving typed usage into the canonical report (with a stable `inventoryComponentIndex` and SARIF policy allowance) so `check --report --allow-dev-licenses` matches `check --input`. Live `--input` is supported today.
+- Deferred ecosystems: CycloneDX/SPDX, Maven (`test`/`provided`/`optional`), Cargo (`dev`/`build`/target), and NuGet/Go/pip/Bundler remain usage-unknown until each resolver's development reachability is specified.
+
 ## Review Notes
 
 - Items should move out of this backlog only when their WHAT/WHY are added to a spec and their detailed work is added to an implementation plan.

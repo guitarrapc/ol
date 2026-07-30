@@ -420,11 +420,12 @@ For example, with `--allow-licenses MIT,Apache-2.0`, `MIT`, `MIT AND Apache-2.0`
 ol check --input package-lock.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --allow-dev-licenses CC-BY-4.0
 ```
 
-A `matched` component that the primary allow-list rejects is re-evaluated against `primary ∪ development` **only** when its resolver usage is development-only. Usage is aggregated across every occurrence of the component: a single runtime or usage-unknown occurrence keeps the component on the primary allow-list, and package or dependency names are never used to infer development usage. Usage comes only from inputs whose resolver records it: npm `package-lock.json`, pnpm `pnpm-lock.yaml`, and the Composer pair. Each is classified conservatively:
+A `matched` component that the primary allow-list rejects is re-evaluated against `primary ∪ development` **only** when its resolver usage is development-only. Usage is aggregated across every occurrence of the component: a single runtime or usage-unknown occurrence keeps the component on the primary allow-list, and package or dependency names are never used to infer development usage. Usage comes only from inputs whose resolver records it: npm `package-lock.json`, pnpm `pnpm-lock.yaml`, the Composer pair, and Yarn `yarn.lock` when a sibling `package.json` is present. Each is classified conservatively:
 
 - npm: development-only when the lockfile marks the entry `dev` (npm's own dev-only reachability); `optional`, `devOptional`, and `peer` stay runtime.
 - pnpm: development-only when importer reachability is dev and neither production nor optional, so a strictly-optional package — which a production install still fetches — stays runtime.
 - Composer: development-only when the package sits in `packages-dev` **and** no production `require` closure reaches it. The `require`/`require-dev` split is resolved before graph walking; a `packages-dev` entry that a production requirement can reach is a stale or hand-merged bundle and is rejected as inconsistent input.
+- Yarn: `yarn.lock` alone records no development scope, so a sibling `package.json` next to the lockfile is read as an optional companion — its absence is never an error. Development-only means reachable through `devDependencies` and not through `dependencies`, `optionalDependencies`, or `peerDependencies`. This is limited to single-package projects: a workspace `package.json`, or a lockfile with more than one workspace, leaves usage unknown because one root manifest cannot classify each workspace's own scope.
 
 Inputs without development reachability leave every component usage-unknown, so `--allow-dev-licenses` never relaxes them.
 

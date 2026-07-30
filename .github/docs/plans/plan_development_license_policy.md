@@ -92,9 +92,10 @@ Composer の `packages-dev` は監査情報と整合性検証に使用するが�
 - production reachability と `packages-dev` の所属が矛盾する bundle は、development policy を適用せず入力不整合の command error にする。
 - `composer.lock` の bucket だけを変更した stale/manual-merge input が runtime package を `Development` にしないことを negative fixture で固定する。
 
+Yarn は当初 `Unknown` としていたが、`yarn.lock` の隣にある `package.json` を optional companion として読めば非 workspace は対応できる（Slice 5a で実装）。`yarn.lock` 単体では dev scope を持たないため、companion が無ければ従来どおり `Unknown`（非破壊）。workspace（複数 package.json）は root manifest 一つでは各 workspace の scope を判定できないため対象外（Slice 5b）。
+
 次は初期対応に含めない。
 
-- Yarn lock 単体: root manifest の dev relationship を証明できない形式では `Unknown` とする。
 - CycloneDX / SPDX: 現在の共通 inventory が development usage として正規化していないため、SBOM 固有 scope を直ちに policy へ流用しない。
 - Maven: `test`、`provided`、`optional` は同じ意味ではない。`DevelopmentOnly` として認める scope を仕様化してから追加する。
 - Cargo: `dev`、`build`、target condition と複数 incoming kind の意味を整理し、全到達経路を証明できるようにしてから追加する。
@@ -232,6 +233,16 @@ report への typed usage 保存、top-level component の `inventoryComponentIn
 - `backlog.md`: dependency-scope policy を initial scope 外とする記述と残課題
 
 仕様文書には確定した WHAT/WHY と実装で判明した lessons learned を残し、配列構築や lookup の詳細 HOW は移さない。
+
+### Slice 5a: 非 workspace Yarn（実装済み）
+
+入力契約に汎用の optional companion 概念を追加した。`DependencyInputHandler` に `OptionalCompanionFileName` と `CompanionParser` を持たせ、検出済み single-file input の隣に companion があれば `CompanionParser` を使う。ScanCommands は primary を parse 後、handler が companion を宣言していれば同ディレクトリの sibling を直接読み（discovery の収集集合は汚さない）、companion 付きで再 scan し、source-hash にも畳み込む。companion が無ければ従来の single-file parse のまま（非破壊、single-file benchmark はゼロ増）。
+
+Yarn usage は base parse（`ParseClassic`/`ParseBerry`）を変更せず、解決済み inventory の occurrence + edge グラフ上で post-hoc に計算する。`package.json` の `dependencies`/`optionalDependencies`/`peerDependencies` を production root、`devDependencies` を dev root として名前で occurrence に seed し、edge を辿って production/dev 到達を求め、`dev 到達 && !production 到達` を `Development` とする。`workspaces` フィールドを持つ manifest、または context が 2 つ以上（workspace lockfile）は usage 未分類（`Unknown`）にフォールバックする。
+
+### Slice 5b: Yarn workspace（未対応）
+
+workspace は root と各 workspace の `package.json` が別々で、あるパッケージの dev 判定はその workspace の `devDependencies` に依存する。root の `workspaces` glob から全 workspace manifest を discover して per-context に seed する必要があり、5a の単一 manifest では不十分。fail-closed で `Unknown` のまま。
 
 ## 性能検証
 

@@ -27,6 +27,9 @@ internal static class YarnClassicLockInputParser
 
     internal static DependencyInventory Parse(byte[] source, int offset, SpdxLicenseIndex _, bool retainGraph)
         => YarnLockGraphParser.ParseClassic(source, offset, retainGraph);
+
+    internal static DependencyInventory ParseWithManifest(byte[] source, int offset, byte[] companion, int companionOffset, SpdxLicenseIndex _, bool retainGraph)
+        => YarnLockGraphParser.ApplyManifestUsage(YarnLockGraphParser.ParseClassic(source, offset, retainGraph), companion, companionOffset);
 }
 
 internal static class YarnBerryLockInputParser
@@ -50,6 +53,9 @@ internal static class YarnBerryLockInputParser
 
     internal static DependencyInventory Parse(byte[] source, int offset, SpdxLicenseIndex _, bool retainGraph)
         => YarnLockGraphParser.ParseBerry(source, offset, retainGraph);
+
+    internal static DependencyInventory ParseWithManifest(byte[] source, int offset, byte[] companion, int companionOffset, SpdxLicenseIndex _, bool retainGraph)
+        => YarnLockGraphParser.ApplyManifestUsage(YarnLockGraphParser.ParseBerry(source, offset, retainGraph), companion, companionOffset);
 }
 
 internal static class YarnLockGraphParser
@@ -346,6 +352,166 @@ internal static class YarnLockGraphParser
             ArrayPool<int>.Shared.Return(occurrenceByNode);
             ArrayPool<byte>.Shared.Return(optionalReach);
         }
+    }
+
+    // yarn.lock alone cannot prove development scope, so an optional sibling package.json supplies the root
+    // dependencies/devDependencies split. Usage is computed post-hoc over the resolved inventory graph, leaving the
+    // base parse untouched. Workspaces are out of scope: one root manifest cannot classify each workspace's own scope.
+    internal static DependencyInventory ApplyManifestUsage(DependencyInventory inventory, byte[] manifest, int manifestOffset)
+    {
+        var occurrenceCount = inventory.Occurrences.Length;
+        if (occurrenceCount == 0 || inventory.Contexts.Length != 1)
+        {
+            return inventory;
+        }
+
+        var prodNames = ArrayPool<Utf8Slice>.Shared.Rent(16);
+        var devNames = ArrayPool<Utf8Slice>.Shared.Rent(16);
+        try
+        {
+            if (!TryReadManifest(manifest, manifestOffset, ref prodNames, out var prodCount, ref devNames, out var devCount))
+            {
+                return inventory;
+            }
+
+            return ComputeUsage(inventory, prodNames.AsSpan(0, prodCount), devNames.AsSpan(0, devCount));
+        }
+        finally
+        {
+            ArrayPool<Utf8Slice>.Shared.Return(prodNames, clearArray: true);
+            ArrayPool<Utf8Slice>.Shared.Return(devNames, clearArray: true);
+        }
+    }
+
+    private static bool TryReadManifest(byte[] manifest, int offset, ref Utf8Slice[] prodNames, out int prodCount, ref Utf8Slice[] devNames, out int devCount)
+    {
+        prodCount = 0;
+        devCount = 0;
+        var reader = new Utf8JsonReader(manifest.AsSpan(offset), isFinalBlock: true, state: default);
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return false;
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+        {
+            if (reader.TokenType != JsonTokenType.PropertyName) continue;
+            var isProd = reader.ValueTextEquals("dependencies"u8) || reader.ValueTextEquals("optionalDependencies"u8) || reader.ValueTextEquals("peerDependencies"u8);
+            var isDev = reader.ValueTextEquals("devDependencies"u8);
+            var isWorkspaces = reader.ValueTextEquals("workspaces"u8);
+            if (!reader.Read()) break;
+            if (isWorkspaces)
+            {
+                // A workspace manifest cannot classify per-workspace scope from one root package.json.
+                return false;
+            }
+
+            if (isProd && reader.TokenType == JsonTokenType.StartObject)
+            {
+                ReadDependencyNames(ref reader, manifest, offset, ref prodNames, ref prodCount);
+            }
+            else if (isDev && reader.TokenType == JsonTokenType.StartObject)
+            {
+                ReadDependencyNames(ref reader, manifest, offset, ref devNames, ref devCount);
+            }
+            else
+            {
+                reader.Skip();
+            }
+        }
+
+        return true;
+    }
+
+    private static void ReadDependencyNames(ref Utf8JsonReader reader, byte[] manifest, int offset, ref Utf8Slice[] names, ref int count)
+    {
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+        {
+            if (reader.TokenType != JsonTokenType.PropertyName) continue;
+            EnsureCapacity(ref names, count);
+            names[count++] = reader.HasValueSequence || reader.ValueIsEscaped
+                ? Utf8Slice.FromString(reader.GetString() ?? string.Empty)
+                : new Utf8Slice(manifest, checked(offset + (int)reader.TokenStartIndex + 1), reader.ValueSpan.Length);
+            reader.Skip();
+        }
+    }
+
+    private static DependencyInventory ComputeUsage(DependencyInventory inventory, ReadOnlySpan<Utf8Slice> prodNames, ReadOnlySpan<Utf8Slice> devNames)
+    {
+        var occurrences = inventory.Occurrences;
+        var components = inventory.Components;
+        var edges = inventory.Edges;
+        var occurrenceCount = occurrences.Length;
+        var productionReachable = ArrayPool<bool>.Shared.Rent(occurrenceCount);
+        var developmentReachable = ArrayPool<bool>.Shared.Rent(occurrenceCount);
+        var queue = ArrayPool<int>.Shared.Rent(occurrenceCount);
+        var developmentOccurrences = ArrayPool<int>.Shared.Rent(Math.Max(occurrenceCount, 1));
+        try
+        {
+            productionReachable.AsSpan(0, occurrenceCount).Clear();
+            developmentReachable.AsSpan(0, occurrenceCount).Clear();
+
+            // Seed each root occurrence by matching its package name against the manifest declarations, then propagate
+            // through the resolved dependency edges. Production reachability wins, so a package on both paths stays runtime.
+            SeedAndPropagate(occurrences, components, edges, prodNames, productionReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount));
+            SeedAndPropagate(occurrences, components, edges, devNames, developmentReachable.AsSpan(0, occurrenceCount), queue.AsSpan(0, occurrenceCount));
+
+            var developmentCount = 0;
+            for (var occurrenceIndex = 0; occurrenceIndex < occurrenceCount; occurrenceIndex++)
+            {
+                if (developmentReachable[occurrenceIndex] && !productionReachable[occurrenceIndex])
+                {
+                    developmentOccurrences[developmentCount++] = occurrenceIndex;
+                }
+            }
+
+            return inventory with
+            {
+                UsageDeterminedRanges = [new DependencyUsageRange(0, occurrenceCount)],
+                DevelopmentOccurrences = developmentCount == 0 ? null : developmentOccurrences.AsSpan(0, developmentCount).ToArray(),
+            };
+        }
+        finally
+        {
+            ArrayPool<bool>.Shared.Return(productionReachable);
+            ArrayPool<bool>.Shared.Return(developmentReachable);
+            ArrayPool<int>.Shared.Return(queue);
+            ArrayPool<int>.Shared.Return(developmentOccurrences);
+        }
+    }
+
+    private static void SeedAndPropagate(
+        ReadOnlySpan<DependencyOccurrence> occurrences,
+        ReadOnlySpan<ScanComponent> components,
+        ReadOnlySpan<DependencyEdge> edges,
+        ReadOnlySpan<Utf8Slice> rootNames,
+        Span<bool> reachable,
+        Span<int> queue)
+    {
+        var head = 0;
+        var tail = 0;
+        for (var occurrenceIndex = 0; occurrenceIndex < occurrences.Length; occurrenceIndex++)
+        {
+            if (reachable[occurrenceIndex] || !NameListContains(rootNames, components[occurrences[occurrenceIndex].ComponentIndex].Name.Span)) continue;
+            reachable[occurrenceIndex] = true;
+            queue[tail++] = occurrenceIndex;
+        }
+
+        while (head < tail)
+        {
+            var fromOccurrence = queue[head++];
+            for (var edgeIndex = 0; edgeIndex < edges.Length; edgeIndex++)
+            {
+                var edge = edges[edgeIndex];
+                if (edge.FromOccurrenceIndex != fromOccurrence) continue;
+                var target = edge.ToOccurrenceIndex;
+                if ((uint)target >= (uint)reachable.Length || reachable[target]) continue;
+                reachable[target] = true;
+                queue[tail++] = target;
+            }
+        }
+    }
+
+    private static bool NameListContains(ReadOnlySpan<Utf8Slice> names, ReadOnlySpan<byte> value)
+    {
+        for (var i = 0; i < names.Length; i++) if (names[i].Span.SequenceEqual(value)) return true;
+        return false;
     }
 
     private static int FindWorkspaceByOrigin(ReadOnlySpan<YarnNode> nodes, Utf8Slice origin)

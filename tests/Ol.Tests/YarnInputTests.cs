@@ -122,6 +122,108 @@ public sealed class YarnInputTests
         await Assert.That(classic.Detector).IsNotEqualTo(berry.Detector);
     }
 
+    private const string ClassicManifest = """{ "name": "app", "dependencies": { "prod-pkg": "^1.0.0" }, "devDependencies": { "dev-pkg": "^1.0.0" } }""";
+    private const string ClassicLock = """
+        # yarn lockfile v1
+
+        prod-pkg@^1.0.0:
+          version "1.0.0"
+          dependencies:
+            shared "^2.0.0"
+
+        dev-pkg@^1.0.0:
+          version "1.0.0"
+          dependencies:
+            shared "^2.0.0"
+
+        shared@^2.0.0:
+          version "2.0.0"
+        """;
+
+    private const string BerryManifest = """{ "name": "app", "dependencies": { "prod-pkg": "^1.0.0" }, "devDependencies": { "dev-pkg": "^1.0.0" } }""";
+    private const string BerryLock = """
+        __metadata:
+          version: 8
+          cacheKey: 10c0
+
+        "app@workspace:.":
+          version: 0.0.0-use.local
+          resolution: "app@workspace:."
+          dependencies:
+            prod-pkg: "npm:^1.0.0"
+            dev-pkg: "npm:^1.0.0"
+
+        "prod-pkg@npm:^1.0.0":
+          version: 1.0.0
+          resolution: "prod-pkg@npm:1.0.0"
+          dependencies:
+            shared: "npm:^2.0.0"
+
+        "dev-pkg@npm:^1.0.0":
+          version: 1.0.0
+          resolution: "dev-pkg@npm:1.0.0"
+          dependencies:
+            shared: "npm:^2.0.0"
+
+        "shared@npm:^2.0.0":
+          version: 2.0.0
+          resolution: "shared@npm:2.0.0"
+        """;
+
+    [Test]
+    public async Task Scan_YarnClassicWithManifest_ClassifiesDevOnlyDependencyAsDevelopment()
+        => await AssertManifestUsage(ClassicLock, ClassicManifest, ScanInputFormat.YarnClassicLock);
+
+    [Test]
+    public async Task Scan_YarnBerryWithManifest_ClassifiesDevOnlyDependencyAsDevelopment()
+        => await AssertManifestUsage(BerryLock, BerryManifest, ScanInputFormat.YarnBerryLock);
+
+    private static async Task AssertManifestUsage(string lockContent, string manifest, ScanInputFormat format)
+    {
+        var inventory = DependencyInputScanner.Scan(
+            Encoding.UTF8.GetBytes(lockContent),
+            Encoding.UTF8.GetBytes(manifest),
+            Spdx,
+            expectedFormat: format);
+
+        await Assert.That(inventory.UsageDeterminedRanges).IsNotNull();
+        await Assert.That(inventory.UsageDeterminedRanges!.Sum(static range => range.Length)).IsEqualTo(inventory.Occurrences.Length);
+
+        var usages = new DependencyUsage[inventory.Components.Length];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[FindComponentIndex(inventory, "dev-pkg")]).IsEqualTo(DependencyUsage.Development);
+        await Assert.That(usages[FindComponentIndex(inventory, "prod-pkg")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, "shared")]).IsEqualTo(DependencyUsage.Runtime);
+    }
+
+    [Test]
+    public async Task Scan_YarnLockWithoutManifest_LeavesUsageUnknown()
+    {
+        var inventory = DependencyInputScanner.Scan(Encoding.UTF8.GetBytes(ClassicLock), Spdx, expectedFormat: ScanInputFormat.YarnClassicLock);
+
+        await Assert.That(inventory.UsageDeterminedRanges).IsNull();
+        await Assert.That(inventory.DevelopmentOccurrences).IsNull();
+    }
+
+    [Test]
+    public async Task Scan_YarnWorkspaceManifest_DoesNotClassifyUsage()
+    {
+        const string workspaceManifest = """{ "name": "root", "workspaces": ["packages/*"], "devDependencies": { "dev-pkg": "^1.0.0" } }""";
+
+        var inventory = DependencyInputScanner.Scan(
+            Encoding.UTF8.GetBytes(ClassicLock),
+            Encoding.UTF8.GetBytes(workspaceManifest),
+            Spdx,
+            expectedFormat: ScanInputFormat.YarnClassicLock);
+
+        // A workspace manifest cannot classify per-workspace dev scope from one root package.json; stay Unknown.
+        await Assert.That(inventory.UsageDeterminedRanges).IsNull();
+    }
+
+    private static int FindComponentIndex(DependencyInventory inventory, string name)
+        => Array.FindIndex(inventory.Components, component => component.Name.ToString() == name);
+
     private static DependencyInventory Scan(string fixture, ScanInputFormat format)
         => DependencyInputScanner.Scan(File.ReadAllBytes(GetFixturePath(fixture)), Spdx, expectedFormat: format);
 

@@ -110,6 +110,55 @@ public sealed class CargoInputTests
         await Assert.That(() => DependencyInputScanner.Scan(Encoding.UTF8.GetBytes(json), Spdx)).Throws<JsonException>();
     }
 
+    [Test]
+    public async Task Scan_CargoMetadata_ClassifiesDevOnlyReachabilityAsDevelopment()
+    {
+        const string reg = "registry+https://github.com/rust-lang/crates.io-index";
+        const string json = $$"""
+            {
+              "packages": [
+                { "name": "app", "version": "0.1.0", "id": "path+file:///repo#app@0.1.0", "license": "MIT", "source": null, "manifest_path": "/repo/Cargo.toml" },
+                { "name": "prod-crate", "version": "1.0.0", "id": "{{reg}}#prod-crate@1.0.0", "license": "MIT", "source": "{{reg}}", "manifest_path": "/c/prod/Cargo.toml" },
+                { "name": "dev-crate", "version": "1.0.0", "id": "{{reg}}#dev-crate@1.0.0", "license": "MIT", "source": "{{reg}}", "manifest_path": "/c/dev/Cargo.toml" },
+                { "name": "dev-child", "version": "1.0.0", "id": "{{reg}}#dev-child@1.0.0", "license": "MIT", "source": "{{reg}}", "manifest_path": "/c/devc/Cargo.toml" }
+              ],
+              "workspace_members": [ "path+file:///repo#app@0.1.0" ],
+              "workspace_default_members": [ "path+file:///repo#app@0.1.0" ],
+              "resolve": {
+                "nodes": [
+                  { "id": "path+file:///repo#app@0.1.0", "dependencies": [ "{{reg}}#prod-crate@1.0.0", "{{reg}}#dev-crate@1.0.0" ],
+                    "deps": [
+                      { "name": "prod_crate", "pkg": "{{reg}}#prod-crate@1.0.0", "dep_kinds": [ { "kind": null, "target": null } ] },
+                      { "name": "dev_crate", "pkg": "{{reg}}#dev-crate@1.0.0", "dep_kinds": [ { "kind": "dev", "target": null } ] }
+                    ], "features": [] },
+                  { "id": "{{reg}}#prod-crate@1.0.0", "dependencies": [], "deps": [], "features": [] },
+                  { "id": "{{reg}}#dev-crate@1.0.0", "dependencies": [ "{{reg}}#dev-child@1.0.0" ],
+                    "deps": [ { "name": "dev_child", "pkg": "{{reg}}#dev-child@1.0.0", "dep_kinds": [ { "kind": null, "target": null } ] } ], "features": [] },
+                  { "id": "{{reg}}#dev-child@1.0.0", "dependencies": [], "deps": [], "features": [] }
+                ],
+                "root": "path+file:///repo#app@0.1.0"
+              },
+              "target_directory": "/repo/target", "version": 1, "workspace_root": "/repo", "metadata": null
+            }
+            """;
+
+        var inventory = DependencyInputScanner.Scan(Encoding.UTF8.GetBytes(json), Spdx, expectedFormat: ScanInputFormat.CargoMetadata);
+
+        await Assert.That(inventory.UsageDeterminedRanges).IsNotNull();
+        await Assert.That(inventory.UsageDeterminedRanges!.Sum(static range => range.Length)).IsEqualTo(inventory.Occurrences.Length);
+
+        var usages = new DependencyUsage[inventory.Components.Length];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[FindComponentIndex(inventory, $"{reg}#prod-crate@1.0.0")]).IsEqualTo(DependencyUsage.Runtime);
+        await Assert.That(usages[FindComponentIndex(inventory, $"{reg}#dev-crate@1.0.0")]).IsEqualTo(DependencyUsage.Development);
+        // A normal dependency of a dev-only crate is still development-only: production reach must propagate, not read the direct edge kind.
+        await Assert.That(usages[FindComponentIndex(inventory, $"{reg}#dev-child@1.0.0")]).IsEqualTo(DependencyUsage.Development);
+    }
+
+    private static int FindComponentIndex(DependencyInventory inventory, string sourceId)
+        => Array.FindIndex(inventory.Components, component => component.SourceId.ToString() == sourceId);
+
     private static ScanComponent FindComponent(DependencyInventory inventory, string sourceId)
         => inventory.Components.Single(component => component.SourceId.ToString() == sourceId);
 

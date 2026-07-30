@@ -63,8 +63,8 @@ Remaining:
 
 ## Dependency Scope Policy (`--allow-dev-licenses`)
 
-- Yarn workspaces: single-package Yarn is classified via the optional `package.json` companion, but a workspace project needs each workspace's own `package.json` (discovered from the root `workspaces` globs) to classify per-workspace development scope. Until then, workspace lockfiles stay usage-unknown (fail-closed).
-- Deferred ecosystems: CycloneDX/SPDX, Maven (`test`/`provided`/`optional`), Cargo (`dev`/`build`/target), and NuGet/Go/pip/Bundler remain usage-unknown until each resolver's development reachability is specified.
+- Development usage is classified for npm, pnpm, Composer, Yarn single-package (optional `package.json`), Maven (`test` scope), and Cargo (dev-only reachability). Yarn workspaces are intentionally not supported: classifying per-workspace scope requires reading each workspace's `package.json`, discovered from untrusted `workspaces` globs or lockfile paths — an untrusted-input-driven filesystem-enumeration surface (path traversal, DoS) not justified by the narrow benefit while fail-closed is already safe.
+- Ecosystems that leave usage unknown (fail-closed) because their standard input records no development scope: CycloneDX/SPDX, NuGet `project.assets.json`, Go module graph, pip inspect, and Bundler `Gemfile.lock` (its groups are not in the lock).
 
 ## Review Notes
 

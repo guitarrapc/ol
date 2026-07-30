@@ -114,6 +114,10 @@ Maven dependency tree input does not cause Ol to resolve a POM or dependency ver
 
 Gradle's built-in `dependencies`, `dependencyInsight`, and project-report tasks produce human-oriented text or HTML rather than a stable portable graph schema. Ol does not parse those reports or embed the Gradle Tooling API; Gradle users should provide CycloneDX or SPDX JSON.
 
+## Development usage classification
+
+In addition to the audit-only occurrence variants above, adapters project a typed development-versus-runtime usage per occurrence, aggregated per component (any runtime or unknown occurrence wins). This is a resolver-scope classification only — never a claim about production artifact inclusion — and it is what `check --allow-dev-licenses` consumes; the per-adapter rules and policy semantics are specified in [cli.md](cli.md). Adapters that determine usage: npm (`dev` flag), pnpm (strict dev reachability), Composer (`packages-dev` confirmed by production-`require` reachability), Yarn single-package (optional sibling `package.json`), Maven (`test` scope), and Cargo (dev-only reachability with build treated as production). NuGet, Go, pip, Bundler, and SBOM inputs leave usage unknown because their standard input records no development scope, so `--allow-dev-licenses` never relaxes them (fail-closed). Usage information is added only for inputs that determine it; other inputs carry no additional per-occurrence storage.
+
 ## User Experience
 
 Users should not have to specify package manager or ecosystem manually. The CLI derives the ecosystem from component purl and other SBOM metadata where possible.

@@ -92,7 +92,7 @@ Composer の `packages-dev` は監査情報と整合性検証に使用するが�
 - production reachability と `packages-dev` の所属が矛盾する bundle は、development policy を適用せず入力不整合の command error にする。
 - `composer.lock` の bucket だけを変更した stale/manual-merge input が runtime package を `Development` にしないことを negative fixture で固定する。
 
-Yarn は当初 `Unknown` としていたが、`yarn.lock` の隣にある `package.json` を optional companion として読めば非 workspace は対応できる（Slice 5a で実装）。`yarn.lock` 単体では dev scope を持たないため、companion が無ければ従来どおり `Unknown`（非破壊）。workspace（複数 package.json）は root manifest 一つでは各 workspace の scope を判定できないため対象外（Slice 5b）。
+Yarn は当初 `Unknown` としていたが、`yarn.lock` の隣にある `package.json` を optional companion として読めば非 workspace は対応できる（Slice 5a で実装）。`yarn.lock` 単体では dev scope を持たないため、companion が無ければ従来どおり `Unknown`（非破壊）。workspace（複数 package.json）は root manifest 一つでは各 workspace の scope を判定できず、untrusted glob 駆動の filesystem 列挙リスクもあるため対象外。
 
 次は初期対応に含めない。
 
@@ -239,9 +239,14 @@ SARIF policy allowance も実装した。`--allow-dev-licenses` で許可され�
 
 Yarn usage は base parse（`ParseClassic`/`ParseBerry`）を変更せず、解決済み inventory の occurrence + edge グラフ上で post-hoc に計算する。`package.json` の `dependencies`/`optionalDependencies`/`peerDependencies` を production root、`devDependencies` を dev root として名前で occurrence に seed し、edge を辿って production/dev 到達を求め、`dev 到達 && !production 到達` を `Development` とする。`workspaces` フィールドを持つ manifest、または context が 2 つ以上（workspace lockfile）は usage 未分類（`Unknown`）にフォールバックする。
 
-### Slice 5b: Yarn workspace（未対応）
+Yarn workspace は対象外とする（見送り決定）。per-workspace の scope 判定には各 workspace の `package.json` を、untrusted な `workspaces` glob または lockfile path から discover して読む必要があり、untrusted 入力駆動の filesystem 列挙（path traversal・DoS）という surface を生む。fail-closed が既に安全で便益が narrow なため、このリスクに見合わない。workspace lockfile は `Unknown`（fail-closed）のまま。
 
-workspace は root と各 workspace の `package.json` が別々で、あるパッケージの dev 判定はその workspace の `devDependencies` に依存する。root の `workspaces` glob から全 workspace manifest を discover して per-context に seed する必要があり、5a の単一 manifest では不十分。fail-closed で `Unknown` のまま。
+### Slice 6: Maven / Cargo（実装済み）
+
+- Maven: `mvn dependency:tree` の各 node は解決済みの単一 scope を持つ。`test` scope の occurrence を `Development` とし、`compile`/`runtime`/`provided`/`system`/`optional` は `Runtime`（保守的）。scope は既に parse 済みのため追加コストは range 配列 1 個のみ。
+- Cargo: full traverse は全 edge を辿るので dev-only crate も reachable。production 到達を normal/build edge のみの BFS で求め、`reachable && !production 到達` を `Development` とする（composer と同型、context ごと）。**build edge は production 扱い**（shipped crate のビルドに要るため、dev 許可しない fail-closed）。direct edge の kind ではなく到達を伝播させる点が要（dev crate の normal 子も Development）。
+
+NuGet/Go/pip/Bundler/SBOM は標準入力に dev scope が無いため `Unknown`（fail-closed）継続。
 
 ## 性能検証
 

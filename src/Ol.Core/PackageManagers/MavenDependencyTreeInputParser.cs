@@ -136,8 +136,10 @@ internal static class MavenDependencyTreeInputParser
         DependencyOccurrence[]? occurrences = null;
         DependencyOccurrenceVariant[]? variants = null;
         DependencyEdge[]? edges = null;
+        int[]? developmentOccurrences = null;
         var componentCount = 0;
         var variantCount = 0;
+        var developmentOccurrenceCount = 0;
         try
         {
             var indexCapacity = GetIndexCapacity(nodes.Length);
@@ -186,10 +188,19 @@ internal static class MavenDependencyTreeInputParser
                 occurrences = ArrayPool<DependencyOccurrence>.Shared.Rent(componentCapacity);
                 variants = ArrayPool<DependencyOccurrenceVariant>.Shared.Rent(componentCapacity);
                 edges = ArrayPool<DependencyEdge>.Shared.Rent(componentCapacity);
+                developmentOccurrences = ArrayPool<int>.Shared.Rent(componentCapacity);
                 for (var nodeIndex = 1; nodeIndex < nodes.Length; nodeIndex++)
                 {
                     var occurrenceIndex = nodeIndex - 1;
                     occurrences[occurrenceIndex] = new DependencyOccurrence(0, componentByNode[nodeIndex]);
+
+                    // Maven resolves one effective scope per tree position; `test` is the only scope that is never
+                    // part of a production build. `provided`/`system`/`optional` stay runtime (conservative).
+                    if (nodes[nodeIndex].Scope.Span.SequenceEqual("test"u8))
+                    {
+                        developmentOccurrences[developmentOccurrenceCount++] = occurrenceIndex;
+                    }
+
                     var variant = CreateVariant(nodes[nodeIndex].Scope, nodes[nodeIndex].Optional);
                     if (!variant.IsEmpty)
                     {
@@ -210,7 +221,9 @@ internal static class MavenDependencyTreeInputParser
                 components.AsSpan(0, componentCount).ToArray(),
                 retainGraph ? occurrences!.AsSpan(0, occurrenceCount).ToArray() : [],
                 retainGraph ? edges!.AsSpan(0, occurrenceCount).ToArray() : [],
-                retainGraph && variantCount != 0 ? variants!.AsSpan(0, variantCount).ToArray() : []);
+                retainGraph && variantCount != 0 ? variants!.AsSpan(0, variantCount).ToArray() : [],
+                retainGraph && occurrenceCount > 0 ? [new DependencyUsageRange(0, occurrenceCount)] : null,
+                retainGraph && developmentOccurrenceCount != 0 ? developmentOccurrences!.AsSpan(0, developmentOccurrenceCount).ToArray() : null);
         }
         finally
         {
@@ -218,6 +231,7 @@ internal static class MavenDependencyTreeInputParser
             if (occurrences is not null) ArrayPool<DependencyOccurrence>.Shared.Return(occurrences);
             if (variants is not null) ArrayPool<DependencyOccurrenceVariant>.Shared.Return(variants, clearArray: true);
             if (edges is not null) ArrayPool<DependencyEdge>.Shared.Return(edges);
+            if (developmentOccurrences is not null) ArrayPool<int>.Shared.Return(developmentOccurrences);
             ArrayPool<int>.Shared.Return(componentByNode);
             ArrayPool<int>.Shared.Return(componentIndexes);
         }

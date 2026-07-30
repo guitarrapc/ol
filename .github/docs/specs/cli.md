@@ -498,6 +498,8 @@ Each violation kind has a stable rule ID so annotations remain comparable across
 
 Ol reads resolved graphs rather than manifests, so a violation has no trustworthy file position and Ol does not invent one. Results carry a logical location plus the component's purl, ecosystem, status, license, and dependency classification. When the graph is available, a result also carries the deterministic shortest root-to-component dependency path, and the message names it. That path is the actionable part of a transitive violation: it identifies the direct dependency to upgrade or remove, which is the only thing the user can change. A canonical persisted report carries the complete inventory and graph, so evaluating it preserves the same dependency path without re-reading the original dependency input.
 
+A component admitted by `--allow-dev-licenses` is not a violation, so it is never a SARIF result. Instead the run records these under `runs[].properties.developmentPolicyAllowances` — a machine-readable array of `{ name, version, ecosystem, purl, sourceId, license, policySource: "allow-dev-licenses" }` — so a reviewer can audit which packages passed only under the development policy without treating them as findings. The property is written only when at least one component was admitted; a run with no development allowances writes no run-level `properties`.
+
 Policy files, deny-lists, per-package policy exceptions, license curation and concluded licenses, and dependency-scope policy remain outside the `check` scope.
 
 <a id="contract-diff"></a>

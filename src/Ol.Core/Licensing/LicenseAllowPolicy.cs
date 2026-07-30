@@ -187,15 +187,19 @@ public sealed class LicenseAllowPolicy
         LicenseBaseline? baseline,
         out int acknowledgedCount,
         out int evaluatedCount,
-        out int developmentAllowedCount)
+        out int[] developmentAllowedComponents)
     {
         acknowledgedCount = 0;
         evaluatedCount = 0;
-        developmentAllowedCount = 0;
+        developmentAllowedComponents = [];
         if (components.IsEmpty) return [];
 
         var violations = ArrayPool<LicensePolicyViolation>.Shared.Rent(components.Length);
         var violationCount = 0;
+        // Development allowances are collected only when a development allow-list exists, so a run without the option
+        // rents nothing extra. The indices identify components the caller reports separately from violations.
+        var developmentAllowed = developmentUnionLicenses is null ? null : ArrayPool<int>.Shared.Rent(components.Length);
+        var developmentAllowedCount = 0;
         try
         {
             for (var i = 0; i < components.Length; i++)
@@ -215,13 +219,13 @@ public sealed class LicenseAllowPolicy
                         continue;
                     }
 
-                    if (developmentUnionLicenses is not null
+                    if (developmentAllowed is not null
                         && (uint)i < (uint)componentUsages.Length
                         && componentUsages[i] == DependencyUsage.Development
-                        && SpdxExpression.TryEvaluatePolicy(component.License.Span, spdxLicenseIndex, developmentUnionLicenses, out var developmentAllowed)
-                        && developmentAllowed)
+                        && SpdxExpression.TryEvaluatePolicy(component.License.Span, spdxLicenseIndex, developmentUnionLicenses!, out var developmentSatisfied)
+                        && developmentSatisfied)
                     {
-                        developmentAllowedCount++;
+                        developmentAllowed[developmentAllowedCount++] = i;
                         continue;
                     }
 
@@ -249,11 +253,17 @@ public sealed class LicenseAllowPolicy
                 violations[violationCount++] = new LicensePolicyViolation(i, kind);
             }
 
+            if (developmentAllowedCount != 0)
+            {
+                developmentAllowedComponents = developmentAllowed!.AsSpan(0, developmentAllowedCount).ToArray();
+            }
+
             return violationCount == 0 ? [] : violations.AsSpan(0, violationCount).ToArray();
         }
         finally
         {
             ArrayPool<LicensePolicyViolation>.Shared.Return(violations);
+            if (developmentAllowed is not null) ArrayPool<int>.Shared.Return(developmentAllowed);
         }
     }
 

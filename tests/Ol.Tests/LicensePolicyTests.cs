@@ -138,11 +138,11 @@ public sealed class LicensePolicyTests
             null,
             out _,
             out var evaluatedCount,
-            out var developmentAllowedCount);
+            out var developmentAllowedComponents);
 
         await Assert.That(violations).IsEmpty();
         await Assert.That(evaluatedCount).IsEqualTo(1);
-        await Assert.That(developmentAllowedCount).IsEqualTo(1);
+        await Assert.That(developmentAllowedComponents.Length).IsEqualTo(1);
     }
 
     [Test]
@@ -158,11 +158,11 @@ public sealed class LicensePolicyTests
             null,
             out _,
             out _,
-            out var developmentAllowedCount);
+            out var developmentAllowedComponents);
 
         await Assert.That(violations).Count().IsEqualTo(1);
         await Assert.That(violations[0].Kind).IsEqualTo(LicensePolicyViolationKind.NotAllowed);
-        await Assert.That(developmentAllowedCount).IsEqualTo(0);
+        await Assert.That(developmentAllowedComponents.Length).IsEqualTo(0);
     }
 
     [Test]
@@ -176,10 +176,10 @@ public sealed class LicensePolicyTests
             null,
             out _,
             out _,
-            out var developmentAllowedCount);
+            out var developmentAllowedComponents);
 
         await Assert.That(violations).Count().IsEqualTo(1);
-        await Assert.That(developmentAllowedCount).IsEqualTo(0);
+        await Assert.That(developmentAllowedComponents.Length).IsEqualTo(0);
     }
 
     [Test]
@@ -213,10 +213,10 @@ public sealed class LicensePolicyTests
             null,
             out _,
             out _,
-            out var developmentAllowedCount);
+            out var developmentAllowedComponents);
 
         await Assert.That(violations).Count().IsEqualTo(1);
-        await Assert.That(developmentAllowedCount).IsEqualTo(0);
+        await Assert.That(developmentAllowedComponents.Length).IsEqualTo(0);
     }
 
     [Test]
@@ -230,11 +230,11 @@ public sealed class LicensePolicyTests
             null,
             out _,
             out _,
-            out var developmentAllowedCount);
+            out var developmentAllowedComponents);
 
         await Assert.That(violations).Count().IsEqualTo(1);
         await Assert.That(violations[0].Kind).IsEqualTo(LicensePolicyViolationKind.Unknown);
-        await Assert.That(developmentAllowedCount).IsEqualTo(0);
+        await Assert.That(developmentAllowedComponents.Length).IsEqualTo(0);
     }
 
     [Test]

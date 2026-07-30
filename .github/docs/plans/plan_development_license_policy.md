@@ -225,7 +225,9 @@ root の `require` と `require-dev` を別 owner（`-1`/`-2`）として読み�
 
 ### Slice 4: persisted report と parity（実装済み）
 
-report へ per-component usage を保存し、`check --report --allow-dev-licenses` を `--input` と一致させた（上記「live 評価と persisted report」参照）。`inventoryComponentIndex` は不要と判明したため採用せず、per-component 保存で最小化した。SARIF policy allowance は usage parity と独立の追加項目なので本スコープ外（backlog）。
+report へ per-component usage を保存し、`check --report --allow-dev-licenses` を `--input` と一致させた（上記「live 評価と persisted report」参照）。`inventoryComponentIndex` は不要と判明したため採用せず、per-component 保存で最小化した。
+
+SARIF policy allowance も実装した。`--allow-dev-licenses` で許可された component は違反ではないので SARIF `results` にせず、`runs[].properties.developmentPolicyAllowances`（identity・license・`policySource`）へ機械可読に記録する。policy の `Evaluate` は件数ではなく許可 component の index 配列を返すよう変更し（dev allow-list が無ければ pooled rent もしない＝option 省略時 0B 不変）、renderer は許可が 1 件以上のときだけ run-level `properties` を書く。
 
 仕様文書には確定した WHAT/WHY と実装で判明した lessons learned を残し、配列構築や lookup の詳細 HOW は移さない。cli.md / README を更新済み。
 

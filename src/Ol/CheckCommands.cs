@@ -163,6 +163,7 @@ internal sealed class CheckCommands
         int acknowledgedCount;
         int policyComponentCount;
         int developmentAllowedCount;
+        var developmentAllowedComponents = Array.Empty<int>();
         LicensePolicyViolation[] violations;
         if (developmentLicenseIds.Length == 0)
         {
@@ -172,7 +173,8 @@ internal sealed class CheckCommands
         else if (reportComponentUsages is not null)
         {
             // A persisted report already carries per-component usage aligned with its components.
-            violations = policy.Evaluate(components, reportComponentUsages, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedCount);
+            violations = policy.Evaluate(components, reportComponentUsages, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents);
+            developmentAllowedCount = developmentAllowedComponents.Length;
         }
         else
         {
@@ -182,7 +184,8 @@ internal sealed class CheckCommands
             try
             {
                 DependencyUsageResolver.Resolve(inventory, usages.AsSpan(0, usageLength));
-                violations = policy.Evaluate(components, usages.AsSpan(0, usageLength), acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedCount);
+                violations = policy.Evaluate(components, usages.AsSpan(0, usageLength), acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents);
+                developmentAllowedCount = developmentAllowedComponents.Length;
             }
             finally
             {
@@ -195,7 +198,7 @@ internal sealed class CheckCommands
         {
             try
             {
-                File.WriteAllBytes(sarif, SarifRenderer.Render(inventory, components, violations, ToolVersion));
+                File.WriteAllBytes(sarif, SarifRenderer.Render(inventory, components, violations, developmentAllowedComponents, ToolVersion));
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
             {

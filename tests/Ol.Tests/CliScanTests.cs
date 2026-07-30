@@ -24,34 +24,6 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_YarnLockDirectoryWithManifest_ReadsSiblingPackageJsonWithoutError()
-    {
-        var root = FindRepositoryRoot();
-        var directory = Path.Combine(Path.GetTempPath(), $"ol-yarn-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
-        await File.WriteAllTextAsync(
-            Path.Combine(directory, "yarn.lock"),
-            "# yarn lockfile v1\n\nprod-pkg@^1.0.0:\n  version \"1.0.0\"\n  dependencies:\n    shared \"^2.0.0\"\n\ndev-pkg@^1.0.0:\n  version \"1.0.0\"\n\nshared@^2.0.0:\n  version \"2.0.0\"\n",
-            Encoding.UTF8);
-        await File.WriteAllTextAsync(
-            Path.Combine(directory, "package.json"),
-            """{ "name": "app", "dependencies": { "prod-pkg": "^1.0.0" }, "devDependencies": { "dev-pkg": "^1.0.0" } }""",
-            Encoding.UTF8);
-        try
-        {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", directory, "--format", "json", "--skip-enrichment");
-
-            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stdout).Contains("prod-pkg");
-            await Assert.That(stdout).Contains("dev-pkg");
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [Test]
     public async Task Scan_WithRemovedSbomOption_ReturnsUnknownOptionError()
     {
         var root = FindRepositoryRoot();

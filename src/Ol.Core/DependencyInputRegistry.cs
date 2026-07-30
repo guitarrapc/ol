@@ -20,15 +20,6 @@ public delegate DependencyInventory DependencyInputParser(byte[] source, int off
 /// <param name="retainGraph">Whether occurrence and edge arrays are required by the caller.</param>
 public delegate DependencyInventory DependencyInputBundleParser(byte[][] sources, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph);
 
-/// <summary>Parses a detected single-file input enriched by an optional sibling companion manifest.</summary>
-/// <param name="source">The owned primary input buffer.</param>
-/// <param name="offset">The UTF-8 offset after an optional BOM in the primary input.</param>
-/// <param name="companion">The owned companion manifest buffer.</param>
-/// <param name="companionOffset">The UTF-8 offset after an optional BOM in the companion.</param>
-/// <param name="spdxLicenseIndex">The SPDX lookup index.</param>
-/// <param name="retainGraph">Whether occurrence and edge arrays are required by the caller.</param>
-public delegate DependencyInventory DependencyInputCompanionParser(byte[] source, int offset, byte[] companion, int companionOffset, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph);
-
 /// <summary>Detects one non-JSON dependency input format without materializing source text.</summary>
 /// <param name="inputUtf8">The dependency input after an optional UTF-8 BOM.</param>
 public delegate bool DependencyInputDetector(ReadOnlySpan<byte> inputUtf8);
@@ -90,8 +81,6 @@ public enum DependencyComponentIdentityComparison : byte
 /// <param name="ComponentIdentityComparison">The package identity comparison used when combining repeated inputs of this format.</param>
 /// <param name="Detector">The format-owned detector for non-JSON input, or null for a JSON signature.</param>
 /// <param name="BundleParser">The format-owned parser for an ordered set of registered file names.</param>
-/// <param name="OptionalCompanionFileName">A sibling manifest file name that enriches a detected single-file input when present, or null.</param>
-/// <param name="CompanionParser">The parser used in place of <paramref name="Parser"/> when the optional companion is available.</param>
 public readonly record struct DependencyInputHandler(
     ScanInputKind Kind,
     ScanInputFormat Format,
@@ -100,9 +89,7 @@ public readonly record struct DependencyInputHandler(
     ReadOnlyMemory<string> DirectoryFileNames = default,
     DependencyComponentIdentityComparison ComponentIdentityComparison = DependencyComponentIdentityComparison.Ordinal,
     DependencyInputDetector? Detector = null,
-    DependencyInputBundleParser? BundleParser = null,
-    string? OptionalCompanionFileName = null,
-    DependencyInputCompanionParser? CompanionParser = null);
+    DependencyInputBundleParser? BundleParser = null);
 
 /// <summary>
 /// Immutable registry of resolved dependency input handlers.
@@ -134,9 +121,9 @@ public sealed class DependencyInputRegistry
         // PNPM - Package Manager
         new(ScanInputKind.PackageManager, ScanInputFormat.PnpmLock, default, PnpmLockInputParser.Parse, new[] { "pnpm-lock.yaml" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, PnpmLockInputParser.Detect),
         // Yarn - Package Manager
-        new(ScanInputKind.PackageManager, ScanInputFormat.YarnClassicLock, default, YarnClassicLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnClassicLockInputParser.Detect, OptionalCompanionFileName: "package.json", CompanionParser: YarnClassicLockInputParser.ParseWithManifest),
+        new(ScanInputKind.PackageManager, ScanInputFormat.YarnClassicLock, default, YarnClassicLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnClassicLockInputParser.Detect),
         // Yarn - Package Manager
-        new(ScanInputKind.PackageManager, ScanInputFormat.YarnBerryLock, default, YarnBerryLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnBerryLockInputParser.Detect, OptionalCompanionFileName: "package.json", CompanionParser: YarnBerryLockInputParser.ParseWithManifest),
+        new(ScanInputKind.PackageManager, ScanInputFormat.YarnBerryLock, default, YarnBerryLockInputParser.Parse, new[] { "yarn.lock" }, DependencyComponentIdentityComparison.OrdinalWithSourceId, YarnBerryLockInputParser.Detect),
         // Cargo - Package Manager
         new(ScanInputKind.PackageManager, ScanInputFormat.CargoMetadata, new(new DependencyInputMarker[] {
             new("packages"u8.ToArray(), DependencyInputMarkerValueKind.Array),
@@ -208,11 +195,7 @@ public sealed class DependencyInputRegistry
                 || isBundle == (handler.Parser is not null)
                 || (!isBundle && handler.Signature.RequiredMarkers.Length == 0 && handler.Detector is null)
                 || (!isBundle && handler.Signature.RequiredMarkers.Length != 0 && handler.Detector is not null)
-                || (isBundle && (handler.Signature.RequiredMarkers.Length != 0 || handler.Detector is not null || handler.DirectoryFileNames.Length < 2))
-                || (handler.CompanionParser is not null) != (handler.OptionalCompanionFileName is not null)
-                || (handler.CompanionParser is not null && (isBundle || string.IsNullOrWhiteSpace(handler.OptionalCompanionFileName)
-                    || handler.OptionalCompanionFileName.Contains(Path.DirectorySeparatorChar)
-                    || handler.OptionalCompanionFileName.Contains(Path.AltDirectorySeparatorChar))))
+                || (isBundle && (handler.Signature.RequiredMarkers.Length != 0 || handler.Detector is not null || handler.DirectoryFileNames.Length < 2)))
             {
                 throw new ArgumentException("Dependency input handlers require a kind, format, and either one detected parser or one multi-file bundle parser.", nameof(handlers));
             }
@@ -311,13 +294,9 @@ public static class DependencyInputScanner
 
     /// <summary>Scans an owned UTF-8 dependency input buffer without copying source text.</summary>
     public static DependencyInventory Scan(byte[] inputUtf8, SpdxLicenseIndex spdxLicenseIndex, DependencyInputRegistry? inputs = null, ScanInputFormat expectedFormat = default)
-        => ScanCore(inputUtf8, null, spdxLicenseIndex, inputs ?? DependencyInputRegistry.Default, expectedFormat, retainGraph: true, out _);
+        => ScanCore(inputUtf8, spdxLicenseIndex, inputs ?? DependencyInputRegistry.Default, expectedFormat, retainGraph: true, out _);
 
-    /// <summary>Scans a detected single-file input enriched by an optional sibling companion manifest.</summary>
-    public static DependencyInventory Scan(byte[] inputUtf8, byte[]? companion, SpdxLicenseIndex spdxLicenseIndex, DependencyInputRegistry? inputs = null, ScanInputFormat expectedFormat = default)
-        => ScanCore(inputUtf8, companion, spdxLicenseIndex, inputs ?? DependencyInputRegistry.Default, expectedFormat, retainGraph: true, out _);
-
-    internal static DependencyInventory ScanCore(byte[] inputUtf8, byte[]? companion, SpdxLicenseIndex spdxLicenseIndex, DependencyInputRegistry inputs, ScanInputFormat expectedFormat, bool retainGraph, out DependencyInputHandler handler)
+    internal static DependencyInventory ScanCore(byte[] inputUtf8, SpdxLicenseIndex spdxLicenseIndex, DependencyInputRegistry inputs, ScanInputFormat expectedFormat, bool retainGraph, out DependencyInputHandler handler)
     {
         ArgumentNullException.ThrowIfNull(inputUtf8);
         var offset = HasUtf8Bom(inputUtf8) ? 3 : 0;
@@ -327,20 +306,12 @@ public static class DependencyInputScanner
             throw new InvalidOperationException($"Input format {expectedFormat.Name} does not match the detected {handler.Format.Name} format.");
         }
 
-        return ScanDetected(inputUtf8, offset, companion, handler, spdxLicenseIndex, retainGraph);
-    }
-
-    /// <summary>Parses an already-detected single-file input, using the companion parser when a companion is present.</summary>
-    internal static DependencyInventory ScanDetected(byte[] inputUtf8, int offset, byte[]? companion, DependencyInputHandler handler, SpdxLicenseIndex spdxLicenseIndex, bool retainGraph)
-    {
         if (handler.Parser is null)
         {
             throw new InvalidOperationException($"Input format {handler.Format.Name} requires its registered companion files.");
         }
 
-        var inventory = companion is not null && handler.CompanionParser is not null
-            ? handler.CompanionParser(inputUtf8, offset, companion, HasUtf8Bom(companion) ? 3 : 0, spdxLicenseIndex, retainGraph)
-            : handler.Parser(inputUtf8, offset, spdxLicenseIndex, retainGraph);
+        var inventory = handler.Parser(inputUtf8, offset, spdxLicenseIndex, retainGraph);
         var descriptor = inventory.Input with { Kind = handler.Kind, Format = handler.Format };
         return inventory with { Input = descriptor };
     }

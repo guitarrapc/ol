@@ -244,6 +244,43 @@ public sealed class YarnInputTests
     }
 
     [Test]
+    public async Task Scan_YarnLockWithSeveralVersionsOfADeclaredName_DoesNotClassifyEitherAsDevelopment()
+    {
+        // The manifest declares foo@^1.0.0 only. The lock also carries an unrelated foo@^9.0.0 entry, so matching the
+        // declaration by package name alone would seed both and grant the development allowance to an entry the
+        // manifest never declared. An ambiguous name must not be attributed to the declaration.
+        const string lockContent = """
+            # yarn lockfile v1
+
+            prod-pkg@^1.0.0:
+              version "1.0.0"
+
+            foo@^1.0.0:
+              version "1.0.0"
+
+            foo@^9.0.0:
+              version "9.0.0"
+            """;
+        const string manifest = """{ "name": "app", "dependencies": { "prod-pkg": "^1.0.0" }, "devDependencies": { "foo": "^1.0.0" } }""";
+
+        var inventory = DependencyInputScanner.Scan(
+            Encoding.UTF8.GetBytes(lockContent),
+            Encoding.UTF8.GetBytes(manifest),
+            Spdx,
+            expectedFormat: ScanInputFormat.YarnClassicLock);
+
+        var usages = new DependencyUsage[inventory.Components.Length];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[FindComponentIndexBySourceId(inventory, "foo@^9.0.0")]).IsNotEqualTo(DependencyUsage.Development);
+        await Assert.That(usages[FindComponentIndexBySourceId(inventory, "foo@^1.0.0")]).IsNotEqualTo(DependencyUsage.Development);
+        await Assert.That(usages[FindComponentIndexBySourceId(inventory, "prod-pkg@^1.0.0")]).IsEqualTo(DependencyUsage.Runtime);
+    }
+
+    private static int FindComponentIndexBySourceId(DependencyInventory inventory, string sourceId)
+        => Array.FindIndex(inventory.Components, component => component.SourceId.ToString() == sourceId);
+
+    [Test]
     public async Task Scan_YarnWorkspaceManifest_DoesNotClassifyUsage()
     {
         const string workspaceManifest = """{ "name": "root", "workspaces": ["packages/*"], "devDependencies": { "dev-pkg": "^1.0.0" } }""";

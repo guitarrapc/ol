@@ -510,11 +510,31 @@ internal static class YarnLockGraphParser
     {
         var head = 0;
         var tail = 0;
-        for (var occurrenceIndex = 0; occurrenceIndex < occurrences.Length; occurrenceIndex++)
+
+        // A manifest declaration names a package but Ol does not resolve semver ranges, so it can only be attributed
+        // to a lock entry when that name is unambiguous. When the lock carries several versions of the name — a second
+        // resolution, or a stale entry the manifest never declared — attributing the declaration to all of them would
+        // grant the development allowance to entries the manifest does not reach, so the declaration seeds nothing.
+        for (var rootIndex = 0; rootIndex < rootNames.Length; rootIndex++)
         {
-            if (reachable[occurrenceIndex] || !NameListContains(rootNames, components[occurrences[occurrenceIndex].ComponentIndex].Name.Span)) continue;
-            reachable[occurrenceIndex] = true;
-            queue[tail++] = occurrenceIndex;
+            var rootName = rootNames[rootIndex].Span;
+            var match = -1;
+            var ambiguous = false;
+            for (var occurrenceIndex = 0; occurrenceIndex < occurrences.Length; occurrenceIndex++)
+            {
+                if (!components[occurrences[occurrenceIndex].ComponentIndex].Name.Span.SequenceEqual(rootName)) continue;
+                if (match >= 0)
+                {
+                    ambiguous = true;
+                    break;
+                }
+
+                match = occurrenceIndex;
+            }
+
+            if (ambiguous || match < 0 || reachable[match]) continue;
+            reachable[match] = true;
+            queue[tail++] = match;
         }
 
         while (head < tail)
@@ -530,12 +550,6 @@ internal static class YarnLockGraphParser
         }
 
         return tail;
-    }
-
-    private static bool NameListContains(ReadOnlySpan<Utf8Slice> names, ReadOnlySpan<byte> value)
-    {
-        for (var i = 0; i < names.Length; i++) if (names[i].Span.SequenceEqual(value)) return true;
-        return false;
     }
 
     private static int FindWorkspaceByOrigin(ReadOnlySpan<YarnNode> nodes, Utf8Slice origin)

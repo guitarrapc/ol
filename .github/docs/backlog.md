@@ -64,6 +64,7 @@ Remaining:
 ## Dependency Scope Policy (`--allow-dev-licenses`)
 
 - Development usage is classified for npm, pnpm, Composer, Yarn single-package (optional `package.json`), Maven (`test` scope), and Cargo (dev-only reachability). Yarn workspaces are intentionally not supported: classifying per-workspace scope requires reading each workspace's `package.json`, discovered from untrusted `workspaces` globs or lockfile paths — an untrusted-input-driven filesystem-enumeration surface (path traversal, DoS) not justified by the narrow benefit while fail-closed is already safe.
+- Yarn descriptor-precise seeding: a manifest declaration is currently attributed to a lock entry by package name, so a name resolved to several versions is treated as ambiguous and left on the primary allow-list (fail-closed). Matching the declared `name@range` against the lock entry's descriptor list (Classic) and the workspace entry's dependency list (Berry) would classify those cases precisely, but the descriptors are only available during parsing and are not carried into the inventory.
 - Ecosystems that leave usage unknown (fail-closed) because their standard input records no development scope: CycloneDX/SPDX, NuGet `project.assets.json`, Go module graph, pip inspect, and Bundler `Gemfile.lock` (its groups are not in the lock).
 
 ## Review Notes

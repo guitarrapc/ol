@@ -640,6 +640,58 @@ public sealed class CliCheckTests
         }
     }
 
+    [Test]
+    public async Task Check_ReportWithAllowDevLicenses_MatchesScanningTheInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteNpmLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
+
+            var fromInput = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment");
+            var fromReport = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0");
+
+            await Assert.That(fromInput.ExitCode).IsEqualTo(0).Because(fromInput.Stderr);
+            await Assert.That(fromReport.ExitCode).IsEqualTo(fromInput.ExitCode).Because(fromReport.Stderr);
+            await Assert.That(fromReport.Stdout).IsEqualTo(fromInput.Stdout);
+            await Assert.That(fromReport.Stdout).Contains("Allowed by development policy: 1 component.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_ReportWithoutPersistedUsage_FailsClosedUnderAllowDevLicenses()
+    {
+        var root = FindRepositoryRoot();
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        // A report whose components carry no usage field must not be relaxed by --allow-dev-licenses.
+        var report = """
+            { "schemaVersion": 1, "metadata": { "input": { "kind": "package-manager", "format": "npm-package-lock" }, "spdx": { "licenseListVersion": "3.0" } },
+              "components": [ { "name": "dev-pkg", "version": "1.0.0", "ecosystem": "npm", "purl": "pkg:npm/dev-pkg@1.0.0", "sourceId": "node_modules/dev-pkg", "dependency": "direct", "status": "matched", "license": "CC-BY-4.0" } ] }
+            """;
+        await File.WriteAllTextAsync(reportPath, report);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0");
+
+            await Assert.That(result.ExitCode).IsEqualTo(1).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("License check failed: 1 violation.");
+            await Assert.That(result.Stdout).Contains("Allowed by development policy: 0 components.");
+        }
+        finally
+        {
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
     private static async Task<string> WriteNpmLockAsync(string devLicense, string runtimeLicense)
     {
         var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}", "package-lock.json");

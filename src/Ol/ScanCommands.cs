@@ -97,15 +97,31 @@ internal sealed class ScanCommands
 
         var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(scanResult.Inventory.Components, dependency);
         var viewComponents = scanResult.Components.Length == 0 ? [] : (ScanComponent[])scanResult.Components.Clone();
-        var componentCount = ScanView.Apply(viewComponents, dependency, sort, sortOrder);
+
+        // Development usage is persisted only when the input determined it, and only for the JSON report that policy
+        // re-evaluation consumes. Resolving before the view sort keeps each usage positionally tied to its component.
+        DependencyUsage[]? viewUsages = null;
+        int componentCount;
+        if (format == ReportFormat.Json && scanResult.Inventory.UsageDeterminedRanges is not null && viewComponents.Length > 0)
+        {
+            viewUsages = new DependencyUsage[viewComponents.Length];
+            DependencyUsageResolver.Resolve(scanResult.Inventory, viewUsages);
+            componentCount = ScanView.Apply(viewComponents, viewUsages, dependency, sort, sortOrder);
+        }
+        else
+        {
+            componentCount = ScanView.Apply(viewComponents, dependency, sort, sortOrder);
+        }
+
         var components = viewComponents.AsSpan(0, componentCount);
+        var componentUsages = viewUsages is null ? default : viewUsages.AsSpan(0, componentCount);
         var dependencyFilteredCount = dependency is null or "" ? 0 : scanResult.Inventory.Components.Length - components.Length;
         var groups = groupBy is null or "" ? null : ScanView.Group(components, groupBy);
         if (format == ReportFormat.Json)
         {
             try
             {
-                WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, groups, groupBy, spdx, packageMetadataSummary, sourceRepositorySummary);
+                WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, componentUsages, groups, groupBy, spdx, packageMetadataSummary, sourceRepositorySummary);
             }
             catch (IOException exception)
             {
@@ -195,6 +211,7 @@ internal sealed class ScanCommands
         Stream output,
         DependencyInventory inventory,
         ReadOnlySpan<ScanComponent> components,
+        ReadOnlySpan<DependencyUsage> componentUsages,
         GroupRow[]? groups,
         string? groupBy,
         SpdxData spdx,
@@ -206,7 +223,7 @@ internal sealed class ScanCommands
         {
             if (groups is null)
             {
-                ReportRenderer.WriteJson(writer, inventory, components, spdx, metadataSummary, sourceSummary);
+                ReportRenderer.WriteJson(writer, inventory, components, componentUsages, spdx, metadataSummary, sourceSummary);
             }
             else
             {
@@ -738,6 +755,14 @@ internal static class ScanView
         return count;
     }
 
+    /// <summary>Filters and sorts <paramref name="components"/> while keeping <paramref name="usages"/> positionally aligned.</summary>
+    public static int Apply(ScanComponent[] components, DependencyUsage[] usages, string? dependency, string sort, SortOrder sortOrder)
+    {
+        var count = FilterByDependency(components, usages, dependency);
+        Array.Sort(components, usages, 0, count, Comparer<ScanComponent>.Create(CreateComparison(sort, sortOrder)));
+        return count;
+    }
+
     public static GroupRow[] Group(ReadOnlySpan<ScanComponent> components, string groupBy)
     {
         var fields = ParseGroupFields(groupBy);
@@ -815,6 +840,33 @@ internal static class ScanView
             if (allowed[(int)components[i].DependencyType])
             {
                 components[count] = components[i];
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int FilterByDependency(Span<ScanComponent> components, Span<DependencyUsage> usages, string? dependency)
+    {
+        if (dependency is null or "")
+        {
+            return components.Length;
+        }
+
+        Span<bool> allowed = stackalloc bool[4];
+        foreach (var token in dependency.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            allowed[(int)ParseDependency(token)] = true;
+        }
+
+        var count = 0;
+        for (var i = 0; i < components.Length; i++)
+        {
+            if (allowed[(int)components[i].DependencyType])
+            {
+                components[count] = components[i];
+                usages[count] = usages[i];
                 count++;
             }
         }
@@ -1172,6 +1224,9 @@ internal static class ReportRenderer
     }
 
     public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+        => WriteJson(writer, inventory, components, default, spdx, metadataSummary, sourceSummary);
+
+    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, ReadOnlySpan<DependencyUsage> componentUsages, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
     {
         writer.WriteStartObject();
         writer.WriteNumber("schemaVersion", JsonSchemaVersion);
@@ -1198,6 +1253,11 @@ internal static class ReportRenderer
             writer.WriteString("status"u8, component.Status.ToUtf8());
             writer.WriteString("purl"u8, component.Purl.Span);
             writer.WriteString("sourceId"u8, component.SourceId.Span);
+            if (i < componentUsages.Length && componentUsages[i] != DependencyUsage.Unknown)
+            {
+                writer.WriteString("usage"u8, componentUsages[i] == DependencyUsage.Development ? "development"u8 : "runtime"u8);
+            }
+
             WriteLicenseCandidates(writer, component);
             WriteWarnings(writer, component.Warnings);
             writer.WriteEndObject();

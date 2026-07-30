@@ -12,12 +12,14 @@ namespace Ol.Core.Reporting;
 /// <param name="LicenseListVersion">The SPDX License List version recorded by the producing scan.</param>
 /// <param name="Inventory">The complete dependency inventory restored from the report.</param>
 /// <param name="Components">The restored components in report order.</param>
+/// <param name="ComponentUsages">The restored development usage per component, aligned with <paramref name="Components"/>.</param>
 public readonly record struct ScanReport(
     int SchemaVersion,
     string SourceReference,
     string LicenseListVersion,
     DependencyInventory Inventory,
-    ScanComponent[] Components);
+    ScanComponent[] Components,
+    DependencyUsage[] ComponentUsages);
 
 /// <summary>
 /// Restores a persisted scan report so a policy can be re-evaluated without re-reading inputs or
@@ -52,6 +54,7 @@ public static class ScanReportReader
             var input = default(ScanInputDescriptor);
             DependencyInventory? inventory = null;
             ScanComponent[]? components = null;
+            DependencyUsage[] componentUsages = [];
 
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
@@ -74,7 +77,7 @@ public static class ScanReportReader
                 }
                 else if (reader.ValueTextEquals("components"u8))
                 {
-                    if (!TryReadComponents(ref reader, out components, out error)) return false;
+                    if (!TryReadComponents(ref reader, out components, out componentUsages, out error)) return false;
                 }
                 else
                 {
@@ -104,7 +107,7 @@ public static class ScanReportReader
             var restored = inventory is { } value
                 ? new DependencyInventory(input, value.Contexts, value.Components, value.Occurrences, value.Edges, value.OccurrenceVariants)
                 : new DependencyInventory(input, [], [], [], [], []);
-            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components);
+            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages);
             error = string.Empty;
             return true;
         }
@@ -496,9 +499,10 @@ public static class ScanReportReader
         ArrayPool<T>.Shared.Return(buffer);
     }
 
-    private static bool TryReadComponents(ref Utf8JsonReader reader, out ScanComponent[] components, out string error)
+    private static bool TryReadComponents(ref Utf8JsonReader reader, out ScanComponent[] components, out DependencyUsage[] usages, out string error)
     {
         components = [];
+        usages = [];
         if (!reader.Read() || reader.TokenType != JsonTokenType.StartArray)
         {
             error = "The report components value must be an array.";
@@ -506,20 +510,24 @@ public static class ScanReportReader
         }
 
         var result = new List<ScanComponent>();
+        var usageResult = new List<DependencyUsage>();
         while (reader.Read() && reader.TokenType == JsonTokenType.StartObject)
         {
-            if (!TryReadComponent(ref reader, out var component, out error)) return false;
+            if (!TryReadComponent(ref reader, out var component, out var usage, out error)) return false;
             result.Add(component);
+            usageResult.Add(usage);
         }
 
         components = result.ToArray();
+        usages = usageResult.ToArray();
         error = string.Empty;
         return true;
     }
 
-    private static bool TryReadComponent(ref Utf8JsonReader reader, out ScanComponent component, out string error)
+    private static bool TryReadComponent(ref Utf8JsonReader reader, out ScanComponent component, out DependencyUsage usage, out string error)
     {
         component = default;
+        usage = DependencyUsage.Unknown;
         string name = string.Empty, version = string.Empty, license = string.Empty, ecosystem = string.Empty, purl = string.Empty, sourceId = string.Empty;
         var status = LicenseStatus.Unknown;
         var statusSeen = false;
@@ -536,6 +544,7 @@ public static class ScanReportReader
             else if (reader.ValueTextEquals("purl"u8)) purl = ReadString(ref reader);
             else if (reader.ValueTextEquals("sourceId"u8)) sourceId = ReadString(ref reader);
             else if (reader.ValueTextEquals("dependency"u8)) dependency = ParseDependencyType(ReadString(ref reader));
+            else if (reader.ValueTextEquals("usage"u8)) usage = ParseUsage(ReadString(ref reader));
             else if (reader.ValueTextEquals("status"u8))
             {
                 var raw = ReadString(ref reader);
@@ -644,5 +653,12 @@ public static class ScanReportReader
         "direct" => DependencyType.Direct,
         "transitive" => DependencyType.Transitive,
         _ => DependencyType.Unknown,
+    };
+
+    private static DependencyUsage ParseUsage(string value) => value switch
+    {
+        "development" => DependencyUsage.Development,
+        "runtime" => DependencyUsage.Runtime,
+        _ => DependencyUsage.Unknown,
     };
 }

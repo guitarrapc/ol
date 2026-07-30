@@ -79,6 +79,7 @@ internal sealed class CheckCommands
         string licenseListVersion;
         LicenseAllowPolicy policy;
         var inventory = default(DependencyInventory);
+        DependencyUsage[]? reportComponentUsages = null;
         if (reportPath is not null)
         {
             if (!ScanExecution.TryResolveSpdx(spdxData, out var reportSpdx, out var spdxError))
@@ -101,6 +102,7 @@ internal sealed class CheckCommands
 
             components = persisted.Components;
             inventory = persisted.Inventory;
+            reportComponentUsages = persisted.ComponentUsages;
             licenseListVersion = reportSpdx.LicenseListVersion;
             if (verbose)
             {
@@ -167,9 +169,14 @@ internal sealed class CheckCommands
             violations = policy.Evaluate(components, default, acknowledgements, out acknowledgedCount, out policyComponentCount, out _);
             developmentAllowedCount = -1;
         }
+        else if (reportComponentUsages is not null)
+        {
+            // A persisted report already carries per-component usage aligned with its components.
+            violations = policy.Evaluate(components, reportComponentUsages, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedCount);
+        }
         else
         {
-            // Aggregate occurrence usage into a per-component verdict once, using pooled scratch that never escapes.
+            // Live input: aggregate occurrence usage into a per-component verdict once, using pooled scratch that never escapes.
             var usageLength = inventory.Components.Length;
             var usages = ArrayPool<DependencyUsage>.Shared.Rent(Math.Max(usageLength, 1));
             try

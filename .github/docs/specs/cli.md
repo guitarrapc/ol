@@ -429,6 +429,8 @@ A `matched` component that the primary allow-list rejects is re-evaluated agains
 
 Inputs without development reachability leave every component usage-unknown, so `--allow-dev-licenses` never relaxes them.
 
+The resolved development usage is persisted per component in the canonical JSON report (a `usage` value of `development` or `runtime`; absent means unknown), so `check --report --allow-dev-licenses` reaches the same verdict as `check --input --allow-dev-licenses`. A report whose components carry no `usage` field is treated as usage-unknown and fails closed under `--allow-dev-licenses`, exactly as an input that cannot express development scope.
+
 This option is an organization policy statement, not a claim about artifact inclusion: a resolver's development scope does not prove a bundler, code generator, or plugin excludes the package from a production build. Release gates should still check the production artifact or a production SBOM with the primary allow-list alone. When supplied, `check` prints `Allowed by development policy: N components.` — including `0` — so a lost or newly inapplicable exception is visible in CI logs. Omitting the option leaves the verdict, output, and SARIF violation set byte-for-byte unchanged.
 
 Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain, unless an unresolved component is acknowledged by a baseline as defined below. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.

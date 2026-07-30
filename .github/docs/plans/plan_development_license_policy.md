@@ -92,7 +92,7 @@ Composer の `packages-dev` は監査情報と整合性検証に使用するが�
 - production reachability と `packages-dev` の所属が矛盾する bundle は、development policy を適用せず入力不整合の command error にする。
 - `composer.lock` の bucket だけを変更した stale/manual-merge input が runtime package を `Development` にしないことを negative fixture で固定する。
 
-Yarn は当初 `Unknown` としていたが、`yarn.lock` の隣にある `package.json` を optional companion として読めば非 workspace は対応できる（Slice 5a で実装）。`yarn.lock` 単体では dev scope を持たないため、companion が無ければ従来どおり `Unknown`（非破壊）。workspace（複数 package.json）は root manifest 一つでは各 workspace の scope を判定できず、untrusted glob 駆動の filesystem 列挙リスクもあるため対象外。
+Yarn は `Unknown`（fail-closed）とする。`yarn.lock` 単体は dev scope を持たず、隣の `package.json` と結合する案は一度実装したが撤回した（理由は後述の Slice 5a を参照）。
 
 次は初期対応に含めない。
 
@@ -233,13 +233,19 @@ SARIF policy allowance も実装した。`--allow-dev-licenses` で許可され�
 
 - **lessons learned**: top-level `components` は既定 sort（`ecosystem,name,version`）で並ぶため inventory 順と一致しない。usage を「表示 component と同じ配列」に載せて sort を通すことで、display↔inventory の index mapping を一切持たずに parity を得られた。usage capability の無い入力・非 JSON 形式では usage 配列を確保せず 0B を維持する。multi-component report の violation **順序** parity（live=inventory 順 vs report=表示順）は本 slice の usage とは別の既存事項。
 
-### Slice 5a: 非 workspace Yarn（実装済み）
+### Slice 5a: Yarn（実装したが撤回）
 
-入力契約に汎用の optional companion 概念を追加した。`DependencyInputHandler` に `OptionalCompanionFileName` と `CompanionParser` を持たせ、検出済み single-file input の隣に companion があれば `CompanionParser` を使う。ScanCommands は primary を parse 後、handler が companion を宣言していれば同ディレクトリの sibling を直接読み（discovery の収集集合は汚さない）、companion 付きで再 scan し、source-hash にも畳み込む。companion が無ければ従来の single-file parse のまま（非破壊、single-file benchmark はゼロ増）。
+一度は実装した。入力契約に汎用の optional companion（`OptionalCompanionFileName` / `CompanionParser`）を足し、`yarn.lock` の隣の `package.json` を読んで、その `dependencies` 系を production root・`devDependencies` を dev root として occurrence に seed し、edge を辿って `dev 到達 && !production 到達` を `Development` としていた。
 
-Yarn usage は base parse（`ParseClassic`/`ParseBerry`）を変更せず、解決済み inventory の occurrence + edge グラフ上で post-hoc に計算する。`package.json` の `dependencies`/`optionalDependencies`/`peerDependencies` を production root、`devDependencies` を dev root として名前で occurrence に seed し、edge を辿って production/dev 到達を求め、`dev 到達 && !production 到達` を `Development` とする。`workspaces` フィールドを持つ manifest、または context が 2 つ以上（workspace lockfile）は usage 未分類（`Unknown`）にフォールバックする。
+**撤回した。** 他の 5 アダプタが「解決済み入力の中の情報」から usage を導くのに対し、Yarn だけが **2 ファイルをパッケージ名という弱いキーで結合**する。Yarn の解決キーは descriptor（`name@range`）であり、descriptor は parse 時の `YarnNode` にしか存在せず inventory には残らないため、名前結合しか選べなかった。結果としてレビューで fail-open / 虚偽報告が 3 件出た。
 
-Yarn workspace は対象外とする（見送り決定）。per-workspace の scope 判定には各 workspace の `package.json` を、untrusted な `workspaces` glob または lockfile path から discover して読む必要があり、untrusted 入力駆動の filesystem 列挙（path traversal・DoS）という surface を生む。fail-closed が既に安全で便益が narrow なため、このリスクに見合わない。workspace lockfile は `Unknown`（fail-closed）のまま。
+1. 同名の全 occurrence を seed し、manifest が宣言していない別バージョンまで `Development` にしていた。
+2. それを「一意な名前だけ seed」に直すと、今度は**曖昧な production 宣言が seed されず production 到達が縮み**、その依存が `Development` に落ちた（`Development = dev ∧ ¬production` なので production 側の保守化は逆効果）。
+3. manifest がどの entry にも一致しない場合に全件 `runtime` と報告していた。
+
+正しくするには非対称近似（production は過大近似・dev は過小近似）が必要で、直感に反し間違えやすい。ドロップの代償は Yarn 利用者の**利便性**のみ（usage は `Unknown` のままで primary allow-list で運用できる）に対し、維持の代償は**コンプライアンスゲートでの誤許可**であり、割に合わない。optional companion 機構も利用者がゼロになるため入力契約ごと削除した。
+
+再挑戦するなら descriptor 厳密照合が前提: Classic は entry の descriptor list に `name@range` を照合、Berry は workspace entry の dependency list で照合する。workspace は untrusted glob 由来の filesystem 列挙（path traversal・DoS）surface のため、いずれにせよ対象外。
 
 ### Slice 6: Maven / Cargo（実装済み）
 

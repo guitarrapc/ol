@@ -297,26 +297,6 @@ internal sealed class ScanCommands
                     {
                         throw new InvalidOperationException($"Detected input format is not registered: {inventory.Input.Format.Name}");
                     }
-
-                    // An optional sibling manifest (for example package.json next to yarn.lock) supplies dependency
-                    // scope the lockfile alone cannot express. It only enriches usage; its absence is never an error.
-                    if (handler.OptionalCompanionFileName is not null)
-                    {
-                        var companionPath = Path.Combine(Path.GetDirectoryName(files[i].Path) ?? string.Empty, handler.OptionalCompanionFileName);
-                        if (File.Exists(companionPath))
-                        {
-                            var companionBytes = File.ReadAllBytes(companionPath);
-                            if (sourceHash is not null)
-                            {
-                                var companionLogicalPath = Path.Combine(Path.GetDirectoryName(files[i].LogicalPath) ?? string.Empty, handler.OptionalCompanionFileName);
-                                sourceHash.AppendData(Encoding.UTF8.GetBytes(companionLogicalPath));
-                                sourceHash.AppendData([0]);
-                                sourceHash.AppendData(SHA256.HashData(companionBytes));
-                            }
-
-                            inventory = DependencyInputScanner.Scan(inputBytes, companionBytes, spdx, expectedFormat: handler.Format);
-                        }
-                    }
                 }
 
                 if ((files.Length > 1 || inventoryCount > 0) && inventory.Input.Kind != ScanInputKind.PackageManager)

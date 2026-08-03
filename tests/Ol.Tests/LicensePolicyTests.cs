@@ -246,6 +246,118 @@ public sealed class LicensePolicyTests
         await Assert.That(error).IsNotEmpty();
     }
 
+    [Test]
+    public async Task Evaluate_WithExcludedPurlPrefix_SkipsComponentAndCountsIt()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], ["pkg:nuget/MyCompany."], Spdx, out var policy, out _);
+        ScanComponent[] components =
+        [
+            CreateComponentWithPurl("pkg:nuget/MyCompany.Core@1.0.0", LicenseStatus.Unknown),
+            CreateComponentWithPurl("pkg:npm/example@1.0.0", LicenseStatus.Unknown),
+        ];
+
+        var violations = policy.Evaluate(components, default, null, out _, out var evaluatedCount, out _, out var excludedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(violations[0].ComponentIndex).IsEqualTo(1);
+        await Assert.That(evaluatedCount).IsEqualTo(1);
+        await Assert.That(excludedCount).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments("pkg:npm/left-pad@1.3.0", "pkg:npm/left-pad@1.3.0", true)]
+    [Arguments("pkg:npm/@acme/", "pkg:npm/@acme/util@1.0.0", true)]
+    [Arguments("pkg:nuget/MyCompany.", "pkg:nuget/MyCompany.Core@1.0.0", true)]
+    [Arguments("pkg:nuget/MyCompany", "pkg:nuget/MyCompany@1.0.0", true)]
+    [Arguments("pkg:npm/@acme", "pkg:npm/@acme/util@1.0.0", true)]
+    [Arguments("pkg:nuget/MyCompany", "pkg:nuget/MyCompanyEvil@1.0.0", false)]
+    [Arguments("pkg:npm/lodash", "pkg:npm/lodash.merge@1.0.0", false)]
+    [Arguments("pkg:npm/example", "pkg:nuget/example@1.0.0", false)]
+    [Arguments("pkg:nuget/mycompany.", "pkg:nuget/MyCompany.Core@1.0.0", false)]
+    public async Task Evaluate_ExcludedPrefix_MatchesOnlyAtPurlBoundary(string prefix, string purl, bool excluded)
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], [prefix], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate([CreateComponentWithPurl(purl, LicenseStatus.Unknown)], default, null, out _, out _, out _, out var excludedCount);
+
+        await Assert.That(violations.Length == 0).IsEqualTo(excluded);
+        await Assert.That(excludedCount).IsEqualTo(excluded ? 1 : 0);
+    }
+
+    [Test]
+    public async Task Evaluate_ComponentWithoutPurl_IsNeverExcluded()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], ["pkg:npm/example"], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate([CreateComponentWithPurl(default, LicenseStatus.Unknown)], default, null, out _, out _, out _, out var excludedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(excludedCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Evaluate_ExcludedComponentWithForbiddenLicense_IsNotAViolation()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], ["pkg:nuget/MyCompany."], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate(
+            [CreateComponentWithPurl("pkg:nuget/MyCompany.Core@1.0.0", LicenseStatus.Matched, "GPL-3.0-only")],
+            default,
+            null,
+            out _,
+            out var evaluatedCount,
+            out _,
+            out var excludedCount);
+
+        await Assert.That(violations).IsEmpty();
+        await Assert.That(evaluatedCount).IsEqualTo(0);
+        await Assert.That(excludedCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task CanAcknowledge_ExcludedComponent_ReturnsFalse()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], ["pkg:nuget/MyCompany."], Spdx, out var policy, out _);
+
+        var excluded = policy.CanAcknowledge(CreateComponentWithPurl("pkg:nuget/MyCompany.Core@1.0.0", LicenseStatus.Unknown));
+        var evaluated = policy.CanAcknowledge(CreateComponentWithPurl("pkg:npm/example@1.0.0", LicenseStatus.Unknown));
+
+        await Assert.That(excluded).IsFalse();
+        await Assert.That(evaluated).IsTrue();
+    }
+
+    [Test]
+    [Arguments("")]
+    [Arguments("   ")]
+    [Arguments("npm/example")]
+    [Arguments("pkg:")]
+    [Arguments("pkg:npm")]
+    [Arguments("pkg:npm/")]
+    [Arguments("pkg:npm/@")]
+    public async Task TryCreate_WithInvalidExcludedPackage_RejectsPolicy(string value)
+    {
+        var created = LicenseAllowPolicy.TryCreate(["MIT"], [], [value], Spdx, out _, out var error);
+
+        await Assert.That(created).IsFalse();
+        await Assert.That(error).IsNotEmpty();
+    }
+
+    [Test]
+    public async Task TryCreate_WithSurroundingWhitespaceAndDuplicateExclusions_AppliesOnce()
+    {
+        var created = LicenseAllowPolicy.TryCreate(["MIT"], [], [" pkg:npm/example ", "pkg:npm/example"], Spdx, out var policy, out var error);
+
+        var violations = policy.Evaluate([CreateComponentWithPurl("pkg:npm/example@1.0.0", LicenseStatus.Unknown)], default, null, out _, out _, out _, out var excludedCount);
+
+        await Assert.That(created).IsTrue();
+        await Assert.That(error).IsEmpty();
+        await Assert.That(violations).IsEmpty();
+        await Assert.That(excludedCount).IsEqualTo(1);
+    }
+
     private static ScanComponent CreateComponent(Utf8Slice license, LicenseStatus status, string name = "example")
         => new(name, "1.0.0", license, "npm", DependencyType.Direct, status, $"pkg:npm/{name}@1.0.0", name, default, [], []);
+
+    private static ScanComponent CreateComponentWithPurl(Utf8Slice purl, LicenseStatus status, Utf8Slice license = default)
+        => new("example", "1.0.0", license, "npm", DependencyType.Direct, status, purl, "example", default, [], []);
 }

@@ -17,6 +17,7 @@ public sealed class CliCheckTests
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(result.Stderr).IsEmpty();
         await Assert.That(result.Stdout).Contains("--allow-licenses <string?>");
+        await Assert.That(result.Stdout).Contains("--exclude-packages <string?>");
         await Assert.That(result.Stdout).Contains("--input <string[]?>");
         await Assert.That(result.Stdout).DoesNotContain("--dependency");
         await Assert.That(result.Stdout).DoesNotContain("--format");
@@ -689,6 +690,128 @@ public sealed class CliCheckTests
         finally
         {
             if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithExcludePackages_RemovesComponentFromEvaluation()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/example", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Excluded from evaluation: 1 component.");
+            await Assert.That(result.Stdout).Contains("License check passed: 0 components satisfy the allow-list.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithExcludePackages_ReportsZeroWhenNothingMatches()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        try
+        {
+            // The prefix ends inside a package name, so it must not silence a neighbouring package.
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/exam", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(1).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Excluded from evaluation: 0 components.");
+            await Assert.That(result.Stdout).Contains("License check failed: 1 violation.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithoutExcludePackages_OmitsExclusionSummary()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).DoesNotContain("Excluded from evaluation");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithInvalidExcludePackages_ReturnsTwoWithoutPolicyOutput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("Invalid license policy:");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_ReportWithExcludePackages_MatchesScanningTheInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
+
+            var fromInput = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/example", "--no-external-evidence");
+            var fromReport = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/example");
+
+            await Assert.That(fromInput.ExitCode).IsEqualTo(0).Because(fromInput.Stderr);
+            await Assert.That(fromReport.ExitCode).IsEqualTo(fromInput.ExitCode).Because(fromReport.Stderr);
+            await Assert.That(fromReport.Stdout).IsEqualTo(fromInput.Stdout);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_UpdateBaselineWithExcludePackages_OmitsExcludedComponent()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync(null);
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/example", "--baseline", baselinePath, "--update-baseline", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(await File.ReadAllTextAsync(baselinePath)).DoesNotContain("pkg:npm/example");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(baselinePath)) File.Delete(baselinePath);
         }
     }
 

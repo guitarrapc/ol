@@ -19,6 +19,7 @@ internal sealed class CheckCommands
     /// <param name="input">Repeatable resolved dependency input files or directories.</param>
     /// <param name="allowLicenses">Comma-separated SPDX License Identifiers.</param>
     /// <param name="allowDevLicenses">Comma-separated SPDX License Identifiers additionally allowed for development-only components.</param>
+    /// <param name="excludePackages">Comma-separated package URL prefixes whose components are not evaluated.</param>
     /// <param name="inputFormat">Input format assertion; defaults to auto detection.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="verbose">Include input detection diagnostics.</param>
@@ -36,6 +37,7 @@ internal sealed class CheckCommands
         [InputPathsParser] string[]? input = null,
         string? allowLicenses = null,
         string? allowDevLicenses = null,
+        string? excludePackages = null,
         string? inputFormat = null,
         string? spdxData = null,
         bool verbose = false,
@@ -58,6 +60,11 @@ internal sealed class CheckCommands
         var developmentLicenseIds = string.IsNullOrWhiteSpace(allowDevLicenses)
             ? []
             : allowDevLicenses.Split(',', StringSplitOptions.None);
+
+        // An empty option is a supplied-but-empty scope statement, which is a configuration error rather than "exclude nothing".
+        var excludedPackagePrefixes = excludePackages is null
+            ? []
+            : excludePackages.Split(',', StringSplitOptions.None);
 
         var baselinePath = string.IsNullOrWhiteSpace(baseline) ? null : baseline;
         if (updateBaseline && baselinePath is null)
@@ -88,7 +95,7 @@ internal sealed class CheckCommands
                 return 2;
             }
 
-            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, reportSpdx.Index, out policy, out var reportPolicyError))
+            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, excludedPackagePrefixes, reportSpdx.Index, out policy, out var reportPolicyError))
             {
                 Console.Error.WriteLine($"Invalid license policy: {reportPolicyError}");
                 return 2;
@@ -117,7 +124,7 @@ internal sealed class CheckCommands
                 return 2;
             }
 
-            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, preparation.Spdx.Index, out policy, out var policyError))
+            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, excludedPackagePrefixes, preparation.Spdx.Index, out policy, out var policyError))
             {
                 Console.Error.WriteLine($"Invalid license policy: {policyError}");
                 return 2;
@@ -162,18 +169,19 @@ internal sealed class CheckCommands
 
         int acknowledgedCount;
         int policyComponentCount;
+        int excludedCount;
         int developmentAllowedCount;
         var developmentAllowedComponents = Array.Empty<int>();
         LicensePolicyViolation[] violations;
         if (developmentLicenseIds.Length == 0)
         {
-            violations = policy.Evaluate(components, default, acknowledgements, out acknowledgedCount, out policyComponentCount, out _);
+            violations = policy.Evaluate(components, default, acknowledgements, out acknowledgedCount, out policyComponentCount, out _, out excludedCount);
             developmentAllowedCount = -1;
         }
         else if (reportComponentUsages is not null)
         {
             // A persisted report already carries per-component usage aligned with its components.
-            violations = policy.Evaluate(components, reportComponentUsages, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents);
+            violations = policy.Evaluate(components, reportComponentUsages, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents, out excludedCount);
             developmentAllowedCount = developmentAllowedComponents.Length;
         }
         else
@@ -184,7 +192,7 @@ internal sealed class CheckCommands
             try
             {
                 DependencyUsageResolver.Resolve(inventory, usages.AsSpan(0, usageLength));
-                violations = policy.Evaluate(components, usages.AsSpan(0, usageLength), acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents);
+                violations = policy.Evaluate(components, usages.AsSpan(0, usageLength), acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents, out excludedCount);
                 developmentAllowedCount = developmentAllowedComponents.Length;
             }
             finally
@@ -212,7 +220,8 @@ internal sealed class CheckCommands
             violations,
             policyComponentCount,
             baselinePath is null ? -1 : acknowledgedCount,
-            developmentAllowedCount);
+            developmentAllowedCount,
+            excludePackages is null ? -1 : excludedCount);
         try
         {
             Console.Write(text);
@@ -318,17 +327,20 @@ internal static class CheckRenderer
         ReadOnlySpan<LicensePolicyViolation> violations,
         int policyComponentCount,
         int acknowledgedCount = -1,
-        int developmentAllowedCount = -1)
+        int developmentAllowedCount = -1,
+        int excludedCount = -1)
     {
         if (violations.IsEmpty)
         {
             return string.Concat(
+                Exclusion(excludedCount),
                 Acknowledgement(acknowledgedCount),
                 DevelopmentAllowance(developmentAllowedCount),
                 $"License check passed: {policyComponentCount} component{(policyComponentCount == 1 ? string.Empty : "s")} satisf{(policyComponentCount == 1 ? "ies" : "y")} the allow-list.{Environment.NewLine}");
         }
 
         var builder = new StringBuilder();
+        builder.Append(Exclusion(excludedCount));
         builder.Append(Acknowledgement(acknowledgedCount));
         builder.Append(DevelopmentAllowance(developmentAllowedCount));
         builder.Append("License check failed: ");
@@ -358,6 +370,12 @@ internal static class CheckRenderer
 
         return builder.ToString();
     }
+
+    /// <summary>Reports how many components the exclusion prefixes removed from evaluation, shown whenever the option is supplied.</summary>
+    private static string Exclusion(int excludedCount)
+        => excludedCount < 0
+            ? string.Empty
+            : $"Excluded from evaluation: {excludedCount} component{(excludedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
 
     /// <summary>Makes a supplied baseline visible even when the run passes.</summary>
     private static string Acknowledgement(int acknowledgedCount)

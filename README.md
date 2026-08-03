@@ -130,6 +130,7 @@ Options:
   --input <string[]?>               Repeatable resolved dependency input files or directories. [Default: null]
   --allow-licenses <string?>        Comma-separated SPDX License Identifiers. [Default: null]
   --allow-dev-licenses <string?>    Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
+  --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. [Default: null]
   --input-format <string?>          Input format assertion; defaults to auto detection. [Default: null]
   --spdx-data <string?>             Directory containing licenses.json and exceptions.json. [Default: null]
   --verbose                         Include input detection diagnostics.
@@ -243,6 +244,31 @@ ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0 --no-external-evid
 ```
 
 `--no-external-evidence` contacts no package registry and no source repository, and reads neither of their caches. Because unresolved licenses fail closed, it can produce violations that a check with external evidence would resolve.
+
+#### Excluding packages from the check
+
+`--exclude-packages` removes selected components from the check. It is useful when a component cannot be resolved for reasons outside the license itself, such as a registry that requires authentication, and when a package is reviewed through a separate process.
+
+```bash
+ol check --input . --allow-licenses MIT,Apache-2.0 --exclude-packages pkg:nuget/MyCompany.,pkg:npm/@mycompany/
+```
+
+Excluded components are absent from evaluation, the baseline, violations, SARIF, and the passing count, exactly like an SBOM root. They remain in `scan` output and in the JSON report with their evidence. `check` always prints the count, including `0`:
+
+```text
+Excluded from evaluation: 3 components.
+License check passed: 812 components satisfy the allow-list.
+```
+
+Prefixes are matched against the component purl, case-sensitively, and only at purl boundaries (`/`, `.`, `@`):
+
+| Prefix | Matches | Does not match |
+| --- | --- | --- |
+| `pkg:nuget/MyCompany.` | `pkg:nuget/MyCompany.Core@1.0.0` | `pkg:nuget/MyCompanyEvil@1.0.0` |
+| `pkg:npm/@mycompany/` | `pkg:npm/@mycompany/util@1.0.0` | `pkg:npm/mycompany-util@1.0.0` |
+| `pkg:npm/left-pad@1.3.0` | that exact component | any other version |
+
+A value naming only an ecosystem, such as `pkg:npm/`, is rejected. A component with no purl is never excluded, and a casing mismatch leaves the component evaluated. The option applies to `check --report` the same way and changes nothing in the report itself.
 
 #### Adopting `check` on an existing project
 

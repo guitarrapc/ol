@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Collections.Frozen;
+using System.Text;
 using Ol.Core.Spdx;
 
 namespace Ol.Core.Licensing;
@@ -25,18 +26,24 @@ public sealed class LicenseAllowPolicy
 {
     private readonly FrozenSet<string> allowedLicenses;
     private readonly FrozenSet<string>? developmentUnionLicenses;
+    private readonly byte[][]? excludedPurlPrefixes;
     private readonly SpdxLicenseIndex spdxLicenseIndex;
 
-    private LicenseAllowPolicy(FrozenSet<string> allowedLicenses, FrozenSet<string>? developmentUnionLicenses, SpdxLicenseIndex spdxLicenseIndex)
+    private LicenseAllowPolicy(
+        FrozenSet<string> allowedLicenses,
+        FrozenSet<string>? developmentUnionLicenses,
+        byte[][]? excludedPurlPrefixes,
+        SpdxLicenseIndex spdxLicenseIndex)
     {
         this.allowedLicenses = allowedLicenses;
         this.developmentUnionLicenses = developmentUnionLicenses;
+        this.excludedPurlPrefixes = excludedPurlPrefixes;
         this.spdxLicenseIndex = spdxLicenseIndex;
     }
 
     /// <summary>Creates an immutable allow-list from SPDX License Identifiers.</summary>
     public static bool TryCreate(ReadOnlySpan<string> licenseIds, SpdxLicenseIndex spdxLicenseIndex, out LicenseAllowPolicy policy, out string error)
-        => TryCreate(licenseIds, [], spdxLicenseIndex, out policy, out error);
+        => TryCreate(licenseIds, [], [], spdxLicenseIndex, out policy, out error);
 
     /// <summary>
     /// Creates an immutable allow-list plus an optional development allow-list. The development identifiers are held as
@@ -46,6 +53,20 @@ public sealed class LicenseAllowPolicy
     public static bool TryCreate(
         ReadOnlySpan<string> licenseIds,
         ReadOnlySpan<string> developmentLicenseIds,
+        SpdxLicenseIndex spdxLicenseIndex,
+        out LicenseAllowPolicy policy,
+        out string error)
+        => TryCreate(licenseIds, developmentLicenseIds, [], spdxLicenseIndex, out policy, out error);
+
+    /// <summary>
+    /// Creates an immutable allow-list, an optional development allow-list, and an optional set of package URL prefixes
+    /// whose components are not evaluated at all. Exclusion states which components the caller takes outside this policy's
+    /// scope; it is not a license decision, so an excluded component is neither evaluated nor acknowledgeable.
+    /// </summary>
+    public static bool TryCreate(
+        ReadOnlySpan<string> licenseIds,
+        ReadOnlySpan<string> developmentLicenseIds,
+        ReadOnlySpan<string> excludedPackagePrefixes,
         SpdxLicenseIndex spdxLicenseIndex,
         out LicenseAllowPolicy policy,
         out string error)
@@ -87,10 +108,95 @@ public sealed class LicenseAllowPolicy
             developmentUnion = union.ToFrozenSet(StringComparer.Ordinal);
         }
 
-        policy = new LicenseAllowPolicy(normalized.ToFrozenSet(StringComparer.Ordinal), developmentUnion, spdxLicenseIndex);
+        if (!TryNormalizeExclusions(excludedPackagePrefixes, out var excluded, out error))
+        {
+            return false;
+        }
+
+        policy = new LicenseAllowPolicy(normalized.ToFrozenSet(StringComparer.Ordinal), developmentUnion, excluded, spdxLicenseIndex);
         error = string.Empty;
         return true;
     }
+
+    /// <summary>
+    /// Normalizes exclusion prefixes into UTF-8 once per run so component matching stays allocation-free.
+    /// </summary>
+    private static bool TryNormalizeExclusions(ReadOnlySpan<string> prefixes, out byte[][]? normalized, out string error)
+    {
+        normalized = null;
+        error = string.Empty;
+        if (prefixes.IsEmpty) return true;
+
+        var unique = new HashSet<string>(prefixes.Length, StringComparer.Ordinal);
+        for (var i = 0; i < prefixes.Length; i++)
+        {
+            var value = TrimAsciiWhitespace(prefixes[i].AsSpan());
+            if (value.IsEmpty)
+            {
+                error = "Excluded package entries must not be empty.";
+                return false;
+            }
+
+            if (!IsPackageUrlPrefix(value))
+            {
+                error = $"Excluded package entries must be package URL prefixes identifying at least one package or namespace, such as pkg:nuget/MyCompany.: {Display(value)}";
+                return false;
+            }
+
+            unique.Add(value.ToString());
+        }
+
+        var result = new byte[unique.Count][];
+        var index = 0;
+        foreach (var value in unique) result[index++] = Encoding.UTF8.GetBytes(value);
+        normalized = result;
+        return true;
+    }
+
+    /// <summary>
+    /// Requires a package URL prefix to name an ecosystem and at least one package or namespace character, so a whole
+    /// ecosystem cannot be removed from evaluation by one entry.
+    /// </summary>
+    private static bool IsPackageUrlPrefix(ReadOnlySpan<char> value)
+    {
+        if (!value.StartsWith("pkg:", StringComparison.Ordinal)) return false;
+
+        var remainder = value[4..];
+        var separator = remainder.IndexOf('/');
+        if (separator <= 0) return false;
+
+        var tail = remainder[(separator + 1)..];
+        for (var i = 0; i < tail.Length; i++)
+        {
+            if (!IsPurlSeparator(tail[i])) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Matches a component purl against the exclusion prefixes. A prefix that ends at a purl separator states its own
+    /// boundary, so <c>pkg:nuget/MyCompany.</c> covers a package family. A prefix that ends inside a name must reach a
+    /// separator in the purl, so <c>pkg:nuget/MyCompany</c> never silences <c>pkg:nuget/MyCompanyEvil</c>. Matching is
+    /// ordinal and case-sensitive: a casing mismatch leaves the component evaluated, which is the fail-closed direction.
+    /// </summary>
+    private static bool IsExcluded(byte[][] prefixes, Utf8Slice purl)
+    {
+        if (purl.IsEmpty) return false;
+
+        var value = purl.Span;
+        for (var i = 0; i < prefixes.Length; i++)
+        {
+            var prefix = prefixes[i].AsSpan();
+            if (value.Length < prefix.Length || !value[..prefix.Length].SequenceEqual(prefix)) continue;
+            if (value.Length == prefix.Length || IsPurlSeparator((char)prefix[^1])) return true;
+            if (value[prefix.Length] is (byte)'/' or (byte)'@') return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsPurlSeparator(char value) => value is '/' or '.' or '@';
 
     private static bool TryNormalize(ReadOnlySpan<string> licenseIds, SpdxLicenseIndex spdxLicenseIndex, string emptyEntryError, out HashSet<string> normalized, out string error)
     {
@@ -135,6 +241,12 @@ public sealed class LicenseAllowPolicy
             return false;
         }
 
+        // An excluded component is outside policy scope, so a baseline snapshot must not record it either.
+        if (excludedPurlPrefixes is { } prefixes && IsExcluded(prefixes, component.Purl))
+        {
+            return false;
+        }
+
         if (component.Status is not (LicenseStatus.Unknown or LicenseStatus.Ambiguous or LicenseStatus.Conflict or LicenseStatus.Invalid))
         {
             return false;
@@ -156,14 +268,14 @@ public sealed class LicenseAllowPolicy
 
     /// <summary>Evaluates every non-root completed component and returns all violations in component order.</summary>
     public LicensePolicyViolation[] Evaluate(ReadOnlySpan<ScanComponent> components)
-        => Evaluate(components, default, null, out _, out _, out _);
+        => Evaluate(components, default, null, out _, out _, out _, out _);
 
     /// <summary>
     /// Evaluates every non-root completed component, removing violations for unresolved components the baseline
     /// acknowledges. Acknowledgement removes a violation only; component status and evidence are unchanged.
     /// </summary>
     public LicensePolicyViolation[] Evaluate(ReadOnlySpan<ScanComponent> components, LicenseBaseline? baseline, out int acknowledgedCount)
-        => Evaluate(components, default, baseline, out acknowledgedCount, out _, out _);
+        => Evaluate(components, default, baseline, out acknowledgedCount, out _, out _, out _);
 
     /// <summary>
     /// Evaluates every non-root completed component and returns both acknowledged and evaluated component counts.
@@ -173,13 +285,10 @@ public sealed class LicenseAllowPolicy
         LicenseBaseline? baseline,
         out int acknowledgedCount,
         out int evaluatedCount)
-        => Evaluate(components, default, baseline, out acknowledgedCount, out evaluatedCount, out _);
+        => Evaluate(components, default, baseline, out acknowledgedCount, out evaluatedCount, out _, out _);
 
     /// <summary>
-    /// Evaluates every non-root completed component, allowing a development-only component whose license satisfies the
-    /// development allow-list even when the primary allow-list rejects it. <paramref name="componentUsages"/> is indexed
-    /// by component; entries beyond its length, and every component when no development allow-list was supplied, follow
-    /// the primary allow-list unchanged.
+    /// Evaluates every non-root completed component with development usage, without reporting the excluded count.
     /// </summary>
     public LicensePolicyViolation[] Evaluate(
         ReadOnlySpan<ScanComponent> components,
@@ -188,14 +297,34 @@ public sealed class LicenseAllowPolicy
         out int acknowledgedCount,
         out int evaluatedCount,
         out int[] developmentAllowedComponents)
+        => Evaluate(components, componentUsages, baseline, out acknowledgedCount, out evaluatedCount, out developmentAllowedComponents, out _);
+
+    /// <summary>
+    /// Evaluates every non-root completed component, allowing a development-only component whose license satisfies the
+    /// development allow-list even when the primary allow-list rejects it. <paramref name="componentUsages"/> is indexed
+    /// by component; entries beyond its length, and every component when no development allow-list was supplied, follow
+    /// the primary allow-list unchanged. <paramref name="excludedCount"/> reports how many components the exclusion
+    /// prefixes removed from evaluation, so a caller can make the reduced scope visible.
+    /// </summary>
+    public LicensePolicyViolation[] Evaluate(
+        ReadOnlySpan<ScanComponent> components,
+        ReadOnlySpan<DependencyUsage> componentUsages,
+        LicenseBaseline? baseline,
+        out int acknowledgedCount,
+        out int evaluatedCount,
+        out int[] developmentAllowedComponents,
+        out int excludedCount)
     {
         acknowledgedCount = 0;
         evaluatedCount = 0;
+        excludedCount = 0;
         developmentAllowedComponents = [];
         if (components.IsEmpty) return [];
 
         var violations = ArrayPool<LicensePolicyViolation>.Shared.Rent(components.Length);
         var violationCount = 0;
+        // Hoisted so a run without exclusions performs neither a field load nor a call per component.
+        var exclusions = excludedPurlPrefixes;
         // Development allowances are collected only when a development allow-list exists, so a run without the option
         // rents nothing extra. The indices identify components the caller reports separately from violations.
         var developmentAllowed = developmentUnionLicenses is null ? null : ArrayPool<int>.Shared.Rent(components.Length);
@@ -207,6 +336,13 @@ public sealed class LicenseAllowPolicy
                 var component = components[i];
                 if (component.DependencyType == DependencyType.Root)
                 {
+                    continue;
+                }
+
+                // Exclusion is a scope statement by the caller, so it is applied before any license question is asked.
+                if (exclusions is not null && IsExcluded(exclusions, component.Purl))
+                {
+                    excludedCount++;
                     continue;
                 }
 

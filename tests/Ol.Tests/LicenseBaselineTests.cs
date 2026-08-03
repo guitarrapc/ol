@@ -155,6 +155,22 @@ public sealed class LicenseBaselineTests
     }
 
     [Test]
+    public async Task CreateEntries_WithExcludedPackage_OmitsThatComponent()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], ["pkg:nuget/MyCompany."], Spdx, out var policy, out _);
+        ScanComponent[] components =
+        [
+            CreateComponent(LicenseStatus.Unknown, name: "MyCompany.Core", ecosystem: "nuget"),
+            CreateComponent(LicenseStatus.Unknown, name: "third-party"),
+        ];
+
+        var entries = LicenseBaseline.CreateEntries(components, policy);
+
+        await Assert.That(entries).Count().IsEqualTo(1);
+        await Assert.That(entries[0].Name).IsEqualTo("third-party");
+    }
+
+    [Test]
     public async Task CreateEntries_WithUnknownRootAndDependency_RecordsOnlyDependency()
     {
         var policy = CreatePolicy("MIT");

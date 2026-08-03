@@ -126,6 +126,11 @@ jobs:
             Invoke-OlScan $dependencyTree maven-dependency-tree-report
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/maven-dependency-tree-report.json" -TextReport "$env:RUNNER_TEMP/maven-dependency-tree-report.txt" -MarkdownReport "$env:RUNNER_TEMP/maven-dependency-tree-report.md" -Ecosystem maven -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat maven-dependency-tree
           }
+
+          if ($env:FIXTURE_ECOSYSTEM -eq "cocoapods") {
+            Invoke-OlScan $env:FIXTURE_PATH cocoapods-lock-report
+            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/cocoapods-lock-report.json" -TextReport "$env:RUNNER_TEMP/cocoapods-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/cocoapods-lock-report.md" -Ecosystem cocoapods -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat cocoapods-lock
+          }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ecosystem-${{ matrix.ecosystem }}
@@ -138,6 +143,7 @@ jobs:
             ${{ runner.temp }}/composer-lock-report.*
             ${{ runner.temp }}/bundler-lock-report.*
             ${{ runner.temp }}/maven-dependency-tree-report.*
+            ${{ runner.temp }}/cocoapods-lock-report.*
 
   self-scan:
     runs-on: ubuntu-24.04

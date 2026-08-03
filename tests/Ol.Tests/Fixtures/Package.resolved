@@ -1,0 +1,24 @@
+{
+  "originHash" : "fixture-origin",
+  "pins" : [
+    {
+      "identity" : "swift-log",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-log.git",
+      "state" : {
+        "revision" : "aaaaaaaa",
+        "version" : "1.6.2"
+      }
+    },
+    {
+      "identity" : "internal-kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://git.example.test/team/internal-kit.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "bbbbbbbb"
+      }
+    }
+  ],
+  "version" : 3
+}

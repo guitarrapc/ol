@@ -177,6 +177,20 @@ public sealed class DependencyInputRegistry
             new("classifier"u8.ToArray(), DependencyInputMarkerValueKind.String),
             new("optional"u8.ToArray(), DependencyInputMarkerValueKind.String),
         }), MavenDependencyTreeInputParser.Parse, new[] { "maven-dependency-tree.json" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
+        // SwiftPM - Package Manager
+        new(ScanInputKind.PackageManager, ScanInputFormat.SwiftPackageResolved, new(new DependencyInputMarker[] {
+            new("version"u8.ToArray(), DependencyInputMarkerValueKind.Number),
+            new("pins"u8.ToArray(), DependencyInputMarkerValueKind.Array),
+        }), SwiftPackageResolvedInputParser.Parse, new[] { "Package.resolved" }, DependencyComponentIdentityComparison.OrdinalWithSourceId),
+        // CocoaPods - Package Manager
+        new(
+            ScanInputKind.PackageManager,
+            ScanInputFormat.CocoaPodsLock,
+            default,
+            CocoaPodsLockInputParser.Parse,
+            new[] { "Podfile.lock" },
+            DependencyComponentIdentityComparison.OrdinalWithSourceId,
+            CocoaPodsLockInputParser.Detect),
     ]);
 
     /// <summary>Initializes a registry from distinct format handlers.</summary>

@@ -150,7 +150,7 @@ internal ref struct Utf8YamlLineReader
             {
                 quote = current;
             }
-            else if (current == (byte)':')
+            else if (current == (byte)':' && (i + 1 == value.Length || value[i + 1] == (byte)' '))
             {
                 return i;
             }

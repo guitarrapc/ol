@@ -363,7 +363,7 @@ public sealed class PackageMetadataTests
     public async Task Providers_ParseResponse_WithNonObjectRoot_ReturnUnknownMetadataWithoutThrowing()
     {
         using var document = JsonDocument.Parse("\"unexpected\"");
-        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider(), new PackagistPackageMetadataProvider(), new RubyGemsPackageMetadataProvider(), new MavenPackageMetadataProvider()];
+        PackageMetadataProvider[] providers = [new NpmPackageMetadataProvider(), new NuGetPackageMetadataProvider(), new CargoPackageMetadataProvider(), new GoPackageMetadataProvider(), new PyPiPackageMetadataProvider(), new PackagistPackageMetadataProvider(), new RubyGemsPackageMetadataProvider(), new MavenPackageMetadataProvider(), new CocoaPodsPackageMetadataProvider()];
 
         for (var i = 0; i < providers.Length; i++)
         {
@@ -497,6 +497,33 @@ public sealed class PackageMetadataTests
         await Assert.That(record.Source).IsEqualTo("deps.dev");
         await Assert.That(record.RawLicense).IsEqualTo("Apache-2.0");
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/apache/commons-lang");
+    }
+
+    [Test]
+    public async Task Fetch_CocoaPodsPodspec_UsesVersionSpecificLicenseAndSource()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            """{ "license": { "type": "MIT", "file": "LICENSE" }, "source": { "git": "https://github.com/Moya/Moya.git", "tag": "15.0.0" } }""");
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:cocoapods/Moya@15.0.0", out var request);
+        await Assert.That(parsed).IsTrue();
+        var record = await client.FetchAsync(request);
+
+        await Assert.That(handler.RequestUris).IsEquivalentTo([
+            "https://cdn.cocoapods.org/Specs/8/a/7/Moya/15.0.0/Moya.podspec.json",
+        ]);
+        await Assert.That(record.Source).IsEqualTo("cocoapods-cdn");
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/Moya/Moya.git");
+        await Assert.That(record.RepositoryRef).IsEqualTo("15.0.0");
+    }
+
+    [Test]
+    public async Task TryCreate_CocoaPodsPurlWithNamespaceOrInvalidName_RejectsRequest()
+    {
+        await Assert.That(OlDefaults.TryCreatePackageMetadataRequest("pkg:cocoapods/team/Moya@15.0.0", out _)).IsFalse();
+        await Assert.That(OlDefaults.TryCreatePackageMetadataRequest("pkg:cocoapods/Bad%20Pod@1.0.0", out _)).IsFalse();
     }
 
     [Test]

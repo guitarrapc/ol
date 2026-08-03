@@ -59,6 +59,12 @@ public readonly record struct ScanInputFormat(string Name, string Parser, string
     /// <summary>Maven Dependency Plugin dependency tree JSON.</summary>
     public static ScanInputFormat MavenDependencyTree { get; } = new("maven-dependency-tree", "maven-dependency-tree-json", "Maven dependency tree");
 
+    /// <summary>SwiftPM Package.resolved JSON format versions 2 and 3.</summary>
+    public static ScanInputFormat SwiftPackageResolved { get; } = new("swift-package-resolved", "swift-package-resolved-json", "SwiftPM Package.resolved");
+
+    /// <summary>CocoaPods Podfile.lock.</summary>
+    public static ScanInputFormat CocoaPodsLock { get; } = new("cocoapods-lock", "cocoapods-lock-yaml", "CocoaPods lock");
+
     /// <summary>A collection containing more than one registered input format.</summary>
     public static ScanInputFormat Collection { get; } = new("collection", "dependency-input-collection", "dependency input collection");
 

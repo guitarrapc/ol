@@ -732,7 +732,7 @@ file content は表示対象であり、policy 用 license identity の同定に
 | B. 判定の理由が残る | なぜその結論なのかを後から辿り、再 review できる | 2、3 |
 | C. 同じ入力なら同じ結果 | 時刻・実行環境・機械が変わっても判定が揺れない | 4 |
 | D. 止まったときに前へ進める | fail-closed で止まった後、監査可能な形で解決できる | 5 |
-| E. 検査の次へ届く | 合否の先にある再配布義務の履行を短縮できる | 6 |
+| E. 検査の次へ届く | 合否の先にある再配布義務の履行を短縮できる | なし（[非目標](../DESIGN.md#non-goals)） |
 | F. 小さく速いままでいる | 単一 native バイナリとして配布・実行できる | 9 |
 
 ### A. 数え落とさない
@@ -804,6 +804,8 @@ inventory の基準は二分される。go-licenses は実際に import され�
 またこの軸では、**証拠の欠落と方針違反を同じ失敗として扱わない**ことが重要になる。go-licenses は license file が見つからない package を違反として扱う。nuget-license は逆に、allow list が空なら embedded file が未知でも validation error にしない。前者は収集失敗を policy 違反へ、後者は policy 不在を同定成功へ寄せており、どちらも exit code から原因を読めなくする。
 
 ### E. 検査の次へ届く
+
+この軸だけは ol の約束ではない。再配布成果物の生成は [DESIGN の非目標](../DESIGN.md#non-goals)であり、以下は参照実装の観察と、その観察が示す境界の記録である。
 
 **最終成果物は合否だけではない。** go-licenses の `save` は最も厳しい license condition に応じて source / license / notice を配置し、licensed の `notices` は reviewed cache の legal contents から attribution を作り、nuget-license は license file を保存する。report に license ID があるだけでは、製品へ同梱すべき原文や attribution を作れない。
 

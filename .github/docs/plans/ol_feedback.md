@@ -42,16 +42,18 @@ ranking の前提になるため、推測ではなく登録済みの実体で確
 | B. 判定の理由が残る | evidence を上書きせず provenance 付きで保持 | 3 系統の typed evidence、6 状態、警告を保持。承認は evidence を消さず violation だけを除く | **果たされている**。事実の訂正（curation）は未実装だが合否には不要（Gap 2） |
 | C. 同じ入力なら同じ結果 | 版を固定した SPDX、TTL なし cache、決定的順序 | 識別子検証の範囲で成立。永続 report の再評価も byte 一致 | **果たされている**。本文同定を足すと崩れる（Gap 4） |
 | D. 止まったときに前へ進める | 「policy が何を禁じるかを決める」 | allow-list に加え、証拠指紋つきの承認 baseline を持つ | **埋まった**（Gap 1） |
-| E. 検査の次へ届く | （DESIGN は約束していない） | license ID の報告、SARIF、report diff | 再配布成果物（NOTICE）は未着手（Gap 5） |
+| E. 検査の次へ届く | **非目標**。DESIGN が再配布成果物の生成を明示的に除外している | license ID の報告、SARIF、report diff | 差分ではない。この軸は参照実装の観察であって ol の約束ではない |
 | F. 小さく速いままでいる | 単一 native AOT バイナリ | 維持。renderer は 0 allocation、baseline 未使用経路に追加コストなし | Gap 4 がここを削る方向に働く |
 
-当初この表で最大の穴だった policy 側（D）は Gap 1 で埋まり、Gap 3 と Gap 6 が B・E を補強した。**残る本質的な差分は C 軸と F 軸を代償に要求する Gap 4 だけ**であり、だからこそ仕様決定を先に置いている。
+当初この表で最大の穴だった policy 側（D）は Gap 1 で埋まり、Gap 3 と Gap 6 が B を補強した。**残る本質的な差分は C 軸と F 軸を代償に要求する Gap 4 だけ**であり、だからこそ仕様決定を先に置いている。
 
 ## 不足の一覧と順序
 
-番号は識別子であって順位ではない。実施順は優先度に従い、`Gap 1 → Gap 3 → Gap 6 → Gap 4 → Gap 2 → Gap 5` となる。Gap 2 は当初 P0 だったが、Gap 1 の設計確定により合否判定には不要と分かったため P2 へ後退した（[経緯](#gap-2--p2-事実の訂正curation)）。
+番号は識別子であって順位ではない。実施順は優先度に従い、`Gap 1 → Gap 3 → Gap 6 → Gap 4 → Gap 2` となる。Gap 2 は当初 P0 だったが、Gap 1 の設計確定により合否判定には不要と分かったため P2 へ後退した（[経緯](#gap-2--p2-事実の訂正curation)）。
 
-**進捗**: Gap 1・Gap 3・Gap 6 は実装済み。残る Gap 4 は未決の仕様課題2件が解決するまで着手しない（下記）。Gap 2 と Gap 5 は Gap 4 に連なる。Gap 7 と Gap 8 は方針どおり据え置き。
+**進捗**: Gap 1・Gap 3・Gap 6 は実装済み。残る Gap 4 は未決の仕様課題2件が解決するまで着手しない（下記）。Gap 2 は Gap 4 と独立に、判定精度だけを根拠に評価する。Gap 7 と Gap 8 は方針どおり据え置き。
+
+再配布成果物（`THIRD-PARTY-NOTICES`、license bundle）は Gap ではない。[DESIGN の非目標](../DESIGN.md#non-goals)であり、この文書の対象から外れる。番号は識別子なので Gap 5 は欠番のままとし、既存の参照を書き換えない。
 
 ### Gap 1 / P0: fail-closed の逃げ道がなく、既存製品へ導入できない — **設計確定**
 
@@ -97,9 +99,11 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 **現状で起きること**: upstream の typo、deprecated alias、custom string、確認済みの conflict について、「正しい license はこれである」と記録する手段がない。
 
-**Gap 1 の決定による位置付けの変化**: 当初は Gap 1 と対で P0 に置いていたが、**合否判定には不要**であることが分かったため後退させる。ケース1 でもケース2 でも、利用者が必要としているのは「見た、受け入れた」であって「実際の license 値はこれだ」ではない。値が必要になるのは **NOTICE 生成（Gap 5）** であり、curation はそこで初めて必須になる。
+**Gap 1 の決定による位置付けの変化**: 当初は Gap 1 と対で P0 に置いていたが、**未解決の証拠については合否判定に不要**であることが分かったため後退させた。ケース1 でもケース2 でも、利用者が必要としているのは「見た、受け入れた」であって「実際の license 値はこれだ」ではない。
 
-したがって curation は Gap 5 の前提として扱い、単独では実装しない。baseline の schema version があるので、同じファイルに action を足す形で後から拡張できる。使う予定のフィールドを今から予約しない。
+**再配布成果物を非目標にしたことによる再評価**: 以前はこの Gap を NOTICE 生成の前提として保持していたが、その下流成果物が消えたため、curation は**判定精度だけを根拠に評価する**。そして判定精度の観点では、baseline が吸収できない経路が一つ残る。upstream が事実と異なる license を宣言し、それが allow-list 外へ正規化される場合である。status は `matched` になるので baseline は承認できず（`matched` は承認対象外）、allow-list へ足せば本当に禁止したい license まで通る。**利用者に打つ手がない偽陽性**であり、「curation は合否に不要」という当初の結論はこの一点だけ成立しない。
+
+したがって curation は「未解決の証拠を前へ進める手段」ではなく「upstream が誤っているときの唯一の出口」として位置付ける。実装は、この経路が実例として観測されてから着手する。baseline の schema version があるので、同じファイルに action を足す形で後から拡張できる。使う予定のフィールドを今から予約しない。
 
 **着手時に引き継ぐ設計**: [参照文書 D 軸](../references/existing_license_checkers.md#d-止まったときに前へ進める)の三つの出口（事実の訂正 / 結論の確定 / 方針の例外）を混ぜないこと。guard は既存の candidate `Raw` と GitHub License API の blob SHA（`SourceRepositoryEvidence.LicenseSha`）で成立する。registry evidence 側だけ `CacheKeySha256`（cache key であって内容 hash ではない）なので content hash の追加が要る。適用後も original candidates と curation 前の reconciliation を report に残す。
 
@@ -121,9 +125,9 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 **約束**: Design Goal 2 — 独立に帰属可能な証拠源から結論を組み立てる。
 
-**現状で起きること**: registry declaration が空で GitHub でもない package は unknown のまま解決できない。原文を持たないため、後続の NOTICE も作れない。
+**現状で起きること**: registry declaration が空で GitHub でもない package は unknown のまま解決できない。
 
-**この Gap を 4 位に置く理由**: 価値は高いが、**C 軸（同じ入力なら同じ結果）を壊す唯一の項目**であり、支払いが他より一桁重い。[参照文書 C 軸](../references/existing_license_checkers.md#c-同じ入力なら同じ結果)の実測が示すとおり、本文同定は二つの新しい依存を必ず連れてくる。
+**この Gap を 4 位に置く理由**: 価値は高いが、**C 軸（同じ入力なら同じ結果）を壊す唯一の項目**であり、支払いが他より一桁重い。再配布成果物を非目標にしたことで、この Gap の正当化は「unknown が実際に何件減るか」だけになった。原文そのものを保持する価値は無く、**SPDX ID へ同定できないなら取得する理由もない**。取得と同定は分離せず、一体で判断する。[参照文書 C 軸](../references/existing_license_checkers.md#c-同じ入力なら同じ結果)の実測が示すとおり、本文同定は二つの新しい依存を必ず連れてくる。
 
 1. **同定データの版**: 現在の SPDX データは識別子のみで 22KB。SPDX template matching は本文つきデータを要求し、nuget-license はこれを版固定の外部データ package として取り込んでいる。ol では [spdx.md の data resolution 契約](../specs/spdx.md)（明示ディレクトリ → user-managed → bundled）が `licenses.json` と `exceptions.json` しか要求していないため、**user-managed SPDX を選ぶと matcher が動かないか劣化する**。これは `decision-versioned-spdx` の違反であり、matcher の追加ではなくデータ契約の変更である。[Ol.Update](../../../src/Ol.Update) の生成範囲と native AOT の配布サイズにも波及する。
 2. **package のローカル実体化**: 参照実装で本文を読めるものはすべて installed / restore 済みを前提とする。ol の入力は resolved graph なので、**同じ入力ファイルから機械ごとに異なる evidence が出る**状態へ移る。ORT だけが provenance を固定して自分で download することで解決している。
@@ -139,16 +143,6 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 **performance / safety 制約**: inventory 確定後に artifact target を deduplicate / provenance identity ごとに一度だけ読む / network・archive・file scan を別々の bounded concurrency にする / archive entry 数・展開後 byte 数・1 file byte 数・探索 depth を上限化する / zip slip・symlink escape・path traversal を拒否する / 同一内容は matcher 結果を再利用する / completion order ではなく component order で merge する / report への本文埋め込みは明示 option とする。
 
 **完了条件**: declaration unknown の fixture が local legal file から SPDX ID を得る / declared と detected が異なる fixture は conflict を保持する / no-match と multiple-match が確定 license に昇格しない / 同一 artifact を参照する複数 component で読み取りが一度だけ行われる / malicious・oversized archive が bounded failure として evidence に残る / **artifact を取得できる機械とできない機械の差が契約どおりに表れる**。
-
-### Gap 5 / P2: 検査の次（NOTICE / license bundle）
-
-DESIGN は約束していないため、これは拡張である。Gap 4 の原文と Gap 1 の classification を前提とする。原文が無い状態で SPDX template から汎用本文を補うと、package が付した追加条項や NOTICE を落とすため既定動作にしてはならない。
-
-最初の成果物は決定的な `THIRD-PARTY-NOTICES` に限定する。component identity、version、source URL、effective expression、取得した原文と provenance、原文が無い component の明示的な incomplete list を含める。
-
-**設計上の分岐点**: `OR` のライセンス選択は **policy 評価の副産物ではなく利用者の入力**とする。allow-list を満たした branch を「選択された license」として成果物へ書くと、ol が利用者に代わって選択を宣言することになり、DESIGN の非目標（法的判断をしない）に抵触する。ORT と同じく license choice は明示的な設定入力として受け取る。
-
-**完了条件**: 同じ結果と policy から byte-stable な artifact ができる / name collision・同一 text の dedup・改行と encoding を決定的に扱う / 原文と生成した区切りを区別できる / missing text・custom terms・multiple license・未選択の `OR` を黙って落とさない / artifact の各項目から scan evidence へ逆引きできる。
 
 ### Gap 6 / P2: dependency path 付き SARIF — **実装済み**
 
@@ -191,11 +185,14 @@ Gap 4 の bounded な root legal-file evidence を実運用し、解決できな
 
 - ~~永続入力 schema を canonical JSON と兼ねるか分けるか~~ — **兼ねる**と決定（Gap 3）。canonical JSON は既に `schemaVersion` と `metadata.input` を持ち、二枚に割る理由がなかった。writer と reader が別 assembly にあるため、CLI レベルの round-trip test で同期を保証する。
 
+**解消済み**（再配布成果物を DESIGN の非目標にした結果、課題自体が消滅した）:
+
+- ~~license choice の位置~~ — `OR` のどの branch を選ぶかは ol が答えを持つべき問いではない。成果物を作らない以上、選択を記録する場所も必要ない。
+
 **未決（いずれも Gap 4 系。着手前に決める）**:
 
 1. **SPDX データ契約**。Gap 4 の前提。本文 / template を SPDX データの一部とするなら、[spdx.md](../specs/spdx.md) の resolution 順序、user-managed データの要件、`Ol.Update` の生成範囲、配布サイズ目標をまとめて改訂する。現在の生成データは識別子のみで 22KB、参照実装（nuget-license）は SPDX list version に固定した本文つき外部データ package を要求する。
 2. **host 依存 evidence の契約**。artifact を取得できない機械での結果表現。`--skip-enrichment` に相当する明示的な無効化手段を持つか。golden report への影響。
-3. **license choice の位置**。policy 評価の出力ではなく入力とする（Gap 5）。curation（Gap 2）と同時に決める。
 
 ## ロードマップ
 
@@ -231,26 +228,26 @@ Gap 4 の bounded な root legal-file evidence を実運用し、解決できな
 3. content hash cache と決定的 matcher。
 4. Phase B の diff で unknown 減少を計測する。
 
-### Phase D: 成果物と coverage
+### Phase D: 判定精度と coverage
 
-NOTICE / license bundle は、未決の仕様課題 3（license choice を入力とする）と Gap 2（curation）を前提とする。原文が取れていても「この conflict の結論はこれ」を記録できなければ、成果物に書く license 値が定まらない。あわせて fixture と実例に基づく ecosystem 追加を行う。file-level scan は Phase C で解決しない実例が十分に集まった場合だけ個別計画にする。
+curation（Gap 2）は、upstream の誤りが baseline で吸収できない実例が観測されてから着手する。あわせて fixture と実例に基づく ecosystem 追加を行う。file-level scan は Phase C で解決しない実例が十分に集まった場合だけ個別計画にする。
 
 ## 今回のスコープに入れないもの
 
 - 参照ツールにあっても取り込まない挙動: package metadata の先頭 license だけを使う / SPDX expression を raw string の exact・substring 比較で判定する / confidence の低い heuristic を確定 license として evidence へ上書きする / package・file ごとに無制限の task を作る / installed directory を inventory の正とし resolved graph を失う / ORT の plugin platform と rule DSL を規模ごと模倣する。
-- Phase A / B の期間中に着手しないもの（据え置き継続）: curation（事実の訂正）、deny-list、policy file、本文同定、NOTICE 生成、file-level scan、新規 ecosystem。
+- 再配布成果物の生成（`THIRD-PARTY-NOTICES`、attribution file、license bundle）。据え置きではなく[非目標](../DESIGN.md#non-goals)である。成果物を作るには `OR` の選択、観測していない本文の代替、網羅性の主張が要り、いずれも観測から導けない。
+- Phase A / B の期間中に着手しないもの（据え置き継続）: curation（事実の訂正）、deny-list、policy file、本文同定、file-level scan、新規 ecosystem。
 - `--allow-licenses` の入力補助（`osi-approved` のような SPDX 由来グループ）。SPDX データに無い「コピーレフトでない」という分類が本当に欲しいものであり、それは ol による法的判断になる。OSI 承認には GPL が含まれるため、SPDX 由来のグループはケース2 を解かない。
 - 外部プロセス依存（package manager CLI、MSBuild、外部 scanner）の常時要求。単一 native バイナリという配布形態を崩す。
 
 ## 次に作る個別計画
 
-Phase A・B が完了したため、**次は実装計画ではなく仕様決定**である。残る Gap 4 / 2 / 5 はすべて未決の仕様課題に依存しており、決めないまま着手すると再現性（C 軸）と配布サイズ（F 軸）を毀損する。
+Phase A・B が完了したため、**次は実装計画ではなく仕様決定**である。残る Gap 4 は未決の仕様課題に依存しており、決めないまま着手すると再現性（C 軸）と配布サイズ（F 軸）を毀損する。Gap 2 は仕様課題に依存しないが、実例が出るまで着手しない。
 
 **決めるべき順序**:
 
 1. **SPDX データ契約**（未決 1）。本文 / template を SPDX データの一部にするかどうか。ここが「する」に決まらない限り、Gap 4 の matcher は成立しない。決めるべきは、bundled に本文を持つのか、外部データを版固定で参照するのか、そして user-managed SPDX を選んだときの matcher の挙動をどう定義するか。現在の 22KB という配布実績に対して桁が変わるため、単一 native バイナリという方針との折り合いを先に付ける。
 2. **host 依存 evidence の契約**（未決 2）。artifact をローカルに持たない機械での結果表現。これが決まると Gap 4 の完了条件が書ける。
-3. **license choice の位置**（未決 3）と curation（Gap 2）。Gap 5 の前提。
 
 **先に測るべきこと**: Gap 4 に着手する前に、`ol diff` で「本文取得を足したら unknown が実際に何件減るか」を計測できる状態になった。投資判断はこの実測に基づいて行う。順序を Gap 3 → Gap 4 にしたのはこのためである。
 

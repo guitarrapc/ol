@@ -24,6 +24,7 @@ Ol does not provide legal advice or claim legal certainty. It preserves uncertai
 
 - Inferring legal compatibility or obligations beyond configured policy.
 - Guessing a precise SPDX identifier from vague natural-language license text.
+- Producing redistribution artifacts such as `THIRD-PARTY-NOTICES`, attribution files, or license bundles. Ol reports what the evidence says; assembling a redistributable artifact from that report requires electing one branch of an `OR`, substituting text Ol did not observe, and asserting completeness, none of which follow from observation. Ol therefore stops at the explainable report and its policy verdict.
 - Treating any single evidence source as universally authoritative.
 - Hiding unknown, ambiguous, invalid, conflicting, deprecated, or unavailable evidence.
 - Performing policy enforcement inside evidence collection and reconciliation.

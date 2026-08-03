@@ -9,7 +9,7 @@ Implemented and specified in [cli.md](specs/cli.md#contract-policy-checks): allo
 Remaining:
 
 - Consider richer policy categories such as `deny`, `review`, `notice_required`, `source_disclosure_required`, and `copyleft_review`. Deliberately deferred: a deny-list reduces noise rather than adding detection, and the baseline removes noise more precisely. Deny becomes meaningful only if acknowledgement is ever widened beyond unresolved components, where it would act as a floor that acknowledgement cannot cross.
-- License curation, that is recording that an upstream claim is factually wrong and what the correct license is. Not needed for a pass/fail verdict, which acknowledgement already covers; it becomes required for NOTICE generation, which needs an actual license value.
+- License curation, that is recording that an upstream claim is factually wrong and what the correct license is. Not needed for a pass/fail verdict, which acknowledgement already covers, so it is justified only by verdict accuracy: acknowledgement can record that a reviewer accepted unresolved evidence, but not that the evidence itself is wrong.
 - Per-package policy exceptions with owner and expiry, distinct from factual correction.
 
 ## Additional Output Formats
@@ -22,12 +22,6 @@ Remaining:
 - CycloneDX output with scan results attached through properties or annotations.
 - CSV output for spreadsheet review.
 - HTML output for human-readable audit reports.
-
-## Redistribution Artifacts
-
-- Generate `THIRD-PARTY-NOTICES` from resolved facts, including original license text, attribution, and an explicit list of components whose text could not be obtained.
-- Requires license text collection and license curation first. Generic text substituted from an SPDX template would drop package-specific additional terms, so it must never be a default.
-- An `OR` license choice must be an explicit user input, never inferred from which branch an allow-list happened to accept. Recording an inferred choice would make Ol assert a licensing election on the user's behalf.
 
 ## SBOM Generation
 

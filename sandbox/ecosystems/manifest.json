@@ -52,7 +52,7 @@
     {
       "ecosystem": "cocoapods",
       "path": "sandbox/ecosystems/cocoapods",
-      "package": "Moya",
+      "package": "Alamofire",
       "metadataSource": "package-registry"
     }
   ]

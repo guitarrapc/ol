@@ -410,7 +410,16 @@ Phase 13では次の境界に確定した。
 - parserは`Utf8JsonReader`、source-backed `Utf8Slice`、pooled node/index/component/edge buffer、span-based open addressingを使い、DOM、LINQ、transient string、per-node collection allocationを持たない。reader depthを64に制限し、malformed/pathological nestingをbounded errorにする。
 - 3 warmup / 15 iteration / 3 launchの1 component focused benchmarkではMaven ingestionが5.529 µs / 672 B、同じowned result floorが172.8 ns / 672 Bで、parser固有のmanaged allocationは0 Bだった。
 
-### Phase 14: Swift SwiftPM / CocoaPods resolved input調査
+### Phase 14: Swift SwiftPM / CocoaPods resolved input調査（完了）
+
+Phase 14では次の境界に確定した。
+
+- SwiftPMは`Package.resolved` schema version 2/3を採用し、numeric `version`と`pins`をcontent signature、exact filename `Package.resolved`をdirectory discoveryとして`swift-package-resolved` handlerが所有する。`Package.swift`を評価せず、lockが提供しないroot、product、target条件、package edge、direct/transitiveを推測しない。
+- pinのsemantic version、branch、revisionの順にresolved display versionを選び、exact revisionとsource kindをsparse occurrence variant、v3 `originHash`をcontext variantとして保持する。userinfoを含まないHTTP(S) remote source-control locationだけをstandard `pkg:swift/{host}/{namespace}/{repository}@{resolved}`とrepository hintへ投影し、local/registry pinやcredentialをremote package identityへ流出させない。
+- CocoaPodsはCocoaPods Coreが生成するresolved `Podfile.lock` YAMLを採用し、`PODS`、`DEPENDENCIES`、`COCOAPODS`を非JSON detector、exact filename `Podfile.lock`をdirectory discoveryとして`cocoapods-lock` handlerが所有する。subspecをlicense単位のroot podへ集約し、root dependencyとpod dependencyからdirect/transitiveおよびedgeを構築する。
+- CocoaPods Coreはplatform別spec dependencyを`PODS`へmergeするため、lockfileから失われたPodfile target/platform contextを復元しない。1つのunspecified contextにCocoaPods versionだけを保持し、host platformを推測しない。
+- `SPEC REPOS`がpublic trunk/CDN/Specs repositoryを証明するpodだけに`pkg:cocoapods/{name}@{version}`を付与する。private spec repoと`EXTERNAL SOURCES`はpublic podに偽装せずsource-kind variantだけを保持する。public podは公式CocoaPods CDNのversion-specific podspec JSONからlicense type、source repository、commit/tag/branchをenrichする。
+- parserはsource-backed `Utf8Slice`、pooled pin/pod/dependency/repository/graph buffer、bounded `Utf8JsonReader`とUTF-8 YAML line readerを使い、DOM、LINQ、regex、per-item collection allocationを持たない。3 warmup / 15 iteration / 1 launchの1 component focused benchmarkではSwiftPM ingestionが1.799 µs / 664 B（owned result floor 55.21 ns / 664 B）、CocoaPods ingestionが1.004 µs / 560 B（owned result floor 47.67 ns / 560 B）で、両parser固有のmanaged allocationは0 Bだった。
 
 ### Phase 15: Dart Pub input調査
 

@@ -1275,6 +1275,36 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithSwiftAndCocoaPodsDirectory_CombinesResolvedAppleInputs()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-apple-locks-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Package.resolved"), Path.Combine(temporaryDirectory, "Package.resolved"));
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Podfile.lock"), Path.Combine(temporaryDirectory, "Podfile.lock"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var metadata = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(metadata.GetProperty("kind").GetString()).IsEqualTo("package-manager");
+            await Assert.That(metadata.GetProperty("format").GetString()).IsEqualTo("collection");
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(4);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithRepeatedNpmPackageLocks_CombinesSparseVariantIndexes()
     {
         var root = FindRepositoryRoot();

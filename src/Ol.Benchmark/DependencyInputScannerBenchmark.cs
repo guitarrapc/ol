@@ -229,6 +229,37 @@ public class DependencyInputScannerBenchmark
         }
         """);
 
+    private readonly byte[] swiftPackageResolved = Encoding.UTF8.GetBytes(
+        """
+        {
+          "version": 3,
+          "originHash": "benchmark",
+          "pins": [
+            {
+              "identity": "swift-log",
+              "kind": "remoteSourceControl",
+              "location": "https://github.com/apple/swift-log.git",
+              "state": { "revision": "aaaaaaaa", "version": "1.6.2" }
+            }
+          ]
+        }
+        """);
+
+    private readonly byte[] cocoaPodsLock = Encoding.UTF8.GetBytes(
+        """
+        PODS:
+          - Moya (15.0.0)
+
+        DEPENDENCIES:
+          - Moya (~> 15.0)
+
+        SPEC REPOS:
+          trunk:
+            - Moya
+
+        COCOAPODS: 1.16.2
+        """);
+
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
@@ -276,6 +307,13 @@ public class DependencyInputScannerBenchmark
     private readonly Utf8Slice bundlerRackVersion = "3.1.8";
     private readonly Utf8Slice mavenName = "library";
     private readonly Utf8Slice mavenVersion = "2.0.0";
+    private readonly Utf8Slice swiftProjectOrigin = "Package.resolved";
+    private readonly Utf8Slice swiftName = "swift-log";
+    private readonly Utf8Slice swiftVersion = "1.6.2";
+    private readonly Utf8Slice swiftRepository = "https://github.com/apple/swift-log.git";
+    private readonly Utf8Slice cocoaPodsProjectOrigin = "Podfile.lock";
+    private readonly Utf8Slice cocoaPodsName = "Moya";
+    private readonly Utf8Slice cocoaPodsVersion = "15.0.0";
 
     [Benchmark]
     public DependencyInventory ScanCycloneDx()
@@ -353,6 +391,18 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory ScanMavenDependencyTreeInventory()
     {
         return DependencyInputScanner.Scan(mavenDependencyTree, spdx, expectedFormat: ScanInputFormat.MavenDependencyTree);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanSwiftPackageResolvedInventory()
+    {
+        return DependencyInputScanner.Scan(swiftPackageResolved, spdx, expectedFormat: ScanInputFormat.SwiftPackageResolved);
+    }
+
+    [Benchmark]
+    public DependencyInventory ScanCocoaPodsLockInventory()
+    {
+        return DependencyInputScanner.Scan(cocoaPodsLock, spdx, expectedFormat: ScanInputFormat.CocoaPodsLock);
     }
 
     [Benchmark]
@@ -522,6 +572,54 @@ public class DependencyInputScannerBenchmark
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
             [new DependencyOccurrenceVariant(0, Utf8Slice.FromOwnedBytes("scope=compile"u8.ToArray()))]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateSwiftPackageResolvedInventoryResultFloor()
+    {
+        var component = new ScanComponent(
+            swiftName,
+            swiftVersion,
+            default,
+            "swift",
+            DependencyType.Unknown,
+            LicenseStatus.Unknown,
+            Utf8Slice.FromOwnedBytes("pkg:swift/github.com/apple/swift-log@1.6.2"u8.ToArray()),
+            Utf8Slice.FromOwnedBytes("swift-log@1.6.2"u8.ToArray()),
+            default,
+            [],
+            [],
+            swiftRepository);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(swiftProjectOrigin, default, default, default, default, Utf8Slice.FromOwnedBytes("origin-hash=benchmark"u8.ToArray()))],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [],
+            [new DependencyOccurrenceVariant(0, Utf8Slice.FromOwnedBytes("kind=remoteSourceControl;revision=aaaaaaaa"u8.ToArray()))]);
+    }
+
+    [Benchmark]
+    public DependencyInventory CreateCocoaPodsLockInventoryResultFloor()
+    {
+        var component = new ScanComponent(
+            cocoaPodsName,
+            cocoaPodsVersion,
+            default,
+            "cocoapods",
+            DependencyType.Direct,
+            LicenseStatus.Unknown,
+            Utf8Slice.FromOwnedBytes("pkg:cocoapods/Moya@15.0.0"u8.ToArray()),
+            Utf8Slice.FromOwnedBytes("Moya@15.0.0"u8.ToArray()),
+            default,
+            [],
+            []);
+        return new DependencyInventory(
+            default,
+            [new DependencyResolutionContext(cocoaPodsProjectOrigin, default, default, default, default, Utf8Slice.FromOwnedBytes("cocoapods=1.16.2"u8.ToArray()))],
+            [component],
+            [new DependencyOccurrence(0, 0)],
+            [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)]);
     }
 
     [Benchmark]

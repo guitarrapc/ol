@@ -16,6 +16,7 @@ public static class OlDefaults
         new PackagistPackageMetadataProvider(),
         new RubyGemsPackageMetadataProvider(),
         new MavenPackageMetadataProvider(),
+        new CocoaPodsPackageMetadataProvider(),
     ]);
 
     /// <summary>Parses a package URL using Ol's built-in package metadata providers.</summary>

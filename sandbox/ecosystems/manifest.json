@@ -48,6 +48,12 @@
       "path": "sandbox/ecosystems/maven",
       "package": "org.slf4j/slf4j-api",
       "metadataSource": "package-registry"
+    },
+    {
+      "ecosystem": "cocoapods",
+      "path": "sandbox/ecosystems/cocoapods",
+      "package": "Alamofire",
+      "metadataSource": "package-registry"
     }
   ]
 }

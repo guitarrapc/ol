@@ -175,6 +175,8 @@ Options:
 | PHP | `composer-lock` |
 | Ruby | `bundler-lock` |
 | Java / JVM | `maven-dependency-tree` |
+| Swift (SwiftPM) | `swift-package-resolved` |
+| Swift / Objective-C (CocoaPods) | `cocoapods-lock` |
 
 `--verbose` writes the detected input kind and format to stderr in addition to showing verbose report columns.
 
@@ -714,6 +716,32 @@ Gradle resolved dependency input is not supported directly by ol; generate a Cyc
 
 Gradle does not officially define or provide a machine-readable JSON format for its resolved dependency graph. Its built-in `dependencies` and `dependencyInsight` reports are human-readable output, not a portable input contract.
 
+### Swift / Objective-C
+
+#### SwiftPM
+
+**Resolved SwiftPM input:** Resolve the package graph, then scan `Package.resolved` directly:
+
+```bash
+swift package resolve
+ol scan --input Package.resolved
+ol check --input Package.resolved --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+ol supports `Package.resolved` schema versions 2 and 3 without evaluating `Package.swift`. Each pin retains its resolved version or source revision, source kind, and version 3 origin hash. Because the lockfile does not contain package-to-package edges, dependency type remains unknown. Only credential-free HTTP(S) source-control locations receive canonical `pkg:swift` identities and repository hints; registry, local, and credential-bearing locations are not exposed as remote package identities.
+
+#### CocoaPods
+
+**Resolved CocoaPods input:** Install the pods, then scan `Podfile.lock` directly:
+
+```bash
+pod install
+ol scan --input Podfile.lock
+ol check --input Podfile.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+```
+
+The lockfile `DEPENDENCIES` section identifies direct pods, and resolved pod dependencies provide transitive edges. Subspecs are collapsed into their root pod for package identity and license evaluation. Only pods proven to come from the public trunk, CDN, or Specs repository by `SPEC REPOS` receive `pkg:cocoapods` identities and version-specific license and source enrichment from the CocoaPods CDN. Private-spec and external-source pods retain their source classification without exposing repository URLs or local paths.
+
 ### Dependency files by ecosystem
 
 ol does not resolve package manifests or version ranges itself. It consumes either a resolved graph supported by a direct input adapter or an SBOM whose generator performed the ecosystem-specific resolution. Passing a declaration such as `package.json`, `*.csproj`, `Cargo.toml`, or `pyproject.toml` directly to ol is not supported.
@@ -729,11 +757,13 @@ ol does not resolve package manifests or version ranges itself. It consumes eith
 | Go modules | `go.mod`, `go.sum`, optional `go.work` | Paired `go list -m -json all` and `go mod graph` output | Generate `go-list-modules.json` and `go-mod-graph.txt` together, then pass both files or their directory. ol consumes Go's selected build list instead of running MVS itself. |
 | Java / JVM | Maven Dependency Plugin 3.7+ `dependency:tree` JSON | `maven-dependency-tree.json` | Resolved graph input; version-specific Maven license and source hints are enriched from deps.dev. |
 | Java / JVM | Gradle files and lock state, SBT files | CycloneDX/SPDX JSON SBOM | Gradle does not officially provide a machine-readable resolved-graph JSON format, so direct Gradle input is unsupported; use its CycloneDX generator or a polyglot generator. |
+| Swift / SwiftPM | `Package.swift`, `Package.resolved` | `Package.resolved` schema version 2/3 | Scan the resolved file directly. Pins and source refs are retained; dependency type stays unknown because the lock file has no graph. |
+| Swift / Objective-C / CocoaPods | `Podfile`, `Podfile.lock` | Resolved `Podfile.lock` | Scan the lock directly. Public pod license/source hints are enriched from the exact CocoaPods CDN podspec. |
 | Python | `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Pipfile.lock`, `uv.lock` | CycloneDX/SPDX JSON SBOM, or `python -m pip inspect --local` JSON | Prefer an SBOM generated from the intended environment. Alternatively, generate `pip-inspect.json` and scan it directly; ol consumes installed distributions and does not choose markers, extras, or platform wheels. |
 | PHP / Composer | `composer.json`, `composer.lock` | Paired `composer.json` and `composer.lock`, or CycloneDX/SPDX JSON SBOM | Prefer an SBOM from the locked project. Alternatively, scan the directory containing the pair with `--input-format composer-lock`; ol consumes the lockfile without invoking Composer. |
 | Ruby / Bundler | `Gemfile`, `Gemfile.lock` | CycloneDX/SPDX JSON SBOM, or resolved `Gemfile.lock` | Prefer an SBOM generated from the locked project. Alternatively, scan `Gemfile.lock` directly with `--input`; ol consumes its resolved specs and root dependencies without evaluating `Gemfile`. |
 
-For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, `pip-inspect.json`, `Gemfile.lock`, `maven-dependency-tree.json`, the paired Composer files `composer.json` plus `composer.lock`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
+For direct adapters, directory discovery recognizes only the resolved files listed above: `project.assets.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `cargo-metadata.json`, `pip-inspect.json`, `Gemfile.lock`, `maven-dependency-tree.json`, `Package.resolved`, `Podfile.lock`, the paired Composer files `composer.json` plus `composer.lock`, and the paired Go files `go-list-modules.json` plus `go-mod-graph.txt`. For the remaining ecosystems, [cdxgen](https://github.com/cdxgen/cdxgen) supports recursive multi-language SBOM generation from common lockfiles and project metadata. Ecosystem-native CycloneDX generators are also suitable when they preserve the resolved component identities and dependency graph required by the report.
 
 ### Repositories with multiple package managers
 

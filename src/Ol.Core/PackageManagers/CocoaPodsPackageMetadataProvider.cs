@@ -19,7 +19,6 @@ public sealed class CocoaPodsPackageMetadataProvider : PackageMetadataProvider
     {
         if (!base.TryCreate(purl, out request)
             || request.Namespace.Length != 0
-            || purl.Contains('?', StringComparison.Ordinal)
             || !IsValidName(request.Name))
         {
             request = default;

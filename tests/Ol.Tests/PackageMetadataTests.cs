@@ -543,6 +543,18 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task TryCreate_CocoaPodsPurlWithQualifierOrSubpath_NormalizesRequest()
+    {
+        var qualifierParsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:cocoapods/Moya@15.0.0?repository_url=https%3A%2F%2Fexample.com", out var qualifierRequest);
+        var subpathParsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:cocoapods/Moya@15.0.0#Core", out var subpathRequest);
+
+        await Assert.That(qualifierParsed).IsTrue();
+        await Assert.That(subpathParsed).IsTrue();
+        await Assert.That(qualifierRequest.CacheKey).IsEqualTo("pkg:cocoapods/Moya@15.0.0");
+        await Assert.That(subpathRequest.CacheKey).IsEqualTo("pkg:cocoapods/Moya@15.0.0");
+    }
+
+    [Test]
     public async Task Fetch_MavenVersionResponse_WithMultipleLicenses_DoesNotInventRelationship()
     {
         var handler = new SequenceJsonResponseHandler(

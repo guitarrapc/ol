@@ -55,7 +55,7 @@ try {
             default { $format }
         }
         $report = Join-Path $output "ol.$extension"
-        dotnet $ol scan --input $sbom --format $format --skip-enrichment --quiet --concurrency 4 > $report
+        dotnet $ol scan --input $sbom --format $format --no-external-evidence --quiet --concurrency 4 > $report
         if ($LASTEXITCODE -ne 0) { throw "Ol $format self-scan failed." }
 
         # Normalize to no-BOM UTF-8 with LF newlines so snapshots stay stable across OS/shell.

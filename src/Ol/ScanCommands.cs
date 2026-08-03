@@ -41,9 +41,9 @@ internal sealed class ScanCommands
     /// <param name="sortOrder">Sort order: asc or desc.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="quiet">Suppress stderr summary.</param>
-    /// <param name="refresh">Skip package metadata cache entries.</param>
+    /// <param name="refresh">Ignore cached package metadata and source repository entries and fetch them again.</param>
     /// <param name="cacheDir">Root directory for isolated package-metadata and source-repository caches.</param>
-    /// <param name="skipEnrichment">Use only evidence already present in the dependency input.</param>
+    /// <param name="noExternalEvidence">Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.</param>
     /// <param name="concurrency">Maximum concurrent package metadata lookups.</param>
     /// <param name="retry">Reserved package metadata retry count.</param>
     [Command("scan")]
@@ -60,7 +60,7 @@ internal sealed class ScanCommands
         bool quiet = false,
         bool refresh = false,
         string? cacheDir = null,
-        bool skipEnrichment = false,
+        bool noExternalEvidence = false,
         int concurrency = 0,
         int retry = 1)
     {
@@ -74,13 +74,13 @@ internal sealed class ScanCommands
             return 1;
         }
 
-        if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, skipEnrichment, concurrency, retry, out var preparation, out var preparationError))
+        if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, concurrency, retry, out var preparation, out var preparationError))
         {
             Console.Error.WriteLine(preparationError);
             return 1;
         }
 
-        if (!ScanExecution.TryExecute(preparation, refresh, skipEnrichment, format == ReportFormat.Json, out var completed, out var executionError))
+        if (!ScanExecution.TryExecute(preparation, refresh, noExternalEvidence, format == ReportFormat.Json, out var completed, out var executionError))
         {
             Console.Error.WriteLine(executionError);
             return 1;
@@ -175,9 +175,20 @@ internal sealed class ScanCommands
             Console.Error.WriteLine("Scan summary");
             Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid; {summary.Error} error");
             Console.Error.WriteLine($"  Findings: {summary.WarningCount} warning{(summary.WarningCount == 1 ? string.Empty : "s")}; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
-            Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems");
-            Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
-            Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
+
+            // Zeroed collection counters read as "nothing was needed" rather than "nothing was attempted",
+            // which is the whole point of this mode, so state the absence instead of printing the counters.
+            if (noExternalEvidence)
+            {
+                Console.Error.WriteLine("  External evidence: not collected; package registries, source repositories, and their caches were not read (--no-external-evidence)");
+            }
+            else
+            {
+                Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems");
+                Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
+                Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
+            }
+
             Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
             if (dependency is not null and not "")
             {

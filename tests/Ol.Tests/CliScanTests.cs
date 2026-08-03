@@ -58,7 +58,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -87,7 +87,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--skip-enrichment", "--verbose");
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence", "--verbose");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr.Trim()).IsEqualTo("Detected input format: sbom/cyclonedx");
@@ -104,7 +104,7 @@ public sealed class CliScanTests
         var root = FindRepositoryRoot();
         var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
 
-        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "auto", "--format", "json", "--skip-enrichment");
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "auto", "--format", "json", "--no-external-evidence");
 
         await Assert.That(exitCode).IsEqualTo(0);
         await Assert.That(stderr).IsEmpty();
@@ -128,7 +128,7 @@ public sealed class CliScanTests
             foreach (var item in cases)
             {
                 await File.WriteAllTextAsync(inputPath, item.Input, Encoding.UTF8);
-                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment");
+                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence");
 
                 await Assert.That(exitCode).IsEqualTo(1);
                 await Assert.That(stdout).IsEmpty();
@@ -150,7 +150,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "cyclonedx", "--format", "json", "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "cyclonedx", "--format", "json", "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -180,7 +180,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "spdx", "--format", "json", "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "spdx", "--format", "json", "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -214,7 +214,7 @@ public sealed class CliScanTests
             {
                 var arguments = new string[item.Arguments.Length + 2];
                 arguments[0] = "scan";
-                arguments[1] = "--skip-enrichment";
+                arguments[1] = "--no-external-evidence";
                 item.Arguments.CopyTo(arguments, 2);
                 var (exitCode, stdout, stderr) = await RunOlAsync(root, arguments);
 
@@ -238,7 +238,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "cyclonedx", "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "cyclonedx", "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
@@ -704,7 +704,7 @@ public sealed class CliScanTests
             await Assert.That(stdout).Contains("MIT 2");
             await Assert.That(stderr).Contains("License results: 3 displayed components");
 
-            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--group-by", "license", "--format", "json", "--skip-enrichment");
+            var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--group-by", "license", "--format", "json", "--no-external-evidence");
 
             await Assert.That(jsonExitCode).IsEqualTo(0);
             await Assert.That(jsonStderr).IsEmpty();
@@ -936,7 +936,7 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithSkipEnrichment_ProducesDeterministicSbomOnlyReport()
+    public async Task Scan_WithNoExternalEvidence_ProducesDeterministicSbomOnlyReport()
     {
         var root = FindRepositoryRoot();
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-sbom-only-{Guid.NewGuid():N}");
@@ -948,7 +948,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--skip-enrichment", "--cache-dir", unusedCacheFile);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "json", "--no-external-evidence", "--cache-dir", unusedCacheFile);
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -962,6 +962,48 @@ public sealed class CliScanTests
         finally
         {
             Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithNoExternalEvidence_ReportsUncollectedEvidenceInsteadOfZeroCounters()
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-no-external-summary-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [ { "name": "example", "licenses": [ { "license": { "id": "MIT" } } ] } ] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).Contains("  External evidence: not collected; package registries, source repositories, and their caches were not read");
+            await Assert.That(stderr).DoesNotContain("(full scan)");
+            await Assert.That(stderr).DoesNotContain("GitHub auth");
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithRemovedSkipEnrichmentOption_RejectsUnknownOption()
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-removed-option-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(sbomPath, """{ "bomFormat": "CycloneDX", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment");
+
+            await Assert.That(exitCode).IsNotEqualTo(0);
+            await Assert.That(stdout + stderr).Contains("'--skip-enrichment' is not recognized");
+        }
+        finally
+        {
+            File.Delete(sbomPath);
         }
     }
 
@@ -1035,7 +1077,7 @@ public sealed class CliScanTests
 
             foreach (var item in cases)
             {
-                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", item.Option, item.Value);
+                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", item.Option, item.Value);
 
                 await Assert.That(exitCode).IsEqualTo(1);
                 await Assert.That(stdout).IsEmpty();
@@ -1057,7 +1099,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
@@ -1082,7 +1124,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--spdx-data", spdxDirectory);
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
@@ -1090,7 +1132,7 @@ public sealed class CliScanTests
 
             await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "licenses.json"), "{}", Encoding.UTF8);
             await File.WriteAllTextAsync(Path.Combine(spdxDirectory, "exceptions.json"), """{ "exceptions": [] }""", Encoding.UTF8);
-            var (invalidExitCode, invalidStdout, invalidStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment", "--spdx-data", spdxDirectory);
+            var (invalidExitCode, invalidStdout, invalidStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--spdx-data", spdxDirectory);
 
             await Assert.That(invalidExitCode).IsEqualTo(1);
             await Assert.That(invalidStdout).IsEmpty();
@@ -1104,12 +1146,12 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithNuGetAssetsAndSkipEnrichment_AcceptsRegisteredInput()
+    public async Task Scan_WithNuGetAssetsAndNoExternalEvidence_AcceptsRegisteredInput()
     {
         var root = FindRepositoryRoot();
         var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
 
-        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "json");
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--no-external-evidence", "--format", "json");
 
         await Assert.That(exitCode).IsEqualTo(0);
         using var report = JsonDocument.Parse(stdout);
@@ -1122,12 +1164,12 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithNpmPackageLockDirectoryAndSkipEnrichment_PreservesInventoryVariants()
+    public async Task Scan_WithNpmPackageLockDirectoryAndNoExternalEvidence_PreservesInventoryVariants()
     {
         var root = FindRepositoryRoot();
         var inputDirectory = Path.Combine(AppContext.BaseDirectory, "Fixtures");
 
-        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputDirectory, "--input-format", "npm-package-lock", "--skip-enrichment", "--format", "json");
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputDirectory, "--input-format", "npm-package-lock", "--no-external-evidence", "--format", "json");
 
         await Assert.That(exitCode).IsEqualTo(0);
         await Assert.That(stderr).IsEmpty();
@@ -1156,7 +1198,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -1183,7 +1225,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
@@ -1207,7 +1249,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -1231,7 +1273,7 @@ public sealed class CliScanTests
         var root = FindRepositoryRoot();
         var input = Path.Combine(AppContext.BaseDirectory, "Fixtures", "pip-inspect.json");
 
-        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", input, "--skip-enrichment", "--format", "json");
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", input, "--no-external-evidence", "--format", "json");
 
         await Assert.That(exitCode).IsEqualTo(0);
         await Assert.That(stderr).IsEmpty();
@@ -1254,7 +1296,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -1285,7 +1327,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -1319,7 +1361,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--input-format", "npm-package-lock", "--skip-enrichment", "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--input-format", "npm-package-lock", "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -1354,7 +1396,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment", "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -1394,7 +1436,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--skip-enrichment", "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -1421,7 +1463,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
@@ -1446,7 +1488,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--input", projectDirectory, "--skip-enrichment", "--format", "json");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--input", projectDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stderr).IsEmpty();
@@ -1474,7 +1516,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--input", assetsPath, "--skip-enrichment");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--input", assetsPath, "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
@@ -1492,8 +1534,8 @@ public sealed class CliScanTests
         var root = FindRepositoryRoot();
         var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
 
-        var first = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "json");
-        var second = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "json");
+        var first = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--no-external-evidence", "--format", "json");
+        var second = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--no-external-evidence", "--format", "json");
 
         await Assert.That(first.ExitCode).IsEqualTo(0);
         await Assert.That(second.ExitCode).IsEqualTo(0);
@@ -1521,8 +1563,8 @@ public sealed class CliScanTests
         var root = FindRepositoryRoot();
         var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
 
-        var text = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "text", "--quiet");
-        var markdown = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-enrichment", "--format", "markdown", "--quiet");
+        var text = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--no-external-evidence", "--format", "text", "--quiet");
+        var markdown = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--no-external-evidence", "--format", "markdown", "--quiet");
 
         await Assert.That(text.ExitCode).IsEqualTo(0);
         await Assert.That(text.Stdout).StartsWith("Input: package-manager/nuget-assets");

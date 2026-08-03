@@ -29,7 +29,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxAsync("MIT");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
             await Assert.That(result.Stderr).IsEmpty();
@@ -48,7 +48,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxWithRootAsync(rootLicense: null, dependencyLicense: "MIT");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
             await Assert.That(result.Stderr).IsEmpty();
@@ -68,7 +68,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxWithRootAsync(rootLicense: "GPL-3.0-only", dependencyLicense: null);
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(1);
             await Assert.That(result.Stderr).IsEmpty();
@@ -91,7 +91,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxRootOnlyAsync();
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
             await Assert.That(result.Stderr).IsEmpty();
@@ -111,7 +111,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(1);
             await Assert.That(result.Stderr).IsEmpty();
@@ -133,7 +133,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxAsync(null);
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(1);
             await Assert.That(result.Stderr).IsEmpty();
@@ -157,7 +157,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxAsync("MIT");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", allowLicenses, "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", allowLicenses, "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stdout).IsEmpty();
@@ -174,7 +174,7 @@ public sealed class CliCheckTests
     {
         var root = FindRepositoryRoot();
 
-        var result = await RunOlAsync(root, "check", "--input", "missing.json", "--skip-enrichment");
+        var result = await RunOlAsync(root, "check", "--input", "missing.json", "--no-external-evidence");
 
         await Assert.That(result.ExitCode).IsEqualTo(2);
         await Assert.That(result.Stdout).IsEmpty();
@@ -189,7 +189,7 @@ public sealed class CliCheckTests
         await File.WriteAllTextAsync(inputPath, "{ malformed", Encoding.UTF8);
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stdout).IsEmpty();
@@ -208,7 +208,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxAsync("MIT");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--dependency", "direct", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--dependency", "direct", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stdout).Contains("Argument '--dependency' is not recognized.");
@@ -235,7 +235,7 @@ public sealed class CliCheckTests
         await File.WriteAllTextAsync(second, """{ "lockfileVersion": 3, "packages": { "": { "name": "second" }, "node_modules/b": { "name": "b", "version": "1.0.0", "license": "MIT" } } }""", Encoding.UTF8);
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", first, "--input", second, "--allow-licenses", "MIT", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", first, "--input", second, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
             await Assert.That(result.Stderr).IsEmpty();
@@ -255,8 +255,8 @@ public sealed class CliCheckTests
         var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
         try
         {
-            var update = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath, "--update-baseline");
-            var rerun = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath);
+            var update = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", baselinePath, "--update-baseline");
+            var rerun = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", baselinePath);
 
             await Assert.That(update.ExitCode).IsEqualTo(0);
             await Assert.That(rerun.ExitCode).IsEqualTo(0);
@@ -279,7 +279,7 @@ public sealed class CliCheckTests
         var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath, "--update-baseline");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", baselinePath, "--update-baseline");
             var baseline = await File.ReadAllTextAsync(baselinePath);
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
@@ -302,7 +302,7 @@ public sealed class CliCheckTests
         var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath, "--update-baseline");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", baselinePath, "--update-baseline");
 
             await Assert.That(result.ExitCode).IsEqualTo(1);
             await Assert.That(result.Stdout).Contains("license is not allowed");
@@ -324,8 +324,8 @@ public sealed class CliCheckTests
         var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
         try
         {
-            await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath, "--update-baseline");
-            var afterBump = await RunOlAsync(root, "check", "--input", bumpedPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath);
+            await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", baselinePath, "--update-baseline");
+            var afterBump = await RunOlAsync(root, "check", "--input", bumpedPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", baselinePath);
 
             await Assert.That(afterBump.ExitCode).IsEqualTo(1);
             await Assert.That(afterBump.Stdout).Contains("Acknowledged by baseline: 0 components.");
@@ -347,7 +347,7 @@ public sealed class CliCheckTests
         var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath);
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", baselinePath);
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stdout).IsEmpty();
@@ -368,7 +368,7 @@ public sealed class CliCheckTests
         await File.WriteAllTextAsync(baselinePath, "{ \"schemaVersion\": 99, \"acknowledged\": [] }", Encoding.UTF8);
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", baselinePath);
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", baselinePath);
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stdout).IsEmpty();
@@ -388,7 +388,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxAsync("MIT");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--update-baseline");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--update-baseline");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stdout).IsEmpty();
@@ -409,8 +409,8 @@ public sealed class CliCheckTests
         var second = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
         try
         {
-            await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", first, "--update-baseline");
-            await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment", "--baseline", second, "--update-baseline");
+            await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", first, "--update-baseline");
+            await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", second, "--update-baseline");
 
             await Assert.That(await File.ReadAllBytesAsync(first)).IsEquivalentTo(await File.ReadAllBytesAsync(second));
         }
@@ -429,7 +429,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxAsync("MIT");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
             await Assert.That(result.Stdout).DoesNotContain("Acknowledged by baseline");
@@ -448,10 +448,10 @@ public sealed class CliCheckTests
         var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
         try
         {
-            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
             await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
             await File.WriteAllTextAsync(reportPath, scan.Stdout);
-            var fromInput = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
+            var fromInput = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
             var fromReport = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
 
             await Assert.That(fromReport.ExitCode).IsEqualTo(fromInput.ExitCode);
@@ -473,7 +473,7 @@ public sealed class CliCheckTests
         var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
         try
         {
-            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
             await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
             await File.WriteAllTextAsync(reportPath, scan.Stdout);
             var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
@@ -498,7 +498,7 @@ public sealed class CliCheckTests
         var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
         try
         {
-            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
             await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
             await File.WriteAllTextAsync(reportPath, scan.Stdout);
             var update = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", baselinePath, "--update-baseline");
@@ -560,8 +560,8 @@ public sealed class CliCheckTests
         var inputPath = await WriteNpmLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
         try
         {
-            var withoutDev = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-enrichment");
-            var withDev = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment");
+            var withoutDev = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+            var withDev = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--no-external-evidence");
 
             await Assert.That(withoutDev.ExitCode).IsEqualTo(1).Because(withoutDev.Stderr);
             await Assert.That(withDev.ExitCode).IsEqualTo(0).Because(withDev.Stderr);
@@ -582,7 +582,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteNpmLockAsync(devLicense: "MIT", runtimeLicense: "CC-BY-4.0");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(1).Because(result.Stderr);
             await Assert.That(result.Stdout).Contains("License check failed: 1 violation.");
@@ -610,7 +610,7 @@ public sealed class CliCheckTests
         await File.WriteAllTextAsync(second, """{ "lockfileVersion": 3, "packages": { "": { "name": "second" }, "node_modules/b": { "name": "b", "version": "1.0.0", "license": "MIT" } } }""", Encoding.UTF8);
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", first, "--input", second, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", first, "--input", second, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
             await Assert.That(result.Stdout).Contains("Allowed by development policy: 1 component.");
@@ -628,7 +628,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteNpmLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "Unknown-License", "--skip-enrichment");
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "Unknown-License", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stdout).IsEmpty();
@@ -648,11 +648,11 @@ public sealed class CliCheckTests
         var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
         try
         {
-            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-enrichment", "--format", "Json");
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
             await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
             await File.WriteAllTextAsync(reportPath, scan.Stdout);
 
-            var fromInput = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--skip-enrichment");
+            var fromInput = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--no-external-evidence");
             var fromReport = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0");
 
             await Assert.That(fromInput.ExitCode).IsEqualTo(0).Because(fromInput.Stderr);

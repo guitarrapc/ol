@@ -24,7 +24,7 @@ internal static class ScanExecution
         string? inputFormat,
         string? spdxData,
         string? cacheDir,
-        bool skipEnrichment,
+        bool noExternalEvidence,
         int concurrency,
         int retry,
         out ScanPreparation preparation,
@@ -64,7 +64,7 @@ internal static class ScanExecution
         }
 
         var cacheDirectories = default(CacheDirectories);
-        if (!skipEnrichment)
+        if (!noExternalEvidence)
         {
             try
             {
@@ -111,7 +111,7 @@ internal static class ScanExecution
     public static bool TryExecute(
         in ScanPreparation preparation,
         bool refresh,
-        bool skipEnrichment,
+        bool noExternalEvidence,
         bool includeHash,
         out CompletedScanExecution completed,
         out string error)
@@ -134,7 +134,7 @@ internal static class ScanExecution
             var enrichedComponents = scanResult.Components;
             PackageMetadataSummary packageMetadataSummary;
             SourceRepositorySummary sourceRepositorySummary;
-            if (skipEnrichment)
+            if (noExternalEvidence)
             {
                 packageMetadataSummary = new PackageMetadataSummary(0, 0, 0, 0, 0, 0, preparation.Concurrency, preparation.Retry);
                 sourceRepositorySummary = new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", preparation.Concurrency, preparation.Retry);

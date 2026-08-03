@@ -22,9 +22,9 @@ internal sealed class CheckCommands
     /// <param name="inputFormat">Input format assertion; defaults to auto detection.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="verbose">Include input detection diagnostics.</param>
-    /// <param name="refresh">Skip package metadata cache entries.</param>
+    /// <param name="refresh">Ignore cached package metadata and source repository entries and fetch them again.</param>
     /// <param name="cacheDir">Root directory for isolated package-metadata and source-repository caches.</param>
-    /// <param name="skipEnrichment">Use only evidence already present in the dependency input.</param>
+    /// <param name="noExternalEvidence">Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.</param>
     /// <param name="concurrency">Maximum concurrent package metadata lookups.</param>
     /// <param name="retry">Reserved package metadata retry count.</param>
     /// <param name="baseline">Baseline file acknowledging already reviewed unresolved components.</param>
@@ -41,7 +41,7 @@ internal sealed class CheckCommands
         bool verbose = false,
         bool refresh = false,
         string? cacheDir = null,
-        bool skipEnrichment = false,
+        bool noExternalEvidence = false,
         int concurrency = 0,
         int retry = 1,
         string? baseline = null,
@@ -67,7 +67,7 @@ internal sealed class CheckCommands
         }
 
         var reportPath = string.IsNullOrWhiteSpace(report) ? null : report;
-        if (reportPath is not null && (input is { Length: > 0 } || inputFormat is not null || refresh || skipEnrichment || cacheDir is not null))
+        if (reportPath is not null && (input is { Length: > 0 } || inputFormat is not null || refresh || noExternalEvidence || cacheDir is not null))
         {
             Console.Error.WriteLine("Invalid license policy: --report cannot be combined with input or evidence-collection options.");
             return 2;
@@ -111,7 +111,7 @@ internal sealed class CheckCommands
         }
         else
         {
-            if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, skipEnrichment, concurrency, retry, out var preparation, out var preparationError))
+            if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, concurrency, retry, out var preparation, out var preparationError))
             {
                 Console.Error.WriteLine(preparationError);
                 return 2;
@@ -123,7 +123,7 @@ internal sealed class CheckCommands
                 return 2;
             }
 
-            if (!ScanExecution.TryExecute(preparation, refresh, skipEnrichment, includeHash: false, out var completed, out var executionError))
+            if (!ScanExecution.TryExecute(preparation, refresh, noExternalEvidence, includeHash: false, out var completed, out var executionError))
             {
                 Console.Error.WriteLine(executionError);
                 return 2;

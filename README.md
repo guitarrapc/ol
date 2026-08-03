@@ -62,7 +62,7 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ol diff --previous before.json --current after.json
 
 # Use only license evidence already present in the input
-ol scan --input bom.cdx.json --skip-enrichment
+ol scan --input bom.cdx.json --no-external-evidence
 ```
 
 In GitHub Actions, [guitarrapc/setup-ol](https://github.com/guitarrapc/setup-ol) installs the latest ol release and adds it to `PATH`:
@@ -103,21 +103,21 @@ Usage: scan [options...] [-h|--help] [--version]
 Scan a resolved dependency input.
 
 Options:
-  --input <string[]?>            Repeatable resolved dependency input files or directories. [Default: null]
-  --input-format <string?>       Input format assertion; defaults to auto detection. [Default: null]
-  --format <ReportFormat>        Output format: text, json, or markdown. [Default: Text]
-  --verbose                      Include verbose columns and input detection diagnostics.
-  --dependency <string?>         Dependency output filter: root,direct,transitive,unknown. [Default: null]
-  --group-by <string?>           Group output by fields: name,version,license,ecosystem,dependency,status. [Default: null]
-  --sort <string>                Sort keys: ecosystem,name,version,license,dependency,status,purl. [Default: @"ecosystem,name,version"]
-  --sort-order <SortOrder>       Sort order: asc or desc. [Default: Asc]
-  --spdx-data <string?>          Directory containing licenses.json and exceptions.json. [Default: null]
-  --quiet                        Suppress stderr summary.
-  --refresh                      Skip package metadata cache entries.
-  --cache-dir <string?>          Root directory for isolated package-metadata and source-repository caches. [Default: null]
-  --skip-enrichment              Use only evidence already present in the dependency input.
-  --concurrency <int>            Maximum concurrent package metadata lookups. [Default: 0]
-  --retry <int>                  Reserved package metadata retry count. [Default: 1]
+  --input <string[]?>         Repeatable resolved dependency input files or directories. [Default: null]
+  --input-format <string?>    Input format: auto (default), cyclonedx, spdx, or nuget-assets. [Default: null]
+  --format <ReportFormat>     Output format: text, json, or markdown. [Default: Text]
+  --verbose                   Include verbose columns and input detection diagnostics.
+  --dependency <string?>      Dependency output filter: root,direct,transitive,unknown. [Default: null]
+  --group-by <string?>        Group output by fields: name,version,license,ecosystem,dependency,status. [Default: null]
+  --sort <string>             Sort keys: ecosystem,name,version,license,dependency,status,purl. [Default: @"ecosystem,name,version"]
+  --sort-order <SortOrder>    Sort order: asc or desc. [Default: Asc]
+  --spdx-data <string?>       Directory containing licenses.json and exceptions.json. [Default: null]
+  --quiet                     Suppress stderr summary.
+  --refresh                   Ignore cached package metadata and source repository entries and fetch them again.
+  --cache-dir <string?>       Root directory for isolated package-metadata and source-repository caches. [Default: null]
+  --no-external-evidence      Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
+  --concurrency <int>         Maximum concurrent package metadata lookups. [Default: 0]
+  --retry <int>               Reserved package metadata retry count. [Default: 1]
 ```
 
 ```bash
@@ -127,21 +127,21 @@ Usage: check [options...] [-h|--help] [--version]
 Check a resolved dependency input against allowed SPDX licenses.
 
 Options:
-  --input <string[]?>           Repeatable resolved dependency input files or directories. [Default: null]
-  --allow-licenses <string?>    Comma-separated SPDX License Identifiers. [Default: null]
-  --allow-dev-licenses <string?>  Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
-  --input-format <string?>      Input format assertion; defaults to auto detection. [Default: null]
-  --spdx-data <string?>         Directory containing licenses.json and exceptions.json. [Default: null]
-  --verbose                     Include input detection diagnostics.
-  --refresh                     Skip package metadata cache entries.
-  --cache-dir <string?>         Root directory for isolated package-metadata and source-repository caches. [Default: null]
-  --skip-enrichment             Use only evidence already present in the dependency input.
-  --concurrency <int>           Maximum concurrent package metadata lookups. [Default: 0]
-  --retry <int>                 Reserved package metadata retry count. [Default: 1]
-  --baseline <string?>          Baseline file acknowledging already reviewed unresolved components. [Default: null]
-  --update-baseline             Rewrite the baseline file as a complete snapshot.
-  --report <string?>            Persisted JSON scan report to evaluate instead of scanning an input. [Default: null]
-  --sarif <string?>             Write violations as SARIF to this file for CI code scanning. [Default: null]
+  --input <string[]?>               Repeatable resolved dependency input files or directories. [Default: null]
+  --allow-licenses <string?>        Comma-separated SPDX License Identifiers. [Default: null]
+  --allow-dev-licenses <string?>    Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
+  --input-format <string?>          Input format assertion; defaults to auto detection. [Default: null]
+  --spdx-data <string?>             Directory containing licenses.json and exceptions.json. [Default: null]
+  --verbose                         Include input detection diagnostics.
+  --refresh                         Ignore cached package metadata and source repository entries and fetch them again.
+  --cache-dir <string?>             Root directory for isolated package-metadata and source-repository caches. [Default: null]
+  --no-external-evidence            Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
+  --concurrency <int>               Maximum concurrent package metadata lookups. [Default: 0]
+  --retry <int>                     Reserved package metadata retry count. [Default: 1]
+  --baseline <string?>              Baseline file acknowledging already reviewed unresolved components. [Default: null]
+  --update-baseline                 Rewrite the baseline file as a complete snapshot.
+  --report <string?>                Persisted JSON scan report to evaluate instead of scanning an input. [Default: null]
+  --sarif <string?>                 Write violations as SARIF to this file for CI code scanning. [Default: null]
 ```
 
 ```bash
@@ -236,13 +236,13 @@ Exit codes are suitable for CI:
 | `1` | One or more policy violations were found. |
 | `2` | The check could not be completed because of invalid configuration, input, evidence collection, or output. |
 
-Use only evidence already present in the input when network enrichment is intentionally disabled:
+Evaluate only the license evidence declared in the input when external collection is intentionally disabled:
 
 ```bash
-ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0 --skip-enrichment
+ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0 --no-external-evidence
 ```
 
-Because unresolved licenses fail closed, `--skip-enrichment` can produce violations that a full enriched check would resolve.
+`--no-external-evidence` contacts no package registry and no source repository, and reads neither of their caches. Because unresolved licenses fail closed, it can produce violations that a check with external evidence would resolve.
 
 #### Adopting `check` on an existing project
 
@@ -821,7 +821,7 @@ Yes. The preferred workflow is a repository-wide SBOM. ol can also discover seve
 
 ### Does ol need network access?
 
-By default, ol enriches input evidence with package metadata and bounded GitHub License API lookups. Use `--skip-enrichment` to rely only on evidence already present in the input. Unresolved components remain visible in `scan` and fail closed in `check`.
+By default, ol collects external evidence: package registry metadata and bounded GitHub License API lookups, both cached locally. Use `--no-external-evidence` to report only the license evidence declared in the input; no registry, no source repository, and no cache is read. Unresolved components remain visible in `scan` and fail closed in `check`.
 
 ### How do I avoid GitHub API rate limits in CI?
 

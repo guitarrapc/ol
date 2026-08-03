@@ -29,7 +29,7 @@ $samples = @(
 $results = foreach ($sample in $samples) {
     $inputPath = Join-Path $PSScriptRoot $sample.Input
     $outputPath = Join-Path $outputDirectory "$($sample.Name).json"
-    dotnet $olAssembly scan --input $inputPath --skip-enrichment --format json --quiet > $outputPath
+    dotnet $olAssembly scan --input $inputPath --no-external-evidence --format json --quiet > $outputPath
     if ($LASTEXITCODE -ne 0) {
         throw "Sample '$($sample.Name)' failed with exit code $LASTEXITCODE."
     }
@@ -47,7 +47,7 @@ $results = foreach ($sample in $samples) {
 }
 
 $collectionOutputPath = Join-Path $outputDirectory "collection.json"
-dotnet $olAssembly scan --input $PSScriptRoot --skip-enrichment --format json --quiet > $collectionOutputPath
+dotnet $olAssembly scan --input $PSScriptRoot --no-external-evidence --format json --quiet > $collectionOutputPath
 if ($LASTEXITCODE -ne 0) {
     throw "Mixed package-manager collection failed with exit code $LASTEXITCODE."
 }

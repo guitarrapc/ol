@@ -520,6 +520,22 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Fetch_CocoaPodsPodspecWithLongName_UsesCorrectShard()
+    {
+        var name = new string('a', 200);
+        var handler = new SequenceJsonResponseHandler("""{ "license": "MIT" }""");
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var parsed = OlDefaults.TryCreatePackageMetadataRequest($"pkg:cocoapods/{name}@1.0.0", out var request);
+        await Assert.That(parsed).IsTrue();
+        await client.FetchAsync(request);
+
+        await Assert.That(handler.RequestUris).IsEquivalentTo([
+            $"https://cdn.cocoapods.org/Specs/8/8/7/{name}/1.0.0/{name}.podspec.json",
+        ]);
+    }
+
+    [Test]
     public async Task TryCreate_CocoaPodsPurlWithNamespaceOrInvalidName_RejectsRequest()
     {
         await Assert.That(OlDefaults.TryCreatePackageMetadataRequest("pkg:cocoapods/team/Moya@15.0.0", out _)).IsFalse();

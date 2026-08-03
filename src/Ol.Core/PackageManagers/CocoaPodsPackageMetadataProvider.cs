@@ -1,4 +1,5 @@
 ﻿using Ol.Core.PackageMetadata;
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -8,6 +9,8 @@ namespace Ol.Core.PackageManagers;
 /// <summary>Provides version-specific public CocoaPods podspec metadata.</summary>
 public sealed class CocoaPodsPackageMetadataProvider : PackageMetadataProvider
 {
+    private const int MaxStackNameBytes = 512;
+
     private static readonly Uri BaseUri = new("https://cdn.cocoapods.org/Specs/");
 
     public override string Ecosystem => "cocoapods";
@@ -27,18 +30,35 @@ public sealed class CocoaPodsPackageMetadataProvider : PackageMetadataProvider
 
     public override Uri CreateEndpoint(PackageMetadataRequest request)
     {
-        var hash = MD5.HashData(Encoding.UTF8.GetBytes(request.Name));
-        var name = Uri.EscapeDataString(request.Name);
-        return new(
-            BaseUri,
-            string.Concat(
-                Nibble(hash[0] >> 4), "/",
-                Nibble(hash[0] & 0x0f), "/",
-                Nibble(hash[1] >> 4), "/",
-                name, "/",
-                Uri.EscapeDataString(request.Version), "/",
-                name,
-                ".podspec.json"));
+        var maximumByteCount = Encoding.UTF8.GetMaxByteCount(request.Name.Length);
+        byte[]? rented = null;
+        Span<byte> utf8 = maximumByteCount <= MaxStackNameBytes
+            ? stackalloc byte[MaxStackNameBytes]
+            : (rented = ArrayPool<byte>.Shared.Rent(maximumByteCount));
+        try
+        {
+            var byteCount = Encoding.UTF8.GetBytes(request.Name, utf8);
+            Span<byte> hash = stackalloc byte[MD5.HashSizeInBytes];
+            MD5.HashData(utf8[..byteCount], hash);
+            var name = Uri.EscapeDataString(request.Name);
+            return new(
+                BaseUri,
+                string.Concat(
+                    Nibble(hash[0] >> 4), "/",
+                    Nibble(hash[0] & 0x0f), "/",
+                    Nibble(hash[1] >> 4), "/",
+                    name, "/",
+                    Uri.EscapeDataString(request.Version), "/",
+                    name,
+                    ".podspec.json"));
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
+        }
     }
 
     public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)

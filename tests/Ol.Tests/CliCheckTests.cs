@@ -19,6 +19,9 @@ public sealed class CliCheckTests
         await Assert.That(result.Stdout).Contains("--allow-licenses <string?>");
         await Assert.That(result.Stdout).Contains("--exclude-packages <string?>");
         await Assert.That(result.Stdout).Contains("--input <string[]?>");
+        await Assert.That(result.Stdout).Contains("auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock");
+        await Assert.That(result.Stdout).Contains("Maximum concurrent package metadata and source repository lookups.");
+        await Assert.That(result.Stdout).Contains("Retry count for package registry and GitHub License API requests.");
         await Assert.That(result.Stdout).DoesNotContain("--dependency");
         await Assert.That(result.Stdout).DoesNotContain("--format");
     }

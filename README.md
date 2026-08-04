@@ -104,7 +104,7 @@ Scan a resolved dependency input.
 
 Options:
   --input <string[]?>                   Repeatable resolved dependency input files or directories. [Default: null]
-  --input-format <string?>              Input format: auto (default), cyclonedx, spdx, or nuget-assets. [Default: null]
+  --input-format <string?>              Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock. [Default: null]
   --format <ReportFormat>               Output format: text, json, or markdown. [Default: Text]
   --verbose                             Include verbose columns and input detection diagnostics.
   --dependency <string?>                Dependency output filter: root,direct,transitive,unknown. [Default: null]
@@ -117,8 +117,8 @@ Options:
   --cache-dir <string?>                 Root directory for isolated package-metadata and source-repository caches. [Default: null]
   --no-external-evidence                Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
   --skip-evidence-packages <string?>    Comma-separated package URL prefixes whose external evidence is never collected. [Default: null]
-  --concurrency <int>                   Maximum concurrent package metadata lookups. [Default: 0]
-  --retry <int>                         Reserved package metadata retry count. [Default: 1]
+  --concurrency <int>                   Maximum concurrent package metadata and source repository lookups. [Default: 0]
+  --retry <int>                         Retry count for package registry and GitHub License API requests. [Default: 1]
 ```
 
 ```bash
@@ -132,15 +132,15 @@ Options:
   --allow-licenses <string?>            Comma-separated SPDX License Identifiers. [Default: null]
   --allow-dev-licenses <string?>        Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
   --exclude-packages <string?>          Comma-separated package URL prefixes whose components are not evaluated. [Default: null]
-  --input-format <string?>              Input format assertion; defaults to auto detection. [Default: null]
+  --input-format <string?>              Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock. [Default: null]
   --spdx-data <string?>                 Directory containing licenses.json and exceptions.json. [Default: null]
   --verbose                             Include input detection diagnostics.
   --refresh                             Ignore cached package metadata and source repository entries and fetch them again.
   --cache-dir <string?>                 Root directory for isolated package-metadata and source-repository caches. [Default: null]
   --no-external-evidence                Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
   --skip-evidence-packages <string?>    Comma-separated package URL prefixes whose external evidence is never collected. [Default: null]
-  --concurrency <int>                   Maximum concurrent package metadata lookups. [Default: 0]
-  --retry <int>                         Reserved package metadata retry count. [Default: 1]
+  --concurrency <int>                   Maximum concurrent package metadata and source repository lookups. [Default: 0]
+  --retry <int>                         Retry count for package registry and GitHub License API requests. [Default: 1]
   --baseline <string?>                  Baseline file acknowledging already reviewed unresolved components. [Default: null]
   --update-baseline                     Rewrite the baseline file as a complete snapshot.
   --report <string?>                    Persisted JSON scan report to evaluate instead of scanning an input. [Default: null]

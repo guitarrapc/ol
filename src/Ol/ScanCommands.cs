@@ -32,7 +32,7 @@ internal sealed class ScanCommands
     /// Scan a resolved dependency input.
     /// </summary>
     /// <param name="input">Repeatable resolved dependency input files or directories.</param>
-    /// <param name="inputFormat">Input format: auto (default), cyclonedx, spdx, or nuget-assets.</param>
+    /// <param name="inputFormat">Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock.</param>
     /// <param name="format">Output format: text, json, or markdown.</param>
     /// <param name="verbose">Include verbose columns and input detection diagnostics.</param>
     /// <param name="dependency">Dependency output filter: root,direct,transitive,unknown.</param>
@@ -45,8 +45,8 @@ internal sealed class ScanCommands
     /// <param name="cacheDir">Root directory for isolated package-metadata and source-repository caches.</param>
     /// <param name="noExternalEvidence">Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.</param>
     /// <param name="skipEvidencePackages">Comma-separated package URL prefixes whose external evidence is never collected.</param>
-    /// <param name="concurrency">Maximum concurrent package metadata lookups.</param>
-    /// <param name="retry">Reserved package metadata retry count.</param>
+    /// <param name="concurrency">Maximum concurrent package metadata and source repository lookups.</param>
+    /// <param name="retry">Retry count for package registry and GitHub License API requests.</param>
     [Command("scan")]
     public int Scan(
         [InputPathsParser] string[]? input = null,

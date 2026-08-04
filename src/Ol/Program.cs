@@ -10,6 +10,13 @@ if (CommandGroupHelp.TryShow(args))
     return;
 }
 
+if (!CommandLineRouting.TryValidate(args, out var routingError))
+{
+    ConsoleApp.LogError(routingError);
+    Environment.ExitCode = 1;
+    return;
+}
+
 if (args.Length >= 3
     && string.Equals(args[0], "cache", StringComparison.OrdinalIgnoreCase)
     && string.Equals(args[1], "clear", StringComparison.OrdinalIgnoreCase)

@@ -1,3 +1,5 @@
+using ConsoleAppFramework;
+
 namespace Ol.Internals;
 
 internal static class CommandGroupHelp
@@ -42,7 +44,7 @@ internal static class CommandGroupHelp
             return false;
         }
 
-        Console.WriteLine(help);
+        ConsoleApp.Log(help);
         return true;
     }
 }

@@ -47,7 +47,7 @@ internal sealed class SpdxCommands
     /// </summary>
     /// <param name="version">Version to activate.</param>
     [Command("use")]
-    public void Use(string version)
+    public void Use([Argument] string version)
     {
         SpdxStore.Use(version);
         Console.WriteLine($"active: {version}");

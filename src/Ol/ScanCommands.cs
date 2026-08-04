@@ -50,7 +50,7 @@ internal sealed class ScanCommands
     [Command("scan")]
     public int Scan(
         [InputPathsParser] string[]? input = null,
-        string? inputFormat = null,
+        string inputFormat = "auto",
         ReportFormat format = ReportFormat.Text,
         bool verbose = false,
         string? dependency = null,

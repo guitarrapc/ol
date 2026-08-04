@@ -69,10 +69,11 @@ ranking の前提になるため、推測ではなく登録済みの実体で確
 **採用した解**: 追加する概念を一つに絞り、**ol が生成する baseline** だけを入れる。policy file、profile、classification、deny-list、scope policy はいずれも採用しない。仕様は [cli.md の baseline 契約](../specs/cli.md#contract-policy-baseline)に確定済み。
 
 ```bash
-ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+ol scan --input . --format json > ol-report.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
-これは不変。ケース1 は今日と 1 文字も変わらない。ケース2 だけが `--baseline` と `--update-baseline` の 2 ステップになる。
+通常の評価と baseline 更新は、どちらも同じ canonical report を入力にする。ケース2 だけが `--baseline` と `--update-baseline` を追加する。
 
 **確定した規則と、その理由**:
 
@@ -111,13 +112,13 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 **約束**: DESIGN は「同じ事実 report を、依存を再 scan したり証拠を再収集したりせずに、異なる policy で評価できる」と書いていたが、実装が追いついていなかった。
 
-**確定した設計判断**: **canonical JSON をそのまま入力契約にした。**（未決だった「schema 一枚か二枚か」の結論）。report JSON は既に `schemaVersion` と `metadata.input` を持っており、二枚に割る理由がなかった。利点は二つある。利用者が既に持っている report をそのまま policy 入力にできること、そして出力 schema と入力 schema が乖離し得ないこと。writer は `Ol`、reader は `Ol.Core` にあるため、[`Check_WithReport_ReachesSameVerdictAsScanningTheInput`](../../../tests/Ol.Tests/CliCheckTests.cs) が両者の同期を CLI レベルで保証する。
+**確定した設計判断**: **canonical JSON をそのまま入力契約にした。**（未決だった「schema 一枚か二枚か」の結論）。report JSON は既に `schemaVersion` と `metadata.input` を持っており、二枚に割る理由がなかった。利点は二つある。利用者が既に持っている report をそのまま policy 入力にできること、そして出力 schema と入力 schema が乖離し得ないこと。`check` はこの report を必須入力とし、収集経路を持たない。scan が生成した report を check が評価できることは [`CliCheckTests`](../../../tests/Ol.Tests/CliCheckTests.cs) で CLI レベルに検証する。
 
 **過大主張しなかったこと**: 「network なしで再評価できる」は cache により既に成立していた。実際の利得は parse コスト、cache dir を持ち回れない環境での可搬性、registry の時間変化からの隔離、そして **diff**（本命）である。
 
 実装: [`ScanReportReader`](../../../src/Ol.Core/Reporting/ScanReportReader.cs)、[`ScanReportDiff`](../../../src/Ol.Core/Reporting/ScanReportDiff.cs)、[`DiffCommands`](../../../src/Ol/DiffCommands.cs)。仕様は [cli.md](../specs/cli.md#contract-policy-report-input) と [cli.md の diff](../specs/cli.md#contract-diff)。
 
-**確認できた挙動**: 同じ永続結果と policy から `--input` 経由と同一の判定・同一の stdout を得る / schema version 不整合・破損・grouped report は exit 1 / report 入力時は input parsing も network request も行わない / added・removed・version-changed・status-changed・license-changed・evidence-changed・policy-changed を区別する / diff の順序が決定的で JSON も byte 安定。
+**確認できた挙動**: scan が生成した永続結果を異なる policy で再評価できる / schema version 不整合・破損・grouped report は exit 1 / check は input parsing も network request も行わない / added・removed・version-changed・status-changed・license-changed・evidence-changed・policy-changed を区別する / diff の順序が決定的で JSON も byte 安定。
 
 `evidence-changed` は baseline と同じ fingerprint から導出しており、「結論は同じだが証拠が動いた」を検出する。
 

@@ -16,7 +16,7 @@ public sealed class SarifOutputTests
         var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--no-external-evidence", "--sarif", sarifPath);
+            var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--sarif", sarifPath);
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
 
             var run = document.RootElement.GetProperty("runs")[0];
@@ -45,7 +45,7 @@ public sealed class SarifOutputTests
         var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
         try
         {
-            await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--no-external-evidence", "--sarif", sarifPath);
+            await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--sarif", sarifPath);
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
 
             var result = document.RootElement.GetProperty("runs")[0].GetProperty("results")[0];
@@ -112,7 +112,7 @@ public sealed class SarifOutputTests
         var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--no-external-evidence", "--sarif", sarifPath);
+            var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--sarif", sarifPath);
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
 
             var results = document.RootElement.GetProperty("runs")[0].GetProperty("results");
@@ -135,7 +135,7 @@ public sealed class SarifOutputTests
         var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--no-external-evidence", "--sarif", sarifPath);
+            var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--sarif", sarifPath);
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
@@ -155,7 +155,7 @@ public sealed class SarifOutputTests
         var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--no-external-evidence", "--sarif", sarifPath);
+            var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--sarif", sarifPath);
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
@@ -176,7 +176,7 @@ public sealed class SarifOutputTests
         var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--no-external-evidence", "--baseline", baselinePath, "--update-baseline", "--sarif", sarifPath);
+            var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--baseline", baselinePath, "--update-baseline", "--sarif", sarifPath);
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
@@ -196,7 +196,7 @@ public sealed class SarifOutputTests
         var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
         try
         {
-            await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--no-external-evidence", "--sarif", sarifPath);
+            await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--sarif", sarifPath);
             var text = await File.ReadAllTextAsync(sarifPath);
 
             await Assert.That(text).DoesNotContain(Path.GetTempPath().Replace("\\", "\\\\"));
@@ -217,7 +217,7 @@ public sealed class SarifOutputTests
         var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
         try
         {
-            var result = await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--no-external-evidence", "--sarif", sarifPath);
+            var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--sarif", sarifPath);
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
             var run = document.RootElement.GetProperty("runs")[0];
 
@@ -245,7 +245,7 @@ public sealed class SarifOutputTests
         var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
         try
         {
-            await RunOlAsync(root, "check", "--input", input, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--no-external-evidence", "--sarif", sarifPath);
+            await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--sarif", sarifPath);
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
             var run = document.RootElement.GetProperty("runs")[0];
 
@@ -342,6 +342,23 @@ public sealed class SarifOutputTests
             """;
         await File.WriteAllTextAsync(path, json, Encoding.UTF8);
         return path;
+    }
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunCheckWorkflowAsync(string root, string input, params string[] checkArguments)
+    {
+        var scan = await RunOlAsync(root, "scan", "--input", input, "--no-external-evidence", "--format", "Json");
+        if (scan.ExitCode != 0) return scan;
+
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
+            return await RunOlAsync(root, ["check", "--report", reportPath, .. checkArguments]);
+        }
+        finally
+        {
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)

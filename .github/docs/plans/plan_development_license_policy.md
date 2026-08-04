@@ -23,7 +23,8 @@ dev scope の依存を検査対象から除外する方法は採らない。依�
 通常の allow-list とは別に、入力が development scope だけからの到達を明示できる依存へ適用する追加 allow-list を設ける。
 
 ```text
-ol check --input package-lock.json \
+ol scan --input package-lock.json --format json > ol-report.json
+ol check --report ol-report.json \
   --allow-licenses MIT,Apache-2.0,BSD-3-Clause \
   --allow-dev-licenses CC-BY-4.0,LGPL-2.1-only
 ```
@@ -142,11 +143,9 @@ per-component 集約は max-merge で表現できる（順序 `none < Developmen
 
 `Runtime` と `Development` の両方が集約された状態は、公開 enum を増やさず集約中の mixed state として扱える。最終判定は `DevelopmentOnly` ではない。
 
-## live 評価と persisted report
+## persisted report 評価
 
-live `check --input` では、reconciled `components` が `inventory.Components` と index で 1:1 に対応し、`inventory.Occurrences` の `ComponentIndex` も同じ index を指す。したがって occurrence usage を per-component へ集約し、そのまま policy へ渡せる。**初期スコープ（npm/pnpm の live `--input`）は schema 変更を要さない。**
-
-persisted `check --report`（Slice 4 で実装）は、当初想定した `inventoryComponentIndex` による display↔inventory mapping ではなく、**per-component usage を top-level component に直接保存する**方式を採った。usage は表示 component と一緒に sort を通って永続化されるため、index mapping も Resolve の再実行も不要で最小構成になる。
+`check` は canonical report だけを評価する。`scan` が reconciled `components` と `inventory.Components` の対応を使って occurrence usage を per-component に集約し、top-level componentへ直接保存する。当初想定した `inventoryComponentIndex` によるdisplay↔inventory mappingは不要になった。usageは表示componentと一緒にsortを通って永続化されるため、`check`でindex mappingやResolveを再実行しない。
 
 - `scan --format json` は書き出し前に `DependencyUsageResolver.Resolve` で per-component usage を求め、view の sort と同じ順序で並べ替えて各 top-level component に `usage`（`development`/`runtime`、Unknown は省略）を書く。usage capability の無い inventory・非 JSON 形式では何も書かない（0B）。
 - reader は `usage` を `ScanReport.ComponentUsages`（components と平行配列）へ復元する。`usage` を持たない component は `Unknown`。
@@ -223,15 +222,15 @@ root の `require` と `require-dev` を別 owner（`-1`/`-2`）として読み�
 
 `packages-dev` を単独根拠にせず graph の production 到達で確認する。runtime package を bucket 移動だけで `Development` にできない（不整合 error になる）ことを negative fixture で固定した。`DependencyType`（`require`/`require-dev` 両方を depth 0 に seed）と edge projection は不変。
 
-### Slice 4: persisted report と parity（実装済み）
+### Slice 4: persisted report policy evaluation（実装済み）
 
-report へ per-component usage を保存し、`check --report --allow-dev-licenses` を `--input` と一致させた（上記「live 評価と persisted report」参照）。`inventoryComponentIndex` は不要と判明したため採用せず、per-component 保存で最小化した。
+report へ per-component usage を保存し、report専用の`check --report --allow-dev-licenses`がscan時のresolver usageを再計算せず評価できるようにした（上記「persisted report 評価」参照）。`inventoryComponentIndex` は不要と判明したため採用せず、per-component 保存で最小化した。
 
 SARIF policy allowance も実装した。`--allow-dev-licenses` で許可された component は違反ではないので SARIF `results` にせず、`runs[].properties.developmentPolicyAllowances`（identity・license・`policySource`）へ機械可読に記録する。policy の `Evaluate` は件数ではなく許可 component の index 配列を返すよう変更し（dev allow-list が無ければ pooled rent もしない＝option 省略時 0B 不変）、renderer は許可が 1 件以上のときだけ run-level `properties` を書く。
 
 仕様文書には確定した WHAT/WHY と実装で判明した lessons learned を残し、配列構築や lookup の詳細 HOW は移さない。cli.md / README を更新済み。
 
-- **lessons learned**: top-level `components` は既定 sort（`ecosystem,name,version`）で並ぶため inventory 順と一致しない。usage を「表示 component と同じ配列」に載せて sort を通すことで、display↔inventory の index mapping を一切持たずに parity を得られた。usage capability の無い入力・非 JSON 形式では usage 配列を確保せず 0B を維持する。multi-component report の violation **順序** parity（live=inventory 順 vs report=表示順）は本 slice の usage とは別の既存事項。
+- **lessons learned**: top-level `components` は既定 sort（`ecosystem,name,version`）で並ぶため inventory 順と一致しない。usage を「表示 component と同じ配列」に載せて sort を通すことで、display↔inventory の index mapping を一切持たずにpolicy評価できる。usage capability の無い入力・非 JSON 形式では usage 配列を確保せず 0B を維持する。
 
 ### Slice 5a: Yarn（実装したが撤回）
 

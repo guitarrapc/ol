@@ -428,17 +428,18 @@ Logical identifiers and hashes should be used where possible. Token presence may
 
 ## `ol check`
 
-`check` is the policy-enforcement command. It runs the same dependency-input, enrichment, and reconciliation pipeline as `scan` exactly once, then evaluates the completed in-memory result. Policy evaluation does not rescan inputs, repeat registry or source collection, or change `scan` exit behavior.
+`check` is the policy-enforcement command. It evaluates one canonical JSON report previously produced by `scan`; it never parses dependency inputs, collects registry or repository evidence, or reads collection caches. This boundary makes collection failures and policy violations separate CI steps and makes repeated policy evaluation independent of network state.
 
 The initial policy surface is limited to a required allow-list:
 
 ```text
-ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+ol scan --input . --format Json > ol-report.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 `--allow-licenses` is one comma-separated list of SPDX License Identifiers. Surrounding ASCII whitespace is ignored. Matching is case-insensitive and identifiers are normalized to the official casing from the active SPDX data. Empty entries, unknown identifiers, SPDX expressions, exception identifiers, natural-language names, and an empty list are invalid check options. Duplicate identifiers after normalization have no additional effect.
 
-`check` accepts the scan controls needed to produce the completed result: `--input`, `--input-format`, `--spdx-data`, `--cache-dir`, `--refresh`, `--no-external-evidence`, `--skip-evidence-packages`, `--concurrency`, `--retry`, and `--verbose`. It additionally accepts `--exclude-packages`, `--baseline`, and `--update-baseline`, defined below. The initial command does not accept scan view or report controls such as `--dependency`, `--group-by`, `--sort`, or `--format`; policy evaluates every non-root component in the completed result and emits one deterministic text result. A component classified as `root` describes the application or other subject being inspected, so `check` excludes it from allow-list evaluation, baseline generation, violation output, SARIF, and the passing component count. The root remains in the scan result and complete inventory. Components classified as `unknown` remain policy inputs because missing graph evidence must not be interpreted as proof that they are first-party.
+`--report` is required. `check` accepts policy and projection controls: `--allow-licenses`, `--allow-dev-licenses`, `--exclude-packages`, `--spdx-data`, `--verbose`, `--baseline`, `--update-baseline`, and `--sarif`. It does not accept collection controls such as `--input`, `--input-format`, `--cache-dir`, `--refresh`, `--no-external-evidence`, `--skip-evidence-packages`, `--concurrency`, or `--retry`, nor scan view controls such as `--dependency`, `--group-by`, `--sort`, or `--format`. Policy evaluates every non-root component in the report and emits one deterministic text result. A component classified as `root` describes the application or other subject being inspected, so `check` excludes it from allow-list evaluation, baseline generation, violation output, SARIF, and the passing component count. The root remains in the report and complete inventory. Components classified as `unknown` remain policy inputs because missing graph evidence must not be interpreted as proof that they are first-party.
 
 For a component with status `matched`, the normalized SPDX expression is evaluated as a Boolean expression where an allowed license identifier is true and every other license identifier is false:
 
@@ -454,7 +455,8 @@ For example, with `--allow-licenses MIT,Apache-2.0`, `MIT`, `MIT AND Apache-2.0`
 `--allow-dev-licenses` is an optional second comma-separated allow-list, validated by the same rules as `--allow-licenses`, applied only to components the resolver reaches exclusively through a development path. It exists because development tooling routinely pulls transitive licenses that a permissive production allow-list rejects — for example a Vite dev toolchain reaches `caniuse-lite` (`CC-BY-4.0`) — even though those packages never enter a production artifact.
 
 ```text
-ol check --input package-lock.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --allow-dev-licenses CC-BY-4.0
+ol scan --input package-lock.json --format Json > ol-report.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --allow-dev-licenses CC-BY-4.0
 ```
 
 A `matched` component that the primary allow-list rejects is re-evaluated against `primary ∪ development` **only** when its resolver usage is development-only. Usage is aggregated across every occurrence of the component: a single runtime or usage-unknown occurrence keeps the component on the primary allow-list, and package or dependency names are never used to infer development usage. Usage comes only from inputs whose resolver records it: npm `package-lock.json`, pnpm `pnpm-lock.yaml`, the Composer pair, Maven `maven-dependency-tree.json`, and Cargo `cargo-metadata.json`. Each is classified conservatively:
@@ -467,7 +469,7 @@ A `matched` component that the primary allow-list rejects is re-evaluated agains
 
 Inputs without development reachability leave every component usage-unknown, so `--allow-dev-licenses` never relaxes them.
 
-The resolved development usage is persisted per component in the canonical JSON report (a `usage` value of `development` or `runtime`; absent means unknown), so `check --report --allow-dev-licenses` reaches the same verdict as `check --input --allow-dev-licenses`. A report whose components carry no `usage` field is treated as usage-unknown and fails closed under `--allow-dev-licenses`, exactly as an input that cannot express development scope.
+The resolved development usage is persisted per component in the canonical JSON report (a `usage` value of `development` or `runtime`; absent means unknown). A report whose components carry no `usage` field is treated as usage-unknown and fails closed under `--allow-dev-licenses`; `check` does not reconstruct usage from dependency input or network state.
 
 This option is an organization policy statement, not a claim about artifact inclusion: a resolver's development scope does not prove a bundler, code generator, or plugin excludes the package from a production build. Release gates should still check the production artifact or a production SBOM with the primary allow-list alone. When supplied, `check` prints `Allowed by development policy: N components.` — including `0` — so a lost or newly inapplicable exception is visible in CI logs. Omitting the option leaves the verdict, output, and SARIF violation set byte-for-byte unchanged.
 
@@ -476,21 +478,22 @@ This option is an organization policy statement, not a claim about artifact incl
 `--exclude-packages` is one comma-separated list of package URL prefixes. A component whose purl matches one of them is not evaluated at all: it is absent from allow-list evaluation, baseline generation, violation output, SARIF, and the passing component count, exactly as a `root` component is. It remains in the scan result, the complete inventory, and every `scan` report unchanged.
 
 ```text
-ol check --input . --allow-licenses MIT,Apache-2.0 --exclude-packages pkg:nuget/MyCompany.,pkg:npm/@mycompany/
+ol scan --input . --format Json > ol-report.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --exclude-packages pkg:nuget/MyCompany.,pkg:npm/@mycompany/
 ```
 
 The option exists because a resolved graph contains components that are not third-party OSS the allow-list can decide: packages an organization publishes to its own feed, or packages it reviews through a separate process. Such a component usually resolves to `error`, because a private registry returns 404, and `error` is deliberately not acknowledgeable — so without this option the run fails permanently with nothing the user can change.
 
 Ol cannot verify what the prefixes claim, exactly as it cannot verify that a CycloneDX `metadata.component` is the inspected subject. The option therefore states scope, not a license fact or an ownership fact, and Ol does not restrict what a user may place outside their own gate. What Ol owes instead is visibility: the count is always printed, the prefixes are never discovered implicitly, and the scan result still reports every excluded component with its evidence.
 
-Prefixes follow the shared [package URL prefix rules](#contract-purl-prefix); a component with no purl or a casing mismatch stays evaluated, so a mistyped prefix leaves the gate closed rather than open. `--exclude-packages` applies identically to `--report` evaluation, so it changes no report field and needs no report schema support. When supplied, `check` prints `Excluded from evaluation: N components.` — including `0` — so a prefix that stopped matching is visible in CI logs, and `--verbose` additionally reports the match count of each prefix.
+Prefixes follow the shared [package URL prefix rules](#contract-purl-prefix); a component with no purl or a casing mismatch stays evaluated, so a mistyped prefix leaves the gate closed rather than open. `--exclude-packages` changes no report field and needs no report schema support. When supplied, `check` prints `Excluded from evaluation: N components.` — including `0` — so a prefix that stopped matching is visible in CI logs, and `--verbose` additionally reports the match count of each prefix.
 
 Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain, unless an unresolved component is acknowledged by a baseline as defined below. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.
 
-`check` writes its pass result or complete violation list to stdout. Expected option, input, SPDX-data, whole-command evidence-pipeline, and output failures write a concise cause to stderr without a stack trace or partial policy result. A component-level registry or source failure remains evidence in the completed result and is evaluated as a policy violation when it leaves that component unresolved; it is not an exit-1 command failure. Exit codes are:
+`check` writes its pass result or complete violation list to stdout. Expected option, report, SPDX-data, baseline, SARIF, and output failures write a concise cause to stderr without a stack trace or partial policy result. A registry or source failure already recorded in the report is evaluated as evidence and becomes a policy violation when it leaves that component unresolved; `check` does not retry collection. Exit codes are:
 
 - `0`: every non-root component satisfies the allow-list.
-- `1`: the check could not be completed because its syntax, configuration, input, evidence pipeline, or output failed.
+- `1`: the check could not be completed because its syntax, configuration, report, SPDX data, baseline, or output failed.
 - `2`: one or more policy violations were found.
 
 <a id="contract-policy-baseline"></a>
@@ -502,8 +505,8 @@ Failing closed on unresolved evidence is correct, but on its own it makes the co
 A baseline records the unresolved components a reviewer has already seen and accepted, so that only newly unresolved components fail:
 
 ```text
-ol check --input . --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json --update-baseline
-ol check --input . --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json --update-baseline
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json
 ```
 
 `--baseline` names the file explicitly. Ol never discovers a baseline by convention, so the command line alone states what is acknowledged. `--update-baseline` rewrites the file as a complete snapshot of the currently acknowledgeable components; it is not an append, and it requires `--baseline`. Because the snapshot replaces the file, a previous baseline is not read while updating, and an unreadable prior file does not block the rewrite. Hand-removing an entry is therefore not durable, which is intentional: a baseline is a reviewed snapshot to be reduced by fixing evidence or extending the allow-list, not a curated list of decisions.
@@ -527,7 +530,7 @@ Whenever a baseline is supplied, `check` reports how many components it acknowle
 
 ### Evaluating a persisted report
 
-`--report <file>` evaluates a previously written JSON scan report instead of scanning an input:
+`--report <file>` is required and evaluates a previously written canonical JSON scan report:
 
 ```text
 ol scan --input . --format Json > ol-report.json
@@ -536,9 +539,7 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 
 The canonical JSON report is the input contract; Ol does not define a second persistence schema. One document means a report a user already has is directly usable as policy input, and an output schema and an input schema cannot drift apart. The report schema version is validated on read, and an unsupported version, a malformed document, or a grouped report produced with `--group-by` is a command failure with exit code 1 rather than a partial evaluation.
 
-Report evaluation performs no input parsing, no registry or repository collection, and no network access. Separating policy from collection this way means a policy can be re-run, or a different policy applied, without the result depending on what a registry happened to answer at that moment. `--report` therefore cannot be combined with `--input`, `--input-format`, `--refresh`, `--no-external-evidence`, `--skip-evidence-packages`, or `--cache-dir`; combining them is a configuration error. `--exclude-packages`, `--baseline`, `--update-baseline`, `--spdx-data`, and `--sarif` still apply.
-
-Option values are validated independently of the selected input path. `--concurrency` accepts `0` for automatic selection or a positive value, and `--retry` accepts zero or a positive value; negative values are configuration errors even with `--report`, where collection settings are otherwise unused.
+Report evaluation performs no input parsing, no registry or repository collection, and no network access. Separating policy from collection this way means a policy can be re-run, or a different policy applied, without the result depending on what a registry happened to answer at that moment. Collection options are not part of the `check` command surface; they belong to the `scan` invocation that creates the report. `--exclude-packages`, `--baseline`, `--update-baseline`, `--spdx-data`, and `--sarif` apply during policy evaluation.
 
 Active SPDX data still normalizes the allow-list, so a report may be evaluated under different SPDX data than produced it. The report's own recorded License List version is reported under `--verbose` rather than enforced, for the same reason a baseline records it without enforcing it: a data refresh must not invalidate an existing artifact.
 

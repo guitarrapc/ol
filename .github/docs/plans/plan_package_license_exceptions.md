@@ -19,7 +19,8 @@
 一般的な Ol config や暗黙 discovery は追加せず、個別例外だけを記録する versioned JSON artifact を導入する。`check` では path を明示する。
 
 ```text
-ol check --input . \
+ol scan --input . --format json > ol-report.json
+ol check --report ol-report.json \
   --allow-licenses MIT,Apache-2.0,BSD-3-Clause \
   --policy-exceptions ol-policy-exceptions.json
 ```
@@ -205,7 +206,7 @@ renderer が policy を再評価してこれらを推測してはならない。
 
 ## CLI と既存機能
 
-`--policy-exceptions` は `check --input` と `check --report` の両方で使用できる。report evaluation は exception file と SPDX data 以外の dependency input、cache、registry、repository にアクセスしない。
+`--policy-exceptions` は report 専用の `check` で使用する。policy evaluation は report、exception file、SPDX data 以外の dependency input、cache、registry、repository にアクセスしない。
 
 `usage: development` entry は typed usage と stable inventory mapping を持つ canonical report version 2 を要求する。version 1 report と組み合わせた場合は exit 1 にする。`usage: any` だけの file は version 1 reportにも適用できる。
 

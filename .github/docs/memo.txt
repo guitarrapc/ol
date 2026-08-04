@@ -11,7 +11,8 @@ dev toolsでLGPLが出るが、許容というケースがある。例えば vit
 2. Microsoft.DotNet.PlatformAbstractionsが unknown licenseになっています。しかしNuGetを見に行くと MITになっているようです。これはなんで unknown なんですかね。 https://www.nuget.org/packages/microsoft.dotnet.platformabstractions/
 
 ```
-dotnet run --project src/Ol/Ol.csproj --  check --input bom.cdx.json --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
+dotnet run --project src/Ol/Ol.csproj -- scan --input bom.cdx.json --format json > ol-report.json
+dotnet run --project src/Ol/Ol.csproj -- check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
 License check failed: 2 violations.
 
 Package Version Ecosystem       Purl    License/Status  Reason

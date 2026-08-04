@@ -19,6 +19,8 @@ public sealed class CliScanTests
         await Assert.That(exitCode).IsEqualTo(0);
         await Assert.That(stderr).IsEmpty();
         await Assert.That(stdout).Contains("--input <string[]?>");
+        await Assert.That(stdout).Contains("--input-format <string>");
+        await Assert.That(stdout).Contains("[Default: @\"auto\"]");
         await Assert.That(stdout).Contains("auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock");
         await Assert.That(stdout).Contains("Maximum concurrent package metadata and source repository lookups.");
         await Assert.That(stdout).Contains("Retry count for package registry and GitHub License API requests.");

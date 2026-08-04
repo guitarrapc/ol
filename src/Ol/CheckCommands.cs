@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.ComponentModel.DataAnnotations;
 using System.Text;
 using ConsoleAppFramework;
 using Ol.Core;
@@ -7,50 +6,40 @@ using Ol.Core.Licensing;
 using Ol.Core.Reporting;
 using Ol.Internals;
 
-/// <summary>Check resolved dependency licenses against an allow-list.</summary>
+/// <summary>Check a canonical JSON scan report against an allow-list.</summary>
 internal sealed class CheckCommands
 {
     /// <summary>Gets the running tool version recorded in generated artifacts.</summary>
     internal static string ToolVersion => typeof(CheckCommands).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 
-    /// <summary>Check a resolved dependency input against allowed SPDX licenses.</summary>
-    /// <param name="input">Repeatable resolved dependency input files or directories.</param>
+    /// <summary>Check a canonical JSON scan report against allowed SPDX licenses.</summary>
+    /// <param name="report">Persisted canonical JSON scan report to evaluate.</param>
     /// <param name="allowLicenses">Comma-separated SPDX License Identifiers.</param>
     /// <param name="allowDevLicenses">Comma-separated SPDX License Identifiers additionally allowed for development-only components.</param>
     /// <param name="excludePackages">Comma-separated package URL prefixes whose components are not evaluated.</param>
-    /// <param name="inputFormat">Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
-    /// <param name="verbose">Include input detection diagnostics.</param>
-    /// <param name="refresh">Ignore cached package metadata and source repository entries and fetch them again.</param>
-    /// <param name="cacheDir">Root directory for isolated package-metadata and source-repository caches.</param>
-    /// <param name="noExternalEvidence">Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.</param>
-    /// <param name="skipEvidencePackages">Comma-separated package URL prefixes whose external evidence is never collected.</param>
-    /// <param name="concurrency">Maximum concurrent package metadata and source repository lookups.</param>
-    /// <param name="retry">Retry count for package registry and GitHub License API requests.</param>
+    /// <param name="verbose">Include persisted report diagnostics.</param>
     /// <param name="baseline">Baseline file acknowledging already reviewed unresolved components.</param>
     /// <param name="updateBaseline">Rewrite the baseline file as a complete snapshot.</param>
-    /// <param name="report">Persisted JSON scan report to evaluate instead of scanning an input.</param>
     /// <param name="sarif">Write violations as SARIF to this file for CI code scanning.</param>
     [Command("check")]
     public int Check(
-        [InputPathsParser] string[]? input = null,
+        string report,
         string? allowLicenses = null,
         string? allowDevLicenses = null,
         string? excludePackages = null,
-        string? inputFormat = null,
         string? spdxData = null,
         bool verbose = false,
-        bool refresh = false,
-        string? cacheDir = null,
-        bool noExternalEvidence = false,
-        string? skipEvidencePackages = null,
-        [Range(0, int.MaxValue, ErrorMessage = "Concurrency must be 0 (automatic) or greater.")] int concurrency = 0,
-        [Range(0, int.MaxValue, ErrorMessage = "Retry must not be negative.")] int retry = 1,
         string? baseline = null,
         bool updateBaseline = false,
-        string? report = null,
         string? sarif = null)
     {
+        if (string.IsNullOrWhiteSpace(report))
+        {
+            Console.Error.WriteLine("Invalid license policy: --report must be specified.");
+            return 1;
+        }
+
         if (string.IsNullOrWhiteSpace(allowLicenses))
         {
             Console.Error.WriteLine("Invalid license policy: --allow-licenses must be specified.");
@@ -73,81 +62,31 @@ internal sealed class CheckCommands
             return 1;
         }
 
-        var reportPath = string.IsNullOrWhiteSpace(report) ? null : report;
-        if (reportPath is not null && (input is { Length: > 0 } || inputFormat is not null || refresh || noExternalEvidence || skipEvidencePackages is not null || cacheDir is not null))
+        if (!ScanExecution.TryResolveSpdx(spdxData, out var reportSpdx, out var spdxError))
         {
-            Console.Error.WriteLine("Invalid license policy: --report cannot be combined with input or evidence-collection options.");
+            Console.Error.WriteLine(spdxError);
             return 1;
         }
 
-        // A persisted report already contains the evidence, so the pipeline is not prepared at all.
-        // This is what makes report evaluation free of input parsing and network access.
-        ScanComponent[] components;
-        string licenseListVersion;
-        LicenseAllowPolicy policy;
-        var inventory = default(DependencyInventory);
-        DependencyUsage[]? reportComponentUsages = null;
-        if (reportPath is not null)
+        if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, excludedPackagePrefixes, reportSpdx.Index, out var policy, out var reportPolicyError))
         {
-            if (!ScanExecution.TryResolveSpdx(spdxData, out var reportSpdx, out var spdxError))
-            {
-                Console.Error.WriteLine(spdxError);
-                return 1;
-            }
-
-            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, excludedPackagePrefixes, reportSpdx.Index, out policy, out var reportPolicyError))
-            {
-                Console.Error.WriteLine($"Invalid license policy: {reportPolicyError}");
-                return 1;
-            }
-
-            if (!ScanReportFile.TryRead(reportPath, out var persisted, out var readError))
-            {
-                Console.Error.WriteLine(readError);
-                return 1;
-            }
-
-            components = persisted.Components;
-            inventory = persisted.Inventory;
-            reportComponentUsages = persisted.ComponentUsages;
-            licenseListVersion = reportSpdx.LicenseListVersion;
-            if (verbose)
-            {
-                Console.Error.WriteLine($"Evaluating persisted report: {persisted.SourceReference}; SPDX {persisted.LicenseListVersion} at scan time");
-            }
+            Console.Error.WriteLine($"Invalid license policy: {reportPolicyError}");
+            return 1;
         }
-        else
+
+        if (!ScanReportFile.TryRead(report, out var persisted, out var readError))
         {
-            if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, skipEvidencePackages?.Split(',', StringSplitOptions.None), concurrency, retry, out var preparation, out var preparationError))
-            {
-                Console.Error.WriteLine(preparationError);
-                return 1;
-            }
+            Console.Error.WriteLine(readError);
+            return 1;
+        }
 
-            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, excludedPackagePrefixes, preparation.Spdx.Index, out policy, out var policyError))
-            {
-                Console.Error.WriteLine($"Invalid license policy: {policyError}");
-                return 1;
-            }
-
-            if (!ScanExecution.TryExecute(preparation, refresh, noExternalEvidence, includeHash: false, out var completed, out var executionError))
-            {
-                Console.Error.WriteLine(executionError);
-                return 1;
-            }
-
-            if (verbose)
-            {
-                WriteDetectedInputFormat(completed.Result.Inventory.Input);
-                if (preparation.UncollectedPackages is { } uncollected)
-                {
-                    PurlPrefixDiagnostics.WriteMatches("Skipped evidence", uncollected, completed.Result.Components);
-                }
-            }
-
-            components = completed.Result.Components;
-            licenseListVersion = preparation.Spdx.LicenseListVersion;
-            inventory = completed.Result.Inventory;
+        var components = persisted.Components;
+        var inventory = persisted.Inventory;
+        var reportComponentUsages = persisted.ComponentUsages;
+        var licenseListVersion = reportSpdx.LicenseListVersion;
+        if (verbose)
+        {
+            Console.Error.WriteLine($"Evaluating persisted report: {persisted.SourceReference}; SPDX {persisted.LicenseListVersion} at scan time");
         }
 
         // An unusable baseline is a command failure rather than a silently empty baseline, so a mistyped
@@ -190,19 +129,9 @@ internal sealed class CheckCommands
         }
         else
         {
-            // Live input: aggregate occurrence usage into a per-component verdict once, using pooled scratch that never escapes.
-            var usageLength = inventory.Components.Length;
-            var usages = ArrayPool<DependencyUsage>.Shared.Rent(Math.Max(usageLength, 1));
-            try
-            {
-                DependencyUsageResolver.Resolve(inventory, usages.AsSpan(0, usageLength));
-                violations = policy.Evaluate(components, usages.AsSpan(0, usageLength), acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents, out excludedCount);
-                developmentAllowedCount = developmentAllowedComponents.Length;
-            }
-            finally
-            {
-                ArrayPool<DependencyUsage>.Shared.Return(usages);
-            }
+            // A report without persisted usage cannot prove development-only reachability and therefore fails closed.
+            violations = policy.Evaluate(components, default, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents, out excludedCount);
+            developmentAllowedCount = developmentAllowedComponents.Length;
         }
 
         // Per-prefix attribution makes an exclusion entry that matches nothing visible, which the aggregate count cannot show.
@@ -262,13 +191,6 @@ internal sealed class CheckCommands
         }
     }
 
-    private static void WriteDetectedInputFormat(in ScanInputDescriptor input)
-    {
-        Console.Error.Write("Detected input format: ");
-        Console.Error.Write(input.Kind.Name);
-        Console.Error.Write('/');
-        Console.Error.WriteLine(input.Format.Name);
-    }
 }
 
 /// <summary>Reads a persisted scan report at the application I/O boundary.</summary>

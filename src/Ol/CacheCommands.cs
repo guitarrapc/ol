@@ -11,10 +11,10 @@ internal sealed class CacheCommands
     /// <summary>
     /// Clears cached evidence for the specified category.
     /// </summary>
-    /// <param name="category">Cache category: package-metadata, source-repository, or all.</param>
+    /// <param name="category">Cache category: package-metadata, source-repository, or all. [Default: all]</param>
     /// <param name="cacheDir">Root directory containing the managed cache categories.</param>
     [Command("clear")]
-    public int Clear(string category = "all", string? cacheDir = null)
+    public int Clear([Argument] string category = "all", string? cacheDir = null)
     {
         CacheDirectories directories;
         try

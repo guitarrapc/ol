@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace Ol.Tests;
 
@@ -51,6 +51,33 @@ public sealed class CliCommandGroupHelpTests
         await Assert.That(shortHelp.ExitCode).IsEqualTo(0);
         await Assert.That(shortHelp.Stdout).IsEqualTo(longHelp.Stdout);
         await Assert.That(shortHelp.Stderr).IsEmpty();
+    }
+
+    [Test]
+    public async Task CacheClear_Help_ShowsCategoryAsPositionalArgument()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunOlAsync(root, "cache", "clear", "--help");
+
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        await Assert.That(result.Stdout).Contains("Usage: cache clear [arguments...]");
+        await Assert.That(result.Stdout).Contains("Arguments:");
+        await Assert.That(result.Stdout).Contains("[0] <string>    Cache category: package-metadata, source-repository, or all. [Default: all]");
+        await Assert.That(result.Stdout).DoesNotContain("--category");
+        await Assert.That(result.Stderr).IsEmpty();
+    }
+
+    [Test]
+    public async Task CacheClear_WithCategoryOption_RejectsRemovedOption()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunOlAsync(root, "cache", "clear", "--category", "package-metadata");
+
+        await Assert.That(result.ExitCode).IsEqualTo(1);
+        await Assert.That(result.Stdout).IsEmpty();
+        await Assert.That(result.Stderr.Trim()).IsEqualTo("Argument '--category' is not recognized.");
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)

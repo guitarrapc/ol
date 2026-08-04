@@ -30,15 +30,15 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithoutInput_ReturnsFrameworkParseError()
+    public async Task Scan_WithoutInput_WritesFrameworkParseErrorToStderr()
     {
         var root = FindRepositoryRoot();
 
         var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--no-external-evidence");
 
         await Assert.That(exitCode).IsEqualTo(1);
-        await Assert.That(stdout).Contains("Required argument 'input' was not specified.");
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(stdout).IsEmpty();
+        await Assert.That(stderr.Trim()).IsEqualTo("Required argument 'input' was not specified.");
     }
 
     [Test]
@@ -49,8 +49,8 @@ public sealed class CliScanTests
         var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--sbom", "removed.json");
 
         await Assert.That(exitCode).IsEqualTo(1);
-        await Assert.That(stdout.Trim()).IsEqualTo("Argument '--sbom' is not recognized.");
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(stdout).IsEmpty();
+        await Assert.That(stderr.Trim()).IsEqualTo("Argument '--sbom' is not recognized.");
     }
 
     [Test]
@@ -63,8 +63,8 @@ public sealed class CliScanTests
         var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", option, "removed.json");
 
         await Assert.That(exitCode).IsEqualTo(1);
-        await Assert.That(stdout.Trim()).IsEqualTo($"Argument '{option}' is not recognized.");
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(stdout).IsEmpty();
+        await Assert.That(stderr.Trim()).IsEqualTo($"Argument '{option}' is not recognized.");
     }
 
     [Test]
@@ -1087,7 +1087,8 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--skip-enrichment");
 
             await Assert.That(exitCode).IsNotEqualTo(0);
-            await Assert.That(stdout + stderr).Contains("'--skip-enrichment' is not recognized");
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("'--skip-enrichment' is not recognized");
         }
         finally
         {

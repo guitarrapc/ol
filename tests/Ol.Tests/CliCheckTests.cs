@@ -52,8 +52,8 @@ public sealed class CliCheckTests
         var result = await RunOlAsync(root, arguments);
 
         await Assert.That(result.ExitCode).IsEqualTo(1);
-        await Assert.That(result.Stdout).Contains($"Argument '{option}' is not recognized.");
-        await Assert.That(result.Stderr).IsEmpty();
+        await Assert.That(result.Stdout).IsEmpty();
+        await Assert.That(result.Stderr.Trim()).IsEqualTo($"Argument '{option}' is not recognized.");
     }
 
     [Test]
@@ -64,8 +64,8 @@ public sealed class CliCheckTests
         var result = await RunOlAsync(root, "check", "--allow-licenses", "MIT");
 
         await Assert.That(result.ExitCode).IsEqualTo(1);
-        await Assert.That(result.Stdout).Contains("Required argument 'report' was not specified.");
-        await Assert.That(result.Stderr).IsEmpty();
+        await Assert.That(result.Stdout).IsEmpty();
+        await Assert.That(result.Stderr.Trim()).IsEqualTo("Required argument 'report' was not specified.");
     }
 
     [Test]
@@ -223,8 +223,8 @@ public sealed class CliCheckTests
         var result = await RunOlAsync(root, "check", "--report", "missing.json");
 
         await Assert.That(result.ExitCode).IsEqualTo(1);
-        await Assert.That(result.Stdout).Contains("Required argument 'allow-licenses' was not specified.");
-        await Assert.That(result.Stderr).IsEmpty();
+        await Assert.That(result.Stdout).IsEmpty();
+        await Assert.That(result.Stderr.Trim()).IsEqualTo("Required argument 'allow-licenses' was not specified.");
     }
 
     [Test]
@@ -257,8 +257,8 @@ public sealed class CliCheckTests
             var result = await RunOlAsync(root, "check", "--report", inputPath, "--allow-licenses", "MIT", "--dependency", "direct");
 
             await Assert.That(result.ExitCode).IsEqualTo(1);
-            await Assert.That(result.Stdout).Contains("Argument '--dependency' is not recognized.");
-            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr.Trim()).IsEqualTo("Argument '--dependency' is not recognized.");
         }
         finally
         {

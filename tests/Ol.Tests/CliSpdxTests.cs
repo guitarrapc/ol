@@ -30,7 +30,9 @@ public sealed class CliSpdxTests
         var result = await RunOlAsync(root, "spdx", "use", version);
 
         await Assert.That(result.ExitCode).IsEqualTo(1);
-        await Assert.That(result.Stdout).Contains($"SPDX version is not installed: {version}");
+        await Assert.That(result.Stdout).IsEmpty();
+        await Assert.That(result.Stderr.Trim()).IsEqualTo($"SPDX version is not installed: {version}");
+        await Assert.That(result.Stderr).DoesNotContain("   at ");
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)

@@ -1,6 +1,8 @@
 ﻿using ConsoleAppFramework;
 using Ol.Internals;
 
+ConsoleApp.LogError = static message => Console.Error.WriteLine(message);
+
 args = CommandLineArguments.NormalizeRepeatedInputs(args);
 
 if (CommandGroupHelp.TryShow(args))
@@ -22,6 +24,7 @@ if (args.Length >= 3
 }
 
 var app = ConsoleApp.Create();
+app.UseFilter<CliExceptionFilter>();
 app.Add<ScanCommands>();
 app.Add<CheckCommands>();
 app.Add<DiffCommands>();

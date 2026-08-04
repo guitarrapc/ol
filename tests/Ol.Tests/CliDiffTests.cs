@@ -193,8 +193,8 @@ public sealed class CliDiffTests
             var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, option, value);
 
             await Assert.That(result.ExitCode).IsEqualTo(1);
-            await Assert.That(result.Stdout).Contains($"Argument '{option}' is not recognized.");
-            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr.Trim()).IsEqualTo($"Argument '{option}' is not recognized.");
         }
         finally
         {
@@ -284,8 +284,8 @@ public sealed class CliDiffTests
         var result = await RunOlAsync(root, "diff", "--previous", "a.json");
 
         await Assert.That(result.ExitCode).IsEqualTo(1);
-        await Assert.That(result.Stdout).Contains("Required argument 'current' was not specified.");
-        await Assert.That(result.Stderr).IsEmpty();
+        await Assert.That(result.Stdout).IsEmpty();
+        await Assert.That(result.Stderr.Trim()).IsEqualTo("Required argument 'current' was not specified.");
     }
 
     private static void Cleanup(params string[] paths)

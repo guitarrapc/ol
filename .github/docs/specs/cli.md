@@ -538,6 +538,8 @@ The canonical JSON report is the input contract; Ol does not define a second per
 
 Report evaluation performs no input parsing, no registry or repository collection, and no network access. Separating policy from collection this way means a policy can be re-run, or a different policy applied, without the result depending on what a registry happened to answer at that moment. `--report` therefore cannot be combined with `--input`, `--input-format`, `--refresh`, `--no-external-evidence`, `--skip-evidence-packages`, or `--cache-dir`; combining them is a configuration error. `--exclude-packages`, `--baseline`, `--update-baseline`, `--spdx-data`, and `--sarif` still apply.
 
+Option values are validated independently of the selected input path. `--concurrency` accepts `0` for automatic selection or a positive value, and `--retry` accepts zero or a positive value; negative values are configuration errors even with `--report`, where collection settings are otherwise unused.
+
 Active SPDX data still normalizes the allow-list, so a report may be evaluated under different SPDX data than produced it. The report's own recorded License List version is reported under `--verbose` rather than enforced, for the same reason a baseline records it without enforcing it: a data refresh must not invalidate an existing artifact.
 
 <a id="contract-policy-sarif"></a>

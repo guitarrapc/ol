@@ -491,6 +491,33 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    [Arguments("--concurrency", "-99", "Concurrency must be 0 (automatic) or greater.")]
+    [Arguments("--retry", "-99", "Retry must not be negative.")]
+    public async Task Check_WithReportAndInvalidCollectionValue_ReturnsOne(string option, string value, string expectedError)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", option, value);
+
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.Stdout).Contains(expectedError);
+            await Assert.That(result.Stderr).IsEmpty();
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithReportAndBaseline_AcknowledgesUnresolved()
     {
         var root = FindRepositoryRoot();

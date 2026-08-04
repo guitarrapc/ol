@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.ComponentModel.DataAnnotations;
 using System.Text;
 using ConsoleAppFramework;
 using Ol.Core;
@@ -43,8 +44,8 @@ internal sealed class CheckCommands
         string? cacheDir = null,
         bool noExternalEvidence = false,
         string? skipEvidencePackages = null,
-        int concurrency = 0,
-        int retry = 1,
+        [Range(0, int.MaxValue, ErrorMessage = "Concurrency must be 0 (automatic) or greater.")] int concurrency = 0,
+        [Range(0, int.MaxValue, ErrorMessage = "Retry must not be negative.")] int retry = 1,
         string? baseline = null,
         bool updateBaseline = false,
         string? report = null,

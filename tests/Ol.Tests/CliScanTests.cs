@@ -18,7 +18,8 @@ public sealed class CliScanTests
 
         await Assert.That(exitCode).IsEqualTo(0);
         await Assert.That(stderr).IsEmpty();
-        await Assert.That(stdout).Contains("--input <string[]?>");
+        await Assert.That(stdout).Contains("--input <string[]>");
+        await Assert.That(stdout).Contains("Repeatable resolved dependency input files or directories. [Required]");
         await Assert.That(stdout).Contains("--input-format <string>");
         await Assert.That(stdout).Contains("[Default: @\"auto\"]");
         await Assert.That(stdout).Contains("auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock");
@@ -26,6 +27,18 @@ public sealed class CliScanTests
         await Assert.That(stdout).Contains("Retry count for package registry and GitHub License API requests.");
         await Assert.That(stdout).DoesNotContain("--sbom");
         await Assert.That(stdout).DoesNotContain("--out");
+    }
+
+    [Test]
+    public async Task Scan_WithoutInput_ReturnsFrameworkParseError()
+    {
+        var root = FindRepositoryRoot();
+
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--no-external-evidence");
+
+        await Assert.That(exitCode).IsEqualTo(1);
+        await Assert.That(stdout).Contains("Required argument 'input' was not specified.");
+        await Assert.That(stderr).IsEmpty();
     }
 
     [Test]
@@ -282,7 +295,6 @@ public sealed class CliScanTests
         {
             var cases = new[]
             {
-                (Arguments: Array.Empty<string>(), Message: "--input must be specified."),
                 (Arguments: new[] { "--input", inputPath, "--input-format", "unknown" }, Message: "Unsupported input format: unknown"),
             };
 

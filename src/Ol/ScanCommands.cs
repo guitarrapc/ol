@@ -49,7 +49,7 @@ internal sealed class ScanCommands
     /// <param name="retry">Retry count for package registry and GitHub License API requests.</param>
     [Command("scan")]
     public int Scan(
-        [InputPathsParser] string[]? input = null,
+        [InputPathsParser] string[] input,
         string inputFormat = "auto",
         ReportFormat format = ReportFormat.Text,
         bool verbose = false,

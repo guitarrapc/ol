@@ -101,7 +101,7 @@ Usage: scan [options...] [-h|--help] [--version]
 Scan a resolved dependency input.
 
 Options:
-  --input <string[]?>                   Repeatable resolved dependency input files or directories. [Default: null]
+  --input <string[]>                    Repeatable resolved dependency input files or directories. [Required]
   --input-format <string>               Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock. [Default: @"auto"]
   --format <ReportFormat>               Output format: text, json, or markdown. [Default: Text]
   --verbose                             Include verbose columns and input detection diagnostics.

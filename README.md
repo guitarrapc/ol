@@ -176,7 +176,7 @@ Options:
 Use an isolated cache root when a build or CI job must not share the user cache:
 
 ```bash
-dotnet run --project src/ol -- scan --input sandbox/sbom/cyclonedx-sample.json --cache-dir .tmp/ol-cache
+ol scan --input sandbox/sbom/cyclonedx-sample.json --cache-dir .tmp/ol-cache
 ```
 
 ### Check licenses

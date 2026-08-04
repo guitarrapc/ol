@@ -408,8 +408,8 @@ FodyWeavers.xsd
 .tmp-pg/
 .tmp-pg2/
 .tmp-pg-rel/
-sandbox/ecosystems/python/.venv/
-sandbox/ecosystems/python/pip-inspect.json
 !sandbox/ecosystems/nuget/obj/
 !sandbox/ecosystems/nuget/obj/project.assets.json
 sandbox/ecosystems/nuget/obj/Ol.*
+sandbox/ecosystems/python/.venv/
+!sandbox/ecosystems/python/pip-inspect.json

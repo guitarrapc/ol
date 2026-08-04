@@ -12,8 +12,7 @@ internal sealed class SpdxCommands
     [Command("version")]
     public void Version()
     {
-        Console.WriteLine($"active: {SpdxStore.GetActiveVersion()}");
-        Console.WriteLine($"user-data: {SpdxStore.DefaultRoot}");
+        WriteVersion(Console.Out, SpdxStore.GetSelectedVersion(), SpdxStore.BundledVersion);
     }
 
     /// <summary>
@@ -22,13 +21,7 @@ internal sealed class SpdxCommands
     [Command("list")]
     public void List()
     {
-        var active = SpdxStore.GetActiveVersion();
-        Console.WriteLine(active == "bundled" ? "* bundled" : "  bundled");
-        var versions = SpdxStore.ListInstalledVersions();
-        for (var i = 0; i < versions.Length; i++)
-        {
-            Console.WriteLine(string.Equals(active, versions[i], StringComparison.OrdinalIgnoreCase) ? $"* {versions[i]}" : $"  {versions[i]}");
-        }
+        WriteList(Console.Out, SpdxStore.GetSelectedVersion(), SpdxStore.BundledVersion, SpdxStore.ListInstalledVersions());
     }
 
     /// <summary>
@@ -38,19 +31,21 @@ internal sealed class SpdxCommands
     public async Task<int> Update(CancellationToken cancellationToken = default)
     {
         var version = await SpdxStore.UpdateAsync(cancellationToken).ConfigureAwait(false);
-        Console.WriteLine($"updated: {version}");
+        Console.WriteLine($"installed: {version}");
         return 0;
     }
 
     /// <summary>
     /// Switch active SPDX data version.
     /// </summary>
-    /// <param name="version">Version to activate.</param>
+    /// <param name="version">Installed version to activate, or bundled.</param>
     [Command("use")]
     public void Use([Argument] string version)
     {
         SpdxStore.Use(version);
-        Console.WriteLine($"active: {version}");
+        var selectedVersion = SpdxStore.GetSelectedVersion();
+        var activeVersion = selectedVersion ?? SpdxStore.BundledVersion;
+        Console.WriteLine($"active: {activeVersion} ({(selectedVersion is null ? "bundled" : "user")})");
     }
 
     /// <summary>
@@ -61,5 +56,22 @@ internal sealed class SpdxCommands
     {
         SpdxStore.Clear();
         Console.WriteLine("cleared");
+    }
+
+    internal static void WriteVersion(TextWriter writer, string? selectedVersion, string bundledVersion)
+    {
+        writer.WriteLine($"active: {selectedVersion ?? bundledVersion} ({(selectedVersion is null ? "bundled" : "user")})");
+        writer.WriteLine($"user-selected: {selectedVersion ?? "none"}");
+        writer.WriteLine($"bundled: {bundledVersion}");
+    }
+
+    internal static void WriteList(TextWriter writer, string? selectedVersion, string bundledVersion, string[] installedVersions)
+    {
+        writer.WriteLine($"{(selectedVersion is null ? '*' : ' ')} {bundledVersion} (bundled)");
+        for (var i = 0; i < installedVersions.Length; i++)
+        {
+            var marker = string.Equals(selectedVersion, installedVersions[i], StringComparison.OrdinalIgnoreCase) ? '*' : ' ';
+            writer.WriteLine($"{marker} {installedVersions[i]} (user)");
+        }
     }
 }

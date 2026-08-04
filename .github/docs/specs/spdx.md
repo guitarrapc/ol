@@ -20,7 +20,7 @@ Those decisions require normalization to be reproducible and explainable rather 
 SPDX data is resolved in this order:
 
 1. `--spdx-data <dir>`
-2. User-managed data installed by `ol spdx update`
+2. User-managed data selected by `ol spdx use`
 3. CLI-bundled data
 
 The active data source must be recorded in JSON reports.
@@ -36,7 +36,7 @@ These match the JSON files published by SPDX License List data. The `details/` a
 
 ## User-Managed Data
 
-User-managed SPDX data is stored by version, with one installed version selected as active. The active selection persists across commands until it is changed or cleared.
+User-managed SPDX data is stored by version. Installation and selection are separate operations: `ol spdx update` installs data without changing the selection, while `ol spdx use` explicitly selects an installed version. The active selection persists across commands until it is changed, switched back to bundled data, or cleared.
 
 The exact platform-specific user data root is not part of this spec. Reports must not emit absolute paths to it.
 
@@ -45,29 +45,48 @@ The exact platform-specific user data root is not part of this spec. Reports mus
 
 ### `ol spdx update`
 
-Downloads the latest `licenses.json` and `exceptions.json` into the user-managed SPDX data store and makes that version current.
+Downloads the latest `licenses.json` and `exceptions.json` into the user-managed SPDX data store. Installation does not change the active selection; `ol spdx use <version>` activates the installed version explicitly.
+
+```text
+installed: 3.27.0
+```
 
 This is a user-facing command. It is distinct from `ol-update generate`, the development-time tool that refreshes generated bundled SPDX data.
 
 ### `ol spdx version`
 
-Displays active, user-managed, and bundled SPDX License List versions.
+Displays the effective active version and source, the selected user-managed version, and the bundled version. It does not display the platform-specific user data path.
 
 Example:
 
 ```text
-Active SPDX License List: 3.27.0 (user)
-User SPDX License List: 3.27.0
-Bundled SPDX License List: 3.26.0
+active: 3.27.0 (user)
+user-selected: 3.27.0
+bundled: 3.26.0
 ```
+
+When no user-managed version is selected, `user-selected` is `none` and the bundled version is active.
 
 ### `ol spdx list`
 
-Lists installed user-managed SPDX versions and identifies the active one.
+Lists the bundled version and all valid installed user-managed versions. Every entry is identified by version and source, and the effective active entry is prefixed with `*`.
+
+Example:
+
+```text
+* 3.26.0 (bundled)
+  3.27.0 (user)
+```
+
+Bundled and user-managed data with the same version remain separate entries because their sources and selection state differ.
 
 ### `ol spdx use <version>`
 
-Sets an installed user-managed SPDX version as current.
+Sets a valid installed user-managed SPDX version as current. The argument is a version identifier, not a directory or path. A valid installation is an immediate child of the user data root whose `licenses.json` and `exceptions.json` exist and whose declared License List version matches the directory name.
+
+`ol spdx use bundled` clears the user-managed selection without deleting installed versions and makes the bundled version active.
+
+Successful selection reports the effective version and source, for example `active: 3.27.0 (user)` or `active: 3.26.0 (bundled)`.
 
 ### `ol spdx clear`
 
@@ -215,3 +234,5 @@ For CycloneDX, a single `expression` or a single license `id` can be `matched`. 
 ## Lessons Learned
 
 - `Ol.Update` remains a development-time generator. The Native AOT CLI consumes generated SPDX lookup data through `Ol.Core` and must not acquire a runtime dependency on the generator.
+- Installing and selecting user-managed SPDX data are separate operations. Explicit selection prevents a network refresh from silently changing the version used by later scans.
+- A version argument must resolve through the validated installation inventory rather than through path combination. Treating an arbitrary directory name as a version can escape the managed data root and can make command output disagree with the data a scan actually resolves.

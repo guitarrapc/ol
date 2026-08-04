@@ -52,12 +52,12 @@ public sealed class SpdxStoreTests
     public async Task ListInstalledVersions_WithDirectory_ReturnsOrdinalIgnoreCaseSortedDirectoryNames()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(Path.Combine(root, "3.9.0"));
-        Directory.CreateDirectory(Path.Combine(root, "3.27.0"));
-        Directory.CreateDirectory(Path.Combine(root, "3.10.0"));
 
         try
         {
+            await InstallAsync(root, "3.9.0");
+            await InstallAsync(root, "3.27.0");
+            await InstallAsync(root, "3.10.0");
             var versions = SpdxStore.ListInstalledVersions(root);
 
             await Assert.That(versions.Length).IsEqualTo(3);
@@ -69,5 +69,130 @@ public sealed class SpdxStoreTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Test]
+    public async Task ListInstalledVersions_WithInvalidDirectory_ExcludesDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");
+
+        try
+        {
+            await InstallAsync(root, "3.27.0");
+            Directory.CreateDirectory(Path.Combine(root, "not-installed"));
+            var missingVersion = Path.Combine(root, "3.28.0");
+            Directory.CreateDirectory(missingVersion);
+            await File.WriteAllTextAsync(Path.Combine(missingVersion, "licenses.json"), """{ "licenses": [] }""");
+            await File.WriteAllTextAsync(Path.Combine(missingVersion, "exceptions.json"), """{ "exceptions": [] }""");
+
+            var versions = SpdxStore.ListInstalledVersions(root);
+
+            await Assert.That(versions).IsEquivalentTo(["3.27.0"]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Install_WithNoSelection_DoesNotSelectInstalledVersion()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");
+
+        try
+        {
+            await InstallAsync(root, "3.27.0");
+
+            await Assert.That(SpdxStore.GetSelectedVersion(root)).IsNull();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Use_WithInstalledVersion_SelectsVersion()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");
+
+        try
+        {
+            await InstallAsync(root, "3.27.0");
+
+            SpdxStore.Use(root, "3.27.0");
+
+            await Assert.That(SpdxStore.GetSelectedVersion(root)).IsEqualTo("3.27.0");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Use_WithBundled_ClearsSelectionAndPreservesInstallations()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");
+
+        try
+        {
+            await InstallAsync(root, "3.27.0");
+            SpdxStore.Use(root, "3.27.0");
+
+            SpdxStore.Use(root, "bundled");
+
+            await Assert.That(SpdxStore.GetSelectedVersion(root)).IsNull();
+            await Assert.That(SpdxStore.ListInstalledVersions(root)).IsEquivalentTo(["3.27.0"]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Use_WithRootedInstalledDirectory_RejectsPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");
+        var outside = Path.Combine(Path.GetTempPath(), $"ol-spdx-outside-{Guid.NewGuid():N}");
+
+        try
+        {
+            await InstallAsync(outside, "3.27.0");
+
+            await Assert.That(() => SpdxStore.Use(root, Path.Combine(outside, "3.27.0"))).Throws<DirectoryNotFoundException>();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task GetSelectedVersion_WithInvalidSelection_ReturnsNull()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(root, "current.txt"), "../outside");
+
+            await Assert.That(SpdxStore.GetSelectedVersion(root)).IsNull();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task InstallAsync(string root, string version)
+    {
+        var licenses = Encoding.UTF8.GetBytes($$"""{ "licenseListVersion": "{{version}}", "licenses": [ { "licenseId": "MIT" } ] }""");
+        var exceptions = """{ "exceptions": [ { "licenseExceptionId": "LLVM-exception" } ] }"""u8.ToArray();
+        await SpdxStore.InstallAsync(root, licenses, exceptions);
     }
 }

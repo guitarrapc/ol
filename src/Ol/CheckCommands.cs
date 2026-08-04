@@ -40,7 +40,7 @@ internal sealed class CheckCommands
             return 1;
         }
 
-        var developmentLicenseIds = string.IsNullOrWhiteSpace(allowDevLicenses)
+        var developmentLicenseIds = allowDevLicenses is null
             ? []
             : allowDevLicenses.Split(',', StringSplitOptions.None);
 

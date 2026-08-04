@@ -132,7 +132,7 @@ ol check --report <scan.json> --allow-licenses <SPDX-ids>
 
 Policy evaluates all non-root, non-excluded components. `unknown` dependency type remains in scope. `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed unless the baseline rules below acknowledge the unresolved status. All violations are collected and deterministically ordered.
 
-`--allow-dev-licenses` adds identifiers only for components proven development-only by resolver data persisted in the report. Any runtime or usage-unknown occurrence keeps the component under the primary allow-list. Inputs without reliable development reachability therefore fail closed. When supplied, the count admitted by this policy is always printed.
+`--allow-dev-licenses` adds identifiers only for components proven development-only by resolver data persisted in the report. It uses the same identifier validation as `--allow-licenses`; a supplied empty value is invalid. Any runtime or usage-unknown occurrence keeps the component under the primary allow-list. Inputs without reliable development reachability therefore fail closed. When supplied, the count admitted by this policy is always printed.
 
 `--exclude-packages` removes matching purls from policy evaluation, baseline generation, violation output, SARIF, and the passing count, but never changes the scan report. The excluded count is always printed when the option is supplied. This is a policy-scope decision; it is distinct from `scan --skip-evidence-packages`.
 

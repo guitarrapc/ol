@@ -647,6 +647,25 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    public async Task Check_WithEmptyAllowDevLicenses_ReturnsOneWithoutPolicyOutput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteNpmLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--allow-dev-licenses", "", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("Invalid license policy: Development allow-list entries must not be empty.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithInvalidAllowDevLicenses_ReturnsOneWithoutPolicyOutput()
     {
         var root = FindRepositoryRoot();

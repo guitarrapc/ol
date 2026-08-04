@@ -387,7 +387,7 @@ ol supports CycloneDX and SPDX JSON SBOMs across ecosystems. It can also read th
 | Java / Maven | Maven Dependency Plugin 3.7+ tree JSON | Supported |
 | Java / Gradle | — | Use a CycloneDX or SPDX JSON SBOM |
 
-The sections below show how to generate or select each input and include report examples. For the exact file-discovery rules and recommended workflow by ecosystem, see [Dependency files by ecosystem](#dependency-files-by-ecosystem).
+The sections below show how to generate or select each input and include report examples. The compact direct-input examples from npm onward use the repository's deterministic samples with `--no-external-evidence`, so their license results reflect only evidence declared by each resolved input. For the exact file-discovery rules and recommended workflow by ecosystem, see [Dependency files by ecosystem](#dependency-files-by-ecosystem).
 
 ### SBOM
 
@@ -564,6 +564,17 @@ ol scan --input package-lock.json
 ol check --input package-lock.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
 ```
 
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/npm-package-lock`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| direct-package | 1.0.0 | MIT | npm | direct | matched |
+| shared-package | 2.0.0 | Apache-2.0 | npm | transitive | matched |
+
+</details>
+
 #### pnpm
 
 ol scans `pnpm-lock.yaml` version 9:
@@ -572,6 +583,17 @@ ol scans `pnpm-lock.yaml` version 9:
 ol scan --input pnpm-lock.yaml
 ol check --input pnpm-lock.yaml --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
 ```
+
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/pnpm-lock`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| direct-package | 1.0.0 | - | npm | direct | unknown |
+| shared-package | 2.0.0 | - | npm | transitive | unknown |
+
+</details>
 
 #### Yarn Classic
 
@@ -582,6 +604,17 @@ ol scan --input yarn.lock
 ol check --input yarn.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
 ```
 
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/yarn-classic-lock`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| direct-package | 1.0.0 | - | npm | unknown | unknown |
+| shared-package | 2.0.0 | - | npm | unknown | unknown |
+
+</details>
+
 #### Yarn Berry
 
 ol scans `yarn.lock` metadata version 8:
@@ -590,6 +623,17 @@ ol scans `yarn.lock` metadata version 8:
 ol scan --input yarn.lock
 ol check --input yarn.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause,ISC
 ```
+
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/yarn-berry-lock`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| direct-package | 1.0.0 | - | npm | direct | unknown |
+| shared-package | 2.0.0 | - | npm | transitive | unknown |
+
+</details>
 
 Workspace/importer contexts and proven dependency edges are retained without running the package manager or evaluating platform conditions against the current host.
 
@@ -614,6 +658,17 @@ ol check --input cargo-metadata.json --allow-licenses MIT,Apache-2.0,BSD-3-Claus
 ```
 
 Each workspace member becomes a resolution context. Workspace and path nodes participate in reachability without being mislabeled as crates.io packages. Resolved features, dependency kinds, and target expressions are retained as variants; ol does not evaluate them against the current host. Cargo metadata does not record the `--filter-platform` argument itself, so ol does not infer a target triple from the machine running the scan.
+
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/cargo-metadata`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| itoa | 1.0.0 | MIT OR Apache-2.0 | cargo | transitive | matched |
+| serde | 1.0.0 | MIT OR Apache-2.0 | cargo | direct | matched |
+
+</details>
 
 ### Go
 
@@ -644,6 +699,16 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 `go-list-modules.json` is authoritative for the selected build list and replacement metadata. `go-mod-graph.txt` contributes only edges whose endpoints are in that selected list, so superseded module versions and Go's `go@...`/`toolchain@...` graph nodes do not become components. Local replacements receive no proxy purl and their filesystem paths are not reported. Versioned module replacements use the replacement module/version for enrichment while retaining the original requirement as `sourceId`. If the list JSON contains `Retracted` data, ol retains a `retracted` occurrence variant. GOOS, GOARCH, and build tags remain unspecified because neither output proves them.
 
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/go-module-graph`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| github.com/google/uuid | v1.6.0 | - | golang | direct | unknown |
+
+</details>
+
 ### Python
 
 **SBOM:** Generate CycloneDX JSON from the exact Python environment used by the build or deployment with the [CycloneDX Python SBOM generator](https://github.com/CycloneDX/cyclonedx-python):
@@ -668,6 +733,20 @@ The installed distribution set is authoritative; ol does not resolve `requiremen
 
 Distribution names use PyPA normalization for identity and `pkg:pypi` enrichment. A distribution with `direct_url` receives no PyPI purl and retains only `source=direct`; local paths and URLs are not reported. `license_expression` is preferred over legacy `license` metadata as input-supplied license evidence.
 
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/pip-inspect`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| Local_Package | 1.0.0 | - | pypi | direct | unknown |
+| PySocks | 1.7.1 | - | pypi | transitive | unknown |
+| Requests | 2.32.4 | Apache-2.0 | pypi | direct | matched |
+| charset_normalizer | 3.4.2 | MIT | pypi | transitive | matched |
+| urllib3 | 2.5.0 | MIT | pypi | transitive | matched |
+
+</details>
+
 ### PHP / Composer
 
 **SBOM:** Generate CycloneDX JSON from the locked Composer project with the [CycloneDX PHP Composer plugin](https://github.com/CycloneDX/cyclonedx-php-composer):
@@ -687,6 +766,20 @@ ol check --input . --input-format composer-lock --allow-licenses MIT,Apache-2.0,
 
 The lockfile supplies the resolved production and development package sets. The manifest supplies only the root package identity and direct `require`/`require-dev` relationships; ol does not invoke Composer, resolve version constraints, or inspect `vendor/`. Package metadata is enriched from Packagist when available, and repository URLs from package metadata can lead to GitHub License API source evidence.
 
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/composer-lock`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| example/container | 1.1.0 | Apache-2.0 | composer | direct | matched |
+| monolog/monolog | 3.9.0 | MIT | composer | direct | matched |
+| phpunit/phpunit | 11.5.0 | BSD-3-Clause | composer | direct | matched |
+| psr/log | 3.0.2 | MIT | composer | transitive | matched |
+| sebastian/version | 5.0.2 | BSD-3-Clause | composer | transitive | matched |
+
+</details>
+
 ### Ruby / Bundler
 
 **SBOM:** Generate CycloneDX JSON from the locked Bundler project with the [CycloneDX Ruby Gem](https://github.com/CycloneDX/cyclonedx-ruby-gem):
@@ -705,6 +798,22 @@ ol check --input Gemfile.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 The lockfile `DEPENDENCIES` section identifies direct dependencies, and resolved spec dependencies provide transitive edges. Each recorded platform becomes a separate resolution context. Only gems resolved from `https://rubygems.org/` receive `pkg:gem` identities and RubyGems.org metadata enrichment; private registry, Git, and path sources are retained without exposing their remote or local paths.
+
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/bundler-lock`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| local-gem | 0.1.0 | - | - | direct | unknown |
+| private-gem | 2.0.0 | - | - | direct | unknown |
+| concurrent-ruby | 1.3.5 | - | gem | transitive | unknown |
+| i18n | 1.14.7 | - | gem | direct | unknown |
+| nokogiri | 1.18.0 | - | gem | direct | unknown |
+| rack | 3.1.8 | - | gem | transitive | unknown |
+| rack-protection | 4.1.1 | - | gem | direct | unknown |
+
+</details>
 
 ### Java / JVM
 
@@ -726,6 +835,18 @@ ol scan --input maven-dependency-tree.json
 ```
 
 The root artifact becomes one resolution context. Root children are direct dependencies, deeper nodes are transitive, and each node retains its effective scope, optional flag, type, classifier, and incoming edge. Repeated coordinates share one report component while remaining distinct graph occurrences. The dependency-tree JSON contains no license metadata, so ol enriches its canonical Maven purls with version-specific license and source-repository hints from deps.dev. When deps.dev reports multiple licenses without an AND/OR relationship, ol preserves them as ambiguous evidence instead of inventing an SPDX expression. CycloneDX remains preferable when the build's effective POM metadata and repository context must be captured in the input artifact itself.
+
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/maven-dependency-tree`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| direct | 2.0.0 | - | maven | direct | unknown |
+| provided | 4.0.0 | - | maven | direct | unknown |
+| transitive | 3.0.0 | - | maven | transitive | unknown |
+
+</details>
 
 #### Gradle
 
@@ -767,6 +888,17 @@ ol check --input Package.resolved --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 ol supports `Package.resolved` schema versions 2 and 3 without evaluating `Package.swift`. Each pin retains its resolved version or source revision, source kind, and version 3 origin hash. Because the lockfile does not contain package-to-package edges, dependency type remains unknown. Only credential-free HTTP(S) source-control locations receive canonical `pkg:swift` identities and repository hints; registry, local, and credential-bearing locations are not exposed as remote package identities.
 
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/swift-package-resolved`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| internal-kit | main | - | swift | unknown | unknown |
+| swift-log | 1.6.2 | - | swift | unknown | unknown |
+
+</details>
+
 #### CocoaPods
 
 **Resolved CocoaPods input:** Install the pods, then scan `Podfile.lock` directly:
@@ -778,6 +910,17 @@ ol check --input Podfile.lock --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
 The lockfile `DEPENDENCIES` section identifies direct pods, and resolved pod dependencies provide transitive edges. Subspecs are collapsed into their root pod for package identity and license evaluation. Only pods proven to come from the public trunk, CDN, or Specs repository by `SPEC REPOS` receive `pkg:cocoapods` identities and version-specific license and source enrichment from the CocoaPods CDN. Private-spec and external-source pods retain their source classification without exposing repository URLs or local paths.
+
+<details><summary>Output sample (Markdown)</summary>
+
+Input: `package-manager/cocoapods-lock`
+
+| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |
+|---|---|---|---|---|---|
+| Alamofire | 5.10.2 | - | cocoapods | transitive | unknown |
+| Moya | 15.0.0 | - | cocoapods | direct | unknown |
+
+</details>
 
 ### Dependency files by ecosystem
 

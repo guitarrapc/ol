@@ -1,597 +1,191 @@
 # OL CLI Specification
 
-This document defines the user-facing behavior of the `ol` CLI. It is the umbrella specification for command behavior, output contracts, result statuses, report metadata, and version boundaries.
+This document defines the user-facing contract of the `ol` CLI: its design basis, process I/O rules, commands, and stable report semantics. Ol reports license evidence and uncertainty; it does not claim legal certainty.
 
-The CLI exists to make license information from SBOMs and related evidence visible, comparable, and machine-readable. It does not claim legal certainty. It reports candidates, conflicts, unknowns, and evidence so that later policy decisions can be made explicitly.
+## CLI Design
 
-## Design Basis
+### Design Basis
 
-This specification derives from the [Ol design](../DESIGN.md), especially these decisions:
+The CLI follows the decisions in [Ol design](../DESIGN.md):
 
-- [resolve the complete dependency inventory before filtering](../DESIGN.md#decision-complete-inventory), because transitive OSS use and unknown relationships must not disappear from analysis merely because a view is filtered;
-- [separate factual resolution from organizational policy](../DESIGN.md#decision-policy-separation), which is why `scan` reports license facts and a later policy phase decides whether they are allowed;
-- [make component/source failures best-effort but command failures explicit](../DESIGN.md#decision-failure-scope), which determines exit behavior and the distinction between component evidence and whole-command failure; and
-- [use canonical JSON plus human-oriented projections](../DESIGN.md#decision-report-views), which determines the stdout contract and why text, Markdown, and JSON represent the same resolved report; and
-- [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy), which requires logical report references and prohibits secrets and private local paths.
+- Resolve the complete dependency inventory before applying view filters, so transitive dependencies and unknown relationships remain visible.
+- Preserve evidence and provenance instead of selecting one source silently. Conflicting, missing, invalid, and unavailable evidence are reportable results.
+- Separate factual resolution from organizational policy. `scan` collects facts; `check` evaluates a persisted report without collecting evidence again.
+- Treat component-level evidence failures as best-effort results, but make an unusable invocation, input, or output an explicit command failure.
+- Use canonical JSON as the persistence boundary and derive human-readable views from the same result.
+- Keep persisted artifacts deterministic and free of credentials, absolute local paths, and hidden cache paths.
 
-The command and output rules below are user-facing consequences of those design decisions. They must not introduce an alternate status model or perform policy decisions implicitly.
+### Process contract
 
-## Version Roadmap
+Ol uses three exit codes:
 
-`ol` evolves by widening the dependency inputs and evidence sources used by `scan`.
+| Code | Meaning |
+|---|---|
+| `0` | The command completed successfully. Help and version output also use `0`. |
+| `1` | Invocation, configuration, input, SPDX data, cache, network-required operation, or output failed. |
+| `2` | `check` completed successfully and found one or more policy violations. |
 
-- v1 scans SBOM files through the common `--input` boundary.
-- v2 adds package manager and package registry metadata as automatic hints.
-- v3 adds source repository license hints.
-- The `check` command adds allow-list policy checks and CI failure behavior after factual evidence resolution.
+Exit code `2` belongs only to policy results. `scan` and `diff` do not use changes or unresolved components as an alternate failure code.
 
-Each version must preserve the prior version's report fields unless a breaking version explicitly changes them. Specs under `.github/docs/specs/` should be updated as each version is implemented.
+Primary command output is written to stdout and ends with a line feed. Successful help is also stdout. Diagnostics and human-readable scan summaries are written to stderr. An expected failure writes one concise cause to stderr, leaves stdout empty, and does not print a stack trace or partial primary result.
 
-## Commands
+Successful `scan --format text|markdown` writes its report to stdout and a labeled summary to stderr. Successful JSON output contains its summary and diagnostics in the document and therefore emits no duplicate stderr summary. `--quiet` suppresses the human-readable stderr summary, never the stdout result. `--verbose` may add diagnostics to stderr and additional report fields, but does not change the result.
 
-Ol uses one exit-code contract across commands:
-
-- `0`: the command completed successfully; help and version output also use `0`.
-- `1`: argument parsing failed, or the command could not be completed because of invalid configuration, input, I/O, or another execution failure.
-- `2`: `check` completed policy evaluation and found one or more violations.
-
-Policy violations are separated from command failures because they are a completed domain result that CI may handle differently from a malformed invocation or unavailable input. Framework-reported argument parsing failures retain exit code `1`; Ol commands use the same code for failures detected after dispatch.
-
-Unknown command paths, command groups without a subcommand, and commands whose required arguments are entirely omitted are invocation failures. They return `1`, write one concise diagnostic to stderr, and leave stdout empty instead of falling back to help. Explicit `--help` and `-h` remain successful stdout output, and invoking `ol` without arguments continues to show root help successfully.
-
-Command-group help is scoped to the selected group. `ol cache --help` and `ol cache -h` list only `cache` subcommands; `ol spdx --help` and `ol spdx -h` list only `spdx` subcommands. Group help follows the same usage, description, command-list, spacing, stdout, and exit-code conventions as the framework-generated root and leaf-command help. Keeping unrelated root commands out of this view makes the available next command explicit at each level.
-
-### `ol cache clear`
-
-v2 provides cache management for shared evidence stores:
-
-```bash
-ol cache clear
-ol cache clear package-metadata
-ol cache clear source-repository
-ol cache clear all
-```
-
-The cache category is a positional argument. Omitting it is equivalent to `all`.
-
-`package-metadata` clears the persistent package metadata cache. `source-repository` clears the persistent source repository evidence cache. `all` clears both persistent evidence caches.
-
-`scan` and `cache clear` accept `--cache-dir <path>`. The supplied path is an isolation root, never a directly managed category: Ol reads and writes only its `package-metadata` and `source-repository` children. Clearing `all` removes those children but preserves the isolation root and unrelated files beside them. An existing file is rejected as a cache root.
-
-The CLI option takes precedence over `OL_CACHE_DIR`. The unified environment root takes precedence over the legacy category-specific roots `OL_PACKAGE_METADATA_CACHE_ROOT` and `OL_SOURCE_REPOSITORY_CACHE_ROOT`. With none of these set, Ol uses its platform-specific user cache location. Absolute cache paths and cache-root values never appear in reports.
-
-Cache entry compatibility and category-specific JSON schemas are defined by [cache_format.md](cache_format.md). Cache JSON is an Ol-managed persistence contract and is distinct from the canonical scan report JSON.
+Unknown commands, command groups without a subcommand, and missing required command arguments exit `1`. `ol` with no arguments shows root help; explicit `--help` and `-h` show help and exit `0`. Group help lists only that group's subcommands.
 
 <a id="contract-scan-failures"></a>
 
-### `ol scan`
+A component whose evidence is missing, invalid, conflicting, or unavailable remains in the scan result. `scan` exits `1` only when it cannot produce a trustworthy complete result, for example when an input cannot be read or recognized, the dependency inventory cannot be extracted, SPDX data cannot be loaded, options are invalid, or stdout cannot be written. View options are validated before external evidence collection begins.
 
-`scan` is the primary command. It lists components and their license status from one or more resolved dependency inputs and the available evidence sources for the current version.
+### Shared report contract
 
-The input form detects a registered format from content by default:
+<a id="contract-component-status"></a>
 
-```bash
-ol scan --input bom.json
-ol scan --input bom.spdx.json
-ol scan --input obj/project.assets.json
-ol scan --input maven-dependency-tree.json
-ol scan --input Package.resolved
-ol scan --input Podfile.lock
-ol scan --input src
-ol scan --input src --input tests
-```
+Every component has one status:
 
-`--input` is repeatable and each value may name a file or directory. Overlapping inputs are deduplicated by resolved file path, then ordered by a non-absolute logical path before parsing and graph-index projection. A single file retains the existing single-document behavior. Multiple discovered documents must all be package-manager inputs; combining SBOM evidence documents with package-manager inventories is rejected because their license-evidence reconciliation is not a path-merging operation.
+| Status | Meaning |
+|---|---|
+| `matched` | Evidence resolves to one valid SPDX expression. |
+| `conflict` | Valid evidence sources disagree. |
+| `unknown` | Collection completed but yielded no usable license information. |
+| `ambiguous` | License text exists but cannot be normalized without guessing. |
+| `invalid` | A claimed SPDX expression is invalid or names an unknown identifier. |
+| `error` | Required evidence collection or processing failed and no other evidence resolved the license. |
 
-Each registered input handler owns the exact file names that directory input discovers recursively. Discovery does not follow reparse points and does not determine single-document format; registered content signatures and bundle parsers remain authoritative. `nuget-assets` registers `project.assets.json`, `npm-package-lock` registers `package-lock.json`, `pnpm-lock` registers `pnpm-lock.yaml`, both Yarn handlers register `yarn.lock`, `cargo-metadata` registers `cargo-metadata.json`, `pip-inspect` registers `pip-inspect.json`, `go-module-graph` registers the companion names `go-list-modules.json` and `go-mod-graph.txt`, `composer-lock` registers the companion names `composer.json` and `composer.lock`, `bundler-lock` registers `Gemfile.lock`, `maven-dependency-tree` registers `maven-dependency-tree.json`, `swift-package-resolved` registers `Package.resolved`, and `cocoapods-lock` registers `Podfile.lock`. Complete companion sets in the same directory are parsed as one inventory; a missing companion is an input error. A future package-manager handler becomes part of the same directory and repeated-input collection by registering its own names and package-identity comparison. A directory containing no registered names is an input error. With explicit `--input-format`, only that handler's registered names are discovered.
+An external-source failure is retained as warning evidence when another source still produces a single valid expression. Human output displays `-` for `unknown` and marks ambiguous or conflicting values with `(?)`; JSON retains the individual claims and their typed provenance.
 
-`--input-format` defaults to `auto`; explicitly specifying `auto` is equivalent to omitting the option. Registered format names are matched case-insensitively. An explicit non-auto format is an assertion and must agree with the detected document format.
+<a id="contract-dependency-type"></a>
 
-One or more `--input` options are required. `--input-format` asserts every discovered document.
-
-Currently supported dependency input formats:
-
-- `cyclonedx`: CycloneDX JSON
-- `spdx`: SPDX JSON
-- `nuget-assets`: NuGet `project.assets.json` version 3 or 4
-- `npm-package-lock`: npm `package-lock.json` lockfile version 2 or 3
-- `pnpm-lock`: pnpm `pnpm-lock.yaml` lockfile version 9.0
-- `yarn-classic-lock`: Yarn Classic `yarn.lock` version 1
-- `yarn-berry-lock`: Yarn Berry `yarn.lock` metadata version 8
-- `cargo-metadata`: `cargo metadata --format-version 1 --locked` JSON
-- `go-module-graph`: paired `go list -m -json all` and `go mod graph` output
-- `pip-inspect`: `python -m pip inspect --local` JSON format version 1
-- `composer-lock`: paired Composer root `composer.json` and resolved `composer.lock`
-- `bundler-lock`: Bundler resolved `Gemfile.lock`
-- `maven-dependency-tree`: Maven Dependency Plugin 3.7.0 or later `dependency:tree` JSON
-- `swift-package-resolved`: SwiftPM `Package.resolved` JSON format version 2 or 3
-- `cocoapods-lock`: CocoaPods resolved `Podfile.lock`
-
-Unsupported inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, package manifests, and lockfile formats without a registered adapter. `ol` does not recursively query registries to reproduce package-manager dependency resolution; package-manager adapters consume already resolved graphs.
-
-Auto detection uses only deterministic, format-owned content signatures; file names and extensions are not evidence for single-document formats. JSON adapters use top-level property signatures. Cargo requires format version 1 plus top-level `packages`, `workspace_members`, `resolve`, `target_directory`, and `workspace_root` with their documented JSON types. pip inspect requires string format version `1`, `pip_version`, an `installed` array, and an `environment` object. Maven dependency tree JSON requires the documented root `groupId`, `artifactId`, `version`, `type`, `scope`, `classifier`, and string-valued `optional` fields; `children` may be absent for an empty tree. SwiftPM requires numeric `version` and a `pins` array, then accepts only schema version 2 or 3. pnpm requires top-level `lockfileVersion` and `importers`, Yarn Classic requires the version 1 header, Yarn Berry requires top-level `__metadata`, Bundler requires a source section plus `PLATFORMS` and `DEPENDENCIES`, and CocoaPods requires `PODS`, `DEPENDENCIES`, and `COCOAPODS`. Multi-file handlers first associate their complete registered companion names within one directory, then validate every document through the format-owned bundle parser; names alone cannot make malformed content valid. Composer additionally requires the lock root to contain both `packages` and `packages-dev` arrays. Every required marker for one format must match. No match is an unsupported-input error and multiple matches are an ambiguous-input error; Ol never guesses by registration order. Known formats with unsupported versions are rejected explicitly.
-
-`scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns `1` only when the scan itself cannot be performed or output cannot be written.
-
-The command boundary parses every supported input through the registered dependency-input adapter and then consumes a normalized inventory. Multiple package-manager inventories retain their contexts, occurrences, and edges while sharing report components according to the originating handler's package-identity comparison. Enrichment, reconciliation, filtering, grouping, sorting, and rendering do not dispatch on parser types. Explicit `--input-format` validation and directory discovery use the same registry as content detection.
-
-For a repository containing multiple package managers, auto-detected inputs with different registered formats produce one `package-manager/collection` inventory. Context and occurrence indexes are remapped into the collection without creating edges between input graphs. Component combination is format-scoped: identical canonical purls from different formats remain distinct graph evidence, while downstream package-metadata scheduling may deduplicate the same registry cache key. An explicit non-auto `--input-format` is therefore inappropriate for a mixed-format directory.
-
-A single repository-wide SBOM and a direct package-manager collection are alternative authoritative inputs, not layers to union. The CLI rejects SBOM/package-manager mixtures and multiple SBOM documents. Per-ecosystem SBOMs must be merged by an SBOM-aware tool before Ol scans the resulting document. CI may scan a canonical merged/polyglot SBOM and direct lockfiles as separate jobs and reports.
-
-Examples of whole-command failures:
-
-- dependency input cannot be read.
-- input format is unsupported or does not match the input content.
-- input is malformed enough that components cannot be extracted.
-- SPDX data cannot be loaded.
-- stdout cannot be written.
-
-Expected input, option, SPDX-data, and I/O failures return exit code `1` with a concise cause on stderr. They do not emit a runtime stack trace or partial primary output. View options are validated before enrichment starts so an invalid report request does not perform external evidence collection.
-
-Examples of component-level problems:
-
-- A component has an invalid license expression.
-- Later versions cannot fetch package metadata for one component.
-- Later versions cannot fetch source repository evidence for one component.
-
-<a id="contract-output-formats"></a>
-
-## Output Formats
-
-`scan` supports these formats from v1:
-
-- `text`
-- `json`
-- `markdown`
-
-Default format is `text`.
-
-```bash
-ol scan --input bom.json --format text
-ol scan --input bom.json --format json
-ol scan --input bom.json --format markdown
-```
-
-Primary output is written only to stdout and ends with a line feed in every format. Persist a report with shell redirection so the same output contract remains usable in pipelines:
-
-```bash
-ol scan --input bom.json --format markdown > licenses.md
-```
-
-For human-readable `text` and `markdown` output, a labeled scan summary is separated from the report by a blank line and written to stderr. JSON already contains canonical summary, warning, cache, network, input, and SPDX metadata, so successful JSON output does not emit a duplicate stderr summary. This keeps redirected and interactive JSON output free from an unexpected second representation of the same information.
-
-The human-readable input summary identifies the registered input format. It does not require the downstream scan pipeline to retain an SBOM-specific report type.
-
-`--verbose` retains its verbose report columns and additionally writes `Detected input format: {kind}/{format}` to stderr after successful detection. The normal path does not construct this diagnostic text; logging work remains inside the verbose branch.
-
-The primary `text` report starts with `Input: {kind}/{format}`. Markdown uses the same value as inline code. This header remains present with `--quiet`; quiet suppresses stderr summary output, not primary report metadata.
-
-`--quiet` suppresses the human-readable stderr summary/progress output. It must not suppress the primary stdout result.
-
-`--no-external-evidence` renders only evidence already present in the dependency input. Package-registry and source-repository collection are not scheduled, no cache directory is resolved for either category, and their report metadata counters are zero. Because zeroed counters otherwise read as "nothing was needed" rather than "nothing was attempted", the stderr summary replaces both collection lines with a single statement that external evidence was not collected. This mode exists for deterministic report-contract snapshots and for environments that intentionally prohibit external evidence collection; it is not equivalent to a full license-resolution run.
-
-<a id="contract-skip-evidence-packages"></a>
-
-`--skip-evidence-packages` is the same decision narrowed to selected components. It takes one comma-separated list of package URL prefixes, matched by the [package URL prefix rules](#contract-purl-prefix). A matching component is scheduled for neither package-registry nor source-repository collection, and instead receives one candidate with status `unknown` and the warning `external_evidence_not_collected`.
-
-The candidate exists because silence would be wrong in both directions. Without it, a component ol never asked about would be indistinguishable in the report from one whose registry answered with no license. And because the component is `unknown` rather than `error`, it stays acknowledgeable by a [baseline](#contract-policy-baseline), which a permanently unreachable registry response does not.
-
-This is the intended handling for a component ol cannot resolve for reasons that are not about its license: a registry that requires authentication, an internal feed a public registry answers `404` for, or a package reviewed through another process. Without it, every run pays a request that cannot succeed and records a collection failure that no baseline can absorb.
-
-The option applies to `scan` and `check`. It never removes a component from the report or from policy evaluation; `check` still evaluates it, and it fails closed unless acknowledged. Combined with `--no-external-evidence`, it has no additional effect, because nothing is collected for any component. With `--verbose`, each prefix is reported with the number of components it matched, so an entry that matches nothing is visible.
-
-<a id="contract-purl-prefix"></a>
-
-### Package URL prefix matching
-
-`--exclude-packages` and `--skip-evidence-packages` select components by package URL prefix using one shared rule. Matching is ordinal, case-sensitive, and anchored at purl separators (`/`, `.`, `@`):
-
-- a prefix ending at a separator states its own boundary, so `pkg:nuget/MyCompany.` covers `pkg:nuget/MyCompany.Core@1.0.0`;
-- a prefix ending inside a name must reach a separator in the purl, so `pkg:nuget/MyCompany` matches `pkg:nuget/MyCompany@1.0.0` but never `pkg:nuget/MyCompanyEvil@1.0.0`;
-- a full purl such as `pkg:npm/left-pad@1.3.0` selects exactly that component;
-- a component with no purl never matches, and a casing mismatch does not match either, so a mistyped prefix selects less than it names rather than more.
-
-Empty entries, an empty list, a value that is not a `pkg:` prefix, and a value naming only an ecosystem such as `pkg:npm/` are configuration errors. Duplicate prefixes have no additional effect. Supplied order is preserved because a component that several prefixes match is attributed to the first of them when match counts are reported.
-
-The option is named for the evidence it withholds rather than for the pipeline stage it disables, and it is deliberately not called `--offline`: the conventional meaning of offline is that a warm cache is still served, while this mode reads no cache at all.
-
-## Default Columns
-
-Default `text` and `markdown` component output uses these columns:
+Dependency type is `root`, `direct`, `transitive`, or `unknown`. It is `unknown` whenever the input cannot prove the relationship. The value is required in canonical JSON and shown in the default human-readable columns:
 
 ```text
 NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS
 ```
 
-Verbose output adds `PURL`:
+Verbose output additionally includes `PURL`.
 
-```text
-NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS PURL
-```
-
-`NAME`, `VERSION`, and `LICENSE` are intentionally placed first because they are the primary review fields. `PURL` is omitted from default output because it can make rows too wide.
-
-<a id="contract-component-status"></a>
-
-## Component Status
-
-All versions use the same status vocabulary:
-
-- `matched`: available evidence yields a single valid license expression.
-- `conflict`: multiple evidence sources or fields yield different valid license expressions.
-- `unknown`: license information is absent, empty, `NOASSERTION`, `NONE`, `UNKNOWN`, or otherwise not available.
-- `ambiguous`: license text exists but cannot be normalized to one SPDX expression without guessing.
-- `invalid`: a claimed SPDX expression is syntactically invalid or references unknown SPDX identifiers.
-- `error`: evidence needed for a component could not be collected or processed, and no other evidence yields a usable license result.
-
-`unknown` and `error` are distinct. `unknown` means the tool successfully checked the source and found no usable license information. `error` means the tool could not complete an evidence-gathering operation.
-
-If an external source fails in v2/v3 but another source gives a single valid license, the component remains `matched` and the fetch failure is recorded as warning evidence.
-
-## License Display
-
-For `matched`, the `LICENSE` field displays the normalized SPDX expression.
-
-For `unknown`, it displays `-`.
-
-For `ambiguous`, it displays the raw ambiguous value with `(?)`.
-
-For `conflict`, it displays candidate licenses separated by comma and a final `(?)`, for example:
-
-```text
-MIT, Apache-2.0 (?)
-```
-
-The marker is display-only. JSON output preserves each claim in `licenseCandidates` and attaches its non-duplicated provenance as that candidate's typed `evidence` object.
-
-<a id="contract-dependency-type"></a>
-
-## Dependency Type
-
-Reports distinguish component relationship when the SBOM contains enough information:
-
-- `root`
-- `direct`
-- `transitive`
-- `unknown`
-
-The field is required in JSON and displayed in default `text` and `markdown` output. If the SBOM does not contain enough dependency graph information, the value is `unknown`.
-
-<a id="contract-dependency-filtering"></a>
-
-## Dependency Filtering
-
-`--dependency` filters scan output by dependency type:
-
-```bash
-ol scan --input bom.json --dependency direct
-ol scan --input bom.json --dependency root,direct
-ol scan --input bom.json --dependency transitive
-```
-
-Allowed values are:
-
-- `root`
-- `direct`
-- `transitive`
-- `unknown`
-
-When supplied, the comma-separated filter must contain at least one value.
-
-`--dependency` is an output filter, not an analysis filter. The scan still reads the full SBOM and resolves dependency relationships before filtering. This preserves correct direct/transitive classification.
-
-When `--dependency direct` excludes components whose dependency type is `unknown`, stderr summary must include the excluded `unknown` count. This avoids implying that the scan proved those components are not direct dependencies.
-
-## Sorting
-
-Default sort order is:
-
-```text
-ecosystem,name,version
-```
-
-`--sort` accepts comma-separated keys:
-
-```bash
-ol scan --input bom.json --sort status,ecosystem,name
-```
-
-Normal sort keys:
-
-- `name`
-- `version`
-- `license`
-- `ecosystem`
-- `dependency`
-- `status`
-- `purl`
-
-`--sort-order` applies one direction to all selected keys:
-
-```bash
-ol scan --input bom.json --sort status,name --sort-order desc
-```
-
-Allowed values are `asc` and `desc`. Default is `asc`.
-
-The comma-separated `--sort` value must contain at least one key.
-
-## Grouping
-
-`--group-by` switches the output view from component rows to aggregate rows. It accepts one or more comma-separated output fields:
-
-```bash
-ol scan --input bom.json --group-by license
-ol scan --input bom.json --group-by ecosystem,license
-ol scan --input bom.json --group-by dependency,status
-```
-
-Groupable fields:
-
-- `name`
-- `version`
-- `license`
-- `ecosystem`
-- `dependency`
-- `status`
-
-Grouped output includes `COUNT`. Grouped JSON output includes minimal component references for traceability. Group sort keys are the group-by fields plus `count`.
-
-The comma-separated `--group-by` value must contain at least one key. Grouped JSON retains the same top-level canonical status summary as component JSON.
-
+<a id="contract-output-formats"></a>
 <a id="contract-json-report"></a>
 
-## JSON Report
+`scan` supports `text`, `markdown`, and canonical `json`; the default is `text`. Canonical JSON has a top-level `schemaVersion` and contains producer, input, SPDX, cache/network metadata, the complete inventory and graph, component results or grouped results, summary, and warnings. Consumers must reject or explicitly migrate unsupported schema versions.
 
-JSON output is the canonical machine-readable report. It includes:
-
-- tool metadata
-- input SBOM metadata
-- SPDX data metadata
-- network/cache metadata where applicable
-- the complete dependency inventory
-- component results or grouped results
-- summary
-- warnings
-
-The canonical summary counts every component status, including `error`, so the status counts sum to the displayed component count. This applies to both component and grouped JSON views.
-
-Top-level `schemaVersion` identifies the breaking report contract. Schema version 1 removes the duplicate component-level `evidence` array and makes candidate provenance subordinate to each `licenseCandidates` item. Consumers must reject or explicitly migrate unsupported schema versions rather than silently interpreting a newer report as an older shape.
-
-The `metadata.tool` object identifies the report producer with `name`, `version`, and `informationUri`. The version is the running Ol assembly's informational version, including pre-release and build metadata when present, so reports retain the exact producer identity independently of the report schema version.
-
-The current schema v1 report emits `metadata.input` and `metadata.spdx` as separate objects. Generic input metadata contains:
-
-- `kind`: the stable input family, currently `sbom` or `package-manager`
-- `format`: the registered format name, currently `cyclonedx`, `spdx`, `nuget-assets`, `npm-package-lock`, `pnpm-lock`, `yarn-classic-lock`, `yarn-berry-lock`, `cargo-metadata`, `go-module-graph`, `pip-inspect`, `composer-lock`, `bundler-lock`, `maven-dependency-tree`, `swift-package-resolved`, or `cocoapods-lock`; a package-manager collection containing different formats reports `collection`
-- `sourceRef`: the input file or directory basename, or `{count} inputs` for repeated input, rather than an absolute local path
-- `sourceSha256`: the SHA-256 of the complete file input, or a deterministic aggregate over logical discovery paths and content hashes for directory or repeated input
-- `parser`: the stable parser identity
-- `specificationVersion`: the source format version when present
-
-Existing SBOM-specific fields remain additive compatibility aliases in schema v1: `sbomRef`, `sbomFormat`, `sbomSpecVersion`, and `sbomSha256`. A future non-SBOM input must not emit fabricated SBOM aliases. The SPDX metadata object records its logical data reference, License List version, and SHA-256 hashes of the active `licenses.json` and `exceptions.json` files.
-
-Top-level `inventory` is independent of the sorted or filtered report view. It contains input-order `contexts`, lightweight component identities, `occurrences`, and `edges`. Occurrence component indexes always address `inventory.components`; they never address the displayed top-level `components` or grouped rows. Multiple occurrences may address one component when the same package identity is resolved in more than one project, target framework, RID, workspace, or installed package path. An npm occurrence with input-supplied `dev`, `optional`, `devOptional`, `peer`, `os`, or `cpu` conditions has an additive `variant` string; occurrences without such conditions omit the field. An edge `fromOccurrenceIndex` of `-1` denotes the project or workspace root owned by that edge's context. Empty platform or architecture values remain empty rather than being inferred from the host.
-
-Absolute project origins retained internally for graph attribution are rendered as basenames. Relative logical origins may be retained. Canonical output never exposes an absolute local project path.
-
-SBOM files and SPDX data files encoded with a UTF-8 BOM are accepted.
-
-File references in reports must not use absolute local paths. Use logical references or paths relative to the current working directory where possible. If a path cannot be safely relativized, use a basename or logical label.
-
-SBOM input metadata includes a SHA-256 hash:
-
-```json
-{
-  "input": {
-    "kind": "sbom",
-    "format": "cyclonedx",
-    "sourceRef": "bom.json",
-    "sourceSha256": "...",
-    "parser": "cyclonedx-json",
-    "specificationVersion": "1.6",
-    "sbomRef": "bom.json",
-    "sbomFormat": "CycloneDX",
-    "sbomSpecVersion": "1.6",
-    "sbomSha256": "..."
-  }
-}
-```
-
-SPDX metadata is defined by [spdx.md](spdx.md) and is required in every JSON report.
-
-When v3 source repository enrichment is active, `metadata.sourceRepository` reports target, request, cache, error, and unknown counts. `targetCount` counts deduplicated repository/ref targets, while `unknownCount` counts components without source license evidence even when multiple components share one target. `metadata.network.githubAuth` reports only `ol_github_token` or `none`; it never includes a credential value.
-
-`metadata.packageMetadata.targetCount` counts deduplicated versioned package targets scheduled for cache or registry lookup. Component-oriented hit, miss, and outcome counts can be larger because one shared target result is projected to every matching occurrence.
-
-Each GitHub license candidate carries a typed `evidence` object in its `licenseCandidates` entry. It contains logical repository/ref, HTTP status, cache-key hash, and license path/SHA/key/name/URL. These provenance fields are metadata, not warnings, and never contain a cache path or token value.
-
-Component entries include original SBOM identifiers when present:
-
-- CycloneDX `bomRef`
-- SPDX `spdxId`
-
-v1 rejects a document that simultaneously presents CycloneDX and SPDX format markers rather than choosing a format by marker order.
-
-Line numbers and JSON Pointers are not required in v1.
+The complete inventory is independent of sorted, filtered, or grouped views. Occurrence indexes address `inventory.components`, never displayed component or group indexes. The report identifies inputs with logical references and content hashes. It accepts input and SPDX JSON with an optional UTF-8 BOM.
 
 <a id="contract-report-privacy"></a>
 
-## Privacy and Security
+Reports, baselines, SARIF, and diagnostics must not contain token values, absolute local paths, or hidden cache paths. Use logical identifiers, basenames, relative paths, and hashes. Authentication may be reported only as a mode, never as a credential value.
 
-Reports must not contain:
+<a id="contract-purl-prefix"></a>
 
-- token values
-- absolute local paths
-- hidden cache file paths
+`--exclude-packages` and `--skip-evidence-packages` share one package URL prefix rule. Matching is ordinal, case-sensitive, and anchored at `/`, `.`, and `@` separators. A full versioned purl matches exactly; a component without a purl never matches. Empty values, non-`pkg:` values, and ecosystem-only prefixes such as `pkg:npm/` are invalid. Duplicate prefixes have no additional effect, and supplied order is retained for verbose match counts.
 
-Logical identifiers and hashes should be used where possible. Token presence may be reported as an auth mode, never as a value.
+## CLI Command List
+
+| Command | Purpose | Primary output |
+|---|---|---|
+| `ol scan` | Resolve license evidence from one or more dependency inputs. | Text, Markdown, or canonical JSON report. |
+| `ol check` | Evaluate a canonical JSON report against an allow-list. | Deterministic pass result or complete violation list. |
+| `ol diff` | Compare two canonical JSON reports for license-relevant changes. | Text or JSON diff. |
+| `ol cache clear` | Clear Ol-managed evidence caches. | Cleared categories. |
+| `ol spdx version` | Show the active SPDX data source. | Active version and user-data location. |
+| `ol spdx list` | List installed SPDX data versions. | Installed versions with the active version marked. |
+| `ol spdx update` | Download current SPDX data. | Installed version. |
+| `ol spdx use` | Activate an installed SPDX data version. | Active version. |
+| `ol spdx clear` | Remove user-managed SPDX data. | Confirmation. |
+
+### `ol scan`
+
+```text
+ol scan --input <file-or-directory> [--input <file-or-directory> ...]
+```
+
+`--input` is required and repeatable. It accepts CycloneDX JSON, SPDX JSON, or supported resolved package-manager inputs: NuGet assets, npm, pnpm, Yarn Classic/Berry, Cargo metadata, Go module graph, pip inspect, Composer, Bundler, Maven dependency tree, Swift `Package.resolved`, and CocoaPods lock data. `--input-format` defaults to `auto`; an explicit format is an assertion and must match every discovered document.
+
+Ol consumes already resolved inventories; it does not resolve manifests or version ranges. Directory discovery uses only registered resolved-input names, does not follow reparse points, and requires complete companion-file sets for Go and Composer. Content signatures, not filenames or registration order, determine a document's format. Unsupported versions, no match, ambiguous matches, malformed companion sets, SBOM/package-manager mixtures, and multiple SBOM documents are input failures.
+
+Repeated and directory inputs are deduplicated by resolved file path and processed in deterministic logical-path order. Multiple package-manager formats form one collection while retaining their own contexts and graphs; Ol does not invent edges between inventories. A repository-wide SBOM and direct package-manager inputs are alternative authoritative sources and must be scanned separately.
+
+`scan` collects external package and source evidence by default. `--refresh` bypasses reusable entries. `--no-external-evidence` reads neither external sources nor their caches and reports that collection was not attempted.
+
+<a id="contract-skip-evidence-packages"></a>
+
+`--skip-evidence-packages <prefixes>` disables registry, repository, and cache collection only for matching components. Each remains in the report and receives an `unknown` evidence candidate with `external_evidence_not_collected`; input evidence may still resolve its final status. An unresolved result fails closed in `check` unless a baseline acknowledges it. Combined with `--no-external-evidence`, the option has no additional effect.
+
+<a id="contract-dependency-filtering"></a>
+
+`--dependency root,direct,transitive,unknown` filters only the rendered view; analysis always uses the complete inventory. When filtering to `direct`, the stderr summary identifies excluded `unknown` relationships. `--sort` accepts `name`, `version`, `license`, `ecosystem`, `dependency`, `status`, and `purl`; default order is `ecosystem,name,version`, ascending. `--group-by` accepts all of those except `purl`, adds `COUNT`, and produces a grouped view. Empty filter, sort, or group lists are invalid.
+
+The cache root is selected by `--cache-dir`, then `OL_CACHE_DIR`, then legacy category-specific roots, then the platform user-cache location. A supplied root is an isolation directory: Ol manages only its `package-metadata` and `source-repository` children. Cache paths never appear in reports. Cache schemas are specified in [cache_format.md](cache_format.md).
+
+### `ol check`
 
 <a id="contract-policy-checks"></a>
-
-## `ol check`
-
-`check` is the policy-enforcement command. It evaluates one canonical JSON report previously produced by `scan`; it never parses dependency inputs, collects registry or repository evidence, or reads collection caches. This boundary makes collection failures and policy violations separate CI steps and makes repeated policy evaluation independent of network state.
-
-The initial policy surface is limited to a required allow-list:
+<a id="contract-policy-report-input"></a>
 
 ```text
-ol scan --input . --format Json > ol-report.json
-ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+ol check --report <scan.json> --allow-licenses <SPDX-ids>
 ```
 
-`--allow-licenses` is one comma-separated list of SPDX License Identifiers. Surrounding ASCII whitespace is ignored. Matching is case-insensitive and identifiers are normalized to the official casing from the active SPDX data. Empty entries, unknown identifiers, SPDX expressions, exception identifiers, natural-language names, and an empty list are invalid check options. Duplicate identifiers after normalization have no additional effect.
+`check` reads one ungrouped canonical JSON report. It performs no dependency parsing, evidence collection, cache access, or network access. Invalid, malformed, grouped, or unsupported-schema reports are command failures.
 
-`--report` is required. `check` accepts policy and projection controls: `--allow-licenses`, `--allow-dev-licenses`, `--exclude-packages`, `--spdx-data`, `--verbose`, `--baseline`, `--update-baseline`, and `--sarif`. It does not accept collection controls such as `--input`, `--input-format`, `--cache-dir`, `--refresh`, `--no-external-evidence`, `--skip-evidence-packages`, `--concurrency`, or `--retry`, nor scan view controls such as `--dependency`, `--group-by`, `--sort`, or `--format`. Policy evaluates every non-root component in the report and emits one deterministic text result. A component classified as `root` describes the application or other subject being inspected, so `check` excludes it from allow-list evaluation, baseline generation, violation output, SARIF, and the passing component count. The root remains in the report and complete inventory. Components classified as `unknown` remain policy inputs because missing graph evidence must not be interpreted as proof that they are first-party.
+`--allow-licenses` is a required comma-separated list of SPDX License Identifiers. Whitespace and casing are normalized using active SPDX data. Empty entries, expressions, exception identifiers, natural-language names, and unknown identifiers are invalid. For a `matched` component, `AND` requires both operands, `OR` requires either operand, parentheses retain SPDX precedence, and `WITH` has the policy value of its base license.
 
-For a component with status `matched`, the normalized SPDX expression is evaluated as a Boolean expression where an allowed license identifier is true and every other license identifier is false:
+Policy evaluates all non-root, non-excluded components. `unknown` dependency type remains in scope. `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed unless the baseline rules below acknowledge the unresolved status. All violations are collected and deterministically ordered.
 
-- `AND` requires both operands to be true.
-- `OR` requires at least one operand to be true.
-- Parentheses preserve SPDX precedence.
-- `WITH` has the policy value of its base license. The exception remains part of the reported normalized expression but does not independently make a forbidden base license acceptable.
+`--allow-dev-licenses` adds identifiers only for components proven development-only by resolver data persisted in the report. Any runtime or usage-unknown occurrence keeps the component under the primary allow-list. Inputs without reliable development reachability therefore fail closed. When supplied, the count admitted by this policy is always printed.
 
-For example, with `--allow-licenses MIT,Apache-2.0`, `MIT`, `MIT AND Apache-2.0`, and `MIT OR GPL-3.0-only` pass; `MIT AND GPL-3.0-only` and `GPL-3.0-only WITH Classpath-exception-2.0` fail.
-
-#### Development-only allow-list
-
-`--allow-dev-licenses` is an optional second comma-separated allow-list, validated by the same rules as `--allow-licenses`, applied only to components the resolver reaches exclusively through a development path. It exists because development tooling routinely pulls transitive licenses that a permissive production allow-list rejects — for example a Vite dev toolchain reaches `caniuse-lite` (`CC-BY-4.0`) — even though those packages never enter a production artifact.
-
-```text
-ol scan --input package-lock.json --format Json > ol-report.json
-ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --allow-dev-licenses CC-BY-4.0
-```
-
-A `matched` component that the primary allow-list rejects is re-evaluated against `primary ∪ development` **only** when its resolver usage is development-only. Usage is aggregated across every occurrence of the component: a single runtime or usage-unknown occurrence keeps the component on the primary allow-list, and package or dependency names are never used to infer development usage. Usage comes only from inputs whose resolver records it: npm `package-lock.json`, pnpm `pnpm-lock.yaml`, the Composer pair, Maven `maven-dependency-tree.json`, and Cargo `cargo-metadata.json`. Each is classified conservatively:
-
-- npm: development-only when the lockfile marks the entry `dev` (npm's own dev-only reachability); `optional`, `devOptional`, and `peer` stay runtime.
-- pnpm: development-only when importer reachability is dev and neither production nor optional, so a strictly-optional package — which a production install still fetches — stays runtime.
-- Composer: development-only when the package sits in `packages-dev` **and** no production `require` closure reaches it. The `require`/`require-dev` split is resolved before graph walking; a `packages-dev` entry that a production requirement can reach is a stale or hand-merged bundle and is rejected as inconsistent input.
-- Maven: development-only when the resolved dependency-tree scope is `test`. `compile`, `runtime`, `provided`, `system`, and `optional` stay runtime, because only `test` is never part of a production build.
-- Cargo: development-only when a crate is reachable but not reachable through the production closure of `normal` and `build` edges from the workspace roots. Reachability is propagated, so a `normal` dependency of a `dev`-dependency is still development-only; `build` dependencies are treated as production so a crate required to build the shipped artifact is never admitted.
-
-Inputs without development reachability leave every component usage-unknown, so `--allow-dev-licenses` never relaxes them.
-
-The resolved development usage is persisted per component in the canonical JSON report (a `usage` value of `development` or `runtime`; absent means unknown). A report whose components carry no `usage` field is treated as usage-unknown and fails closed under `--allow-dev-licenses`; `check` does not reconstruct usage from dependency input or network state.
-
-This option is an organization policy statement, not a claim about artifact inclusion: a resolver's development scope does not prove a bundler, code generator, or plugin excludes the package from a production build. Release gates should still check the production artifact or a production SBOM with the primary allow-list alone. When supplied, `check` prints `Allowed by development policy: N components.` — including `0` — so a lost or newly inapplicable exception is visible in CI logs. Omitting the option leaves the verdict, output, and SARIF violation set byte-for-byte unchanged.
-
-#### Components outside policy scope
-
-`--exclude-packages` is one comma-separated list of package URL prefixes. A component whose purl matches one of them is not evaluated at all: it is absent from allow-list evaluation, baseline generation, violation output, SARIF, and the passing component count, exactly as a `root` component is. It remains in the scan result, the complete inventory, and every `scan` report unchanged.
-
-```text
-ol scan --input . --format Json > ol-report.json
-ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --exclude-packages pkg:nuget/MyCompany.,pkg:npm/@mycompany/
-```
-
-The option exists because a resolved graph contains components that are not third-party OSS the allow-list can decide: packages an organization publishes to its own feed, or packages it reviews through a separate process. Such a component usually resolves to `error`, because a private registry returns 404, and `error` is deliberately not acknowledgeable — so without this option the run fails permanently with nothing the user can change.
-
-Ol cannot verify what the prefixes claim, exactly as it cannot verify that a CycloneDX `metadata.component` is the inspected subject. The option therefore states scope, not a license fact or an ownership fact, and Ol does not restrict what a user may place outside their own gate. What Ol owes instead is visibility: the count is always printed, the prefixes are never discovered implicitly, and the scan result still reports every excluded component with its evidence.
-
-Prefixes follow the shared [package URL prefix rules](#contract-purl-prefix); a component with no purl or a casing mismatch stays evaluated, so a mistyped prefix leaves the gate closed rather than open. `--exclude-packages` changes no report field and needs no report schema support. When supplied, `check` prints `Excluded from evaluation: N components.` — including `0` — so a prefix that stopped matching is visible in CI logs, and `--verbose` additionally reports the match count of each prefix.
-
-Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain, unless an unresolved component is acknowledged by a baseline as defined below. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.
-
-`check` writes its pass result or complete violation list to stdout. Expected option, report, SPDX-data, baseline, SARIF, and output failures write a concise cause to stderr without a stack trace or partial policy result. A registry or source failure already recorded in the report is evaluated as evidence and becomes a policy violation when it leaves that component unresolved; `check` does not retry collection. Exit codes are:
-
-- `0`: every non-root component satisfies the allow-list.
-- `1`: the check could not be completed because its syntax, configuration, report, SPDX data, baseline, or output failed.
-- `2`: one or more policy violations were found.
+`--exclude-packages` removes matching purls from policy evaluation, baseline generation, violation output, SARIF, and the passing count, but never changes the scan report. The excluded count is always printed when the option is supplied. This is a policy-scope decision; it is distinct from `scan --skip-evidence-packages`.
 
 <a id="contract-policy-baseline"></a>
 
-### Acknowledged unresolved components
+`--baseline <file>` acknowledges reviewed unresolved components so that the unresolved set cannot grow silently. `--update-baseline` requires `--baseline`, replaces it with a deterministic complete snapshot, and then evaluates against that snapshot; it does not merely append or suppress evaluation.
 
-Failing closed on unresolved evidence is correct, but on its own it makes the command unusable for an existing product. Any real dependency set contains components whose license cannot be resolved: registries with no license field, non-GitHub sources, private packages. A user cannot fix those, and an allow-list cannot silence them. The goal is not that the unresolved set is empty; it is that **the unresolved set cannot grow silently**.
-
-A baseline records the unresolved components a reviewer has already seen and accepted, so that only newly unresolved components fail:
-
-```text
-ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json --update-baseline
-ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json
-```
-
-`--baseline` names the file explicitly. Ol never discovers a baseline by convention, so the command line alone states what is acknowledged. `--update-baseline` rewrites the file as a complete snapshot of the currently acknowledgeable components; it is not an append, and it requires `--baseline`. Because the snapshot replaces the file, a previous baseline is not read while updating, and an unreadable prior file does not block the rewrite. Hand-removing an entry is therefore not durable, which is intentional: a baseline is a reviewed snapshot to be reduced by fixing evidence or extending the allow-list, not a curated list of decisions.
-
-Updating does not suppress evaluation. `--update-baseline` writes the snapshot and then evaluates the result against it, so the same command that adopts a baseline still fails on anything the baseline cannot absorb. Adopting Ol on an existing product is therefore one command whose exit code answers the question that matters: a non-zero result is a genuine finding rather than a backlog of unresolved evidence.
-
-A component may be acknowledged only when both of the following hold.
-
-1. Its status is `unknown`, `ambiguous`, `conflict`, or `invalid`. Status `error` cannot be acknowledged, because a collection failure is a condition to repair rather than a policy question, and acknowledging one would freeze a transient outage into an approval. Status `matched` cannot be acknowledged, because a resolved license is a policy decision that belongs in `--allow-licenses`.
-2. No license candidate on that component normalizes to an SPDX expression the active allow-list rejects.
-
-Rule 2 is what keeps a forbidden license from being deferred. A `conflict` between `MIT` and `GPL-3.0-only` is not acknowledgeable while `GPL-3.0-only` is disallowed, so `--update-baseline` cannot silence it and the command still exits 2. This yields a two-layer guarantee that should not be overstated: a forbidden license **that Ol can identify** cannot be acknowledged at all, while one Ol cannot identify — an unnormalizable string such as `GPLv3`, which strict normalization refuses to guess — remains visible because the baseline records the raw claim. Rule 2 is evaluated when the baseline is applied, not only when it is written, so tightening `--allow-licenses` invalidates entries that a more permissive list had accepted.
-
-An entry identifies its component by versioned purl when one exists and by ecosystem, name, and version otherwise, and always carries the readable name, version, and ecosystem so a reviewer never needs to know which identity form was used. It records the acknowledged status, the raw claims that produced it as `(source, kind, raw)` triples, and a fingerprint over that same evidence. The fingerprint is why an acknowledgement expires by itself: when a version changes, a registry corrects its metadata, or a repository's license file changes, the entry stops applying and the component fails again until it is reviewed anew. An entry applies to every component it matches; entries carry no reason field, because the file is generated and the surrounding version control already records who added it and when.
-
-The file is JSON with a schema version, and records the Ol version and SPDX License List version that produced it as diagnostic information rather than as a compatibility requirement — a License List update must not invalidate a whole baseline, and real evidence changes are already caught by the fingerprint. Entries are ordered by ecosystem, name, version, and purl so that reordering an input produces no diff, and no generation timestamp is written so that regenerating an unchanged baseline produces no diff. Overlong raw values are truncated in the file and marked as truncated, while the fingerprint covers the untruncated value. Report privacy applies unchanged: a baseline is committed to a repository and must not contain tokens or absolute local paths.
-
-Whenever a baseline is supplied, `check` reports how many components it acknowledged, including zero, so a passing run never hides the existence of a baseline and a baseline that stopped applying is visible. Acknowledged components remain in the scan result with their original unresolved status; acknowledgement removes a violation, it does not alter evidence or reconciliation. A missing, malformed, or schema-incompatible baseline is a command failure with exit code 1 rather than a silently empty baseline, so a mistyped path is reported instead of changing which components fail.
-
-<a id="contract-policy-report-input"></a>
-
-### Evaluating a persisted report
-
-`--report <file>` is required and evaluates a previously written canonical JSON scan report:
-
-```text
-ol scan --input . --format Json > ol-report.json
-ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
-```
-
-The canonical JSON report is the input contract; Ol does not define a second persistence schema. One document means a report a user already has is directly usable as policy input, and an output schema and an input schema cannot drift apart. The report schema version is validated on read, and an unsupported version, a malformed document, or a grouped report produced with `--group-by` is a command failure with exit code 1 rather than a partial evaluation.
-
-Report evaluation performs no input parsing, no registry or repository collection, and no network access. Separating policy from collection this way means a policy can be re-run, or a different policy applied, without the result depending on what a registry happened to answer at that moment. Collection options are not part of the `check` command surface; they belong to the `scan` invocation that creates the report. `--exclude-packages`, `--baseline`, `--update-baseline`, `--spdx-data`, and `--sarif` apply during policy evaluation.
-
-Active SPDX data still normalizes the allow-list, so a report may be evaluated under different SPDX data than produced it. The report's own recorded License List version is reported under `--verbose` rather than enforced, for the same reason a baseline records it without enforcing it: a data refresh must not invalidate an existing artifact.
+Only `unknown`, `ambiguous`, `conflict`, and `invalid` may be acknowledged, and only when no recognizable candidate is rejected by the active allow-list. `matched` belongs in the allow-list and `error` represents an operation to repair. Entries identify the component and fingerprint its status and evidence, so changed evidence or identity expires the acknowledgement. Applying a baseline rechecks the active allow-list. Missing, malformed, or incompatible baselines exit `1`; acknowledged counts, including zero, are reported.
 
 <a id="contract-policy-sarif"></a>
 
-### SARIF output
+`--sarif <file>` writes the same violations as SARIF 2.1.0 without changing stdout. Stable rule IDs are `OL0001` not allowed, `OL0002` conflict, `OL0003` unresolved, `OL0004` ambiguous, `OL0005` invalid expression, and `OL0006` evidence error. Results use logical component locations and include the deterministic shortest dependency path when available; Ol does not invent source positions. Development-policy allowances are recorded as run properties rather than findings.
 
-`--sarif <file>` additionally writes violations as SARIF 2.1.0 for CI code scanning. The text result on stdout is unchanged, and both carry the same violation set: SARIF is another projection of one evaluation, never a filter. Acknowledged components are absent from both.
+Policy files, deny-lists, per-package exceptions, concluded licenses, and dependency-scope policy are outside this command's contract.
 
-Each violation kind has a stable rule ID so annotations remain comparable across runs: `OL0001` not allowed, `OL0002` evidence conflict, `OL0003` unresolved, `OL0004` ambiguous, `OL0005` invalid expression, `OL0006` evidence error.
-
-Ol reads resolved graphs rather than manifests, so a violation has no trustworthy file position and Ol does not invent one. Results carry a logical location plus the component's purl, ecosystem, status, license, and dependency classification. When the graph is available, a result also carries the deterministic shortest root-to-component dependency path, and the message names it. That path is the actionable part of a transitive violation: it identifies the direct dependency to upgrade or remove, which is the only thing the user can change. A canonical persisted report carries the complete inventory and graph, so evaluating it preserves the same dependency path without re-reading the original dependency input.
-
-A component admitted by `--allow-dev-licenses` is not a violation, so it is never a SARIF result. Instead the run records these under `runs[].properties.developmentPolicyAllowances` — a machine-readable array of `{ name, version, ecosystem, purl, sourceId, license, policySource: "allow-dev-licenses" }` — so a reviewer can audit which packages passed only under the development policy without treating them as findings. The property is written only when at least one component was admitted; a run with no development allowances writes no run-level `properties`.
-
-Policy files, deny-lists, per-package policy exceptions, license curation and concluded licenses, and dependency-scope policy remain outside the `check` scope.
+### `ol diff`
 
 <a id="contract-diff"></a>
 
-## `ol diff`
-
-`diff` compares two persisted JSON scan reports and reports only license-relevant change:
-
 ```text
-ol diff --previous before.json --current after.json
+ol diff --previous <scan.json> --current <scan.json> [--format text|json]
 ```
 
-A full report is too large to review by hand on every change, and most of what changes between two runs is not license-relevant. The diff exists so a reviewer can see what actually changed about licensing and distinguish a genuine change of licensing fact from ordinary registry or repository drift.
+`diff` reports `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, and `evidence-changed`. Each material dimension is an independent change record even when human text groups changes for one component. Output is deterministic; JSON uses schema version 1 and reports both affected-component and independent-change counts. `diff` exits `0` when comparison succeeds even when changes exist, and `1` when either report or output is unusable.
 
-`--previous` and `--current` are required. Components are identified by ecosystem and name so that a version bump reads as a change rather than as an unrelated removal and addition, while versions remain visible as review context. Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, and `evidence-changed`. Material dimensions remain independent: when the removed and added version sets also change the recorded licenses, the result contains both `version-changed` and `license-changed`; simultaneous status and license changes are likewise separate records. Multiple versions are compared as removed and added sets rather than paired by guesswork. `evidence-changed` reports that the underlying claims moved while the conclusion held, which is what distinguishes a real change of fact from a change of wording; it is derived from the same evidence fingerprint the baseline uses.
+### `ol cache clear`
 
-Output is `--format Text` or `--format Json`, ordered by component name and change kind so identical inputs produce identical output. Text is a vertical diff: `+`, `-`, and `~` identify added, removed, and changed components; a stable version is appended to the component identity, and changed values are labeled below it. Multiple changes to one component share one block, while the summary reports both the independent change count and affected component count. Added and removed records include their license and status. JSON is the machine-readable contract: each independent change retains its own kind, component identity, and version, license, and status context under schema version 1; `componentCount` and `changeCount` report the two totals. `diff` accepts no policy or SPDX-data options: those concerns belong to `check`, while `diff` is a pure comparison of facts already persisted in reports. It exits `0` whenever both reports could be read and `1` when either could not. Policy enforcement stays in `check` so exit code `2` keeps one meaning.
+```text
+ol cache clear [package-metadata|source-repository|all]
+```
+
+The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root.
+
+### `ol spdx`
+
+```text
+ol spdx version
+ol spdx list
+ol spdx update
+ol spdx use <version>
+ol spdx clear
+```
+
+The SPDX commands inspect and manage user-installed SPDX License List data. `update` is the only command in this group that requires network access. `clear` removes user-managed data and returns Ol to bundled data.
 
 ## Lessons Learned
 
-- A change record's primary kind cannot safely hide another material transition as context. Consumers commonly filter by kind, so classifying `MIT -> AGPL-3.0-only` only as `version-changed` creates a machine-readable false negative even when both values remain in the document. Human output may group fields into one component block, but the comparison model and JSON must retain independently filterable change kinds.
-- JSON SBOM and SPDX files written by common Windows APIs can start with a UTF-8 BOM. Input handling must strip an optional BOM before structural detection or JSON parsing.
-- Format detection must examine the complete document. Selecting the first format marker can silently misclassify a document containing both CycloneDX and SPDX markers.
-- A documented positional value must also be positional at the framework boundary. Translating the cache category before dispatch exposed both positional and named-option forms, made help disagree with the specification, and left conflicting forms with an implicit winner.
-- A baseline fingerprint must not depend on the order in which license candidates were appended. Enrichment appends candidates in pipeline order, which is an implementation detail, while the fingerprint is persisted in user repositories. Sorting the claims before hashing keeps a future evidence source or a reordered enrichment phase from silently invalidating every existing baseline.
-- Acknowledgement needed no new component status. Removing a violation while leaving the component's unresolved status and evidence untouched preserves the evidence contract and keeps the `check` exit-code surface unchanged, which is what made the whole feature fit behind two options.
-- A CycloneDX `metadata.component` describes the inspected subject, not a third-party dependency. Keeping that root in the factual scan while excluding only `DependencyType.Root` at the `check` boundary preserves graph evidence without requiring proprietary or not-yet-licensed application code to satisfy a dependency allow-list. Treating `unknown` as root would create a false-negative path for incomplete graphs, so unknown relationships remain fail-closed policy inputs.
-- `LicenseStatus.Unknown` must be the zero value of the enum. Every input parser builds components itself, and several derive a component's status from a candidate that is `default` when the input declares no license. While `Matched` was the zero value, those packages were reported as resolved with an empty license expression: a silent false negative in exactly the case a compliance tool exists to catch, and one that `check` could then neither explain nor let a user acknowledge. Explicit enum values pin the safe default, and a cross-parser test asserts no component is ever `Matched` without a license.
-- Inventory component indexes and top-level report component indexes are different contracts. The inventory remains in input order while the report view may be sorted or filtered, so persisted-report consumers must restore the graph and resolve a displayed component back to its inventory identity before following occurrences or edges. Reusing a report-view index as an inventory index can silently attribute a violation to the wrong dependency path.
-- Two options whose names differ by a suffix cannot be told apart on a command line. The narrowed form of `--no-external-evidence` was first named `--no-external-evidence-for`, which reads as a typo of the option next to it while doing something substantially different — all components versus a named few. Naming it `--skip-evidence-packages` instead makes the difference visible and puts it in the same family as `--exclude-packages`, which takes the same kind of value. A shared prefix is only a good name when the two options are variants of one decision that a reader never has to distinguish quickly.
-- Removing a component from the gate and not collecting evidence for it are different problems, and only one of them belongs to `check`. `--exclude-packages` states policy scope and must stay at the evaluation boundary, because the canonical report is also the policy input: excluding during a scan would delete evidence from the report and make a different scope impossible to re-evaluate later. Not collecting is a scan-time decision about which requests to issue, so it needs its own option on `scan`. Conflating them would have made one of the two behaviors unreachable.
-- An option name must not carry a rule the tool does not enforce. `--exclude-packages` was first drafted as a first-party or private-package declaration, which named an attribute Ol never observes — it matches purl prefixes and knows nothing about ownership or which feed a package came from — and made the name argue against uses that are the user's to decide, such as reviewing a vendor SDK through a separate process. Naming the mechanism keeps the claim with the user, where policy separation already puts it, and leaves visibility as the tool's obligation.
-- Exclusion belongs to the same predicate as acknowledgement, not only to the evaluation loop. Because `LicenseBaseline.CreateEntries` decides what to record through `CanAcknowledge`, adding the check there as well is what keeps `--update-baseline` from writing a snapshot entry for a component the run never evaluated.
-- A per-component predicate must not cost a call when its data is absent. Reading the exclusion array inside the matcher regressed the cheapest policy benchmark case by 21% for components that were never excluded, because the unconditional call dominates a loop whose per-component work is a few nanoseconds. Hoisting the array once before the loop and testing it at the call site returned that case to within noise.
-- CLI integration tests must execute the already-built CLI DLL. Parallel `dotnet run` invocations race while replacing the shared apphost executable.
-- Do not add an optional second parameter to shared `params string[]` CLI test helpers: it can capture `scan` rather than treating it as command input. Use a distinct helper for cache-aware invocation.
+- Detection must validate the complete document. Optional UTF-8 BOMs are common, and selecting the first recognizable marker can misclassify a document that contains conflicting format markers.
+- The documented command shape is part of the contract. A positional cache category implemented as both an option and an argument made help ambiguous and left conflicting forms without a principled winner.
+- Canonical artifacts must be stable under irrelevant ordering. Baseline fingerprints sort evidence claims before hashing, and report views never reuse their sorted indexes as inventory indexes.
+- Acknowledgement is not a license status. It removes a policy violation while preserving the original unresolved status and evidence, which keeps factual resolution separate from organizational policy.
+- Root and unknown dependency relationships are not interchangeable. The inspected subject is outside dependency policy, while an unknown relationship remains fail-closed because missing graph evidence cannot prove first-party ownership.
+- Safe defaults matter across every parser: an absent license must become `unknown`, never an empty `matched` result.
+- Policy exclusion and skipped collection solve different problems. Exclusion belongs to `check` and changes scope; skipped collection belongs to `scan` and preserves a visible unresolved component.
+- Option names should describe observable behavior. `--skip-evidence-packages` and `--exclude-packages` make their distinct effects visible without claiming ownership or package provenance that Ol cannot verify.
+- Diff change kinds must remain independently filterable. A version change must not hide a simultaneous license or status change in machine-readable output.

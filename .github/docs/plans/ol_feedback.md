@@ -2,7 +2,7 @@
 
 ## この文書の位置付け
 
-[ol の設計](../DESIGN.md)が利用者へ約束している体験を起点に、**まだ果たされていない約束**を特定し、それを果たすために何を支払うかを整理する。[既存 OSS ライセンスチェッカーの実装分析](../references/existing_license_checkers.md)は、その支払いの相場を知るための参照であって、機能一覧の出典ではない。
+[ol のアーキテクチャ](../Architecture.md)が利用者へ約束している体験を起点に、**まだ果たされていない約束**を特定し、それを果たすために何を支払うかを整理する。[既存 OSS ライセンスチェッカーの実装分析](../references/existing_license_checkers.md)は、その支払いの相場を知るための参照であって、機能一覧の出典ではない。
 
 これは仕様や実装の commitment ではない。採用する項目は WHAT / WHY を specs へ追加した後、個別の test-first implementation plan に分ける。[backlog](../backlog.md) と重なる項目（policy categories、SARIF、Maven、source archive inspection）については、この文書が参照実装から得た根拠、依存関係、支払う代償、実装しない範囲まで具体化する。
 
@@ -53,11 +53,11 @@ ranking の前提になるため、推測ではなく登録済みの実体で確
 
 **進捗**: Gap 1・Gap 3・Gap 6 は実装済み。残る Gap 4 は未決の仕様課題2件が解決するまで着手しない（下記）。Gap 2 は Gap 4 と独立に、判定精度だけを根拠に評価する。Gap 7 と Gap 8 は方針どおり据え置き。
 
-再配布成果物（`THIRD-PARTY-NOTICES`、license bundle）は Gap ではない。[DESIGN の非目標](../DESIGN.md#non-goals)であり、この文書の対象から外れる。番号は識別子なので Gap 5 は欠番のままとし、既存の参照を書き換えない。
+再配布成果物（`THIRD-PARTY-NOTICES`、license bundle）は Gap ではない。[Architecture の非目標](../Architecture.md#non-goals)であり、この文書の対象から外れる。番号は識別子なので Gap 5 は欠番のままとし、既存の参照を書き換えない。
 
 ### Gap 1 / P0: fail-closed の逃げ道がなく、既存製品へ導入できない — **設計確定**
 
-**約束**: [decision-policy-separation](../DESIGN.md) — 同じ事実に対し、組織ごとに異なる policy を適用できる。
+**約束**: [decision-policy-separation](../Architecture.md#decision-policy-separation) — 同じ事実に対し、組織ごとに異なる policy を適用できる。
 
 **現状で起きること**: `check` は unresolved を無条件で違反にする。実在の依存集合には必ず解決不能な component が残り、利用者に打つ手のないものが大半を占める（registry が license を書いていない、GitHub 以外、private package）。想定する二つの利用場面は、この点で形が違う。
 
@@ -236,7 +236,7 @@ curation（Gap 2）は、upstream の誤りが baseline で吸収できない実
 ## 今回のスコープに入れないもの
 
 - 参照ツールにあっても取り込まない挙動: package metadata の先頭 license だけを使う / SPDX expression を raw string の exact・substring 比較で判定する / confidence の低い heuristic を確定 license として evidence へ上書きする / package・file ごとに無制限の task を作る / installed directory を inventory の正とし resolved graph を失う / ORT の plugin platform と rule DSL を規模ごと模倣する。
-- 再配布成果物の生成（`THIRD-PARTY-NOTICES`、attribution file、license bundle）。据え置きではなく[非目標](../DESIGN.md#non-goals)である。成果物を作るには `OR` の選択、観測していない本文の代替、網羅性の主張が要り、いずれも観測から導けない。
+- 再配布成果物の生成（`THIRD-PARTY-NOTICES`、attribution file、license bundle）。据え置きではなく[非目標](../Architecture.md#non-goals)である。成果物を作るには `OR` の選択、観測していない本文の代替、網羅性の主張が要り、いずれも観測から導けない。
 - Phase A / B の期間中に着手しないもの（据え置き継続）: curation（事実の訂正）、deny-list、policy file、本文同定、file-level scan、新規 ecosystem。
 - `--allow-licenses` の入力補助（`osi-approved` のような SPDX 由来グループ）。SPDX データに無い「コピーレフトでない」という分類が本当に欲しいものであり、それは ol による法的判断になる。OSI 承認には GPL が含まれるため、SPDX 由来のグループはケース2 を解かない。
 - 外部プロセス依存（package manager CLI、MSBuild、外部 scanner）の常時要求。単一 native バイナリという配布形態を崩す。

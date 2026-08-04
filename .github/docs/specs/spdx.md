@@ -6,7 +6,7 @@ SPDX data is foundational for all versions because license matching must be expl
 
 ## Design Basis
 
-This specification derives from the [Ol design](../DESIGN.md), especially the decisions to [normalize only against versioned SPDX data](../DESIGN.md#decision-versioned-spdx), [prefer explicit SPDX selection while retaining an offline fallback](../DESIGN.md#decision-spdx-resolution), [preserve evidence instead of selecting a single authoritative source](../DESIGN.md#decision-evidence-preservation), and [separate factual resolution from organizational policy](../DESIGN.md#decision-policy-separation).
+This specification derives from the [Ol architecture](../Architecture.md), especially the decisions to [normalize only against versioned SPDX data](../Architecture.md#decision-versioned-spdx), [prefer explicit SPDX selection while retaining an offline fallback](../Architecture.md#decision-spdx-resolution), [preserve evidence instead of selecting a single authoritative source](../Architecture.md#decision-evidence-preservation), and [separate factual resolution from organizational policy](../Architecture.md#decision-policy-separation).
 
 Those decisions require normalization to be reproducible and explainable rather than heuristic. Therefore Ol records the active SPDX source and hashes, restores official casing, retains raw claims, and distinguishes `unknown`, `ambiguous`, `invalid`, `conflict`, and deprecated-but-valid identifiers. A normalized `matched` result establishes what the evidence says; it does not establish that organizational policy permits the license.
 

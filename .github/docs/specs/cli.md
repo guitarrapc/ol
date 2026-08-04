@@ -6,7 +6,7 @@ This document defines the user-facing contract of the `ol` CLI: its design basis
 
 ### Design Basis
 
-The CLI follows the decisions in [Ol design](../DESIGN.md):
+The CLI follows the decisions in [Ol architecture](../Architecture.md):
 
 - Resolve the complete dependency inventory before applying view filters, so transitive dependencies and unknown relationships remain visible.
 - Preserve evidence and provenance instead of selecting one source silently. Conflicting, missing, invalid, and unavailable evidence are reportable results.

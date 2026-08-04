@@ -6,7 +6,7 @@ The cache is an Ol-managed persistence format, not a public report or a general 
 
 ## Design Basis
 
-This specification derives from the [Ol design](../DESIGN.md), especially the decisions to [make evidence freshness explicit](../DESIGN.md#decision-cache-freshness), [persist evidence with explicit provenance and privacy boundaries](../DESIGN.md#decision-provenance-privacy), [confine credentials to their intended authority](../DESIGN.md#decision-credential-confinement), and [add evidence sources through one reconciliation model](../DESIGN.md#decision-shared-reconciliation).
+This specification derives from the [Ol architecture](../Architecture.md), especially the decisions to [make evidence freshness explicit](../Architecture.md#decision-cache-freshness), [persist evidence with explicit provenance and privacy boundaries](../Architecture.md#decision-provenance-privacy), [confine credentials to their intended authority](../Architecture.md#decision-credential-confinement), and [add evidence sources through one reconciliation model](../Architecture.md#decision-shared-reconciliation).
 
 Those decisions require a cache entry to identify its schema, logical target, fetch time, evidence source, and collection outcome without storing token values. They also require physical names that do not reveal the logical target.
 

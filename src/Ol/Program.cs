@@ -5,6 +5,11 @@ ConsoleApp.Version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "
 
 args = CommandLineArguments.NormalizeRepeatedInputs(args);
 
+if (CommandGroupHelp.TryShow(args))
+{
+    return;
+}
+
 if (args.Length >= 3
     && string.Equals(args[0], "cache", StringComparison.OrdinalIgnoreCase)
     && string.Equals(args[1], "clear", StringComparison.OrdinalIgnoreCase)

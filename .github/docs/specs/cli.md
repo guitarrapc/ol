@@ -37,6 +37,8 @@ Ol uses one exit-code contract across commands:
 
 Policy violations are separated from command failures because they are a completed domain result that CI may handle differently from a malformed invocation or unavailable input. Framework-reported argument parsing failures retain exit code `1`; Ol commands use the same code for failures detected after dispatch.
 
+Command-group help is scoped to the selected group. `ol cache --help` and `ol cache -h` list only `cache` subcommands; `ol spdx --help` and `ol spdx -h` list only `spdx` subcommands. Group help follows the same usage, description, command-list, spacing, stdout, and exit-code conventions as the framework-generated root and leaf-command help. Keeping unrelated root commands out of this view makes the available next command explicit at each level.
+
 ### `ol cache clear`
 
 v2 provides cache management for shared evidence stores:

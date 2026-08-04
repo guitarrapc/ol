@@ -1,0 +1,96 @@
+using System.Diagnostics;
+
+namespace Ol.Tests;
+
+public sealed class CliCommandGroupHelpTests
+{
+    private static readonly SemaphoreSlim CliGate = new(1, 1);
+
+    [Test]
+    [Arguments("cache", """
+        Usage: cache [command] [-h|--help] [--version]
+
+        Manage locally cached scan evidence.
+
+        Commands:
+          clear    Clears cached evidence for the specified category.
+        """)]
+    [Arguments("spdx", """
+        Usage: spdx [command] [-h|--help] [--version]
+
+        Manage SPDX data.
+
+        Commands:
+          clear      Clear user-managed SPDX data.
+          list       List installed SPDX data versions.
+          update     Download SPDX data into the user data directory.
+          use        Switch active SPDX data version.
+          version    Show the active SPDX data source.
+        """)]
+    public async Task CommandGroup_Help_ShowsOnlyDirectSubcommands(string commandGroup, string expected)
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunOlAsync(root, commandGroup, "--help");
+
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        await Assert.That(result.Stdout.ReplaceLineEndings("\n")).IsEqualTo(expected.ReplaceLineEndings("\n") + "\n");
+        await Assert.That(result.Stderr).IsEmpty();
+    }
+
+    [Test]
+    [Arguments("cache")]
+    [Arguments("spdx")]
+    public async Task CommandGroup_ShortHelp_MatchesLongHelp(string commandGroup)
+    {
+        var root = FindRepositoryRoot();
+
+        var longHelp = await RunOlAsync(root, commandGroup, "--help");
+        var shortHelp = await RunOlAsync(root, commandGroup, "-h");
+
+        await Assert.That(shortHelp.ExitCode).IsEqualTo(0);
+        await Assert.That(shortHelp.Stdout).IsEqualTo(longHelp.Stdout);
+        await Assert.That(shortHelp.Stderr).IsEmpty();
+    }
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
+    {
+        await CliGate.WaitAsync();
+        try
+        {
+            var startInfo = new ProcessStartInfo("dotnet")
+            {
+                WorkingDirectory = root,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            startInfo.ArgumentList.Add(CliTestAssembly.ResolveOlDllPath(AppContext.BaseDirectory));
+            for (var i = 0; i < args.Length; i++) startInfo.ArgumentList.Add(args[i]);
+            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start ol CLI.");
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return (process.ExitCode, stdout, stderr);
+        }
+        finally
+        {
+            CliGate.Release();
+        }
+    }
+
+    private static string FindRepositoryRoot(
+        [System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
+    {
+        foreach (var startDirectory in new[] { AppContext.BaseDirectory, Path.GetDirectoryName(sourceFilePath)! })
+        {
+            var directory = new DirectoryInfo(startDirectory);
+            while (directory is not null)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "Ol.slnx"))) return directory.FullName;
+                directory = directory.Parent;
+            }
+        }
+
+        throw new InvalidOperationException("Repository root was not found.");
+    }
+}

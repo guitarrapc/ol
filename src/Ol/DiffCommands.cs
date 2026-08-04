@@ -52,37 +52,133 @@ internal sealed class DiffCommands
     {
         if (changes.IsEmpty) return $"No license-relevant changes.{Environment.NewLine}";
 
+        var componentCount = CountComponents(changes);
         var builder = new StringBuilder();
         builder.Append("License-relevant changes: ");
         builder.Append(changes.Length);
-        builder.AppendLine(changes.Length == 1 ? " change." : " changes.");
+        builder.Append(changes.Length == 1 ? " change in " : " changes in ");
+        builder.Append(componentCount);
+        builder.AppendLine(componentCount == 1 ? " component." : " components.");
         builder.AppendLine();
-        builder.AppendLine("Change\tEcosystem\tName\tPrevious\tCurrent");
-        for (var i = 0; i < changes.Length; i++)
+
+        var start = 0;
+        while (start < changes.Length)
         {
-            var change = changes[i];
-            builder.Append(ToToken(change.Kind));
-            builder.Append('\t');
-            builder.Append(change.Ecosystem.Length == 0 ? "-" : change.Ecosystem);
-            builder.Append('\t');
-            builder.Append(change.Name);
-            builder.Append('\t');
-            builder.Append(Describe(change, previousSide: true));
-            builder.Append('\t');
-            builder.AppendLine(Describe(change, previousSide: false));
+            var end = start + 1;
+            while (end < changes.Length && SameComponent(changes[start], changes[end])) end++;
+            if (start != 0) builder.AppendLine();
+            AppendComponent(builder, changes[start..end]);
+            start = end;
         }
 
         return builder.ToString();
     }
 
-    private static string Describe(in ScanReportChange change, bool previousSide) => change.Kind switch
+    private static void AppendComponent(StringBuilder builder, ReadOnlySpan<ScanReportChange> changes)
     {
-        ScanReportChangeKind.VersionChanged => Or(previousSide ? change.PreviousVersion : change.CurrentVersion),
-        ScanReportChangeKind.StatusChanged => Or(previousSide ? change.PreviousStatus : change.CurrentStatus),
-        ScanReportChangeKind.Added => previousSide ? "-" : Or(change.CurrentVersion),
-        ScanReportChangeKind.Removed => previousSide ? Or(change.PreviousVersion) : "-",
-        _ => Or(previousSide ? change.PreviousLicense : change.CurrentLicense),
-    };
+        var first = changes[0];
+        builder.Append(first.Kind switch
+        {
+            ScanReportChangeKind.Added => '+',
+            ScanReportChangeKind.Removed => '-',
+            _ => '~',
+        });
+        builder.Append(' ');
+        if (first.Ecosystem.Length != 0)
+        {
+            builder.Append(first.Ecosystem);
+            builder.Append(':');
+        }
+
+        builder.Append(first.Name);
+        AppendStableVersion(builder, changes);
+        builder.AppendLine();
+        if (first.Kind is ScanReportChangeKind.Added or ScanReportChangeKind.Removed)
+        {
+            var added = first.Kind == ScanReportChangeKind.Added;
+            AppendValue(builder, "license", added ? first.CurrentLicense : first.PreviousLicense);
+            AppendValue(builder, "status", added ? first.CurrentStatus : first.PreviousStatus);
+            return;
+        }
+
+        for (var i = 0; i < changes.Length; i++)
+        {
+            var change = changes[i];
+            switch (change.Kind)
+            {
+                case ScanReportChangeKind.VersionChanged:
+                    AppendTransition(builder, "version", change.PreviousVersion, change.CurrentVersion);
+                    break;
+                case ScanReportChangeKind.StatusChanged:
+                    AppendTransition(builder, "status", change.PreviousStatus, change.CurrentStatus);
+                    break;
+                case ScanReportChangeKind.LicenseChanged:
+                    AppendTransition(builder, "license", change.PreviousLicense, change.CurrentLicense);
+                    break;
+                case ScanReportChangeKind.EvidenceChanged:
+                    AppendValue(builder, "evidence", "changed");
+                    break;
+            }
+        }
+    }
+
+    private static void AppendStableVersion(StringBuilder builder, ReadOnlySpan<ScanReportChange> changes)
+    {
+        string? version = null;
+        for (var i = 0; i < changes.Length; i++)
+        {
+            var change = changes[i];
+            var candidate = change.Kind switch
+            {
+                ScanReportChangeKind.Added => change.CurrentVersion,
+                ScanReportChangeKind.Removed => change.PreviousVersion,
+                _ when string.Equals(change.PreviousVersion, change.CurrentVersion, StringComparison.Ordinal) => change.CurrentVersion,
+                _ => string.Empty,
+            };
+            if (candidate.Length == 0 || version is not null && !string.Equals(version, candidate, StringComparison.Ordinal)) return;
+            version = candidate;
+        }
+
+        if (version is null) return;
+
+        builder.Append('@');
+        builder.Append(version);
+    }
+
+    private static int CountComponents(ReadOnlySpan<ScanReportChange> changes)
+    {
+        if (changes.IsEmpty) return 0;
+
+        var count = 1;
+        for (var i = 1; i < changes.Length; i++)
+        {
+            if (!SameComponent(changes[i - 1], changes[i])) count++;
+        }
+
+        return count;
+    }
+
+    private static bool SameComponent(in ScanReportChange left, in ScanReportChange right)
+        => string.Equals(left.Ecosystem, right.Ecosystem, StringComparison.Ordinal) &&
+           string.Equals(left.Name, right.Name, StringComparison.Ordinal);
+
+    private static void AppendTransition(StringBuilder builder, string field, string previous, string current)
+    {
+        builder.Append("    ");
+        builder.Append(field);
+        builder.Append(": ");
+        builder.Append(Or(previous));
+        builder.Append(" -> ");
+        builder.AppendLine(Or(current));
+    }
+
+    private static void AppendValue(StringBuilder builder, string field, string value)
+    {
+        builder.Append("    ");
+        builder.Append(field);
+        builder.Append(": ");
+        builder.AppendLine(Or(value));
+    }
 
     private static string Or(string value) => value.Length == 0 ? "-" : value;
 
@@ -101,13 +197,30 @@ internal sealed class DiffCommands
                 writer.WriteString("kind"u8, ToToken(change.Kind));
                 if (change.Ecosystem.Length != 0) writer.WriteString("ecosystem"u8, change.Ecosystem);
                 writer.WriteString("name"u8, change.Name);
-                WriteTransition(writer, "version"u8, change.PreviousVersion, change.CurrentVersion);
-                WriteTransition(writer, "license"u8, change.PreviousLicense, change.CurrentLicense);
-                WriteTransition(writer, "status"u8, change.PreviousStatus, change.CurrentStatus);
+                switch (change.Kind)
+                {
+                    case ScanReportChangeKind.VersionChanged:
+                        WriteTransition(writer, "version"u8, change.PreviousVersion, change.CurrentVersion);
+                        break;
+                    case ScanReportChangeKind.LicenseChanged:
+                        WriteTransition(writer, "version"u8, change.PreviousVersion, change.CurrentVersion);
+                        WriteTransition(writer, "license"u8, change.PreviousLicense, change.CurrentLicense);
+                        break;
+                    case ScanReportChangeKind.StatusChanged:
+                        WriteTransition(writer, "version"u8, change.PreviousVersion, change.CurrentVersion);
+                        WriteTransition(writer, "status"u8, change.PreviousStatus, change.CurrentStatus);
+                        break;
+                    default:
+                        WriteTransition(writer, "version"u8, change.PreviousVersion, change.CurrentVersion);
+                        WriteTransition(writer, "license"u8, change.PreviousLicense, change.CurrentLicense);
+                        WriteTransition(writer, "status"u8, change.PreviousStatus, change.CurrentStatus);
+                        break;
+                }
                 writer.WriteEndObject();
             }
 
             writer.WriteEndArray();
+            writer.WriteNumber("componentCount"u8, CountComponents(changes));
             writer.WriteNumber("changeCount"u8, changes.Length);
             writer.WriteEndObject();
         }
@@ -140,7 +253,7 @@ internal sealed class DiffCommands
 /// <summary>Selects the diff output format.</summary>
 internal enum DiffFormat
 {
-    /// <summary>Human-readable tab-separated text.</summary>
+    /// <summary>Human-readable vertical diff.</summary>
     Text,
 
     /// <summary>Machine-readable JSON.</summary>

@@ -62,7 +62,9 @@ ol diff --previous before.json --current after.json
 ol scan --input bom.cdx.json --no-external-evidence
 ```
 
-In GitHub Actions, [guitarrapc/setup-ol](https://github.com/guitarrapc/setup-ol) installs the latest ol release and adds it to `PATH`:
+### GitHub Actions
+
+[guitarrapc/setup-ol](https://github.com/guitarrapc/setup-ol) installs the latest ol release and adds it to `PATH`:
 
 ```yaml
 steps:
@@ -73,6 +75,8 @@ steps:
       OL_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   - run: ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
+
+### Workflow example
 
 To try the complete workflow locally without network access, follow the commands.
 
@@ -88,26 +92,36 @@ ol scan --input sandbox/try-ol/before.cdx.json --no-external-evidence --format j
 ol scan --input sandbox/try-ol/after.cdx.json --no-external-evidence --format json --quiet > sandbox/try-ol/output/after.json
 ```
 
-Check the allowed report. This exits `0`:
+Check the allowed report. No violation found and exits `0`:
 
 ```bash
-ol check --report sandbox/try-ol/output/before.json --allow-licenses MIT,Apache-2.0
+$ ol check --report sandbox/try-ol/output/before.json --allow-licenses MIT,Apache-2.0
+License check passed: 1 component satisfies the allow-list.
 ```
 
 Check the changed report. The GPL-3.0-only component produces a policy violation and exit `2`:
 
 ```bash
-ol check --report sandbox/try-ol/output/after.json --allow-licenses MIT,Apache-2.0
+$ ol check --report sandbox/try-ol/output/after.json --allow-licenses MIT,Apache-2.0
+License check failed: 1 violation.
+
+Package Version Ecosystem       Purl    License/Status  Reason
+example 1.0.0   npm     pkg:npm/example@1.0.0   GPL-3.0-only    license is not allowed
 ```
 
-Compare the persisted facts. This exits `0` and reports `license-changed` and `added`:
+Compare the persisted facts. This reports a license change and an addition and exit `0`:
 
 ```bash
-ol diff --previous sandbox/try-ol/output/before.json --current sandbox/try-ol/output/after.json
+$ ol diff --previous sandbox/try-ol/output/before.json --current sandbox/try-ol/output/after.json
+License-relevant changes: 2 changes in 2 components.
+
+~ npm:example@1.0.0
+    license: MIT -> GPL-3.0-only
+
++ npm:new-package@2.0.0
+    license: Apache-2.0
+    status: matched
 ```
-
-The generated reports remain in the ignored `sandbox/try-ol/output/` directory for inspection. `check` owns policy evaluation; `diff` only compares facts persisted in the reports.
-
 
 ## Usage
 
@@ -391,13 +405,13 @@ ol diff --previous before.json --current after.json
 ```
 
 ```text
-License-relevant changes: 1 change.
+License-relevant changes: 1 change in 1 component.
 
-Change           Ecosystem  Name    Previous  Current
-license-changed  npm        poison  MIT       GPL-3.0-only
+~ npm:poison@2.0.0
+    license: MIT -> GPL-3.0-only
 ```
 
-Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, and `evidence-changed`. `evidence-changed` means the underlying claims moved while the conclusion held — a change of fact rather than of wording. `--format Json` emits the same set as a document. `diff` compares persisted facts and has no policy or SPDX-data options; policy evaluation belongs to `check`. It exits `0` when it completes and `1` when a report could not be read.
+Text output uses `+`, `-`, and `~` vertical records so versions and changed fields remain readable even when package names or SPDX expressions are long. Multiple changes to one component share one text block but remain separate changes: a simultaneous version and license transition counts as two changes. Added and removed records also show their license and status. Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, and `evidence-changed`. `evidence-changed` means the underlying claims moved while the conclusion held — a change of fact rather than of wording. `--format Json` emits independently filterable records for the same changes, plus `componentCount` and `changeCount`, as a stable structured document. `diff` compares persisted facts and has no policy or SPDX-data options; policy evaluation belongs to `check`. It exits `0` when it completes and `1` when a report could not be read.
 
 ## SBOM and ecosystem support
 

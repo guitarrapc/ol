@@ -218,6 +218,55 @@ public sealed class ScanReportInputTests
     }
 
     [Test]
+    public async Task Compare_WhenVersionAndLicenseChange_ReportsBothChanges()
+    {
+        var changes = ScanReportDiff.Compare(
+            Read(Report(Component())),
+            Read(Report(Component(version: "2.0.0", license: "AGPL-3.0-only", raw: "AGPL-3.0-only", normalized: "AGPL-3.0-only"))));
+
+        await Assert.That(changes).Count().IsEqualTo(2);
+        await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.VersionChanged);
+        await Assert.That(changes[1].Kind).IsEqualTo(ScanReportChangeKind.LicenseChanged);
+        await Assert.That(changes[1].PreviousVersion).IsEqualTo("1.0.0");
+        await Assert.That(changes[1].CurrentVersion).IsEqualTo("2.0.0");
+        await Assert.That(changes[1].PreviousLicense).IsEqualTo("MIT");
+        await Assert.That(changes[1].CurrentLicense).IsEqualTo("AGPL-3.0-only");
+    }
+
+    [Test]
+    public async Task Compare_WhenVersionSetsAndLicensesChange_ReportsBothChanges()
+    {
+        var previous = Read(Report(
+            Component(),
+            Component(version: "2.0.0", license: "Apache-2.0", raw: "Apache-2.0", normalized: "Apache-2.0")));
+        var current = Read(Report(
+            Component(version: "2.0.0", license: "Apache-2.0", raw: "Apache-2.0", normalized: "Apache-2.0"),
+            Component(version: "3.0.0", license: "AGPL-3.0-only", raw: "AGPL-3.0-only", normalized: "AGPL-3.0-only")));
+
+        var changes = ScanReportDiff.Compare(previous, current);
+
+        await Assert.That(changes).Count().IsEqualTo(2);
+        await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.VersionChanged);
+        await Assert.That(changes[1].Kind).IsEqualTo(ScanReportChangeKind.LicenseChanged);
+        await Assert.That(changes[1].PreviousVersion).IsEqualTo("1.0.0");
+        await Assert.That(changes[1].CurrentVersion).IsEqualTo("3.0.0");
+        await Assert.That(changes[1].PreviousLicense).IsEqualTo("MIT");
+        await Assert.That(changes[1].CurrentLicense).IsEqualTo("AGPL-3.0-only");
+    }
+
+    [Test]
+    public async Task Compare_WhenSameLicenseVersionIsAdded_ReportsOnlyVersionChange()
+    {
+        var previous = Read(Report(Component()));
+        var current = Read(Report(Component(), Component(version: "2.0.0")));
+
+        var changes = ScanReportDiff.Compare(previous, current);
+
+        await Assert.That(changes).Count().IsEqualTo(1);
+        await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.VersionChanged);
+    }
+
+    [Test]
     public async Task Compare_DetectsLicenseChangeAtSameVersion()
     {
         var changes = ScanReportDiff.Compare(
@@ -239,6 +288,18 @@ public sealed class ScanReportInputTests
         await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.StatusChanged);
         await Assert.That(changes[0].PreviousStatus).IsEqualTo("matched");
         await Assert.That(changes[0].CurrentStatus).IsEqualTo("unknown");
+    }
+
+    [Test]
+    public async Task Compare_WhenStatusAndLicenseChange_ReportsBothChanges()
+    {
+        var changes = ScanReportDiff.Compare(
+            Read(Report(Component())),
+            Read(Report(Component(status: "unknown", license: "", raw: "", normalized: ""))));
+
+        await Assert.That(changes).Count().IsEqualTo(2);
+        await Assert.That(changes[0].Kind).IsEqualTo(ScanReportChangeKind.StatusChanged);
+        await Assert.That(changes[1].Kind).IsEqualTo(ScanReportChangeKind.LicenseChanged);
     }
 
     [Test]

@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 
 namespace Ol.Tests;
 
@@ -44,7 +45,7 @@ public sealed class CliDiffTests
     }
 
     [Test]
-    public async Task Diff_WhenLicenseChanges_ReportsTheChange()
+    public async Task Diff_WhenLicenseChanges_EmitsVerticalDiffWithVersionContext()
     {
         var root = FindRepositoryRoot();
         var (previous, current) = await WriteReportsAsync(root, "MIT", "GPL-3.0-only");
@@ -53,10 +54,126 @@ public sealed class CliDiffTests
             var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
-            await Assert.That(result.Stdout).Contains("license-changed");
-            await Assert.That(result.Stdout).Contains("example");
-            await Assert.That(result.Stdout).Contains("MIT");
-            await Assert.That(result.Stdout).Contains("GPL-3.0-only");
+            await Assert.That(result.Stdout).IsEqualTo(string.Join(Environment.NewLine,
+            [
+                "License-relevant changes: 1 change in 1 component.",
+                "",
+                "~ npm:example@1.0.0",
+                "    license: MIT -> GPL-3.0-only",
+                "",
+            ]));
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WhenVersionAndLicenseChange_ReportsBothTransitions()
+    {
+        var root = FindRepositoryRoot();
+        var previous = await WriteReportAsync(root, "MIT", "1.0.0");
+        var current = await WriteReportAsync(root, "GPL-3.0-only", "2.0.0");
+        try
+        {
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).IsEqualTo(string.Join(Environment.NewLine,
+            [
+                "License-relevant changes: 2 changes in 1 component.",
+                "",
+                "~ npm:example",
+                "    version: 1.0.0 -> 2.0.0",
+                "    license: MIT -> GPL-3.0-only",
+                "",
+            ]));
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WhenComponentIsAdded_ReportsVersionLicenseAndStatus()
+    {
+        var root = FindRepositoryRoot();
+        var previous = await WriteReportAsync(root, "MIT", includeComponent: false);
+        var current = await WriteReportAsync(root, "GPL-3.0-only", "2.0.0");
+        try
+        {
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).IsEqualTo(string.Join(Environment.NewLine,
+            [
+                "License-relevant changes: 1 change in 1 component.",
+                "",
+                "+ npm:example@2.0.0",
+                "    license: GPL-3.0-only",
+                "    status: matched",
+                "",
+            ]));
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WhenComponentIsRemoved_ReportsVersionLicenseAndStatus()
+    {
+        var root = FindRepositoryRoot();
+        var previous = await WriteReportAsync(root, "MIT");
+        var current = await WriteReportAsync(root, "MIT", includeComponent: false);
+        try
+        {
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).IsEqualTo(string.Join(Environment.NewLine,
+            [
+                "License-relevant changes: 1 change in 1 component.",
+                "",
+                "- npm:example@1.0.0",
+                "    license: MIT",
+                "    status: matched",
+                "",
+            ]));
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WhenTwoComponentsChange_ReportsBothComponentBlocks()
+    {
+        var root = FindRepositoryRoot();
+        var previous = await WriteReportAsync(root, "MIT");
+        var current = await WriteReportAsync(root, "Apache-2.0", "2.0.0", name: "replacement");
+        try
+        {
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).IsEqualTo(string.Join(Environment.NewLine,
+            [
+                "License-relevant changes: 2 changes in 2 components.",
+                "",
+                "- npm:example@1.0.0",
+                "    license: MIT",
+                "    status: matched",
+                "",
+                "+ npm:replacement@2.0.0",
+                "    license: Apache-2.0",
+                "    status: matched",
+                "",
+            ]));
         }
         finally
         {
@@ -99,6 +216,40 @@ public sealed class CliDiffTests
             await Assert.That(first.Stdout).IsEqualTo(second.Stdout);
             await Assert.That(first.Stdout).Contains("\"kind\": \"license-changed\"");
             await Assert.That(first.Stdout).Contains("\"schemaVersion\": 1");
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WithJsonFormat_WhenVersionAndLicenseChange_EmitsBothTransitions()
+    {
+        var root = FindRepositoryRoot();
+        var previous = await WriteReportAsync(root, "MIT", "1.0.0");
+        var current = await WriteReportAsync(root, "GPL-3.0-only", "2.0.0");
+        try
+        {
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, "--format", "Json");
+            using var document = JsonDocument.Parse(result.Stdout);
+            var changes = document.RootElement.GetProperty("changes");
+            var versionChange = changes[0];
+            var licenseChange = changes[1];
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(changes.GetArrayLength()).IsEqualTo(2);
+            await Assert.That(document.RootElement.GetProperty("componentCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(document.RootElement.GetProperty("changeCount").GetInt32()).IsEqualTo(2);
+            await Assert.That(versionChange.GetProperty("kind").GetString()).IsEqualTo("version-changed");
+            await Assert.That(versionChange.GetProperty("version").GetProperty("previous").GetString()).IsEqualTo("1.0.0");
+            await Assert.That(versionChange.GetProperty("version").GetProperty("current").GetString()).IsEqualTo("2.0.0");
+            await Assert.That(versionChange.TryGetProperty("license", out _)).IsFalse();
+            await Assert.That(licenseChange.GetProperty("kind").GetString()).IsEqualTo("license-changed");
+            await Assert.That(licenseChange.GetProperty("version").GetProperty("previous").GetString()).IsEqualTo("1.0.0");
+            await Assert.That(licenseChange.GetProperty("version").GetProperty("current").GetString()).IsEqualTo("2.0.0");
+            await Assert.That(licenseChange.GetProperty("license").GetProperty("previous").GetString()).IsEqualTo("MIT");
+            await Assert.That(licenseChange.GetProperty("license").GetProperty("current").GetString()).IsEqualTo("GPL-3.0-only");
         }
         finally
         {
@@ -152,13 +303,21 @@ public sealed class CliDiffTests
         return (previous, current);
     }
 
-    private static async Task<string> WriteReportAsync(string root, string license)
+    private static async Task<string> WriteReportAsync(
+        string root,
+        string license,
+        string version = "1.0.0",
+        bool includeComponent = true,
+        string name = "example")
     {
         var inputPath = Path.Combine(Path.GetTempPath(), $"ol-diff-in-{Guid.NewGuid():N}.json");
         var reportPath = Path.Combine(Path.GetTempPath(), $"ol-diff-{Guid.NewGuid():N}.json");
+        var component = includeComponent
+            ? $$"""{ "type": "library", "name": "{{name}}", "version": "{{version}}", "purl": "pkg:npm/{{name}}@{{version}}", "licenses": [{ "expression": "{{license}}" }] }"""
+            : string.Empty;
         var json = $$"""
         { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
-          { "type": "library", "name": "example", "version": "1.0.0", "purl": "pkg:npm/example@1.0.0", "licenses": [{ "expression": "{{license}}" }] }
+          {{component}}
         ] }
         """;
         await File.WriteAllTextAsync(inputPath, json, Encoding.UTF8);

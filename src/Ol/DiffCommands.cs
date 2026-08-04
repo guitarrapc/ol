@@ -29,19 +29,19 @@ internal sealed class DiffCommands
         if (string.IsNullOrWhiteSpace(previous) || string.IsNullOrWhiteSpace(current))
         {
             Console.Error.WriteLine("Invalid diff input: --previous and --current must both be specified.");
-            return 2;
+            return 1;
         }
 
         if (!ScanReportFile.TryRead(previous, out var previousReport, out var previousError))
         {
             Console.Error.WriteLine(previousError);
-            return 2;
+            return 1;
         }
 
         if (!ScanReportFile.TryRead(current, out var currentReport, out var currentError))
         {
             Console.Error.WriteLine(currentError);
-            return 2;
+            return 1;
         }
 
         LicenseAllowPolicy? policy = null;
@@ -50,13 +50,13 @@ internal sealed class DiffCommands
             if (!ScanExecution.TryResolveSpdx(spdxData, out var spdx, out var spdxError))
             {
                 Console.Error.WriteLine(spdxError);
-                return 2;
+                return 1;
             }
 
             if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), spdx.Index, out policy, out var policyError))
             {
                 Console.Error.WriteLine($"Invalid license policy: {policyError}");
-                return 2;
+                return 1;
             }
         }
 
@@ -68,7 +68,7 @@ internal sealed class DiffCommands
         catch (IOException exception)
         {
             Console.Error.WriteLine($"Unable to write diff result: {exception.Message}");
-            return 2;
+            return 1;
         }
 
         // A diff reports; it does not enforce. Policy enforcement stays in `check` so exit codes keep one meaning.

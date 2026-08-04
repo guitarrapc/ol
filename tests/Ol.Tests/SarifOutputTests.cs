@@ -22,7 +22,7 @@ public sealed class SarifOutputTests
             var run = document.RootElement.GetProperty("runs")[0];
             var results = run.GetProperty("results");
 
-            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(document.RootElement.GetProperty("version").GetString()).IsEqualTo("2.1.0");
             await Assert.That(run.GetProperty("tool").GetProperty("driver").GetProperty("name").GetString()).IsEqualTo("ol");
             await Assert.That(results.GetArrayLength()).IsEqualTo(1);
@@ -88,7 +88,7 @@ public sealed class SarifOutputTests
             var check = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--sarif", sarifPath);
 
             await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
-            await Assert.That(check.ExitCode).IsEqualTo(1).Because($"{check.Stderr}\n{check.Stdout}");
+            await Assert.That(check.ExitCode).IsEqualTo(2).Because($"{check.Stderr}\n{check.Stdout}");
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
 
             var result = document.RootElement.GetProperty("runs")[0].GetProperty("results")[0];

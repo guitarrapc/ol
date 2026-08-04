@@ -151,7 +151,7 @@ policy exception file は独立した schema version を持つ。canonical scan 
 
 未知 field は初期 schema では拒否する。typo した policy field を無視して例外が適用されない、または将来別の意味で解釈されることを避ける。error message の表示長は入力妥当性とは別に上限化し、pathological input 全体を文字列化しない。
 
-missing、unreadable、malformed、unsupported schema、重複 entry は exit 2 の command/configuration failure とする。途中まで読めた例外だけを適用して partial policy result を出してはならない。
+missing、unreadable、malformed、unsupported schema、重複 entry は exit 1 の command/configuration failure とする。途中まで読めた例外だけを適用して partial policy result を出してはならない。
 
 ## entry 状態と適用結果
 
@@ -170,7 +170,7 @@ missing、unreadable、malformed、unsupported schema、重複 entry は exit 2 
 Policy exceptions: 2 entries applied to 3 components, 1 expired, 1 license-mismatch, 1 usage-mismatch, 1 redundant, 3 unmatched.
 ```
 
-expired、license-mismatch、usage-mismatch、redundant、unmatched は初期実装では exit code を単独で変えない。元の component が通常 policy を満たさなければ、その violation が exit 1 を決める。異なる project、target、platform の report に同じ policy file を適用する運用があり得るため、stale entry 自体は configuration error にしない。
+expired、license-mismatch、usage-mismatch、redundant、unmatched は初期実装では exit code を単独で変えない。元の component が通常 policy を満たさなければ、その violation が exit 2 を決める。異なる project、target、platform の report に同じ policy file を適用する運用があり得るため、stale entry 自体は configuration error にしない。
 
 expired entry が一致した component は通常ポリシーの violation のままとする。text と SARIF は、同じ `NotAllowed` rule ID を維持しつつ、matching exception が期限切れだったことと期限を診断情報として示す。expired entry 自体を別の license violation として二重計上しない。
 
@@ -207,7 +207,7 @@ renderer が policy を再評価してこれらを推測してはならない。
 
 `--policy-exceptions` は `check --input` と `check --report` の両方で使用できる。report evaluation は exception file と SPDX data 以外の dependency input、cache、registry、repository にアクセスしない。
 
-`usage: development` entry は typed usage と stable inventory mapping を持つ canonical report version 2 を要求する。version 1 report と組み合わせた場合は exit 2 にする。`usage: any` だけの file は version 1 reportにも適用できる。
+`usage: development` entry は typed usage と stable inventory mapping を持つ canonical report version 2 を要求する。version 1 report と組み合わせた場合は exit 1 にする。`usage: any` だけの file は version 1 reportにも適用できる。
 
 `--verbose` では、entry state にかかわらず全 entry を bounded かつ決定的な順序で列挙する。`applied` では対象 component identity、license、usage、owner、reason、expiry を結び付ける。件数だけで、どの component が例外によって通過したかを隠さない。
 
@@ -228,8 +228,8 @@ SARIF violation 集合は text と一致させる。package exception で通過�
 1. exact purl と allowed license が一致する component は通過する。
 2. version が変わると exception は unmatched になり、component は失敗する。
 3. license が entry の allow-list 外へ変わると失敗する。
-4. usage、owner、reason、expiresOn の欠落と malformed value は exit 2 になる。
-5. 同じ purl の重複 entry は merge されず exit 2 になる。
+4. usage、owner、reason、expiresOn の欠落と malformed value は exit 1 になる。
+5. 同じ purl の重複 entry は merge されず exit 1 になる。
 6. 期限当日は有効、翌日は期限切れになる。
 7. unresolved status は package exception で通過しない。
 8. base、development、package exception、baseline の precedence が一意になる。
@@ -240,7 +240,7 @@ SARIF violation 集合は text と一致させる。package exception で通過�
 13. applied、expired、license-mismatch、usage-mismatch、redundant、unmatched の合計が常に entry 数と一致する。
 14. 明示 `--policy-date` により、日付をまたいでも同じ verdict と stdout を再現できる。
 15. `--verbose` と SARIF `run.properties` から、適用 component と exception owner/reason/expiry を逆引きできる。
-16. version 1 report は `usage: any` を評価できるが、`usage: development` との組み合わせを exit 2 にする。
+16. version 1 report は `usage: any` を評価できるが、`usage: development` との組み合わせを exit 1 にする。
 
 ### Phase 2: versioned reader と immutable policy data を実装する
 

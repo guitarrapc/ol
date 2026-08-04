@@ -29,6 +29,14 @@ Each version must preserve the prior version's report fields unless a breaking v
 
 ## Commands
 
+Ol uses one exit-code contract across commands:
+
+- `0`: the command completed successfully; help and version output also use `0`.
+- `1`: argument parsing failed, or the command could not be completed because of invalid configuration, input, I/O, or another execution failure.
+- `2`: `check` completed policy evaluation and found one or more violations.
+
+Policy violations are separated from command failures because they are a completed domain result that CI may handle differently from a malformed invocation or unavailable input. Framework-reported argument parsing failures retain exit code `1`; Ol commands use the same code for failures detected after dispatch.
+
 ### `ol cache clear`
 
 v2 provides cache management for shared evidence stores:
@@ -99,7 +107,7 @@ Unsupported inputs include CycloneDX XML, SPDX tag/value, SPDX YAML, package man
 
 Auto detection uses only deterministic, format-owned content signatures; file names and extensions are not evidence for single-document formats. JSON adapters use top-level property signatures. Cargo requires format version 1 plus top-level `packages`, `workspace_members`, `resolve`, `target_directory`, and `workspace_root` with their documented JSON types. pip inspect requires string format version `1`, `pip_version`, an `installed` array, and an `environment` object. Maven dependency tree JSON requires the documented root `groupId`, `artifactId`, `version`, `type`, `scope`, `classifier`, and string-valued `optional` fields; `children` may be absent for an empty tree. SwiftPM requires numeric `version` and a `pins` array, then accepts only schema version 2 or 3. pnpm requires top-level `lockfileVersion` and `importers`, Yarn Classic requires the version 1 header, Yarn Berry requires top-level `__metadata`, Bundler requires a source section plus `PLATFORMS` and `DEPENDENCIES`, and CocoaPods requires `PODS`, `DEPENDENCIES`, and `COCOAPODS`. Multi-file handlers first associate their complete registered companion names within one directory, then validate every document through the format-owned bundle parser; names alone cannot make malformed content valid. Composer additionally requires the lock root to contain both `packages` and `packages-dev` arrays. Every required marker for one format must match. No match is an unsupported-input error and multiple matches are an ambiguous-input error; Ol never guesses by registration order. Known formats with unsupported versions are rejected explicitly.
 
-`scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns non-zero only when the scan itself cannot be performed or output cannot be written.
+`scan` is best-effort. Component-level problems must be recorded in the result and must not stop processing of other components. The command returns `1` only when the scan itself cannot be performed or output cannot be written.
 
 The command boundary parses every supported input through the registered dependency-input adapter and then consumes a normalized inventory. Multiple package-manager inventories retain their contexts, occurrences, and edges while sharing report components according to the originating handler's package-identity comparison. Enrichment, reconciliation, filtering, grouping, sorting, and rendering do not dispatch on parser types. Explicit `--input-format` validation and directory discovery use the same registry as content detection.
 
@@ -115,7 +123,7 @@ Examples of whole-command failures:
 - SPDX data cannot be loaded.
 - stdout cannot be written.
 
-Expected input, option, SPDX-data, and I/O failures return a non-zero exit code with a concise cause on stderr. They do not emit a runtime stack trace or partial primary output. View options are validated before enrichment starts so an invalid report request does not perform external evidence collection.
+Expected input, option, SPDX-data, and I/O failures return exit code `1` with a concise cause on stderr. They do not emit a runtime stack trace or partial primary output. View options are validated before enrichment starts so an invalid report request does not perform external evidence collection.
 
 Examples of component-level problems:
 
@@ -479,11 +487,11 @@ Prefixes follow the shared [package URL prefix rules](#contract-purl-prefix); a 
 
 Statuses `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed regardless of the candidates they contain, unless an unresolved component is acknowledged by a baseline as defined below. Evaluation collects every violation rather than stopping at the first one. Each violation identifies the component by name, version, ecosystem, and purl when available, includes the normalized expression or unresolved status, and gives the reason. Output ordering is deterministic and reports no absolute input or cache path.
 
-`check` writes its pass result or complete violation list to stdout. Expected option, input, SPDX-data, whole-command evidence-pipeline, and output failures write a concise cause to stderr without a stack trace or partial policy result. A component-level registry or source failure remains evidence in the completed result and is evaluated as a policy violation when it leaves that component unresolved; it is not an exit-2 command failure. Exit codes are:
+`check` writes its pass result or complete violation list to stdout. Expected option, input, SPDX-data, whole-command evidence-pipeline, and output failures write a concise cause to stderr without a stack trace or partial policy result. A component-level registry or source failure remains evidence in the completed result and is evaluated as a policy violation when it leaves that component unresolved; it is not an exit-1 command failure. Exit codes are:
 
 - `0`: every non-root component satisfies the allow-list.
-- `1`: one or more policy violations were found.
-- `2`: the check could not be completed because its configuration, input, evidence pipeline, or output failed.
+- `1`: the check could not be completed because its syntax, configuration, input, evidence pipeline, or output failed.
+- `2`: one or more policy violations were found.
 
 <a id="contract-policy-baseline"></a>
 
@@ -507,13 +515,13 @@ A component may be acknowledged only when both of the following hold.
 1. Its status is `unknown`, `ambiguous`, `conflict`, or `invalid`. Status `error` cannot be acknowledged, because a collection failure is a condition to repair rather than a policy question, and acknowledging one would freeze a transient outage into an approval. Status `matched` cannot be acknowledged, because a resolved license is a policy decision that belongs in `--allow-licenses`.
 2. No license candidate on that component normalizes to an SPDX expression the active allow-list rejects.
 
-Rule 2 is what keeps a forbidden license from being deferred. A `conflict` between `MIT` and `GPL-3.0-only` is not acknowledgeable while `GPL-3.0-only` is disallowed, so `--update-baseline` cannot silence it and the command still exits 1. This yields a two-layer guarantee that should not be overstated: a forbidden license **that Ol can identify** cannot be acknowledged at all, while one Ol cannot identify — an unnormalizable string such as `GPLv3`, which strict normalization refuses to guess — remains visible because the baseline records the raw claim. Rule 2 is evaluated when the baseline is applied, not only when it is written, so tightening `--allow-licenses` invalidates entries that a more permissive list had accepted.
+Rule 2 is what keeps a forbidden license from being deferred. A `conflict` between `MIT` and `GPL-3.0-only` is not acknowledgeable while `GPL-3.0-only` is disallowed, so `--update-baseline` cannot silence it and the command still exits 2. This yields a two-layer guarantee that should not be overstated: a forbidden license **that Ol can identify** cannot be acknowledged at all, while one Ol cannot identify — an unnormalizable string such as `GPLv3`, which strict normalization refuses to guess — remains visible because the baseline records the raw claim. Rule 2 is evaluated when the baseline is applied, not only when it is written, so tightening `--allow-licenses` invalidates entries that a more permissive list had accepted.
 
 An entry identifies its component by versioned purl when one exists and by ecosystem, name, and version otherwise, and always carries the readable name, version, and ecosystem so a reviewer never needs to know which identity form was used. It records the acknowledged status, the raw claims that produced it as `(source, kind, raw)` triples, and a fingerprint over that same evidence. The fingerprint is why an acknowledgement expires by itself: when a version changes, a registry corrects its metadata, or a repository's license file changes, the entry stops applying and the component fails again until it is reviewed anew. An entry applies to every component it matches; entries carry no reason field, because the file is generated and the surrounding version control already records who added it and when.
 
 The file is JSON with a schema version, and records the Ol version and SPDX License List version that produced it as diagnostic information rather than as a compatibility requirement — a License List update must not invalidate a whole baseline, and real evidence changes are already caught by the fingerprint. Entries are ordered by ecosystem, name, version, and purl so that reordering an input produces no diff, and no generation timestamp is written so that regenerating an unchanged baseline produces no diff. Overlong raw values are truncated in the file and marked as truncated, while the fingerprint covers the untruncated value. Report privacy applies unchanged: a baseline is committed to a repository and must not contain tokens or absolute local paths.
 
-Whenever a baseline is supplied, `check` reports how many components it acknowledged, including zero, so a passing run never hides the existence of a baseline and a baseline that stopped applying is visible. Acknowledged components remain in the scan result with their original unresolved status; acknowledgement removes a violation, it does not alter evidence or reconciliation. A missing, malformed, or schema-incompatible baseline is a command failure with exit code 2 rather than a silently empty baseline, so a mistyped path is reported instead of changing which components fail.
+Whenever a baseline is supplied, `check` reports how many components it acknowledged, including zero, so a passing run never hides the existence of a baseline and a baseline that stopped applying is visible. Acknowledged components remain in the scan result with their original unresolved status; acknowledgement removes a violation, it does not alter evidence or reconciliation. A missing, malformed, or schema-incompatible baseline is a command failure with exit code 1 rather than a silently empty baseline, so a mistyped path is reported instead of changing which components fail.
 
 <a id="contract-policy-report-input"></a>
 
@@ -526,7 +534,7 @@ ol scan --input . --format Json > ol-report.json
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```
 
-The canonical JSON report is the input contract; Ol does not define a second persistence schema. One document means a report a user already has is directly usable as policy input, and an output schema and an input schema cannot drift apart. The report schema version is validated on read, and an unsupported version, a malformed document, or a grouped report produced with `--group-by` is a command failure with exit code 2 rather than a partial evaluation.
+The canonical JSON report is the input contract; Ol does not define a second persistence schema. One document means a report a user already has is directly usable as policy input, and an output schema and an input schema cannot drift apart. The report schema version is validated on read, and an unsupported version, a malformed document, or a grouped report produced with `--group-by` is a command failure with exit code 1 rather than a partial evaluation.
 
 Report evaluation performs no input parsing, no registry or repository collection, and no network access. Separating policy from collection this way means a policy can be re-run, or a different policy applied, without the result depending on what a registry happened to answer at that moment. `--report` therefore cannot be combined with `--input`, `--input-format`, `--refresh`, `--no-external-evidence`, `--skip-evidence-packages`, or `--cache-dir`; combining them is a configuration error. `--exclude-packages`, `--baseline`, `--update-baseline`, `--spdx-data`, and `--sarif` still apply.
 
@@ -560,7 +568,7 @@ A full report is too large to review by hand on every change, and most of what c
 
 Components are identified by ecosystem and name so that a version bump reads as a change rather than as an unrelated removal and addition. Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, `evidence-changed`, and, when `--allow-licenses` is supplied, `policy-changed`. `evidence-changed` reports that the underlying claims moved while the conclusion held, which is what distinguishes a real change of fact from a change of wording; it is derived from the same evidence fingerprint the baseline uses.
 
-Output is `--format Text` or `--format Json`, ordered by component name and change kind so identical inputs produce identical output. `diff` reports rather than enforces, so it exits `0` whenever both reports could be read and `2` when either could not. Policy enforcement stays in `check` so an exit code keeps one meaning.
+Output is `--format Text` or `--format Json`, ordered by component name and change kind so identical inputs produce identical output. `diff` reports rather than enforces, so it exits `0` whenever both reports could be read and `1` when either could not. Policy enforcement stays in `check` so exit code `2` keeps one meaning.
 
 ## Lessons Learned
 

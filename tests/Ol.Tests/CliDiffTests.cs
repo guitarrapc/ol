@@ -87,7 +87,7 @@ public sealed class CliDiffTests
     }
 
     [Test]
-    public async Task Diff_WithMissingReport_ReturnsTwo()
+    public async Task Diff_WithMissingReport_ReturnsOne()
     {
         var root = FindRepositoryRoot();
         var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
@@ -95,7 +95,7 @@ public sealed class CliDiffTests
         {
             var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", "does-not-exist.json");
 
-            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.ExitCode).IsEqualTo(1);
             await Assert.That(result.Stdout).IsEmpty();
             await Assert.That(result.Stderr).Contains("Unable to read report");
         }
@@ -106,13 +106,13 @@ public sealed class CliDiffTests
     }
 
     [Test]
-    public async Task Diff_WithoutBothReports_ReturnsTwo()
+    public async Task Diff_WithoutBothReports_ReturnsOne()
     {
         var root = FindRepositoryRoot();
 
         var result = await RunOlAsync(root, "diff", "--previous", "a.json");
 
-        await Assert.That(result.ExitCode).IsEqualTo(2);
+        await Assert.That(result.ExitCode).IsEqualTo(1);
         await Assert.That(result.Stderr).Contains("--previous and --current");
     }
 

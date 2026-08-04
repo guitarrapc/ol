@@ -25,11 +25,3 @@ app.Add<DiffCommands>();
 app.Add<SpdxCommands>("spdx");
 app.Add<CacheCommands>("cache");
 app.Run(args);
-
-if (args.Length > 0
-    && string.Equals(args[0], "check", StringComparison.OrdinalIgnoreCase)
-    && Environment.ExitCode == 1
-    && !CheckCommands.PolicyViolationReturned)
-{
-    Environment.ExitCode = 2;
-}

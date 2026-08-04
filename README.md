@@ -235,9 +235,9 @@ Exit codes are suitable for CI:
 
 | Exit code | Meaning |
 | ---: | --- |
-| `0` | Every non-root component satisfies the allow-list. |
-| `1` | One or more policy violations were found. |
-| `2` | The check could not be completed because of invalid configuration, input, evidence collection, or output. |
+| `0` | The command completed successfully; help and version output also use `0`. |
+| `1` | Argument parsing failed, or the command could not be completed because of invalid configuration, input, I/O, or another execution failure. |
+| `2` | `check` completed policy evaluation and found one or more violations. |
 
 Evaluate only the license evidence declared in the input when external collection is intentionally disabled:
 
@@ -289,7 +289,7 @@ Failing closed is right for a pull request, where the baseline is already clean 
 ol check --input . --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json --update-baseline
 ```
 
-That one command adopts a baseline and still evaluates the result. If it exits `1`, what remains is a genuine finding — a forbidden license can never be absorbed by a baseline:
+That one command adopts a baseline and still evaluates the result. If it exits `2`, what remains is a genuine finding — a forbidden license can never be absorbed by a baseline:
 
 ```text
 Acknowledged by baseline: 2 components.
@@ -367,7 +367,7 @@ license-changed  npm        poison  MIT       GPL-3.0-only
 policy-changed   npm        poison  MIT       GPL-3.0-only
 ```
 
-Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, `evidence-changed`, and `policy-changed` when `--allow-licenses` is given. `evidence-changed` means the underlying claims moved while the conclusion held — a change of fact rather than of wording. `--format Json` emits the same set as a document. `diff` reports rather than enforces: it exits `0` unless a report could not be read.
+Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, `evidence-changed`, and `policy-changed` when `--allow-licenses` is given. `evidence-changed` means the underlying claims moved while the conclusion held — a change of fact rather than of wording. `--format Json` emits the same set as a document. `diff` reports rather than enforces: it exits `0` when it completes and `1` when a report could not be read.
 
 ## SBOM and ecosystem support
 

@@ -9,9 +9,6 @@ using Ol.Internals;
 /// <summary>Check resolved dependency licenses against an allow-list.</summary>
 internal sealed class CheckCommands
 {
-    /// <summary>Indicates that exit code 1 came from completed policy evaluation rather than CLI parsing.</summary>
-    public static bool PolicyViolationReturned { get; private set; }
-
     /// <summary>Gets the running tool version recorded in generated artifacts.</summary>
     internal static string ToolVersion => typeof(CheckCommands).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 
@@ -56,7 +53,7 @@ internal sealed class CheckCommands
         if (string.IsNullOrWhiteSpace(allowLicenses))
         {
             Console.Error.WriteLine("Invalid license policy: --allow-licenses must be specified.");
-            return 2;
+            return 1;
         }
 
         var developmentLicenseIds = string.IsNullOrWhiteSpace(allowDevLicenses)
@@ -72,14 +69,14 @@ internal sealed class CheckCommands
         if (updateBaseline && baselinePath is null)
         {
             Console.Error.WriteLine("Invalid license policy: --update-baseline requires --baseline.");
-            return 2;
+            return 1;
         }
 
         var reportPath = string.IsNullOrWhiteSpace(report) ? null : report;
         if (reportPath is not null && (input is { Length: > 0 } || inputFormat is not null || refresh || noExternalEvidence || skipEvidencePackages is not null || cacheDir is not null))
         {
             Console.Error.WriteLine("Invalid license policy: --report cannot be combined with input or evidence-collection options.");
-            return 2;
+            return 1;
         }
 
         // A persisted report already contains the evidence, so the pipeline is not prepared at all.
@@ -94,19 +91,19 @@ internal sealed class CheckCommands
             if (!ScanExecution.TryResolveSpdx(spdxData, out var reportSpdx, out var spdxError))
             {
                 Console.Error.WriteLine(spdxError);
-                return 2;
+                return 1;
             }
 
             if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, excludedPackagePrefixes, reportSpdx.Index, out policy, out var reportPolicyError))
             {
                 Console.Error.WriteLine($"Invalid license policy: {reportPolicyError}");
-                return 2;
+                return 1;
             }
 
             if (!ScanReportFile.TryRead(reportPath, out var persisted, out var readError))
             {
                 Console.Error.WriteLine(readError);
-                return 2;
+                return 1;
             }
 
             components = persisted.Components;
@@ -123,19 +120,19 @@ internal sealed class CheckCommands
             if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, skipEvidencePackages?.Split(',', StringSplitOptions.None), concurrency, retry, out var preparation, out var preparationError))
             {
                 Console.Error.WriteLine(preparationError);
-                return 2;
+                return 1;
             }
 
             if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), developmentLicenseIds, excludedPackagePrefixes, preparation.Spdx.Index, out policy, out var policyError))
             {
                 Console.Error.WriteLine($"Invalid license policy: {policyError}");
-                return 2;
+                return 1;
             }
 
             if (!ScanExecution.TryExecute(preparation, refresh, noExternalEvidence, includeHash: false, out var completed, out var executionError))
             {
                 Console.Error.WriteLine(executionError);
-                return 2;
+                return 1;
             }
 
             if (verbose)
@@ -158,7 +155,7 @@ internal sealed class CheckCommands
         if (baselinePath is not null && !updateBaseline && !BaselineFile.TryRead(baselinePath, out acknowledgements, out var baselineError))
         {
             Console.Error.WriteLine(baselineError);
-            return 2;
+            return 1;
         }
 
         if (updateBaseline)
@@ -167,7 +164,7 @@ internal sealed class CheckCommands
             if (!BaselineFile.TryWrite(baselinePath!, entries, licenseListVersion, out var writeError))
             {
                 Console.Error.WriteLine(writeError);
-                return 2;
+                return 1;
             }
 
             acknowledgements = LicenseBaseline.FromEntries(entries);
@@ -223,7 +220,7 @@ internal sealed class CheckCommands
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
             {
                 Console.Error.WriteLine($"Unable to write SARIF: {exception.Message}");
-                return 2;
+                return 1;
             }
         }
 
@@ -241,11 +238,10 @@ internal sealed class CheckCommands
         catch (IOException exception)
         {
             Console.Error.WriteLine($"Unable to write check result: {exception.Message}");
-            return 2;
+            return 1;
         }
 
-        PolicyViolationReturned = violations.Length != 0;
-        return PolicyViolationReturned ? 1 : 0;
+        return violations.Length == 0 ? 0 : 2;
     }
 
     private static void WriteExclusionMatches(LicenseAllowPolicy policy, ReadOnlySpan<ScanComponent> components)

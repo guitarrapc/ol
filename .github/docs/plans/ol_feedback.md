@@ -89,7 +89,7 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 **この設計が保証すること / しないこと**: 正規化できる禁止ライセンスは構造的に承認できない。正規化できない表記（`GPLv3` 等）は strict normalization が推測を拒む以上判定材料がなく、raw が diff に出ることで可視化されるに留まる。**「GPL は絶対に通らない」ではなく「ol が識別できる GPL は通らない、識別できないものは PR で必ず目に入る」**が正確な表現である。
 
-**副産物**: `--update-baseline` を実行しても禁止ライセンスは消えない。したがって初回導入は 1 コマンドで済み、その結果 exit 1 で落ちたなら**それが探し物**である。
+**副産物**: `--update-baseline` を実行しても禁止ライセンスは消えない。したがって初回導入は 1 コマンドで済み、その結果 exit 2 で落ちたなら**それが探し物**である。
 
 **この設計で消えた設計負債**: 新しい status を導入しない（承認は violation 集合から除外するだけで、component は unresolved のまま report に残る）。policy 入力が 2 つだけなので precedence の定義が不要。curation を持たないので stale-curation 状態も不要。
 
@@ -117,7 +117,7 @@ ol check --input . --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 実装: [`ScanReportReader`](../../../src/Ol.Core/Reporting/ScanReportReader.cs)、[`ScanReportDiff`](../../../src/Ol.Core/Reporting/ScanReportDiff.cs)、[`DiffCommands`](../../../src/Ol/DiffCommands.cs)。仕様は [cli.md](../specs/cli.md#contract-policy-report-input) と [cli.md の diff](../specs/cli.md#contract-diff)。
 
-**確認できた挙動**: 同じ永続結果と policy から `--input` 経由と同一の判定・同一の stdout を得る / schema version 不整合・破損・grouped report は exit 2 / report 入力時は input parsing も network request も行わない / added・removed・version-changed・status-changed・license-changed・evidence-changed・policy-changed を区別する / diff の順序が決定的で JSON も byte 安定。
+**確認できた挙動**: 同じ永続結果と policy から `--input` 経由と同一の判定・同一の stdout を得る / schema version 不整合・破損・grouped report は exit 1 / report 入力時は input parsing も network request も行わない / added・removed・version-changed・status-changed・license-changed・evidence-changed・policy-changed を区別する / diff の順序が決定的で JSON も byte 安定。
 
 `evidence-changed` は baseline と同じ fingerprint から導出しており、「結論は同じだが証拠が動いた」を検出する。
 
@@ -206,8 +206,8 @@ Gap 4 の bounded な root legal-file evidence を実運用し、解決できな
 - 禁止ライセンスへ正規化される候補を持つ component は、書き込み時も適用時も承認されない。allow-list を狭めると過去の承認が無効になる。
 - 版と証拠の変化で承認が自動的に外れる。
 - 全置換が決定的で、無変更の再生成は byte 同一。timestamp を持たない。
-- baseline の欠落・破損・schema 不整合は exit 2。`--update-baseline` は `--baseline` を要求する。
-- exit 0 / 1 / 2 の既存契約を維持。baseline を使わない経路に allocation と I/O を追加しない。
+- baseline の欠落・破損・schema 不整合は exit 1。`--update-baseline` は `--baseline` を要求する。
+- exit 0（成功）/ 1（実行失敗）/ 2（policy violation）の共通契約を維持。baseline を使わない経路に allocation と I/O を追加しない。
 
 実装で確定した設計判断は [cli.md の Lessons Learned](../specs/cli.md#lessons-learned) に記録した。特に fingerprint は候補の挿入順に依存させない。挿入順は enrichment pipeline の実装詳細である一方、fingerprint は利用者の repository に永続するため、evidence source を1つ足しただけで全 baseline が無効化されてはならない。
 

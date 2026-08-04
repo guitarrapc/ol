@@ -118,7 +118,7 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 実装: [`ScanReportReader`](../../../src/Ol.Core/Reporting/ScanReportReader.cs)、[`ScanReportDiff`](../../../src/Ol.Core/Reporting/ScanReportDiff.cs)、[`DiffCommands`](../../../src/Ol/DiffCommands.cs)。仕様は [cli.md](../specs/cli.md#contract-policy-report-input) と [cli.md の diff](../specs/cli.md#contract-diff)。
 
-**確認できた挙動**: scan が生成した永続結果を異なる policy で再評価できる / schema version 不整合・破損・grouped report は exit 1 / check は input parsing も network request も行わない / added・removed・version-changed・status-changed・license-changed・evidence-changed・policy-changed を区別する / diff の順序が決定的で JSON も byte 安定。
+**確認できた挙動**: scan が生成した永続結果を異なる policy で再評価できる / schema version 不整合・破損・grouped report は exit 1 / check は input parsing も network request も行わない / diff は added・removed・version-changed・status-changed・license-changed・evidence-changed を区別する / diff の順序が決定的で JSON も byte 安定。policy evaluation は check に限定し、diff は SPDX data に依存しない。
 
 `evidence-changed` は baseline と同じ fingerprint から導出しており、「結論は同じだが証拠が動いた」を検出する。
 
@@ -215,10 +215,10 @@ Gap 4 の bounded な root legal-file evidence を実運用し、解決できな
 ### Phase B: 再評価と可視化 — **実装済み**
 
 1. 永続入力契約と `check --report`（canonical JSON を兼用）。
-2. evidence / policy diff（`ol diff`）。
+2. factual report diff（`ol diff`）。
 3. SARIF（`check --sarif`）。
 
-検証済み: offline 再評価が `--input` と同一判定・同一 stdout / added・removed・version-changed・status-changed・license-changed・evidence-changed・policy-changed の区別 / diff JSON の byte 安定 / check text と SARIF の violation 集合一致 / SARIF に絶対 path と token を出さない。
+検証済み: offline policy 再評価 / added・removed・version-changed・status-changed・license-changed・evidence-changed の区別 / diff JSON の byte 安定 / check text と SARIF の violation 集合一致 / SARIF に絶対 path と token を出さない。
 
 **この Phase で発見して修正したバグ**: `LicenseStatus.Matched` が enum の 0 値だったため、license 宣言を持たない package が `matched` かつ license 空として報告されていた（npm / Cargo / Composer / pip の各 parser が既定 candidate の status を分岐に使うため）。コンプライアンスツールとして最悪の false negative であり、`check` では「license is not allowed」という説明不能な理由になり、baseline でも承認できない袋小路を生んでいた。`Unknown = 0` を明示値で固定し、全 parser 横断の不変条件テスト（`Matched` なら license を必ず持つ）を追加した。詳細は [cli.md の Lessons Learned](../specs/cli.md#lessons-learned)。
 

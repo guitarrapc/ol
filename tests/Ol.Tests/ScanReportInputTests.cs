@@ -262,20 +262,6 @@ public sealed class ScanReportInputTests
         await Assert.That(changes[1].Name).IsEqualTo("zzz");
     }
 
-    [Test]
-    public async Task Compare_WithPolicy_ReportsVerdictTransition()
-    {
-        var spdx = new Ol.Core.Spdx.SpdxLicenseIndex(["MIT", "GPL-3.0-only"], []);
-        LicenseAllowPolicy.TryCreate(["MIT"], spdx, out var policy, out _);
-        var previous = Read(Report(Component()));
-        var current = Read(Report(Component(license: "GPL-3.0-only", raw: "GPL-3.0-only", normalized: "GPL-3.0-only")));
-
-        var changes = ScanReportDiff.Compare(previous, current, policy);
-
-        await Assert.That(changes.Any(c => c.Kind == ScanReportChangeKind.PolicyChanged)).IsTrue();
-        await Assert.That(changes.Any(c => c.Kind == ScanReportChangeKind.LicenseChanged)).IsTrue();
-    }
-
     private static ScanComponent[] Read(string json)
     {
         if (!ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error)) throw new InvalidOperationException(error);

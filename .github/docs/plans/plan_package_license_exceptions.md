@@ -215,7 +215,7 @@ renderer が policy を再評価してこれらを推測してはならない。
 初期実装では次へ option を広げない。
 
 - `scan`: factual report に policy exception を適用しない。
-- `diff`: 現在の `--allow-licenses` policy transition だけを維持する。exception-aware diff は、利用要求と出力契約を別途定義してから追加する。
+- `diff`: factual report の比較に限定し、policy exception を適用しない。
 - `--update-baseline`: package exception file を生成、編集、または上書きしない。
 
 SARIF violation 集合は text と一致させる。package exception で通過した component を SARIF result にしない代わりに、`run.properties` の policy allowance として component identity、exception purl、license、usage、owner、reason、expiry、evaluation date を記録する。期限切れにより残った violation には、秘密情報や絶対 file path を含めず、owner と expiry date を bounded property として付ける。
@@ -301,7 +301,7 @@ policy exception は通常 policy より低頻度でも、component ごとの評
 - exception file の自動生成、自動更新、期限延長
 - expired または unmatched entry の自動削除
 - deny-list、license category、copyleft の自動分類
-- `diff` の exception-aware policy transition
+- `diff` へのpolicy evaluation追加
 
 ## 実装前に確定する判断事項
 

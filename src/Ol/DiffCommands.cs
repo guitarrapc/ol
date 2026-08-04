@@ -2,7 +2,6 @@
 using System.Text;
 using System.Text.Json;
 using ConsoleAppFramework;
-using Ol.Core.Licensing;
 using Ol.Core.Reporting;
 using Ol.Internals;
 
@@ -15,23 +14,13 @@ internal sealed class DiffCommands
     /// <summary>Compare two persisted JSON scan reports and report license-relevant changes.</summary>
     /// <param name="previous">Previously persisted JSON scan report.</param>
     /// <param name="current">Current JSON scan report.</param>
-    /// <param name="allowLicenses">Comma-separated SPDX License Identifiers; adds policy verdict transitions.</param>
-    /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="format">Output format.</param>
     [Command("diff")]
     public int Diff(
-        string? previous = null,
-        string? current = null,
-        string? allowLicenses = null,
-        string? spdxData = null,
+        string previous,
+        string current,
         DiffFormat format = DiffFormat.Text)
     {
-        if (string.IsNullOrWhiteSpace(previous) || string.IsNullOrWhiteSpace(current))
-        {
-            Console.Error.WriteLine("Invalid diff input: --previous and --current must both be specified.");
-            return 1;
-        }
-
         if (!ScanReportFile.TryRead(previous, out var previousReport, out var previousError))
         {
             Console.Error.WriteLine(previousError);
@@ -44,23 +33,7 @@ internal sealed class DiffCommands
             return 1;
         }
 
-        LicenseAllowPolicy? policy = null;
-        if (!string.IsNullOrWhiteSpace(allowLicenses))
-        {
-            if (!ScanExecution.TryResolveSpdx(spdxData, out var spdx, out var spdxError))
-            {
-                Console.Error.WriteLine(spdxError);
-                return 1;
-            }
-
-            if (!LicenseAllowPolicy.TryCreate(allowLicenses.Split(',', StringSplitOptions.None), spdx.Index, out policy, out var policyError))
-            {
-                Console.Error.WriteLine($"Invalid license policy: {policyError}");
-                return 1;
-            }
-        }
-
-        var changes = ScanReportDiff.Compare(previousReport.Components, currentReport.Components, policy);
+        var changes = ScanReportDiff.Compare(previousReport.Components, currentReport.Components);
         try
         {
             Console.Write(format == DiffFormat.Json ? RenderJson(changes) : RenderText(changes));
@@ -160,7 +133,6 @@ internal sealed class DiffCommands
         ScanReportChangeKind.StatusChanged => "status-changed",
         ScanReportChangeKind.LicenseChanged => "license-changed",
         ScanReportChangeKind.EvidenceChanged => "evidence-changed",
-        ScanReportChangeKind.PolicyChanged => "policy-changed",
         _ => "changed",
     };
 }

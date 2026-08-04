@@ -74,7 +74,40 @@ steps:
   - run: ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 ```
 
-See [SBOM and ecosystem support](#sbom-and-ecosystem-support) for accepted inputs and ecosystem-specific commands.
+To try the complete workflow locally without network access, follow the commands.
+
+1. scan two CycloneDX inputs into canonical JSON reports;
+2. check an allowed report successfully;
+3. observe exit code `2` for a report containing `GPL-3.0-only`; and
+4. diff the two factual reports.
+
+The `before` input contains one MIT component. The `after` input changes that component to GPL-3.0-only and adds an Apache-2.0 component. Scan both inputs without external evidence for simplify usage.
+
+```bash
+ol scan --input sandbox/try-ol/before.cdx.json --no-external-evidence --format json --quiet > sandbox/try-ol/output/before.json
+ol scan --input sandbox/try-ol/after.cdx.json --no-external-evidence --format json --quiet > sandbox/try-ol/output/after.json
+```
+
+Check the allowed report. This exits `0`:
+
+```bash
+ol check --report sandbox/try-ol/output/before.json --allow-licenses MIT,Apache-2.0
+```
+
+Check the changed report. The GPL-3.0-only component produces a policy violation and exit `2`:
+
+```bash
+ol check --report sandbox/try-ol/output/after.json --allow-licenses MIT,Apache-2.0
+```
+
+Compare the persisted facts. This exits `0` and reports `license-changed` and `added`:
+
+```bash
+ol diff --previous sandbox/try-ol/output/before.json --current sandbox/try-ol/output/after.json
+```
+
+The generated reports remain in the ignored `sandbox/try-ol/output/` directory for inspection. `check` owns policy evaluation; `diff` only compares facts persisted in the reports.
+
 
 ## Usage
 
@@ -144,11 +177,9 @@ Usage: diff [options...] [-h|--help] [--version]
 Compare two persisted JSON scan reports and report license-relevant changes.
 
 Options:
-  --previous <string?>          Previously persisted JSON scan report. [Default: null]
-  --current <string?>           Current JSON scan report. [Default: null]
-  --allow-licenses <string?>    Comma-separated SPDX License Identifiers; adds policy verdict transitions. [Default: null]
-  --spdx-data <string?>         Directory containing licenses.json and exceptions.json. [Default: null]
-  --format <DiffFormat>         Output format. [Default: Text]
+  --previous <string>      Previously persisted JSON scan report. [Required]
+  --current <string>       Current JSON scan report. [Required]
+  --format <DiffFormat>    Output format. [Default: Text]
 ```
 
 `--input-format` defaults to `auto`. ol identifies the input from registered content signatures and rejects unknown or ambiguous documents. Supported assertions are:
@@ -356,18 +387,17 @@ Rule IDs are stable: `OL0001` not allowed, `OL0002` evidence conflict, `OL0003` 
 `diff` shows only what changed about licensing between two saved reports, so a reviewer does not have to read a whole report to find it.
 
 ```bash
-ol diff --previous before.json --current after.json --allow-licenses MIT
+ol diff --previous before.json --current after.json
 ```
 
 ```text
-License-relevant changes: 2 changes.
+License-relevant changes: 1 change.
 
 Change           Ecosystem  Name    Previous  Current
 license-changed  npm        poison  MIT       GPL-3.0-only
-policy-changed   npm        poison  MIT       GPL-3.0-only
 ```
 
-Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, `evidence-changed`, and `policy-changed` when `--allow-licenses` is given. `evidence-changed` means the underlying claims moved while the conclusion held — a change of fact rather than of wording. `--format Json` emits the same set as a document. `diff` reports rather than enforces: it exits `0` when it completes and `1` when a report could not be read.
+Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, and `evidence-changed`. `evidence-changed` means the underlying claims moved while the conclusion held — a change of fact rather than of wording. `--format Json` emits the same set as a document. `diff` compares persisted facts and has no policy or SPDX-data options; policy evaluation belongs to `check`. It exits `0` when it completes and `1` when a report could not be read.
 
 ## SBOM and ecosystem support
 

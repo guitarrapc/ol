@@ -8,6 +8,23 @@ public sealed class CliDiffTests
     private static readonly SemaphoreSlim CliGate = new(1, 1);
 
     [Test]
+    public async Task Diff_Help_AdvertisesRequiredReportsWithoutPolicyOptions()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunOlAsync(root, "diff", "--help");
+
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        await Assert.That(result.Stderr).IsEmpty();
+        await Assert.That(result.Stdout).Contains("--previous <string>");
+        await Assert.That(result.Stdout).Contains("Previously persisted JSON scan report. [Required]");
+        await Assert.That(result.Stdout).Contains("--current <string>");
+        await Assert.That(result.Stdout).Contains("Current JSON scan report. [Required]");
+        await Assert.That(result.Stdout).DoesNotContain("--allow-licenses");
+        await Assert.That(result.Stdout).DoesNotContain("--spdx-data");
+    }
+
+    [Test]
     public async Task Diff_WithIdenticalReports_ReportsNoChanges()
     {
         var root = FindRepositoryRoot();
@@ -48,16 +65,19 @@ public sealed class CliDiffTests
     }
 
     [Test]
-    public async Task Diff_WithAllowList_ReportsPolicyTransition()
+    [Arguments("--allow-licenses", "MIT")]
+    [Arguments("--spdx-data", "missing")]
+    public async Task Diff_WithRemovedPolicyOption_ReturnsFrameworkParseError(string option, string value)
     {
         var root = FindRepositoryRoot();
         var (previous, current) = await WriteReportsAsync(root, "MIT", "GPL-3.0-only");
         try
         {
-            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, "--allow-licenses", "MIT");
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, option, value);
 
-            await Assert.That(result.ExitCode).IsEqualTo(0);
-            await Assert.That(result.Stdout).Contains("policy-changed");
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.Stdout).Contains($"Argument '{option}' is not recognized.");
+            await Assert.That(result.Stderr).IsEmpty();
         }
         finally
         {
@@ -106,14 +126,15 @@ public sealed class CliDiffTests
     }
 
     [Test]
-    public async Task Diff_WithoutBothReports_ReturnsOne()
+    public async Task Diff_WithoutCurrentReport_ReturnsFrameworkParseError()
     {
         var root = FindRepositoryRoot();
 
         var result = await RunOlAsync(root, "diff", "--previous", "a.json");
 
         await Assert.That(result.ExitCode).IsEqualTo(1);
-        await Assert.That(result.Stderr).Contains("--previous and --current");
+        await Assert.That(result.Stdout).Contains("Required argument 'current' was not specified.");
+        await Assert.That(result.Stderr).IsEmpty();
     }
 
     private static void Cleanup(params string[] paths)

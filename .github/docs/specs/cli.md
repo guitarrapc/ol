@@ -564,14 +564,14 @@ Policy files, deny-lists, per-package policy exceptions, license curation and co
 `diff` compares two persisted JSON scan reports and reports only license-relevant change:
 
 ```text
-ol diff --previous before.json --current after.json --allow-licenses MIT
+ol diff --previous before.json --current after.json
 ```
 
-A full report is too large to review by hand on every change, and most of what changes between two runs is not license-relevant. The diff exists so a reviewer can see what actually changed about licensing, and so a genuine policy transition is separated from ordinary registry or repository drift.
+A full report is too large to review by hand on every change, and most of what changes between two runs is not license-relevant. The diff exists so a reviewer can see what actually changed about licensing and distinguish a genuine change of licensing fact from ordinary registry or repository drift.
 
-Components are identified by ecosystem and name so that a version bump reads as a change rather than as an unrelated removal and addition. Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, `evidence-changed`, and, when `--allow-licenses` is supplied, `policy-changed`. `evidence-changed` reports that the underlying claims moved while the conclusion held, which is what distinguishes a real change of fact from a change of wording; it is derived from the same evidence fingerprint the baseline uses.
+`--previous` and `--current` are required. Components are identified by ecosystem and name so that a version bump reads as a change rather than as an unrelated removal and addition. Change kinds are `added`, `removed`, `version-changed`, `status-changed`, `license-changed`, and `evidence-changed`. `evidence-changed` reports that the underlying claims moved while the conclusion held, which is what distinguishes a real change of fact from a change of wording; it is derived from the same evidence fingerprint the baseline uses.
 
-Output is `--format Text` or `--format Json`, ordered by component name and change kind so identical inputs produce identical output. `diff` reports rather than enforces, so it exits `0` whenever both reports could be read and `1` when either could not. Policy enforcement stays in `check` so exit code `2` keeps one meaning.
+Output is `--format Text` or `--format Json`, ordered by component name and change kind so identical inputs produce identical output. `diff` accepts no policy or SPDX-data options: those concerns belong to `check`, while `diff` is a pure comparison of facts already persisted in reports. It exits `0` whenever both reports could be read and `1` when either could not. Policy enforcement stays in `check` so exit code `2` keeps one meaning.
 
 ## Lessons Learned
 

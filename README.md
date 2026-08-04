@@ -103,21 +103,22 @@ Usage: scan [options...] [-h|--help] [--version]
 Scan a resolved dependency input.
 
 Options:
-  --input <string[]?>         Repeatable resolved dependency input files or directories. [Default: null]
-  --input-format <string?>    Input format: auto (default), cyclonedx, spdx, or nuget-assets. [Default: null]
-  --format <ReportFormat>     Output format: text, json, or markdown. [Default: Text]
-  --verbose                   Include verbose columns and input detection diagnostics.
-  --dependency <string?>      Dependency output filter: root,direct,transitive,unknown. [Default: null]
-  --group-by <string?>        Group output by fields: name,version,license,ecosystem,dependency,status. [Default: null]
-  --sort <string>             Sort keys: ecosystem,name,version,license,dependency,status,purl. [Default: @"ecosystem,name,version"]
-  --sort-order <SortOrder>    Sort order: asc or desc. [Default: Asc]
-  --spdx-data <string?>       Directory containing licenses.json and exceptions.json. [Default: null]
-  --quiet                     Suppress stderr summary.
-  --refresh                   Ignore cached package metadata and source repository entries and fetch them again.
-  --cache-dir <string?>       Root directory for isolated package-metadata and source-repository caches. [Default: null]
-  --no-external-evidence      Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
-  --concurrency <int>         Maximum concurrent package metadata lookups. [Default: 0]
-  --retry <int>               Reserved package metadata retry count. [Default: 1]
+  --input <string[]?>                   Repeatable resolved dependency input files or directories. [Default: null]
+  --input-format <string?>              Input format: auto (default), cyclonedx, spdx, or nuget-assets. [Default: null]
+  --format <ReportFormat>               Output format: text, json, or markdown. [Default: Text]
+  --verbose                             Include verbose columns and input detection diagnostics.
+  --dependency <string?>                Dependency output filter: root,direct,transitive,unknown. [Default: null]
+  --group-by <string?>                  Group output by fields: name,version,license,ecosystem,dependency,status. [Default: null]
+  --sort <string>                       Sort keys: ecosystem,name,version,license,dependency,status,purl. [Default: @"ecosystem,name,version"]
+  --sort-order <SortOrder>              Sort order: asc or desc. [Default: Asc]
+  --spdx-data <string?>                 Directory containing licenses.json and exceptions.json. [Default: null]
+  --quiet                               Suppress stderr summary.
+  --refresh                             Ignore cached package metadata and source repository entries and fetch them again.
+  --cache-dir <string?>                 Root directory for isolated package-metadata and source-repository caches. [Default: null]
+  --no-external-evidence                Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
+  --skip-evidence-packages <string?>    Comma-separated package URL prefixes whose external evidence is never collected. [Default: null]
+  --concurrency <int>                   Maximum concurrent package metadata lookups. [Default: 0]
+  --retry <int>                         Reserved package metadata retry count. [Default: 1]
 ```
 
 ```bash
@@ -127,22 +128,23 @@ Usage: check [options...] [-h|--help] [--version]
 Check a resolved dependency input against allowed SPDX licenses.
 
 Options:
-  --input <string[]?>               Repeatable resolved dependency input files or directories. [Default: null]
-  --allow-licenses <string?>        Comma-separated SPDX License Identifiers. [Default: null]
-  --allow-dev-licenses <string?>    Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
-  --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. [Default: null]
-  --input-format <string?>          Input format assertion; defaults to auto detection. [Default: null]
-  --spdx-data <string?>             Directory containing licenses.json and exceptions.json. [Default: null]
-  --verbose                         Include input detection diagnostics.
-  --refresh                         Ignore cached package metadata and source repository entries and fetch them again.
-  --cache-dir <string?>             Root directory for isolated package-metadata and source-repository caches. [Default: null]
-  --no-external-evidence            Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
-  --concurrency <int>               Maximum concurrent package metadata lookups. [Default: 0]
-  --retry <int>                     Reserved package metadata retry count. [Default: 1]
-  --baseline <string?>              Baseline file acknowledging already reviewed unresolved components. [Default: null]
-  --update-baseline                 Rewrite the baseline file as a complete snapshot.
-  --report <string?>                Persisted JSON scan report to evaluate instead of scanning an input. [Default: null]
-  --sarif <string?>                 Write violations as SARIF to this file for CI code scanning. [Default: null]
+  --input <string[]?>                   Repeatable resolved dependency input files or directories. [Default: null]
+  --allow-licenses <string?>            Comma-separated SPDX License Identifiers. [Default: null]
+  --allow-dev-licenses <string?>        Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
+  --exclude-packages <string?>          Comma-separated package URL prefixes whose components are not evaluated. [Default: null]
+  --input-format <string?>              Input format assertion; defaults to auto detection. [Default: null]
+  --spdx-data <string?>                 Directory containing licenses.json and exceptions.json. [Default: null]
+  --verbose                             Include input detection diagnostics.
+  --refresh                             Ignore cached package metadata and source repository entries and fetch them again.
+  --cache-dir <string?>                 Root directory for isolated package-metadata and source-repository caches. [Default: null]
+  --no-external-evidence                Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
+  --skip-evidence-packages <string?>    Comma-separated package URL prefixes whose external evidence is never collected. [Default: null]
+  --concurrency <int>                   Maximum concurrent package metadata lookups. [Default: 0]
+  --retry <int>                         Reserved package metadata retry count. [Default: 1]
+  --baseline <string?>                  Baseline file acknowledging already reviewed unresolved components. [Default: null]
+  --update-baseline                     Rewrite the baseline file as a complete snapshot.
+  --report <string?>                    Persisted JSON scan report to evaluate instead of scanning an input. [Default: null]
+  --sarif <string?>                     Write violations as SARIF to this file for CI code scanning. [Default: null]
 ```
 
 ```bash
@@ -244,6 +246,15 @@ ol check --input bom.cdx.json --allow-licenses MIT,Apache-2.0 --no-external-evid
 ```
 
 `--no-external-evidence` contacts no package registry and no source repository, and reads neither of their caches. Because unresolved licenses fail closed, it can produce violations that a check with external evidence would resolve.
+
+Skip collection for selected components instead of all of them with `--skip-evidence-packages`, available on both `scan` and `check`:
+
+```bash
+ol scan --input . --skip-evidence-packages pkg:nuget/MyCompany.
+ol check --input . --allow-licenses MIT,Apache-2.0 --skip-evidence-packages pkg:nuget/MyCompany.
+```
+
+This is useful when a component cannot be resolved for reasons outside the license itself, such as a registry that requires authentication. Without it, every run spends a request that cannot succeed and the component ends as `error`, which a baseline cannot acknowledge. With it, no request is made and the component is reported as `unknown` with the warning `external_evidence_not_collected`, which a baseline can acknowledge. The component stays in the report and in the check; only the collection is skipped. Prefixes use the same matching rules as `--exclude-packages`, and `--verbose` reports how many components each prefix matched.
 
 #### Excluding packages from the check
 

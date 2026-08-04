@@ -23,10 +23,24 @@ internal static class PackageMetadataPaths
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ol", "cache", "package-metadata");
 }
 
-internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, PackageMetadataCache cache, bool refresh, int retryCount)
+internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, PackageMetadataCache cache, bool refresh, int retryCount, PurlPrefixSet? uncollectedPackages = null)
 {
     private const int LinearPlanningComponentLimit = 8;
     private static readonly HttpClient HttpClient = new();
+
+    /// <summary>
+    /// Records that collection was not performed for a component by user configuration. It is a candidate rather than
+    /// silence so a report keeps "not asked" distinguishable from "asked and the registry declared no license".
+    /// </summary>
+    private static readonly LicenseCandidate NotCollectedCandidate = new(
+        LicenseCandidateSource.PackageRegistry,
+        LicenseCandidateKind.Unavailable,
+        default,
+        default,
+        LicenseStatus.Unknown,
+        false,
+        LicenseCandidateWarnings.ExternalEvidenceNotCollected,
+        new LicenseEvidence(LicenseEvidenceKind.PackageRegistry));
     private readonly PackageMetadataRegistryClient registryClient = OlDefaults.CreatePackageMetadataRegistryClient(HttpClient);
 
     public ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(
@@ -63,6 +77,12 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         var purl = components[0].Purl;
         if (purl.IsEmpty)
         {
+            return ValueTask.FromResult(ApplySingleLookup(components, workspace, default, concurrency, lookupCount: 0));
+        }
+
+        if (uncollectedPackages is not null && uncollectedPackages.Contains(purl))
+        {
+            components[0] = LicenseReconciler.AddCandidate(components[0], NotCollectedCandidate);
             return ValueTask.FromResult(ApplySingleLookup(components, workspace, default, concurrency, lookupCount: 0));
         }
 
@@ -139,6 +159,13 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
                 var purl = component.Purl;
                 if (purl.IsEmpty)
                 {
+                    componentLookupIndexes[i] = -1;
+                    continue;
+                }
+
+                if (uncollectedPackages is not null && uncollectedPackages.Contains(purl))
+                {
+                    components[i] = LicenseReconciler.AddCandidate(component, NotCollectedCandidate);
                     componentLookupIndexes[i] = -1;
                     continue;
                 }

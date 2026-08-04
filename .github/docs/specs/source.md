@@ -34,6 +34,8 @@ This endpoint is used instead of manually probing `LICENSE`, `COPYING`, and `NOT
 
 Ol does not perform recursive repository search and does not use the Contents API as a fallback for license file discovery.
 
+A component selected by [`--skip-evidence-packages`](cli.md#contract-skip-evidence-packages) is not planned as a source target and receives no source candidate, not even an unavailable one. The package-side `external_evidence_not_collected` candidate already records that collection was disabled for that component, and repeating it per evidence source would describe one decision as several outcomes.
+
 <a id="contract-source-evidence"></a>
 ## Evidence Semantics
 

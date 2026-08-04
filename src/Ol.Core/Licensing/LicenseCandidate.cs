@@ -36,6 +36,7 @@ public enum LicenseCandidateWarnings : ushort
     SourceRepositoryFetchFailed = 1 << 5,
     SourceRepositoryUnavailable = 1 << 6,
     UnsupportedSourceRepository = 1 << 7,
+    ExternalEvidenceNotCollected = 1 << 8,
 }
 
 /// <summary>Identifies the evidence system that produced a license candidate.</summary>
@@ -81,6 +82,7 @@ public static class LicenseCandidateIdentifiers
         "source_repository_fetch_failed" => LicenseCandidateWarnings.SourceRepositoryFetchFailed,
         "source_repository_unavailable" => LicenseCandidateWarnings.SourceRepositoryUnavailable,
         "unsupported_source_repository" => LicenseCandidateWarnings.UnsupportedSourceRepository,
+        "external_evidence_not_collected" => LicenseCandidateWarnings.ExternalEvidenceNotCollected,
         _ => LicenseCandidateWarnings.None,
     };
 
@@ -102,6 +104,7 @@ public static class LicenseCandidateIdentifiers
         if (value.SequenceEqual("source_repository_fetch_failed"u8)) return LicenseCandidateWarnings.SourceRepositoryFetchFailed;
         if (value.SequenceEqual("source_repository_unavailable"u8)) return LicenseCandidateWarnings.SourceRepositoryUnavailable;
         if (value.SequenceEqual("unsupported_source_repository"u8)) return LicenseCandidateWarnings.UnsupportedSourceRepository;
+        if (value.SequenceEqual("external_evidence_not_collected"u8)) return LicenseCandidateWarnings.ExternalEvidenceNotCollected;
         return LicenseCandidateWarnings.None;
     }
 
@@ -141,7 +144,8 @@ public static class LicenseCandidateIdentifiers
         if ((value & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0) result[index++] = "source_repository_fetch_failed";
         if ((value & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0) result[index++] = "source_repository_unavailable";
         if ((value & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0) result[index++] = "unsupported_package_metadata";
-        if ((value & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) result[index] = "unsupported_source_repository";
+        if ((value & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) result[index++] = "unsupported_source_repository";
+        if ((value & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0) result[index] = "external_evidence_not_collected";
         return result;
     }
 

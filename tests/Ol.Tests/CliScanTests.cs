@@ -79,6 +79,77 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithNoExternalEvidenceFor_RecordsSkippedCollectionAsUnknown()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{ "type": "library", "name": "internal", "version": "1.0.0", "purl": "pkg:nuget/MyCompany.Internal@1.0.0" }] }""",
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--skip-evidence-packages", "pkg:nuget/MyCompany.");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            var component = report.RootElement.GetProperty("components")[0];
+            await Assert.That(component.GetProperty("status").GetString()).IsEqualTo("unknown");
+            await Assert.That(stdout).Contains("external_evidence_not_collected");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_VerboseWithNoExternalEvidenceFor_ReportsMatchesPerPrefix()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{ "type": "library", "name": "internal", "version": "1.0.0", "purl": "pkg:nuget/MyCompany.Internal@1.0.0" }] }""",
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--verbose", "--skip-evidence-packages", "pkg:nuget/MyCompany.,pkg:npm/absent");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stderr).Contains("Skipped evidence prefix pkg:nuget/MyCompany. matched 1 component.");
+            await Assert.That(stderr).Contains("Skipped evidence prefix pkg:npm/absent matched 0 components.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithInvalidNoExternalEvidenceFor_ReturnsNonZeroWithoutReport()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-evidence-packages", "pkg:nuget/");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("must identify at least one package or namespace");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithVerbose_AutoDetectionWritesDetectedFormatToStderr()
     {
         var root = FindRepositoryRoot();

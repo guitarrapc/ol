@@ -1,6 +1,5 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Collections.Frozen;
-using System.Text;
 using Ol.Core.Spdx;
 
 namespace Ol.Core.Licensing;
@@ -26,20 +25,23 @@ public sealed class LicenseAllowPolicy
 {
     private readonly FrozenSet<string> allowedLicenses;
     private readonly FrozenSet<string>? developmentUnionLicenses;
-    private readonly byte[][]? excludedPurlPrefixes;
+    private readonly PurlPrefixSet? excludedPackages;
     private readonly SpdxLicenseIndex spdxLicenseIndex;
 
     private LicenseAllowPolicy(
         FrozenSet<string> allowedLicenses,
         FrozenSet<string>? developmentUnionLicenses,
-        byte[][]? excludedPurlPrefixes,
+        PurlPrefixSet? excludedPackages,
         SpdxLicenseIndex spdxLicenseIndex)
     {
         this.allowedLicenses = allowedLicenses;
         this.developmentUnionLicenses = developmentUnionLicenses;
-        this.excludedPurlPrefixes = excludedPurlPrefixes;
+        this.excludedPackages = excludedPackages;
         this.spdxLicenseIndex = spdxLicenseIndex;
     }
+
+    /// <summary>Gets the normalized exclusion prefixes in the order they were supplied.</summary>
+    public ReadOnlySpan<string> ExclusionPrefixes => excludedPackages is null ? [] : excludedPackages.Prefixes;
 
     /// <summary>Creates an immutable allow-list from SPDX License Identifiers.</summary>
     public static bool TryCreate(ReadOnlySpan<string> licenseIds, SpdxLicenseIndex spdxLicenseIndex, out LicenseAllowPolicy policy, out string error)
@@ -108,7 +110,7 @@ public sealed class LicenseAllowPolicy
             developmentUnion = union.ToFrozenSet(StringComparer.Ordinal);
         }
 
-        if (!TryNormalizeExclusions(excludedPackagePrefixes, out var excluded, out error))
+        if (!PurlPrefixSet.TryCreate(excludedPackagePrefixes, out var excluded, out error))
         {
             return false;
         }
@@ -119,84 +121,23 @@ public sealed class LicenseAllowPolicy
     }
 
     /// <summary>
-    /// Normalizes exclusion prefixes into UTF-8 once per run so component matching stays allocation-free.
+    /// Counts how many non-root components each exclusion prefix removed, attributing every excluded component to the
+    /// first prefix that matches it so the counts sum to the evaluated exclusion total. This exists for diagnostics such
+    /// as verbose output, which is why it iterates separately instead of adding work to <see cref="Evaluate"/>.
     /// </summary>
-    private static bool TryNormalizeExclusions(ReadOnlySpan<string> prefixes, out byte[][]? normalized, out string error)
+    public void CountExclusionMatches(ReadOnlySpan<ScanComponent> components, Span<int> matchCounts)
     {
-        normalized = null;
-        error = string.Empty;
-        if (prefixes.IsEmpty) return true;
+        matchCounts.Clear();
+        if (excludedPackages is not { } prefixes) return;
 
-        var unique = new HashSet<string>(prefixes.Length, StringComparer.Ordinal);
-        for (var i = 0; i < prefixes.Length; i++)
+        for (var i = 0; i < components.Length; i++)
         {
-            var value = TrimAsciiWhitespace(prefixes[i].AsSpan());
-            if (value.IsEmpty)
-            {
-                error = "Excluded package entries must not be empty.";
-                return false;
-            }
+            if (components[i].DependencyType == DependencyType.Root) continue;
 
-            if (!IsPackageUrlPrefix(value))
-            {
-                error = $"Excluded package entries must be package URL prefixes identifying at least one package or namespace, such as pkg:nuget/MyCompany.: {Display(value)}";
-                return false;
-            }
-
-            unique.Add(value.ToString());
+            var match = prefixes.Match(components[i].Purl);
+            if ((uint)match < (uint)matchCounts.Length) matchCounts[match]++;
         }
-
-        var result = new byte[unique.Count][];
-        var index = 0;
-        foreach (var value in unique) result[index++] = Encoding.UTF8.GetBytes(value);
-        normalized = result;
-        return true;
     }
-
-    /// <summary>
-    /// Requires a package URL prefix to name an ecosystem and at least one package or namespace character, so a whole
-    /// ecosystem cannot be removed from evaluation by one entry.
-    /// </summary>
-    private static bool IsPackageUrlPrefix(ReadOnlySpan<char> value)
-    {
-        if (!value.StartsWith("pkg:", StringComparison.Ordinal)) return false;
-
-        var remainder = value[4..];
-        var separator = remainder.IndexOf('/');
-        if (separator <= 0) return false;
-
-        var tail = remainder[(separator + 1)..];
-        for (var i = 0; i < tail.Length; i++)
-        {
-            if (!IsPurlSeparator(tail[i])) return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Matches a component purl against the exclusion prefixes. A prefix that ends at a purl separator states its own
-    /// boundary, so <c>pkg:nuget/MyCompany.</c> covers a package family. A prefix that ends inside a name must reach a
-    /// separator in the purl, so <c>pkg:nuget/MyCompany</c> never silences <c>pkg:nuget/MyCompanyEvil</c>. Matching is
-    /// ordinal and case-sensitive: a casing mismatch leaves the component evaluated, which is the fail-closed direction.
-    /// </summary>
-    private static bool IsExcluded(byte[][] prefixes, Utf8Slice purl)
-    {
-        if (purl.IsEmpty) return false;
-
-        var value = purl.Span;
-        for (var i = 0; i < prefixes.Length; i++)
-        {
-            var prefix = prefixes[i].AsSpan();
-            if (value.Length < prefix.Length || !value[..prefix.Length].SequenceEqual(prefix)) continue;
-            if (value.Length == prefix.Length || IsPurlSeparator((char)prefix[^1])) return true;
-            if (value[prefix.Length] is (byte)'/' or (byte)'@') return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsPurlSeparator(char value) => value is '/' or '.' or '@';
 
     private static bool TryNormalize(ReadOnlySpan<string> licenseIds, SpdxLicenseIndex spdxLicenseIndex, string emptyEntryError, out HashSet<string> normalized, out string error)
     {
@@ -242,7 +183,7 @@ public sealed class LicenseAllowPolicy
         }
 
         // An excluded component is outside policy scope, so a baseline snapshot must not record it either.
-        if (excludedPurlPrefixes is { } prefixes && IsExcluded(prefixes, component.Purl))
+        if (excludedPackages is { } prefixes && prefixes.Contains(component.Purl))
         {
             return false;
         }
@@ -324,7 +265,7 @@ public sealed class LicenseAllowPolicy
         var violations = ArrayPool<LicensePolicyViolation>.Shared.Rent(components.Length);
         var violationCount = 0;
         // Hoisted so a run without exclusions performs neither a field load nor a call per component.
-        var exclusions = excludedPurlPrefixes;
+        var exclusions = excludedPackages;
         // Development allowances are collected only when a development allow-list exists, so a run without the option
         // rents nothing extra. The indices identify components the caller reports separately from violations.
         var developmentAllowed = developmentUnionLicenses is null ? null : ArrayPool<int>.Shared.Rent(components.Length);
@@ -340,7 +281,7 @@ public sealed class LicenseAllowPolicy
                 }
 
                 // Exclusion is a scope statement by the caller, so it is applied before any license question is asked.
-                if (exclusions is not null && IsExcluded(exclusions, component.Purl))
+                if (exclusions is not null && exclusions.Contains(component.Purl))
                 {
                     excludedCount++;
                     continue;

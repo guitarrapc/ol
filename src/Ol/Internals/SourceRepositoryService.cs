@@ -15,7 +15,7 @@ internal static class SourceRepositoryPaths
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ol", "cache", "source-repository");
 }
 
-internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex, SourceRepositoryCache sourceCache, bool refresh, int retryCount, HttpClient? client = null)
+internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex, SourceRepositoryCache sourceCache, bool refresh, int retryCount, HttpClient? client = null, PurlPrefixSet? uncollectedPackages = null)
 {
     private const int LinearPlanningComponentLimit = 8;
     private static readonly HttpClient SharedHttpClient = new();
@@ -53,6 +53,14 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         int concurrency,
         CancellationToken cancellationToken)
     {
+        // A component whose external collection was disabled keeps only the package-side record of that decision.
+        if (uncollectedPackages is not null && uncollectedPackages.Contains(components[0].Purl))
+        {
+            return ValueTask.FromResult((
+                Components: components,
+                Summary: new SourceRepositorySummary(0, 0, 0, 0, 0, 0, authentication.Mode, concurrency, retryCount)));
+        }
+
         var metadata = workspace.Records[0];
         var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[0]);
         if (repositoryUrl.Length == 0)
@@ -144,7 +152,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         var targetCount = 0;
         try
         {
-            targetCount = PlanTargets(components, workspace, targets, origins, componentTargetIndexes, originIndexes, targetIndexes, out var unplannedUnknownCount);
+            targetCount = PlanTargets(components, workspace, targets, origins, componentTargetIndexes, originIndexes, targetIndexes, uncollectedPackages, out var unplannedUnknownCount);
 
             if (targetCount == 1)
             {
@@ -215,6 +223,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         Span<int> componentTargetIndexes,
         Dictionary<SourceRepositoryOrigin, int>? originIndexes,
         Dictionary<string, int>? targetIndexes,
+        PurlPrefixSet? uncollectedPackages,
         out int unplannedUnknownCount)
     {
         var records = workspace.Records;
@@ -223,6 +232,9 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         unplannedUnknownCount = 0;
         for (var i = 0; i < components.Length; i++)
         {
+            // A component whose external collection was disabled keeps only the package-side record of that decision.
+            if (uncollectedPackages is not null && uncollectedPackages.Contains(components[i].Purl)) continue;
+
             var metadata = records[i];
             var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[i]);
             if (repositoryUrl.Length == 0)

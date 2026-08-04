@@ -44,6 +44,7 @@ internal sealed class ScanCommands
     /// <param name="refresh">Ignore cached package metadata and source repository entries and fetch them again.</param>
     /// <param name="cacheDir">Root directory for isolated package-metadata and source-repository caches.</param>
     /// <param name="noExternalEvidence">Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.</param>
+    /// <param name="skipEvidencePackages">Comma-separated package URL prefixes whose external evidence is never collected.</param>
     /// <param name="concurrency">Maximum concurrent package metadata lookups.</param>
     /// <param name="retry">Reserved package metadata retry count.</param>
     [Command("scan")]
@@ -61,6 +62,7 @@ internal sealed class ScanCommands
         bool refresh = false,
         string? cacheDir = null,
         bool noExternalEvidence = false,
+        string? skipEvidencePackages = null,
         int concurrency = 0,
         int retry = 1)
     {
@@ -74,7 +76,8 @@ internal sealed class ScanCommands
             return 1;
         }
 
-        if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, concurrency, retry, out var preparation, out var preparationError))
+        var uncollectedPrefixes = skipEvidencePackages?.Split(',', StringSplitOptions.None);
+        if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, uncollectedPrefixes, concurrency, retry, out var preparation, out var preparationError))
         {
             Console.Error.WriteLine(preparationError);
             return 1;
@@ -93,6 +96,10 @@ internal sealed class ScanCommands
         if (verbose)
         {
             WriteDetectedInputFormat(scanResult.Inventory.Input);
+            if (preparation.UncollectedPackages is { } uncollected)
+            {
+                PurlPrefixDiagnostics.WriteMatches("Skipped evidence", uncollected, scanResult.Components);
+            }
         }
 
         var excludedUnknownCount = dependency is null or "" ? 0 : ScanView.CountExcludedUnknown(scanResult.Inventory.Components, dependency);
@@ -1625,6 +1632,7 @@ internal static class ReportRenderer
         if ((warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0) writer.WriteStringValue("source_repository_unavailable"u8);
         if ((warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0) writer.WriteStringValue("unsupported_package_metadata"u8);
         if ((warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) writer.WriteStringValue("unsupported_source_repository"u8);
+        if ((warnings & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0) writer.WriteStringValue("external_evidence_not_collected"u8);
         writer.WriteEndArray();
     }
 

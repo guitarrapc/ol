@@ -26,6 +26,7 @@ internal sealed class CheckCommands
     /// <param name="refresh">Ignore cached package metadata and source repository entries and fetch them again.</param>
     /// <param name="cacheDir">Root directory for isolated package-metadata and source-repository caches.</param>
     /// <param name="noExternalEvidence">Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.</param>
+    /// <param name="skipEvidencePackages">Comma-separated package URL prefixes whose external evidence is never collected.</param>
     /// <param name="concurrency">Maximum concurrent package metadata lookups.</param>
     /// <param name="retry">Reserved package metadata retry count.</param>
     /// <param name="baseline">Baseline file acknowledging already reviewed unresolved components.</param>
@@ -44,6 +45,7 @@ internal sealed class CheckCommands
         bool refresh = false,
         string? cacheDir = null,
         bool noExternalEvidence = false,
+        string? skipEvidencePackages = null,
         int concurrency = 0,
         int retry = 1,
         string? baseline = null,
@@ -74,7 +76,7 @@ internal sealed class CheckCommands
         }
 
         var reportPath = string.IsNullOrWhiteSpace(report) ? null : report;
-        if (reportPath is not null && (input is { Length: > 0 } || inputFormat is not null || refresh || noExternalEvidence || cacheDir is not null))
+        if (reportPath is not null && (input is { Length: > 0 } || inputFormat is not null || refresh || noExternalEvidence || skipEvidencePackages is not null || cacheDir is not null))
         {
             Console.Error.WriteLine("Invalid license policy: --report cannot be combined with input or evidence-collection options.");
             return 2;
@@ -118,7 +120,7 @@ internal sealed class CheckCommands
         }
         else
         {
-            if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, concurrency, retry, out var preparation, out var preparationError))
+            if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, skipEvidencePackages?.Split(',', StringSplitOptions.None), concurrency, retry, out var preparation, out var preparationError))
             {
                 Console.Error.WriteLine(preparationError);
                 return 2;
@@ -139,6 +141,10 @@ internal sealed class CheckCommands
             if (verbose)
             {
                 WriteDetectedInputFormat(completed.Result.Inventory.Input);
+                if (preparation.UncollectedPackages is { } uncollected)
+                {
+                    PurlPrefixDiagnostics.WriteMatches("Skipped evidence", uncollected, completed.Result.Components);
+                }
             }
 
             components = completed.Result.Components;
@@ -201,6 +207,12 @@ internal sealed class CheckCommands
             }
         }
 
+        // Per-prefix attribution makes an exclusion entry that matches nothing visible, which the aggregate count cannot show.
+        if (verbose && excludePackages is not null)
+        {
+            WriteExclusionMatches(policy, components);
+        }
+
         // SARIF carries the same violation set as the text result; it is an additional projection, not a filter.
         if (!string.IsNullOrWhiteSpace(sarif))
         {
@@ -234,6 +246,23 @@ internal sealed class CheckCommands
 
         PolicyViolationReturned = violations.Length != 0;
         return PolicyViolationReturned ? 1 : 0;
+    }
+
+    private static void WriteExclusionMatches(LicenseAllowPolicy policy, ReadOnlySpan<ScanComponent> components)
+    {
+        var prefixes = policy.ExclusionPrefixes;
+        if (prefixes.IsEmpty) return;
+
+        var counts = ArrayPool<int>.Shared.Rent(prefixes.Length);
+        try
+        {
+            policy.CountExclusionMatches(components, counts.AsSpan(0, prefixes.Length));
+            PurlPrefixDiagnostics.WriteMatches("Exclusion", prefixes, counts.AsSpan(0, prefixes.Length));
+        }
+        finally
+        {
+            ArrayPool<int>.Shared.Return(counts);
+        }
     }
 
     private static void WriteDetectedInputFormat(in ScanInputDescriptor input)

@@ -355,6 +355,55 @@ public sealed class LicensePolicyTests
         await Assert.That(excludedCount).IsEqualTo(1);
     }
 
+    [Test]
+    public async Task ExclusionPrefixes_PreserveSuppliedOrderAfterTrimAndDeduplication()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], [" pkg:npm/@acme/ ", "pkg:nuget/MyCompany.", "pkg:npm/@acme/"], Spdx, out var policy, out _);
+
+        var prefixes = policy.ExclusionPrefixes.ToArray();
+
+        await Assert.That(prefixes.Length).IsEqualTo(2);
+        await Assert.That(prefixes[0]).IsEqualTo("pkg:npm/@acme/");
+        await Assert.That(prefixes[1]).IsEqualTo("pkg:nuget/MyCompany.");
+    }
+
+    [Test]
+    public async Task CountExclusionMatches_AttributesEachComponentToItsFirstMatchingPrefix()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], ["pkg:npm/@acme/", "pkg:npm/@acme/util", "pkg:nuget/Absent."], Spdx, out var policy, out _);
+        ScanComponent[] components =
+        [
+            CreateComponentWithPurl("pkg:npm/@acme/util@1.0.0", LicenseStatus.Unknown),
+            CreateComponentWithPurl("pkg:npm/@acme/core@1.0.0", LicenseStatus.Unknown),
+            CreateComponentWithPurl("pkg:npm/example@1.0.0", LicenseStatus.Unknown),
+        ];
+        var counts = new int[policy.ExclusionPrefixes.Length];
+
+        policy.CountExclusionMatches(components, counts);
+        policy.Evaluate(components, default, null, out _, out _, out _, out var excludedCount);
+
+        await Assert.That(counts[0]).IsEqualTo(2);
+        await Assert.That(counts[1]).IsEqualTo(0);
+        await Assert.That(counts[2]).IsEqualTo(0);
+        await Assert.That(counts[0] + counts[1] + counts[2]).IsEqualTo(excludedCount);
+    }
+
+    [Test]
+    public async Task CountExclusionMatches_IgnoresRootComponent()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT"], [], ["pkg:npm/example"], Spdx, out var policy, out _);
+        ScanComponent[] components =
+        [
+            CreateComponentWithPurl("pkg:npm/example@1.0.0", LicenseStatus.Unknown) with { DependencyType = DependencyType.Root },
+            CreateComponentWithPurl("pkg:npm/example@2.0.0", LicenseStatus.Unknown),
+        ];
+        var counts = new int[1];
+
+        policy.CountExclusionMatches(components, counts);
+
+        await Assert.That(counts[0]).IsEqualTo(1);
+    }
+
     private static ScanComponent CreateComponent(Utf8Slice license, LicenseStatus status, string name = "example")
         => new(name, "1.0.0", license, "npm", DependencyType.Direct, status, $"pkg:npm/{name}@1.0.0", name, default, [], []);
 

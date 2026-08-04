@@ -751,6 +751,89 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    public async Task Check_VerboseWithExcludePackages_ReportsMatchesPerPrefix()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/example,pkg:npm/absent", "--verbose", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stderr).Contains("Exclusion prefix pkg:npm/example matched 1 component.");
+            await Assert.That(result.Stderr).Contains("Exclusion prefix pkg:npm/absent matched 0 components.");
+            await Assert.That(result.Stdout).DoesNotContain("Exclusion prefix");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithExcludePackagesWithoutVerbose_OmitsPerPrefixMatches()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/example", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stderr).DoesNotContain("Exclusion prefix");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithNoExternalEvidenceFor_LeavesComponentAcknowledgeable()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{ "type": "library", "name": "internal", "version": "1.0.0", "purl": "pkg:nuget/MyCompany.Internal@1.0.0" }] }""",
+            Encoding.UTF8);
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            // Skipped collection must leave the component unresolved rather than errored, so a baseline can acknowledge it.
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-evidence-packages", "pkg:nuget/MyCompany.", "--baseline", baselinePath, "--update-baseline");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Acknowledged by baseline: 1 component.");
+            await Assert.That(await File.ReadAllTextAsync(baselinePath)).Contains("pkg:nuget/MyCompany.Internal@1.0.0");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(baselinePath)) File.Delete(baselinePath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithInvalidNoExternalEvidenceFor_ReturnsTwoWithoutPolicyOutput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--input", inputPath, "--allow-licenses", "MIT", "--skip-evidence-packages", "pkg:nuget/");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("must identify at least one package or namespace");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithInvalidExcludePackages_ReturnsTwoWithoutPolicyOutput()
     {
         var root = FindRepositoryRoot();

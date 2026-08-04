@@ -10,7 +10,8 @@ internal readonly record struct ScanPreparation(
     SpdxData Spdx,
     CacheDirectories CacheDirectories,
     int Concurrency,
-    int Retry);
+    int Retry,
+    PurlPrefixSet? UncollectedPackages = null);
 
 internal readonly record struct CompletedScanExecution(
     ScanResult Result,
@@ -25,6 +26,19 @@ internal static class ScanExecution
         string? spdxData,
         string? cacheDir,
         bool noExternalEvidence,
+        int concurrency,
+        int retry,
+        out ScanPreparation preparation,
+        out string error)
+        => TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, null, concurrency, retry, out preparation, out error);
+
+    public static bool TryPrepare(
+        string[]? input,
+        string? inputFormat,
+        string? spdxData,
+        string? cacheDir,
+        bool noExternalEvidence,
+        string[]? skipEvidencePackages,
         int concurrency,
         int retry,
         out ScanPreparation preparation,
@@ -78,13 +92,20 @@ internal static class ScanExecution
             }
         }
 
+        if (!PurlPrefixSet.TryCreate(skipEvidencePackages ?? [], out var uncollectedPackages, out var uncollectedError))
+        {
+            preparation = default;
+            error = $"Invalid uncollected package selection: {uncollectedError}";
+            return false;
+        }
+
         if (!TryResolveSpdx(spdxData, out var spdx, out error))
         {
             preparation = default;
             return false;
         }
 
-        preparation = new ScanPreparation(inputSelection, spdx, cacheDirectories, concurrency, retry);
+        preparation = new ScanPreparation(inputSelection, spdx, cacheDirectories, concurrency, retry, uncollectedPackages);
         error = string.Empty;
         return true;
     }
@@ -142,11 +163,11 @@ internal static class ScanExecution
             else
             {
                 using var workspace = new PackageMetadataWorkspace(enrichedComponents.Length);
-                var metadataService = new PackageMetadataService(preparation.Spdx.Index, new PackageMetadataCache(preparation.CacheDirectories.PackageMetadata), refresh, preparation.Retry);
+                var metadataService = new PackageMetadataService(preparation.Spdx.Index, new PackageMetadataCache(preparation.CacheDirectories.PackageMetadata), refresh, preparation.Retry, preparation.UncollectedPackages);
                 var enrichment = metadataService.EnrichAsync(enrichedComponents, workspace, preparation.Concurrency).GetAwaiter().GetResult();
                 enrichedComponents = enrichment.Components;
                 packageMetadataSummary = enrichment.Summary;
-                var sourceService = new SourceRepositoryService(preparation.Spdx.Index, new SourceRepositoryCache(preparation.CacheDirectories.SourceRepository), refresh, preparation.Retry);
+                var sourceService = new SourceRepositoryService(preparation.Spdx.Index, new SourceRepositoryCache(preparation.CacheDirectories.SourceRepository), refresh, preparation.Retry, client: null, preparation.UncollectedPackages);
                 var sourceEnrichment = sourceService.EnrichAsync(enrichedComponents, workspace, preparation.Concurrency).GetAwaiter().GetResult();
                 enrichedComponents = sourceEnrichment.Components;
                 sourceRepositorySummary = sourceEnrichment.Summary;

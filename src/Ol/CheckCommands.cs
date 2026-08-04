@@ -25,7 +25,7 @@ internal sealed class CheckCommands
     [Command("check")]
     public int Check(
         string report,
-        string? allowLicenses = null,
+        string allowLicenses,
         string? allowDevLicenses = null,
         string? excludePackages = null,
         string? spdxData = null,
@@ -37,12 +37,6 @@ internal sealed class CheckCommands
         if (string.IsNullOrWhiteSpace(report))
         {
             Console.Error.WriteLine("Invalid license policy: --report must be specified.");
-            return 1;
-        }
-
-        if (string.IsNullOrWhiteSpace(allowLicenses))
-        {
-            Console.Error.WriteLine("Invalid license policy: --allow-licenses must be specified.");
             return 1;
         }
 

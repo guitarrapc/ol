@@ -18,7 +18,8 @@ public sealed class CliCheckTests
         await Assert.That(result.Stderr).IsEmpty();
         await Assert.That(result.Stdout).Contains("--report <string>");
         await Assert.That(result.Stdout).Contains("Persisted canonical JSON scan report to evaluate. [Required]");
-        await Assert.That(result.Stdout).Contains("--allow-licenses <string?>");
+        await Assert.That(result.Stdout).Contains("--allow-licenses <string>");
+        await Assert.That(result.Stdout).Contains("Comma-separated SPDX License Identifiers. [Required]");
         await Assert.That(result.Stdout).Contains("--exclude-packages <string?>");
         await Assert.That(result.Stdout).DoesNotContain("--input ");
         await Assert.That(result.Stdout).DoesNotContain("--input-format");
@@ -215,15 +216,15 @@ public sealed class CliCheckTests
     }
 
     [Test]
-    public async Task Check_WithoutAllowList_ReturnsPolicyErrorBeforeReadingReport()
+    public async Task Check_WithoutAllowList_ReturnsFrameworkParseError()
     {
         var root = FindRepositoryRoot();
 
         var result = await RunOlAsync(root, "check", "--report", "missing.json");
 
         await Assert.That(result.ExitCode).IsEqualTo(1);
-        await Assert.That(result.Stdout).IsEmpty();
-        await Assert.That(result.Stderr).Contains("Invalid license policy: --allow-licenses must be specified.");
+        await Assert.That(result.Stdout).Contains("Required argument 'allow-licenses' was not specified.");
+        await Assert.That(result.Stderr).IsEmpty();
     }
 
     [Test]

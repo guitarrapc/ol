@@ -127,7 +127,7 @@ Check a canonical JSON scan report against allowed SPDX licenses.
 
 Options:
   --report <string>                 Persisted canonical JSON scan report to evaluate. [Required]
-  --allow-licenses <string?>        Comma-separated SPDX License Identifiers. [Default: null]
+  --allow-licenses <string>         Comma-separated SPDX License Identifiers. [Required]
   --allow-dev-licenses <string?>    Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
   --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. [Default: null]
   --spdx-data <string?>             Directory containing licenses.json and exceptions.json. [Default: null]

@@ -1,0 +1,14 @@
+{
+	"Path": "example.com/ol-ci-golang",
+	"Main": true,
+	"Dir": "C:\\github\\guitarrapc\\ol\\sandbox\\ecosystems\\golang",
+	"GoMod": "C:\\github\\guitarrapc\\ol\\sandbox\\ecosystems\\golang\\go.mod",
+	"GoVersion": "1.25"
+}
+{
+	"Path": "github.com/google/uuid",
+	"Version": "v1.6.0",
+	"Time": "2024-01-23T18:54:04Z",
+	"GoMod": "C:\\Users\\S07671\\go\\pkg\\mod\\cache\\download\\github.com\\google\\uuid\\@v\\v1.6.0.mod",
+	"GoModSum": "h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo="
+}

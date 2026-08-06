@@ -30,10 +30,13 @@ ol does not resolve dependencies. Ecosystem-native resolution is the most reliab
 
 An SBOM such as `bom.cdx.json` is the most convenient input when you need to cover resolved dependencies across languages. ol can also consume supported lockfiles and package-manager outputs directly.
 
-Install ol as a global .NET tool:
+```sh
+# .NET global tool
+dotnet tool install -g ol
 
-```bash
-dotnet tool install --global ol --version 0.9.0
+# Windows (Scoop)
+scoop bucket add guitarrapc https://github.com/guitarrapc/scoop-bucket
+scoop install ol
 ```
 
 > [!TIP]

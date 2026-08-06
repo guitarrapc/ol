@@ -352,7 +352,6 @@ public sealed class SourceRepositoryCache(string root)
     /// <summary>Validates a record on the write path. Reads validate the persisted JSON instead.</summary>
     private static bool IsValid(SourceRepositoryRecord record, string requestedKey)
         => record.SchemaVersion == 1
-            && record.ResolverVersion == 2
             && string.Equals(record.CacheKey, requestedKey, StringComparison.Ordinal)
             && record.Source == "github-license-api"
             && (record.AuthMode == "none" || record.AuthMode == "ol_github_token")

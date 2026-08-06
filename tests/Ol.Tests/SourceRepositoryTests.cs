@@ -260,6 +260,61 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Client_Fetch_ForbiddenWithUnreadableBody_KeepsNonTransientForbidden()
+    {
+        var client = new GitHubLicenseApiClient(new UnreadableForbiddenBodyHandler(), GitHubAuthentication.Create());
+        SourceRepositoryFetchException? failure = null;
+
+        try
+        {
+            await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default"));
+        }
+        catch (SourceRepositoryFetchException exception)
+        {
+            failure = exception;
+        }
+
+        await Assert.That(failure).IsNotNull();
+        await Assert.That(failure!.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
+        await Assert.That(failure.IsRateLimited).IsFalse();
+        await Assert.That(failure.IsTransient).IsFalse();
+    }
+
+    [Test]
+    public async Task Client_Fetch_LateRateLimitResponse_DoesNotAdmitASecondProbe()
+    {
+        var handler = new ProbeConcurrencyHandler();
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
+
+        // Two requests are in flight before any rate-limit state exists.
+        var burst = Swallow(client.FetchAsync(new SourceRepositoryTarget("owner", "burst", "default")));
+        var late = Swallow(client.FetchAsync(new SourceRepositoryTarget("owner", "late", "default")));
+        await handler.LateEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        handler.ReleaseBurst.TrySetResult();
+        await burst;
+
+        // Two waiters queue behind the limit; one of them wins the probe slot.
+        var first = Swallow(client.FetchAsync(new SourceRepositoryTarget("owner", "first", "default")));
+        var second = Swallow(client.FetchAsync(new SourceRepositoryTarget("owner", "second", "default")));
+        await handler.ProbeEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        // The late non-probe response lands while the probe is still outstanding.
+        handler.ReleaseLate.TrySetResult();
+        await late;
+        await Task.Delay(TimeSpan.FromSeconds(1.5));
+
+        await Assert.That(handler.MaxProbesInFlight).IsEqualTo(1);
+
+        handler.ReleaseProbe.TrySetResult();
+        await Task.WhenAll(first, second);
+
+        static async Task Swallow(Task<SourceRepositoryRecord> task)
+        {
+            try { await task; } catch (SourceRepositoryFetchException) { }
+        }
+    }
+
+    [Test]
     public async Task Client_Fetch_OutOfRangeRateLimitReset_ReturnsBoundedFailure()
     {
         var client = new GitHubLicenseApiClient(new RateLimitResetHandler(long.MaxValue), GitHubAuthentication.Create());
@@ -965,6 +1020,81 @@ public sealed class SourceRepositoryTests
             }
 
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class UnreadableForbiddenBodyHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new FaultingContent() });
+
+        private sealed class FaultingContent : HttpContent
+        {
+            protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromException<Stream>(new IOException("body unavailable"));
+            protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context) => Task.FromException(new IOException("body unavailable"));
+            protected override bool TryComputeLength(out long length)
+            {
+                length = 0;
+                return false;
+            }
+        }
+    }
+
+    /// <summary>Counts how many probe requests the client allows while one rate limit is active.</summary>
+    private sealed class ProbeConcurrencyHandler : HttpMessageHandler
+    {
+        private int probesInFlight;
+        public int MaxProbesInFlight;
+        public TaskCompletionSource LateEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseBurst { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseLate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ProbeEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseProbe { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.Contains("/burst/", StringComparison.Ordinal))
+            {
+                await ReleaseBurst.Task.WaitAsync(cancellationToken);
+                return RateLimited(TimeSpan.FromSeconds(2));
+            }
+
+            if (path.Contains("/late/", StringComparison.Ordinal))
+            {
+                LateEntered.TrySetResult();
+                await ReleaseLate.Task.WaitAsync(cancellationToken);
+                return RateLimited(TimeSpan.Zero);
+            }
+
+            var inFlight = Interlocked.Increment(ref probesInFlight);
+            InterlockedMax(ref MaxProbesInFlight, inFlight);
+            try
+            {
+                ProbeEntered.TrySetResult();
+                await ReleaseProbe.Task.WaitAsync(cancellationToken);
+                return RateLimited(TimeSpan.FromSeconds(2));
+            }
+            finally
+            {
+                Interlocked.Decrement(ref probesInFlight);
+            }
+        }
+
+        private static HttpResponseMessage RateLimited(TimeSpan retryAfter)
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent(string.Empty) };
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAfter);
+            return response;
+        }
+
+        private static void InterlockedMax(ref int location, int value)
+        {
+            int current;
+            while ((current = Volatile.Read(ref location)) < value)
+            {
+                if (Interlocked.CompareExchange(ref location, value, current) == current) return;
+            }
         }
     }
 

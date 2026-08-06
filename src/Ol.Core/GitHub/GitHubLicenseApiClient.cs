@@ -1,4 +1,4 @@
-﻿using Ol.Core.SourceRepository;
+using Ol.Core.SourceRepository;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -12,7 +12,7 @@ public sealed class GitHubLicenseApiClient
 {
     private static readonly Uri ApiBaseUri = new("https://api.github.com/");
     private static readonly TimeSpan MaximumRetryAfter = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan MinimumSecondaryRetryAfter = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan DefaultSecondaryRetryAfter = TimeSpan.FromMinutes(1);
     private static readonly long MinimumUnixTimeSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();
     private static readonly long MaximumUnixTimeSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
     private const int MaximumErrorBodyBytes = 16 * 1024;
@@ -156,7 +156,7 @@ public sealed class GitHubLicenseApiClient
             return;
         }
 
-        var retryAfter = decision.RetryAfter ?? MinimumSecondaryRetryAfter;
+        var retryAfter = decision.RetryAfter ?? DefaultSecondaryRetryAfter;
         lock (rateLimitGate)
         {
             var notBefore = decision.CanRetry ? DateTimeOffset.UtcNow + retryAfter : DateTimeOffset.UtcNow;
@@ -178,7 +178,14 @@ public sealed class GitHubLicenseApiClient
 
                 rateLimit.StatusCode = statusCode;
                 rateLimit.CanRetry &= decision.CanRetry;
-                rateLimit.ProbeInProgress = false;
+
+                // Only the probe owns the slot. A request that was already in flight when the limit
+                // began also lands here, and releasing the slot for it admits a second probe.
+                if (isRateLimitProbe)
+                {
+                    rateLimit.ProbeInProgress = false;
+                }
+
                 rateLimit.SignalChanged();
             }
         }
@@ -232,7 +239,7 @@ public sealed class GitHubLicenseApiClient
 
     private static RateLimitDecision CreateRateLimitDecision(TimeSpan? retryAfter)
     {
-        retryAfter ??= MinimumSecondaryRetryAfter;
+        retryAfter ??= DefaultSecondaryRetryAfter;
         return new RateLimitDecision(true, retryAfter, retryAfter <= MaximumRetryAfter);
     }
 
@@ -260,6 +267,12 @@ public sealed class GitHubLicenseApiClient
         }
         catch (JsonException)
         {
+            return default;
+        }
+        catch (Exception exception) when (exception is IOException or HttpRequestException)
+        {
+            // The body decides only whether this 403 is a secondary rate limit. Losing it leaves the
+            // status as the answer instead of replacing a classified 403 with a transport failure.
             return default;
         }
         finally

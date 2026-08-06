@@ -279,7 +279,13 @@ public sealed class PackageMetadataRegistryClient
                         state.NotBefore = notBefore;
                     }
 
-                    state.ProbeInProgress = false;
+                    // Only the probe owns the slot. A request that was already in flight when the limit
+                    // began also lands here, and releasing the slot for it admits a second probe.
+                    if (isRateLimitProbe)
+                    {
+                        state.ProbeInProgress = false;
+                    }
+
                     state.SignalChanged();
                 }
             }

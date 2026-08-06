@@ -92,30 +92,28 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
         var licenseFile = PackageMetadataJson.ReadString(catalog, "licenseFile");
         var licenseUrl = PackageMetadataJson.ReadString(catalog, "licenseUrl");
         var projectUrl = PackageMetadataJson.ReadString(catalog, "projectUrl");
-        if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out _))
+        // A declared repository stays the package's repository even when Ol cannot collect from it.
+        // The legacy URL only fills an absent one, and only to resolve a license Ol does not already have.
+        if (repositoryUrl.Length == 0)
         {
-            if (TryCreateRepositoryFromLicenseUrl(licenseUrl, out var licenseRepository, out var licenseRef))
+            if (licenseExpression.Length == 0
+                && TryCreateRepositoryFromLicenseUrl(licenseUrl, out var licenseRepository, out var licenseRef))
             {
                 repositoryUrl = licenseRepository;
                 repositoryRef = licenseRef;
             }
-            else if (repositoryUrl.Length == 0)
+            else
             {
-                repositoryUrl = projectUrl;
+                repositoryUrl = PackageMetadataRegistryClient.SanitizeRepositoryUrl(projectUrl);
             }
         }
 
         var warnings = LicenseCandidateWarnings.None;
-        if (licenseExpression.Length == 0 && licenseFile.Length != 0)
+        if (licenseExpression.Length == 0 && !SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out _))
         {
-            warnings = LicenseCandidateWarnings.NuGetLicenseFileUnresolved;
-        }
-        else if (licenseExpression.Length == 0
-            && !SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out _))
-        {
-            warnings = licenseUrl.Length == 0
-                ? LicenseCandidateWarnings.NuGetLicenseMetadataMissing
-                : LicenseCandidateWarnings.NuGetLicenseUrlUnsupported;
+            warnings = licenseFile.Length != 0 ? LicenseCandidateWarnings.NuGetLicenseFileUnresolved
+                : licenseUrl.Length != 0 ? LicenseCandidateWarnings.NuGetLicenseUrlUnsupported
+                : LicenseCandidateWarnings.NuGetLicenseMetadataMissing;
         }
 
         return new("nuget-registry", licenseExpression, repositoryUrl, repositoryRef, warnings);

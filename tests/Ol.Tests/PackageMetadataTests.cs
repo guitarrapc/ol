@@ -706,6 +706,113 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithLicenseExpressionAndLegacyLicenseUrl_DoesNotProjectLicenseRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "licenseExpression": "MIT",
+                        "projectUrl": "https://dot.net/",
+                        "licenseUrl": "https://github.com/example/legacy/blob/main/LICENSE"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://dot.net/");
+        await Assert.That(record.RepositoryRef).IsEmpty();
+        await Assert.That(record.Warnings).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsupportedForgeRepository_KeepsDeclaredRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "repository": { "url": "https://gitlab.com/real/project", "commit": "deadbeef" },
+                        "licenseUrl": "https://github.com/someone/mirror/blob/main/LICENSE"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://gitlab.com/real/project");
+        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithLicenseFileAndSupportedRepository_DoesNotWarnUnresolvedFile()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "licenseFile": "LICENSE.txt",
+                        "repository": { "url": "https://github.com/example/project", "commit": "0123456789abcdef0123456789abcdef01234567" }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/project");
+        await Assert.That(record.Warnings).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsafeProjectUrl_DiscardsRepositoryAndExplainsMissingMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata("1.0.0", projectUrl: "https://user@github.com/example/project"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+        await Assert.That(record.Warnings).Contains("nuget_license_metadata_missing");
+    }
+
+    [Test]
     public async Task Fetch_NuGetRegistrationResponse_WithLicenseFile_RecordsUnresolvedFileWithoutGuessingLicense()
     {
         var handler = new SequenceJsonResponseHandler(

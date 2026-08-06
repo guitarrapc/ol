@@ -329,7 +329,7 @@ internal sealed class PackageMetadataService(
     private static bool IsLegacyNuGetEntry(in PackageMetadataCacheEntry entry)
         => entry.Source.Span.SequenceEqual("nuget-registry"u8)
         && entry.RawLicense.IsEmpty
-        && entry.Warnings.Span.SequenceEqual("[]"u8)
+        && LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span) == LicenseCandidateWarnings.None
         && entry.ResolverVersion < 2;
 
     /// <summary>Projects a cache entry before its pooled buffer is returned.</summary>

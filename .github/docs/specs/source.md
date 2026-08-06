@@ -44,7 +44,7 @@ GitHub License API results are interpreted as source repository evidence:
 - valid `license.spdx_id` becomes a source-repository license candidate.
 - `NOASSERTION` or `null` becomes unknown source-repository evidence.
 - HTTP 404 becomes `license_not_detected` evidence.
-- HTTP 403, 429, and 5xx become error evidence. A 403 carrying GitHub rate-limit headers and every 429 are transient rate-limit failures: retries honor `Retry-After` or `X-RateLimit-Reset`, requests in the same scan share an origin wait gate, and an exhausted rate-limit failure is not persisted as a source-cache hit. A plain 403 remains non-transient.
+- HTTP 403, 429, and 5xx become error evidence. A 403 carrying GitHub rate-limit headers or a bounded GitHub secondary-rate-limit error body, and every 429, are rate-limit failures. Retries honor `Retry-After` or `X-RateLimit-Reset`; without either, a secondary limit waits at least one minute. A server delay beyond the five-minute CLI wait budget is not shortened: Ol performs no early retry and fails subsequent requests in the same scan without sending them. Rate-limit failures are not persisted as source-cache hits. A plain non-rate-limit 403 remains non-transient.
 - missing repository URLs become `source_repository_unavailable` evidence, and non-GitHub or invalid repository URLs become `unsupported_source_repository` evidence.
 
 The API response body content is not parsed for custom license detection. If GitHub does not identify a license, `ol` does not try to outguess it.
@@ -105,7 +105,7 @@ Reports may include auth mode but never token values:
 
 `ol` should issue the needed GET request directly and record the resulting status as evidence.
 
-Source repository fetches use the same bounded concurrency and retry controls as package metadata fetches. The default is one retry after the initial attempt. Timeout, HTTP 429, HTTP 5xx, and transient network failures are retryable; HTTP 400, 401, 403, 404, invalid repository identity, and unsupported hosts are not. Completion order must not change report ordering.
+Source repository fetches use the same bounded concurrency and retry controls as package metadata fetches. The default is one retry after the initial attempt. Timeout, retryable GitHub rate limits, HTTP 5xx, and transient network failures are retryable; HTTP 400, 401, plain 403, 404, rate limits beyond the bounded wait budget, invalid repository identity, and unsupported hosts are not. Completion order must not change report ordering.
 
 Report metadata distinguishes work deduplication from component outcomes: `targetCount` is the number of unique repository/ref targets, while `unknownCount` is the number of components that received no usable source license. Components sharing one unknown target therefore each contribute to `unknownCount` without increasing `targetCount`.
 
@@ -120,7 +120,9 @@ The exact persisted properties, casing, validation rules, and schema-version beh
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing source repository cache and overwrites it with newly fetched evidence.
 
-A corrupt entry is distinguished from a normal cache miss. Ol attempts recollection and retains `source_repository_cache_invalid` audit evidence even when recollection also fails. Retry-exhausted and non-retryable fetch failures are cacheable audit records so later reports can explain the collection outcome.
+A corrupt entry is distinguished from a normal cache miss. Ol attempts recollection and retains `source_repository_cache_invalid` audit evidence even when recollection also fails. Except for rate-limit failures, retry-exhausted and non-retryable fetch failures are cacheable audit records so later reports can explain the collection outcome.
+
+Source-cache entries carry a resolver capability version independently of the cache schema version. Pre-capability HTTP 429 and 403 error observations are collected once again because the old cache did not retain enough rate-limit context to distinguish transient limits from ordinary forbidden responses. The refreshed result then follows normal cache behavior; rate-limit failures remain non-persistent.
 
 A source-cache write failure records `source_repository_cache_write_failed` but does not discard successfully fetched license evidence or fail the whole scan.
 

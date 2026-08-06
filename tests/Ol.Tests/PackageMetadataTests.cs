@@ -533,6 +533,7 @@ public sealed class PackageMetadataTests
     [Arguments("https://github.com/example/project/blob/v1.2.3/LICENSE", "v1.2.3")]
     [Arguments("https://raw.githubusercontent.com/example/project/v1.2.3/LICENSE", "v1.2.3")]
     [Arguments("https://raw.github.com/example/project/v1.2.3/LICENSE.txt", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/0123456789abcdef0123456789abcdef01234567/licenses/LICENSE", "0123456789abcdef0123456789abcdef01234567")]
     public async Task Fetch_NuGetRegistrationResponse_WithLegacyGitHubLicenseUrl_ProducesRepositoryTarget(string licenseUrl, string expectedRef)
     {
         var handler = new SequenceJsonResponseHandler(

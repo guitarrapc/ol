@@ -20,7 +20,7 @@ public sealed class SourceRepositoryCache(string root)
     public async Task<SourceRepositoryRecord?> TryReadAsync(string cacheKey, CancellationToken cancellationToken = default)
         => (await ReadAsync(cacheKey, cancellationToken).ConfigureAwait(false)).Record;
 
-    /// <summary>Reads an entry and distinguishes a cache miss from an invalid entry.</summary>
+    /// <summary>Reads an entry and distinguishes a cache miss from invalid or stale entries.</summary>
     public async Task<SourceRepositoryCacheReadResult> ReadAsync(string cacheKey, CancellationToken cancellationToken = default)
     {
         var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey);
@@ -47,7 +47,7 @@ public sealed class SourceRepositoryCache(string root)
         }
     }
 
-    /// <summary>Reads an entry without asynchronous file access and distinguishes a cache miss from an invalid entry.</summary>
+    /// <summary>Reads an entry without asynchronous file access and distinguishes a cache miss from invalid or stale entries.</summary>
     public SourceRepositoryCacheReadResult Read(string cacheKey)
     {
         var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey);
@@ -91,16 +91,27 @@ public sealed class SourceRepositoryCache(string root)
     {
         try
         {
-            return TryParse(utf8, cacheKey, cacheKeySha256, out var record)
-                ? new(SourceRepositoryCacheReadStatus.Hit, record, cacheKeySha256)
-                : new(SourceRepositoryCacheReadStatus.Invalid, null);
+            if (!TryParse(utf8, cacheKey, cacheKeySha256, out var record, out var resolverVersion))
+            {
+                return new(SourceRepositoryCacheReadStatus.Invalid, null);
+            }
+
+            return IsLegacyRateLimitError(record, resolverVersion)
+                ? new(SourceRepositoryCacheReadStatus.Stale, null)
+                : new(SourceRepositoryCacheReadStatus.Hit, record, cacheKeySha256);
         }
         catch (JsonException) { return new(SourceRepositoryCacheReadStatus.Invalid, null); }
     }
 
-    private static bool TryParse(ReadOnlySpan<byte> utf8, string cacheKey, string cacheKeySha256, out SourceRepositoryRecord record)
+    private static bool IsLegacyRateLimitError(in SourceRepositoryRecord record, int resolverVersion)
+        => resolverVersion < 2
+        && record.Errors.Length != 0
+        && record.HttpStatus is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests;
+
+    private static bool TryParse(ReadOnlySpan<byte> utf8, string cacheKey, string cacheKeySha256, out SourceRepositoryRecord record, out int resolverVersion)
     {
         record = default;
+        resolverVersion = 0;
         var reader = new Utf8JsonReader(utf8);
         if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
         {
@@ -199,6 +210,10 @@ public sealed class SourceRepositoryCache(string root)
             {
                 if (!reader.Read() || reader.TokenType != JsonTokenType.String || !reader.TryGetDateTimeOffset(out fetchedAt) || fetchedAt.Offset != TimeSpan.Zero) return false;
                 present |= CacheField.FetchedAt;
+            }
+            else if (reader.ValueTextEquals("ResolverVersion"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out resolverVersion) || resolverVersion < 0) return false;
             }
             else
             {
@@ -337,6 +352,7 @@ public sealed class SourceRepositoryCache(string root)
     /// <summary>Validates a record on the write path. Reads validate the persisted JSON instead.</summary>
     private static bool IsValid(SourceRepositoryRecord record, string requestedKey)
         => record.SchemaVersion == 1
+            && record.ResolverVersion == 2
             && string.Equals(record.CacheKey, requestedKey, StringComparison.Ordinal)
             && record.Source == "github-license-api"
             && (record.AuthMode == "none" || record.AuthMode == "ol_github_token")
@@ -355,6 +371,8 @@ public enum SourceRepositoryCacheReadStatus : byte
     Hit,
     /// <summary>An entry exists but cannot be safely consumed.</summary>
     Invalid,
+    /// <summary>An entry is valid but predates a required resolver capability.</summary>
+    Stale,
 }
 
 /// <summary>Contains a classified source repository cache read.</summary>
@@ -384,6 +402,8 @@ public readonly record struct SourceRepositoryRecord(
 {
     /// <summary>Gets the source-cache schema version.</summary>
     public int SchemaVersion => 1;
+    /// <summary>Gets the source resolver capability version.</summary>
+    public int ResolverVersion => 2;
     /// <summary>Gets the source cache-key SHA-256.</summary>
     /// <remarks>
     /// This exists so the digest is persisted with the entry. It hashes <see cref="CacheKey"/> on every

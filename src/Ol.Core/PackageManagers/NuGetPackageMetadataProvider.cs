@@ -159,7 +159,9 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
             return false;
         }
 
-        if (offset >= path.Length || path[offset] == '/' || path[offset..].Contains('/'))
+        if (offset >= path.Length
+            || path[offset] == '/'
+            || path[offset..].Contains('/') && !IsFullCommitSha(path[referenceRange]))
         {
             return false;
         }
@@ -174,6 +176,24 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
 
         repositoryUrl = string.Concat("https://github.com/", owner, "/", repository);
         repositoryRef = reference.ToString();
+        return true;
+    }
+
+    private static bool IsFullCommitSha(ReadOnlySpan<char> value)
+    {
+        if (value.Length is not 40 and not 64)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (!char.IsAsciiHexDigit(value[i]))
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 

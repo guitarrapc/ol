@@ -31,6 +31,10 @@ ol自身は依存関係を解決しません。これは各言語の依存解決
 GitHubのReleases ページから利用OS向けアセットをダウンロードし、`ol`（Windows は `ol.exe`）を任意の場所に配置します。
 
 ```sh
+# Homebrew (macOS/Linux)
+brew tap guitarrapc/ol https://github.com/guitarrapc/ol
+brew install guitarrapc/ol/ol
+
 # .NET global tool
 dotnet tool install -g ol
 

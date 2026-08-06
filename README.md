@@ -31,6 +31,10 @@ ol does not resolve dependencies. Ecosystem-native resolution is the most reliab
 Download the asset for your OS from GitHub Releases, then place `ol` (or `ol.exe` on Windows) where you want.
 
 ```sh
+# Homebrew (macOS/Linux)
+brew tap guitarrapc/ol https://github.com/guitarrapc/ol
+brew install guitarrapc/ol/ol
+
 # .NET global tool
 dotnet tool install -g ol
 

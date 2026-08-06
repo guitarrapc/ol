@@ -7,6 +7,7 @@ using System.Text.Json;
 using ConsoleAppFramework;
 using Ol.Core;
 using Ol.Core.Generated;
+using Ol.Core.GitHub;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using Ol.Internals;
@@ -93,6 +94,14 @@ internal sealed class ScanCommands
         var spdx = preparation.Spdx;
         var packageMetadataSummary = completed.PackageMetadataSummary;
         var sourceRepositorySummary = completed.SourceRepositorySummary;
+
+        // A reached rate limit means source evidence is missing for reasons the run can act on, so it is
+        // reported even under --quiet, where the counters that would otherwise hint at it are suppressed.
+        if (completed.GitHubRateLimit is { } gitHubRateLimit)
+        {
+            WriteGitHubRateLimitDiagnostic(gitHubRateLimit);
+        }
+
         if (verbose)
         {
             WriteDetectedInputFormat(scanResult.Inventory.Input);
@@ -223,6 +232,32 @@ internal sealed class ScanCommands
         {
             ReportRenderer.WriteText(buffer, input, groups, groupBy!);
         }
+    }
+
+    /// <summary>Explains a reached GitHub rate limit in terms of what the next run can change.</summary>
+    /// <remarks>
+    /// The remedy differs by kind and must not be conflated. A token raises the primary allowance but
+    /// does nothing for a secondary limit, which is about request pace.
+    /// </remarks>
+    internal static void WriteGitHubRateLimitDiagnostic(GitHubRateLimitStatus rateLimit, TextWriter? writer = null)
+    {
+        writer ??= Console.Error;
+        var reset = rateLimit.ResetsAt is { } resetsAt
+            ? $" Allowance resets at {resetsAt.ToLocalTime():yyyy-MM-dd HH:mm:ss zzz}."
+            : string.Empty;
+        var remedy = rateLimit.Kind switch
+        {
+            GitHubRateLimitKind.Primary when rateLimit.IsUnauthenticated
+                => "Unauthenticated requests share a small hourly allowance. Set OL_GITHUB_TOKEN to raise it, then run again.",
+            GitHubRateLimitKind.Primary
+                => "The hourly allowance for this token is spent. Run again after it resets, or narrow the scan with --skip-evidence-packages.",
+            _ => "GitHub accepted requests more slowly than Ol issued them. Run again with a lower --concurrency.",
+        };
+
+        var kind = rateLimit.Kind == GitHubRateLimitKind.Primary ? "primary" : "secondary";
+        writer.WriteLine($"GitHub {kind} rate limit reached (HTTP {(int)rateLimit.StatusCode}); source repository collection stopped.{reset}");
+        writer.WriteLine($"  {remedy}");
+        writer.WriteLine("  Affected components report source_repository_fetch_failed and were not cached, so a later run collects them normally.");
     }
 
     private static void WriteJson(

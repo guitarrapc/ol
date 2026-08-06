@@ -1,5 +1,6 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Ol.Core;
+using Ol.Core.GitHub;
 using Ol.Core.PackageMetadata;
 using Ol.Core.SourceRepository;
 
@@ -16,7 +17,8 @@ internal readonly record struct ScanPreparation(
 internal readonly record struct CompletedScanExecution(
     ScanResult Result,
     PackageMetadataSummary PackageMetadataSummary,
-    SourceRepositorySummary SourceRepositorySummary);
+    SourceRepositorySummary SourceRepositorySummary,
+    GitHubRateLimitStatus? GitHubRateLimit = null);
 
 internal static class ScanExecution
 {
@@ -155,6 +157,7 @@ internal static class ScanExecution
             var enrichedComponents = scanResult.Components;
             PackageMetadataSummary packageMetadataSummary;
             SourceRepositorySummary sourceRepositorySummary;
+            GitHubRateLimitStatus? gitHubRateLimit = null;
             if (noExternalEvidence)
             {
                 packageMetadataSummary = new PackageMetadataSummary(0, 0, 0, 0, 0, 0, preparation.Concurrency, preparation.Retry);
@@ -171,9 +174,10 @@ internal static class ScanExecution
                 var sourceEnrichment = sourceService.EnrichAsync(enrichedComponents, workspace, preparation.Concurrency).GetAwaiter().GetResult();
                 enrichedComponents = sourceEnrichment.Components;
                 sourceRepositorySummary = sourceEnrichment.Summary;
+                gitHubRateLimit = sourceService.RateLimit;
             }
 
-            completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageMetadataSummary, sourceRepositorySummary);
+            completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageMetadataSummary, sourceRepositorySummary, gitHubRateLimit);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or HttpRequestException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {

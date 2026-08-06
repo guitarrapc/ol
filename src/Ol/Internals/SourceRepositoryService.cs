@@ -38,6 +38,9 @@ internal sealed class SourceRepositoryService
         githubClient = new GitHubLicenseApiClient(client ?? SharedHttpClient, authentication);
     }
 
+    /// <summary>Gets the rate limit that stopped source collection, or <see langword="null"/> while none was reached.</summary>
+    public GitHubRateLimitStatus? RateLimit => githubClient.RateLimit;
+
     public ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichAsync(
         ScanComponent[] components,
         PackageMetadataWorkspace workspace,

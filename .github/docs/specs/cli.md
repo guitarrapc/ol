@@ -112,6 +112,8 @@ Repeated and directory inputs are deduplicated by resolved file path and process
 
 `scan` collects external package and source evidence by default. `--refresh` bypasses reusable entries. `--no-external-evidence` reads neither external sources nor their caches and reports that collection was not attempted.
 
+When a GitHub rate limit stops source collection, `scan` writes a stderr notice naming the limit kind, the reset instant when one was supplied, and the one change that would let the next run succeed: `OL_GITHUB_TOKEN` for an unauthenticated primary limit, waiting for the reset or narrowing the scan for an authenticated one, and a lower `--concurrency` for a secondary limit. The notice is not part of the summary and is written even under `--quiet`, because it explains missing evidence that the suppressed counters would otherwise be the only sign of. It states that the affected components were not cached, so a later run collects them normally. Ol does not wait out a rate limit; the behavior it reports is specified in [source.md](source.md#contract-source-rate-limit).
+
 <a id="contract-skip-evidence-packages"></a>
 
 `--skip-evidence-packages <prefixes>` disables registry, repository, and cache collection only for matching components. Each remains in the report and receives an `unknown` evidence candidate with `external_evidence_not_collected`; input evidence may still resolve its final status. An unresolved result fails closed in `check` unless a baseline acknowledges that component. Combined with `--no-external-evidence`, the option has no additional effect.

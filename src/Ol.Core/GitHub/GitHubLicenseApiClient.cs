@@ -11,16 +11,13 @@ namespace Ol.Core.GitHub;
 public sealed class GitHubLicenseApiClient
 {
     private static readonly Uri ApiBaseUri = new("https://api.github.com/");
-    private static readonly TimeSpan MaximumRetryAfter = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan DefaultSecondaryRetryAfter = TimeSpan.FromMinutes(1);
     private static readonly long MinimumUnixTimeSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();
     private static readonly long MaximumUnixTimeSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
     private const int MaximumErrorBodyBytes = 16 * 1024;
     private readonly Uri apiBaseUri;
     private readonly GitHubAuthentication authentication;
     private readonly HttpClient httpClient;
-    private readonly object rateLimitGate = new();
-    private RateLimitState? rateLimit;
+    private GitHubRateLimitStatus? rateLimit;
 
     /// <summary>Initializes a client using an HTTP handler.</summary>
     public GitHubLicenseApiClient(HttpMessageHandler handler, GitHubAuthentication authentication, Uri? apiBaseUri = null)
@@ -34,9 +31,23 @@ public sealed class GitHubLicenseApiClient
         this.apiBaseUri = apiBaseUri ?? ApiBaseUri;
     }
 
+    /// <summary>Gets the rate limit that stopped collection, or <see langword="null"/> while none was reached.</summary>
+    /// <remarks>
+    /// A GitHub rate limit resets on GitHub's schedule, not on one a command-line run can wait out: a
+    /// primary limit resets up to an hour later, and a secondary limit asks for at least a minute. Ol
+    /// therefore stops instead of waiting, and reports this so the run can be repeated with a token or
+    /// a lower concurrency rather than silently losing source evidence.
+    /// </remarks>
+    public GitHubRateLimitStatus? RateLimit => Volatile.Read(ref rateLimit);
+
     /// <summary>Fetches one GitHub License API response.</summary>
     public async Task<SourceRepositoryRecord> FetchAsync(SourceRepositoryTarget target, CancellationToken cancellationToken = default)
     {
+        if (Volatile.Read(ref rateLimit) is { } reached)
+        {
+            throw CreateRateLimitException(reached);
+        }
+
         var endpoint = target.Ref == "default"
             ? new Uri(apiBaseUri, string.Concat("repos/", Uri.EscapeDataString(target.Owner), "/", Uri.EscapeDataString(target.Name), "/license"))
             : new Uri(apiBaseUri, string.Concat("repos/", Uri.EscapeDataString(target.Owner), "/", Uri.EscapeDataString(target.Name), "/license?ref=", Uri.EscapeDataString(target.Ref)));
@@ -48,28 +59,26 @@ public sealed class GitHubLicenseApiClient
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authentication.Token);
         }
 
-        var isRateLimitProbe = await WaitForRateLimitAsync(cancellationToken).ConfigureAwait(false);
         HttpResponseMessage? response = null;
         RateLimitDecision rateLimitDecision;
         try
         {
             response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             rateLimitDecision = await ClassifyRateLimitAsync(response, cancellationToken).ConfigureAwait(false);
-            UpdateRateLimit(response.StatusCode, rateLimitDecision, isRateLimitProbe);
         }
         catch
         {
             response?.Dispose();
-            if (isRateLimitProbe)
-            {
-                ReleaseRateLimitProbe();
-            }
-
             throw;
         }
 
         using (response)
         {
+            if (rateLimitDecision.Kind != GitHubRateLimitKind.None)
+            {
+                throw CreateRateLimitException(Reach(response.StatusCode, rateLimitDecision));
+            }
+
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 return CreateRecord(target, response.StatusCode, null, ["license_not_detected"], []);
@@ -77,7 +86,7 @@ public sealed class GitHubLicenseApiClient
 
             if (!response.IsSuccessStatusCode)
             {
-                throw new SourceRepositoryFetchException(response.StatusCode, rateLimitDecision.RetryAfter, rateLimitDecision.IsRateLimited, rateLimitDecision.CanRetry);
+                throw new SourceRepositoryFetchException(response.StatusCode);
             }
 
             try
@@ -96,151 +105,41 @@ public sealed class GitHubLicenseApiClient
         }
     }
 
-    private ValueTask<bool> WaitForRateLimitAsync(CancellationToken cancellationToken)
-        => Volatile.Read(ref rateLimit) is null
-            ? ValueTask.FromResult(false)
-            : WaitForRateLimitCoreAsync(cancellationToken);
-
-    private async ValueTask<bool> WaitForRateLimitCoreAsync(CancellationToken cancellationToken)
+    /// <summary>Records the first rate limit reached, which every later request reports without sending.</summary>
+    private GitHubRateLimitStatus Reach(HttpStatusCode statusCode, in RateLimitDecision decision)
     {
-        while (true)
-        {
-            TimeSpan delay;
-            Task? changed = null;
-            lock (rateLimitGate)
-            {
-                if (rateLimit is null)
-                {
-                    return false;
-                }
-
-                if (!rateLimit.CanRetry)
-                {
-                    throw new SourceRepositoryFetchException(rateLimit.StatusCode, rateLimit.RetryAfter, isRateLimited: true, canRetry: false);
-                }
-
-                delay = rateLimit.NotBefore - DateTimeOffset.UtcNow;
-
-                if (delay <= TimeSpan.Zero)
-                {
-                    if (!rateLimit.ProbeInProgress)
-                    {
-                        rateLimit.ProbeInProgress = true;
-                        return true;
-                    }
-
-                    changed = rateLimit.Changed.Task;
-                }
-            }
-
-            if (changed is not null)
-            {
-                await changed.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-            }
-        }
+        var reached = new GitHubRateLimitStatus(decision.Kind, statusCode, decision.RetryAfter, decision.ResetsAt, authentication.Mode);
+        return Interlocked.CompareExchange(ref rateLimit, reached, null) ?? reached;
     }
 
-    private void UpdateRateLimit(HttpStatusCode statusCode, in RateLimitDecision decision, bool isRateLimitProbe)
-    {
-        if (!decision.IsRateLimited)
-        {
-            if (isRateLimitProbe)
-            {
-                ClearRateLimit();
-            }
-
-            return;
-        }
-
-        var retryAfter = decision.RetryAfter ?? DefaultSecondaryRetryAfter;
-        lock (rateLimitGate)
-        {
-            var notBefore = decision.CanRetry ? DateTimeOffset.UtcNow + retryAfter : DateTimeOffset.UtcNow;
-            if (rateLimit is null)
-            {
-                rateLimit = new RateLimitState(notBefore, retryAfter, statusCode, decision.CanRetry);
-            }
-            else
-            {
-                if (notBefore > rateLimit.NotBefore)
-                {
-                    rateLimit.NotBefore = notBefore;
-                }
-
-                if (retryAfter > rateLimit.RetryAfter)
-                {
-                    rateLimit.RetryAfter = retryAfter;
-                }
-
-                rateLimit.StatusCode = statusCode;
-                rateLimit.CanRetry &= decision.CanRetry;
-
-                // Only the probe owns the slot. A request that was already in flight when the limit
-                // began also lands here, and releasing the slot for it admits a second probe.
-                if (isRateLimitProbe)
-                {
-                    rateLimit.ProbeInProgress = false;
-                }
-
-                rateLimit.SignalChanged();
-            }
-        }
-    }
-
-    private void ReleaseRateLimitProbe()
-    {
-        lock (rateLimitGate)
-        {
-            if (rateLimit is { } state)
-            {
-                state.ProbeInProgress = false;
-                state.SignalChanged();
-            }
-        }
-    }
-
-    private void ClearRateLimit()
-    {
-        lock (rateLimitGate)
-        {
-            var state = rateLimit;
-            rateLimit = null;
-            state?.SignalChanged();
-        }
-    }
+    private static SourceRepositoryFetchException CreateRateLimitException(GitHubRateLimitStatus reached)
+        => new(reached.StatusCode, reached);
 
     private static ValueTask<RateLimitDecision> ClassifyRateLimitAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            return ValueTask.FromResult(CreateRateLimitDecision(response));
-        }
-
-        if (response.StatusCode != HttpStatusCode.Forbidden)
+        var isRateLimitStatus = response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden;
+        if (!isRateLimitStatus)
         {
             return ValueTask.FromResult(default(RateLimitDecision));
         }
 
-        var retryAfter = GetRetryDelay(response);
-        if (retryAfter is not null || HasNoRemainingRequests(response))
+        if (HasNoRemainingRequests(response))
         {
-            return ValueTask.FromResult(CreateRateLimitDecision(retryAfter));
+            var resetsAt = TryGetRateLimitReset(response, out var reset) ? DateTimeOffset.FromUnixTimeSeconds(reset) : (DateTimeOffset?)null;
+            return ValueTask.FromResult(new RateLimitDecision(GitHubRateLimitKind.Primary, GetRetryDelay(response), resetsAt));
         }
 
-        return ClassifySecondaryRateLimitAsync(response.Content, cancellationToken);
-    }
+        var retryAfter = GetRetryDelay(response);
+        if (retryAfter is not null)
+        {
+            return ValueTask.FromResult(new RateLimitDecision(GitHubRateLimitKind.Secondary, retryAfter, null));
+        }
 
-    private static RateLimitDecision CreateRateLimitDecision(HttpResponseMessage response)
-        => CreateRateLimitDecision(GetRetryDelay(response));
-
-    private static RateLimitDecision CreateRateLimitDecision(TimeSpan? retryAfter)
-    {
-        retryAfter ??= DefaultSecondaryRetryAfter;
-        return new RateLimitDecision(true, retryAfter, retryAfter <= MaximumRetryAfter);
+        // A bare 429 is a limit whichever kind it is; a bare 403 needs the body to tell a limit from
+        // an ordinary permission failure.
+        return response.StatusCode == HttpStatusCode.TooManyRequests
+            ? ValueTask.FromResult(new RateLimitDecision(GitHubRateLimitKind.Secondary, null, null))
+            : ClassifySecondaryRateLimitAsync(response.Content, cancellationToken);
     }
 
     private static async ValueTask<RateLimitDecision> ClassifySecondaryRateLimitAsync(HttpContent content, CancellationToken cancellationToken)
@@ -262,7 +161,7 @@ public sealed class GitHubLicenseApiClient
             }
 
             return length <= MaximumErrorBodyBytes && IsSecondaryRateLimitBody(buffer.AsSpan(0, length))
-                ? CreateRateLimitDecision(retryAfter: null)
+                ? new RateLimitDecision(GitHubRateLimitKind.Secondary, null, null)
                 : default;
         }
         catch (JsonException)
@@ -374,24 +273,35 @@ public sealed class GitHubLicenseApiClient
     private static string? ReadNullableString(JsonElement element, string name)
         => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    private readonly record struct RateLimitDecision(bool IsRateLimited, TimeSpan? RetryAfter, bool CanRetry);
+    private readonly record struct RateLimitDecision(GitHubRateLimitKind Kind, TimeSpan? RetryAfter, DateTimeOffset? ResetsAt);
+}
 
-    private sealed class RateLimitState(DateTimeOffset notBefore, TimeSpan retryAfter, HttpStatusCode statusCode, bool canRetry)
-    {
-        public DateTimeOffset NotBefore = notBefore;
-        public TimeSpan RetryAfter = retryAfter;
-        public HttpStatusCode StatusCode = statusCode;
-        public bool CanRetry = canRetry;
-        public bool ProbeInProgress;
-        public TaskCompletionSource Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+/// <summary>Identifies which GitHub rate limit a response reported.</summary>
+public enum GitHubRateLimitKind : byte
+{
+    /// <summary>No rate limit was reported.</summary>
+    None,
+    /// <summary>The request allowance for the current window is exhausted.</summary>
+    Primary,
+    /// <summary>Requests were issued faster than GitHub accepts, independently of the allowance.</summary>
+    Secondary,
+}
 
-        public void SignalChanged()
-        {
-            var changed = Changed;
-            Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            changed.TrySetResult();
-        }
-    }
+/// <summary>Describes the rate limit that stopped GitHub License API collection.</summary>
+/// <param name="Kind">The reported limit kind.</param>
+/// <param name="StatusCode">The status that carried the limit.</param>
+/// <param name="RetryAfter">The delay GitHub asked for, when supplied.</param>
+/// <param name="ResetsAt">The allowance reset instant, when a primary limit supplied one.</param>
+/// <param name="AuthMode">The authentication mode in use, which decides the allowance.</param>
+public sealed record GitHubRateLimitStatus(
+    GitHubRateLimitKind Kind,
+    HttpStatusCode StatusCode,
+    TimeSpan? RetryAfter,
+    DateTimeOffset? ResetsAt,
+    string AuthMode)
+{
+    /// <summary>Gets whether the run was unauthenticated, which carries the smallest allowance.</summary>
+    public bool IsUnauthenticated => AuthMode == "none";
 }
 
 /// <summary>Represents a GitHub License API failure.</summary>
@@ -399,23 +309,28 @@ public sealed class SourceRepositoryFetchException : Exception
 {
     /// <summary>Initializes a GitHub License API failure.</summary>
     public SourceRepositoryFetchException(HttpStatusCode? statusCode, Exception? innerException = null)
-        : this(statusCode, null, false, statusCode == HttpStatusCode.TooManyRequests || statusCode is { } value && (int)value >= 500, innerException) { }
+        : this(statusCode, null, innerException) { }
 
-    internal SourceRepositoryFetchException(HttpStatusCode? statusCode, TimeSpan? retryAfter, bool isRateLimited, bool canRetry, Exception? innerException = null)
+    /// <summary>Initializes a failure caused by a reached GitHub rate limit.</summary>
+    public SourceRepositoryFetchException(HttpStatusCode? statusCode, GitHubRateLimitStatus? rateLimit, Exception? innerException = null)
         : base("GitHub License API request failed.", innerException)
     {
         StatusCode = statusCode;
-        RetryAfter = retryAfter;
-        IsRateLimited = isRateLimited;
-        IsTransient = canRetry || !isRateLimited && statusCode is { } value && (int)value >= 500;
+        RateLimit = rateLimit;
     }
 
     /// <summary>Gets the response status when available.</summary>
     public HttpStatusCode? StatusCode { get; }
+    /// <summary>Gets the reached rate limit, or <see langword="null"/> when this failure is not one.</summary>
+    public GitHubRateLimitStatus? RateLimit { get; }
     /// <summary>Gets the server-directed retry delay when supplied.</summary>
-    public TimeSpan? RetryAfter { get; }
+    public TimeSpan? RetryAfter => RateLimit?.RetryAfter;
     /// <summary>Gets whether the response represents a GitHub rate limit.</summary>
-    public bool IsRateLimited { get; }
+    public bool IsRateLimited => RateLimit is not null;
     /// <summary>Gets whether this failure may be retried.</summary>
-    public bool IsTransient { get; }
+    /// <remarks>
+    /// A rate limit is never retried. GitHub decides when it lifts, on a schedule a command-line run
+    /// cannot wait out, so retrying only spends the remaining allowance and can extend a secondary limit.
+    /// </remarks>
+    public bool IsTransient => !IsRateLimited && StatusCode is { } value && (int)value >= 500;
 }

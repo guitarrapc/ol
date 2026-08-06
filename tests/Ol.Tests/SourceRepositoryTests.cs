@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
@@ -156,107 +156,91 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
-    public async Task FetchScheduler_RateLimitThenSuccess_RetriesAndReturnsLicense()
+    [Arguments(HttpStatusCode.TooManyRequests, 1, null)]
+    [Arguments(HttpStatusCode.Forbidden, null, 0)]
+    public async Task FetchScheduler_RateLimit_StopsWithoutRetryingOrWaiting(HttpStatusCode status, int? retryAfterSeconds, int? remaining)
     {
-        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.TooManyRequests, retryAfterSeconds: 0, remaining: null);
-        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
-
-        var record = await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
-
-        await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
-        await Assert.That(handler.CallCount).IsEqualTo(2);
-    }
-
-    [Test]
-    public async Task FetchScheduler_PrimaryRateLimitForbiddenThenSuccess_RetriesAndReturnsLicense()
-    {
-        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.Forbidden, retryAfterSeconds: null, remaining: 0);
-        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
-
-        var record = await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
-
-        await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
-        await Assert.That(handler.CallCount).IsEqualTo(2);
-    }
-
-    [Test]
-    public async Task FetchScheduler_RetryAfter_DelaysRetry()
-    {
-        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.TooManyRequests, retryAfterSeconds: 1, remaining: null);
+        var handler = new RateLimitThenSuccessHandler(status, retryAfterSeconds, remaining);
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-        await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
+        await Assert.That(async () => await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1))
+            .Throws<SourceRepositoryFetchException>();
 
-        await Assert.That(stopwatch.Elapsed).IsGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(800));
-        await Assert.That(handler.CallCount).IsEqualTo(2);
+        await Assert.That(handler.CallCount).IsEqualTo(1);
+        await Assert.That(stopwatch.Elapsed).IsLessThan(TimeSpan.FromMilliseconds(500));
     }
 
     [Test]
-    public async Task Client_Fetch_SecondaryRateLimitWithoutHeaders_ClassifiesTransientWithMinimumDelay()
+    public async Task Client_Fetch_PrimaryRateLimit_ReportsKindResetAndAuthMode()
+    {
+        var resetsAt = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(42);
+        var handler = new RateLimitResetHandler(resetsAt.ToUnixTimeSeconds());
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
+
+        var failure = await CaptureFetchFailureAsync(client);
+
+        await Assert.That(failure.RateLimit).IsNotNull();
+        await Assert.That(failure.RateLimit!.Kind).IsEqualTo(GitHubRateLimitKind.Primary);
+        await Assert.That(failure.RateLimit.IsUnauthenticated).IsTrue();
+        await Assert.That(failure.RateLimit.ResetsAt!.Value.ToUnixTimeSeconds()).IsEqualTo(resetsAt.ToUnixTimeSeconds());
+        await Assert.That(failure.IsTransient).IsFalse();
+        await Assert.That(client.RateLimit).IsEqualTo(failure.RateLimit);
+    }
+
+    [Test]
+    public async Task Client_Fetch_SecondaryRateLimitBody_ReportsSecondaryKindWithoutTokenRemedy()
     {
         var client = new GitHubLicenseApiClient(
             new GitHubResponseHandler(HttpStatusCode.Forbidden, """{ "message": "You have exceeded a secondary rate limit. Please wait before retrying." }"""),
-            GitHubAuthentication.Create());
-        SourceRepositoryFetchException? failure = null;
+            GitHubAuthentication.Create("token"));
 
-        try
-        {
-            await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default"));
-        }
-        catch (SourceRepositoryFetchException exception)
-        {
-            failure = exception;
-        }
+        var failure = await CaptureFetchFailureAsync(client);
 
-        await Assert.That(failure).IsNotNull();
-        await Assert.That(failure!.IsRateLimited).IsTrue();
-        await Assert.That(failure.IsTransient).IsTrue();
-        await Assert.That(failure.RetryAfter!.Value).IsGreaterThanOrEqualTo(TimeSpan.FromMinutes(1));
+        await Assert.That(failure.RateLimit!.Kind).IsEqualTo(GitHubRateLimitKind.Secondary);
+        await Assert.That(failure.RateLimit.IsUnauthenticated).IsFalse();
+        await Assert.That(failure.IsTransient).IsFalse();
     }
 
     [Test]
-    public async Task Client_Fetch_RateLimitWithoutHeaders_UsesMinimumDelay()
-    {
-        var client = new GitHubLicenseApiClient(new SequenceResponseHandler(HttpStatusCode.TooManyRequests), GitHubAuthentication.Create());
-        SourceRepositoryFetchException? failure = null;
-
-        try
-        {
-            await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default"));
-        }
-        catch (SourceRepositoryFetchException exception)
-        {
-            failure = exception;
-        }
-
-        await Assert.That(failure).IsNotNull();
-        await Assert.That(failure!.RetryAfter!.Value).IsGreaterThanOrEqualTo(TimeSpan.FromMinutes(1));
-    }
-
-    [Test]
-    public async Task Client_Fetch_RateLimitResetBeyondMaximum_DoesNotRetryEarly()
+    public async Task Client_Fetch_RateLimit_StopsLaterTargetsWithoutSending()
     {
         var handler = new RateLimitResetHandler((DateTimeOffset.UtcNow + TimeSpan.FromMinutes(30)).ToUnixTimeSeconds());
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
-        SourceRepositoryFetchException? failure = null;
 
+        await CaptureFetchFailureAsync(client);
+        await Assert.That(handler.CallCount).IsEqualTo(1);
+
+        var second = await CaptureFetchFailureAsync(client, new SourceRepositoryTarget("owner", "other", "default"));
+
+        await Assert.That(handler.CallCount).IsEqualTo(1);
+        await Assert.That(second.RateLimit!.Kind).IsEqualTo(GitHubRateLimitKind.Primary);
+    }
+
+    private static async Task<SourceRepositoryFetchException> CaptureFetchFailureAsync(GitHubLicenseApiClient client, SourceRepositoryTarget? target = null)
+    {
         try
         {
-            await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default"));
+            await client.FetchAsync(target ?? new SourceRepositoryTarget("owner", "repository", "default"));
         }
         catch (SourceRepositoryFetchException exception)
         {
-            failure = exception;
+            return exception;
         }
 
-        await Assert.That(failure).IsNotNull();
-        await Assert.That(failure!.IsRateLimited).IsTrue();
+        throw new InvalidOperationException("Expected a source repository fetch failure.");
+    }
+
+    [Test]
+    public async Task Client_Fetch_BareTooManyRequests_ClassifiesSecondaryWithoutHeaders()
+    {
+        var client = new GitHubLicenseApiClient(new SequenceResponseHandler(HttpStatusCode.TooManyRequests), GitHubAuthentication.Create());
+
+        var failure = await CaptureFetchFailureAsync(client);
+
+        await Assert.That(failure.IsRateLimited).IsTrue();
+        await Assert.That(failure.RateLimit!.Kind).IsEqualTo(GitHubRateLimitKind.Secondary);
         await Assert.That(failure.IsTransient).IsFalse();
-        await Assert.That(failure.RetryAfter!.Value).IsGreaterThan(TimeSpan.FromMinutes(5));
-        await Assert.That(handler.CallCount).IsEqualTo(1);
-        await Assert.That(async () => await client.FetchAsync(new SourceRepositoryTarget("owner", "other", "default"))).Throws<SourceRepositoryFetchException>();
-        await Assert.That(handler.CallCount).IsEqualTo(1);
     }
 
     [Test]
@@ -281,69 +265,11 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
-    public async Task Client_Fetch_LateRateLimitResponse_DoesNotAdmitASecondProbe()
-    {
-        var handler = new ProbeConcurrencyHandler();
-        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
-
-        // Two requests are in flight before any rate-limit state exists.
-        var burst = Swallow(client.FetchAsync(new SourceRepositoryTarget("owner", "burst", "default")));
-        var late = Swallow(client.FetchAsync(new SourceRepositoryTarget("owner", "late", "default")));
-        await handler.LateEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
-        handler.ReleaseBurst.TrySetResult();
-        await burst;
-
-        // Two waiters queue behind the limit; one of them wins the probe slot.
-        var first = Swallow(client.FetchAsync(new SourceRepositoryTarget("owner", "first", "default")));
-        var second = Swallow(client.FetchAsync(new SourceRepositoryTarget("owner", "second", "default")));
-        await handler.ProbeEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
-
-        // The late non-probe response lands while the probe is still outstanding.
-        handler.ReleaseLate.TrySetResult();
-        await late;
-        await Task.Delay(TimeSpan.FromSeconds(1.5));
-
-        await Assert.That(handler.MaxProbesInFlight).IsEqualTo(1);
-
-        handler.ReleaseProbe.TrySetResult();
-        await Task.WhenAll(first, second);
-
-        static async Task Swallow(Task<SourceRepositoryRecord> task)
-        {
-            try { await task; } catch (SourceRepositoryFetchException) { }
-        }
-    }
-
-    [Test]
     public async Task Client_Fetch_OutOfRangeRateLimitReset_ReturnsBoundedFailure()
     {
         var client = new GitHubLicenseApiClient(new RateLimitResetHandler(long.MaxValue), GitHubAuthentication.Create());
 
         await Assert.That(async () => await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default"))).Throws<SourceRepositoryFetchException>();
-    }
-
-    [Test]
-    public async Task Client_Fetch_CancelledProbe_AllowsOnlyOneReplacementProbe()
-    {
-        var handler = new CancelledProbeHandler();
-        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
-        var target = new SourceRepositoryTarget("owner", "repository", "default");
-        await Assert.That(async () => await client.FetchAsync(target)).Throws<SourceRepositoryFetchException>();
-        using var cancellation = new CancellationTokenSource();
-        var cancelledProbe = client.FetchAsync(target, cancellation.Token);
-        await handler.CancelledProbeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var firstWaiter = client.FetchAsync(target);
-        var secondWaiter = client.FetchAsync(target);
-
-        cancellation.Cancel();
-        await Assert.That(async () => await cancelledProbe).Throws<OperationCanceledException>();
-        await handler.ReplacementProbeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await Task.Delay(100);
-
-        await Assert.That(handler.CallCount).IsEqualTo(3);
-        handler.ReleaseReplacementProbe.TrySetResult();
-        await Task.WhenAll(firstWaiter, secondWaiter);
-        await Assert.That(handler.CallCount).IsEqualTo(4);
     }
 
     [Test]
@@ -663,7 +589,51 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
-    public async Task Enrichment_WithRateLimitFailure_DoesNotCacheTransientError()
+    public async Task RateLimitDiagnostic_UnauthenticatedPrimaryLimit_AsksForATokenAndNamesTheReset()
+    {
+        var resetsAt = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(30);
+        var status = new GitHubRateLimitStatus(GitHubRateLimitKind.Primary, HttpStatusCode.Forbidden, null, resetsAt, "none");
+        var writer = new StringWriter();
+
+        global::ScanCommands.WriteGitHubRateLimitDiagnostic(status, writer);
+        var output = writer.ToString();
+
+        await Assert.That(output).Contains("primary rate limit");
+        await Assert.That(output).Contains("OL_GITHUB_TOKEN");
+        await Assert.That(output).Contains("resets at");
+        await Assert.That(output).Contains("not cached");
+    }
+
+    [Test]
+    public async Task RateLimitDiagnostic_AuthenticatedPrimaryLimit_DoesNotAskForAToken()
+    {
+        var status = new GitHubRateLimitStatus(GitHubRateLimitKind.Primary, HttpStatusCode.Forbidden, null, null, "ol_github_token");
+        var writer = new StringWriter();
+
+        global::ScanCommands.WriteGitHubRateLimitDiagnostic(status, writer);
+        var output = writer.ToString();
+
+        await Assert.That(output).Contains("primary rate limit");
+        await Assert.That(output).DoesNotContain("OL_GITHUB_TOKEN");
+        await Assert.That(output).DoesNotContain("resets at");
+    }
+
+    [Test]
+    public async Task RateLimitDiagnostic_SecondaryLimit_AsksForLowerConcurrencyNotAToken()
+    {
+        var status = new GitHubRateLimitStatus(GitHubRateLimitKind.Secondary, HttpStatusCode.TooManyRequests, TimeSpan.FromSeconds(60), null, "none");
+        var writer = new StringWriter();
+
+        global::ScanCommands.WriteGitHubRateLimitDiagnostic(status, writer);
+        var output = writer.ToString();
+
+        await Assert.That(output).Contains("secondary rate limit");
+        await Assert.That(output).Contains("--concurrency");
+        await Assert.That(output).DoesNotContain("OL_GITHUB_TOKEN");
+    }
+
+    [Test]
+    public async Task Enrichment_WithRateLimitFailure_StopsScanWithoutCachingAndRecoversOnTheNextRun()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-rate-limit-{Guid.NewGuid():N}");
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
@@ -676,25 +646,37 @@ public sealed class SourceRepositoryTests
         {
             using (var firstWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty)))
             {
-                var firstComponent = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
-                var first = await service.EnrichAsync([firstComponent], firstWorkspace, concurrency: 1);
+                var first = await service.EnrichAsync([CreateUnknownComponent(index)], firstWorkspace, concurrency: 1);
 
                 await Assert.That(first.Summary.FetchErrorCount).IsEqualTo(1);
             }
 
+            await Assert.That(service.RateLimit).IsNotNull();
             await Assert.That((await sourceCache.ReadAsync(target.CacheKey)).Status).IsEqualTo(SourceRepositoryCacheReadStatus.Missing);
 
-            using var secondWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
-            var secondComponent = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
-            var second = await service.EnrichAsync([secondComponent], secondWorkspace, concurrency: 1);
+            // The same run does not keep spending the exhausted allowance on later components.
+            using (var stoppedWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/other@1.0.0", "https://github.com/owner/other", string.Empty)))
+            {
+                await service.EnrichAsync([CreateUnknownComponent(index)], stoppedWorkspace, concurrency: 1);
+                await Assert.That(handler.CallCount).IsEqualTo(1);
+            }
 
-            await Assert.That(second.Components[0].License.ToString()).IsEqualTo("MIT");
+            // Nothing was cached, so a later run collects the same target normally.
+            using var laterWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+            var laterService = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0, httpClient);
+            var later = await laterService.EnrichAsync([CreateUnknownComponent(index)], laterWorkspace, concurrency: 1);
+
+            await Assert.That(later.Components[0].License.ToString()).IsEqualTo("MIT");
             await Assert.That(handler.CallCount).IsEqualTo(2);
+            await Assert.That(laterService.RateLimit).IsNull();
         }
         finally
         {
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
+
+        static ScanComponent CreateUnknownComponent(SpdxLicenseIndex index)
+            => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
     }
 
     [Test]
@@ -1040,64 +1022,6 @@ public sealed class SourceRepositoryTests
         }
     }
 
-    /// <summary>Counts how many probe requests the client allows while one rate limit is active.</summary>
-    private sealed class ProbeConcurrencyHandler : HttpMessageHandler
-    {
-        private int probesInFlight;
-        public int MaxProbesInFlight;
-        public TaskCompletionSource LateEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource ReleaseBurst { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource ReleaseLate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource ProbeEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource ReleaseProbe { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            var path = request.RequestUri!.AbsolutePath;
-            if (path.Contains("/burst/", StringComparison.Ordinal))
-            {
-                await ReleaseBurst.Task.WaitAsync(cancellationToken);
-                return RateLimited(TimeSpan.FromSeconds(2));
-            }
-
-            if (path.Contains("/late/", StringComparison.Ordinal))
-            {
-                LateEntered.TrySetResult();
-                await ReleaseLate.Task.WaitAsync(cancellationToken);
-                return RateLimited(TimeSpan.Zero);
-            }
-
-            var inFlight = Interlocked.Increment(ref probesInFlight);
-            InterlockedMax(ref MaxProbesInFlight, inFlight);
-            try
-            {
-                ProbeEntered.TrySetResult();
-                await ReleaseProbe.Task.WaitAsync(cancellationToken);
-                return RateLimited(TimeSpan.FromSeconds(2));
-            }
-            finally
-            {
-                Interlocked.Decrement(ref probesInFlight);
-            }
-        }
-
-        private static HttpResponseMessage RateLimited(TimeSpan retryAfter)
-        {
-            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent(string.Empty) };
-            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAfter);
-            return response;
-        }
-
-        private static void InterlockedMax(ref int location, int value)
-        {
-            int current;
-            while ((current = Volatile.Read(ref location)) < value)
-            {
-                if (Interlocked.CompareExchange(ref location, value, current) == current) return;
-            }
-        }
-    }
-
     private sealed class RateLimitResetHandler(long reset) : HttpMessageHandler
     {
         public int CallCount { get; private set; }
@@ -1109,39 +1033,6 @@ public sealed class SourceRepositoryTests
             response.Headers.TryAddWithoutValidation("X-RateLimit-Remaining", "0");
             response.Headers.TryAddWithoutValidation("X-RateLimit-Reset", reset.ToString(System.Globalization.CultureInfo.InvariantCulture));
             return Task.FromResult(response);
-        }
-    }
-
-    private sealed class CancelledProbeHandler : HttpMessageHandler
-    {
-        public int CallCount;
-        public TaskCompletionSource CancelledProbeEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource ReplacementProbeEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource ReleaseReplacementProbe { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            var call = Interlocked.Increment(ref CallCount);
-            if (call == 1)
-            {
-                var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent(string.Empty) };
-                response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.Zero);
-                return response;
-            }
-
-            if (call == 2)
-            {
-                CancelledProbeEntered.TrySetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            }
-
-            if (call == 3)
-            {
-                ReplacementProbeEntered.TrySetResult();
-                await ReleaseReplacementProbe.Task.WaitAsync(cancellationToken);
-            }
-
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ReadGitHubLicenseFixture()) };
         }
     }
 

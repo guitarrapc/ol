@@ -8,4 +8,8 @@
     <InternalsVisibleTo Include="Ol.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="NuGet.Versioning" />
+  </ItemGroup>
+
 </Project>

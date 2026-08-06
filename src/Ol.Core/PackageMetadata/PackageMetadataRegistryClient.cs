@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Text.Json;
+using System.IO.Compression;
 
 namespace Ol.Core.PackageMetadata;
 
@@ -9,8 +10,13 @@ namespace Ol.Core.PackageMetadata;
 public sealed class PackageMetadataRegistryClient
 {
     private const string UserAgent = "ol";
+    private static readonly TimeSpan MaximumRetryAfter = TimeSpan.FromMinutes(5);
     private readonly HttpClient httpClient;
     private readonly PackageMetadataProviders providers;
+    private readonly Dictionary<PackageMetadataProvider, Task<Uri>> serviceEndpointTasks = [];
+    private readonly object serviceEndpointGate = new();
+    private readonly Dictionary<string, OriginRateLimitState> originRateLimits = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object originRateLimitGate = new();
 
     /// <summary>
     /// Initializes a registry client using the supplied HTTP client.
@@ -45,29 +51,30 @@ public sealed class PackageMetadataRegistryClient
             throw new PackageMetadataFetchException(null);
         }
 
-        var endpoint = provider.CreateEndpoint(request);
+        var serviceEndpoint = await ResolveServiceEndpointAsync(provider, cancellationToken).ConfigureAwait(false);
+        var endpoint = serviceEndpoint is null
+            ? provider.CreateEndpoint(request)
+            : provider.CreateEndpoint(request, serviceEndpoint);
         using var response = await GetAsync(endpoint, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            throw new PackageMetadataFetchException(response.StatusCode);
+            throw CreateFetchException(response);
         }
 
         try
         {
-            var payload = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            using var document = JsonDocument.Parse(payload);
-            var followUpEndpoint = provider.CreateFollowUpEndpoint(document.RootElement);
+            using var document = await ReadJsonDocumentAsync(response, cancellationToken).ConfigureAwait(false);
+            var followUpEndpoint = provider.CreateFollowUpEndpoint(document.RootElement, request);
             PackageMetadataResponse metadata;
             if (followUpEndpoint is not null)
             {
                 using var followUpResponse = await GetAsync(followUpEndpoint, cancellationToken).ConfigureAwait(false);
                 if (!followUpResponse.IsSuccessStatusCode)
                 {
-                    throw new PackageMetadataFetchException(followUpResponse.StatusCode);
+                    throw CreateFetchException(followUpResponse);
                 }
 
-                var followUpPayload = await followUpResponse.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-                using var followUpDocument = JsonDocument.Parse(followUpPayload);
+                using var followUpDocument = await ReadJsonDocumentAsync(followUpResponse, cancellationToken).ConfigureAwait(false);
                 metadata = provider.ParseResponse(followUpDocument.RootElement, request);
             }
             else
@@ -85,10 +92,101 @@ public sealed class PackageMetadataRegistryClient
 
     private async Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken)
     {
+        var origin = endpoint.GetLeftPart(UriPartial.Authority);
+        var isRateLimitProbe = await WaitForOriginRateLimitAsync(origin, cancellationToken).ConfigureAwait(false);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
-        return await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            UpdateOriginRateLimit(origin, response, isRateLimitProbe);
+            return response;
+        }
+        catch
+        {
+            if (isRateLimitProbe)
+            {
+                ClearOriginRateLimit(origin);
+            }
+
+            throw;
+        }
     }
+
+    private Task<Uri?> ResolveServiceEndpointAsync(PackageMetadataProvider provider, CancellationToken cancellationToken)
+    {
+        if (provider.ServiceIndexEndpoint is not { } serviceIndexEndpoint)
+        {
+            return Task.FromResult<Uri?>(null);
+        }
+
+        TaskCompletionSource<Uri>? pendingDiscovery = null;
+        Task<Uri> task;
+        lock (serviceEndpointGate)
+        {
+            if (!serviceEndpointTasks.TryGetValue(provider, out task!))
+            {
+                pendingDiscovery = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                task = pendingDiscovery.Task;
+                serviceEndpointTasks.Add(provider, task);
+            }
+        }
+
+        if (pendingDiscovery is not null)
+        {
+            _ = CompleteServiceEndpointDiscoveryAsync(provider, serviceIndexEndpoint, pendingDiscovery);
+        }
+
+        return AwaitDiscoveredServiceEndpointAsync(task, cancellationToken);
+    }
+
+    private async Task CompleteServiceEndpointDiscoveryAsync(PackageMetadataProvider provider, Uri serviceIndexEndpoint, TaskCompletionSource<Uri> completion)
+    {
+        try
+        {
+            var endpoint = await DiscoverServiceEndpointAsync(provider, serviceIndexEndpoint, CancellationToken.None).ConfigureAwait(false);
+            completion.TrySetResult(endpoint);
+        }
+        catch (Exception exception)
+        {
+            lock (serviceEndpointGate)
+            {
+                if (serviceEndpointTasks.TryGetValue(provider, out var current) && ReferenceEquals(current, completion.Task))
+                {
+                    serviceEndpointTasks.Remove(provider);
+                }
+            }
+
+            completion.TrySetException(exception);
+        }
+    }
+
+    private async Task<Uri> DiscoverServiceEndpointAsync(PackageMetadataProvider provider, Uri serviceIndexEndpoint, CancellationToken cancellationToken)
+    {
+        using var response = await GetAsync(serviceIndexEndpoint, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw CreateFetchException(response);
+        }
+
+        try
+        {
+            using var document = await ReadJsonDocumentAsync(response, cancellationToken).ConfigureAwait(false);
+            if (!provider.TryResolveServiceEndpoint(document.RootElement, out var endpoint))
+            {
+                throw new PackageMetadataFetchException(null);
+            }
+
+            return endpoint;
+        }
+        catch (JsonException exception)
+        {
+            throw new PackageMetadataFetchException(null, exception);
+        }
+    }
+
+    private static async Task<Uri?> AwaitDiscoveredServiceEndpointAsync(Task<Uri> task, CancellationToken cancellationToken)
+        => await task.WaitAsync(cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Determines whether an HTTP response status represents a retryable registry failure.
@@ -97,6 +195,158 @@ public sealed class PackageMetadataRegistryClient
     /// <returns><see langword="true"/> for HTTP 429 and 5xx responses.</returns>
     public static bool IsTransient(HttpStatusCode statusCode)
         => statusCode == HttpStatusCode.TooManyRequests || (int)statusCode >= 500;
+
+    private static PackageMetadataFetchException CreateFetchException(HttpResponseMessage response)
+        => new(response.StatusCode, retryAfter: GetRetryDelay(response));
+
+    private static TimeSpan? GetRetryDelay(HttpResponseMessage response)
+    {
+        var retryAfter = response.Headers.RetryAfter;
+        var delay = retryAfter?.Delta;
+        if (delay is null && retryAfter?.Date is { } date)
+        {
+            delay = date - DateTimeOffset.UtcNow;
+        }
+
+        if (delay < TimeSpan.Zero)
+        {
+            delay = TimeSpan.Zero;
+        }
+
+        return delay > MaximumRetryAfter ? MaximumRetryAfter : delay;
+    }
+
+    private async Task<bool> WaitForOriginRateLimitAsync(string origin, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            TimeSpan delay;
+            Task? changed = null;
+            lock (originRateLimitGate)
+            {
+                if (!originRateLimits.TryGetValue(origin, out var state))
+                {
+                    return false;
+                }
+
+                delay = state.NotBefore - DateTimeOffset.UtcNow;
+                if (delay > MaximumRetryAfter)
+                {
+                    delay = MaximumRetryAfter;
+                }
+
+                if (delay <= TimeSpan.Zero)
+                {
+                    if (!state.ProbeInProgress)
+                    {
+                        state.ProbeInProgress = true;
+                        return true;
+                    }
+
+                    changed = state.Changed.Task;
+                }
+            }
+
+            if (changed is not null)
+            {
+                await changed.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private void UpdateOriginRateLimit(string origin, HttpResponseMessage response, bool isRateLimitProbe)
+    {
+        var retryDelay = GetRetryDelay(response);
+        if (response.StatusCode == HttpStatusCode.TooManyRequests || (retryDelay is not null && IsTransient(response.StatusCode)))
+        {
+            retryDelay ??= TimeSpan.FromSeconds(1);
+            lock (originRateLimitGate)
+            {
+                var notBefore = DateTimeOffset.UtcNow + retryDelay.Value;
+                if (!originRateLimits.TryGetValue(origin, out var state))
+                {
+                    originRateLimits.Add(origin, new OriginRateLimitState(notBefore));
+                }
+                else
+                {
+                    if (notBefore > state.NotBefore)
+                    {
+                        state.NotBefore = notBefore;
+                    }
+
+                    state.ProbeInProgress = false;
+                    state.SignalChanged();
+                }
+            }
+
+            return;
+        }
+
+        if (isRateLimitProbe)
+        {
+            ClearOriginRateLimit(origin);
+        }
+    }
+
+    private void ClearOriginRateLimit(string origin)
+    {
+        lock (originRateLimitGate)
+        {
+            if (originRateLimits.Remove(origin, out var state))
+            {
+                state.SignalChanged();
+            }
+        }
+    }
+
+    private static async Task<JsonDocument> ReadJsonDocumentAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        await using var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        var encodings = response.Content.Headers.ContentEncoding;
+        if (encodings.Count > 1)
+        {
+            throw new PackageMetadataFetchException(null);
+        }
+
+        foreach (var encoding in encodings)
+        {
+            return await ReadEncodedJsonDocumentAsync(content, encoding, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await JsonDocument.ParseAsync(content, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<JsonDocument> ReadEncodedJsonDocumentAsync(Stream content, string encoding, CancellationToken cancellationToken)
+    {
+        if (encoding.Equals("gzip", StringComparison.OrdinalIgnoreCase))
+        {
+            await using var gzip = new GZipStream(content, CompressionMode.Decompress, leaveOpen: true);
+            return await JsonDocument.ParseAsync(gzip, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        if (encoding.Equals("deflate", StringComparison.OrdinalIgnoreCase))
+        {
+            await using var deflate = new DeflateStream(content, CompressionMode.Decompress, leaveOpen: true);
+            return await JsonDocument.ParseAsync(deflate, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        if (encoding.Equals("br", StringComparison.OrdinalIgnoreCase))
+        {
+            await using var brotli = new BrotliStream(content, CompressionMode.Decompress, leaveOpen: true);
+            return await JsonDocument.ParseAsync(brotli, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        if (encoding.Equals("identity", StringComparison.OrdinalIgnoreCase))
+        {
+            return await JsonDocument.ParseAsync(content, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        throw new PackageMetadataFetchException(null);
+    }
 
     private static string SanitizeRepositoryUrl(string value)
     {
@@ -122,6 +372,20 @@ public sealed class PackageMetadataRegistryClient
         return uri.IsFile || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 ? string.Empty : value;
     }
 
+    private sealed class OriginRateLimitState(DateTimeOffset notBefore)
+    {
+        public DateTimeOffset NotBefore = notBefore;
+        public bool ProbeInProgress;
+        public TaskCompletionSource Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void SignalChanged()
+        {
+            var changed = Changed;
+            Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            changed.TrySetResult();
+        }
+    }
+
 }
 
 /// <summary>
@@ -134,16 +398,21 @@ public sealed class PackageMetadataFetchException : Exception
     /// </summary>
     /// <param name="statusCode">Optional HTTP status code returned by the registry.</param>
     /// <param name="innerException">Optional underlying request or parsing exception.</param>
-    public PackageMetadataFetchException(HttpStatusCode? statusCode, Exception? innerException = null)
+    /// <param name="retryAfter">Optional server-requested delay before retrying.</param>
+    public PackageMetadataFetchException(HttpStatusCode? statusCode, Exception? innerException = null, TimeSpan? retryAfter = null)
         : base("Package metadata registry request failed.", innerException)
     {
         StatusCode = statusCode;
+        RetryAfter = retryAfter;
     }
 
     /// <summary>
     /// Gets the optional HTTP status code returned by the registry.
     /// </summary>
     public HttpStatusCode? StatusCode { get; }
+
+    /// <summary>Gets the delay requested by the registry before retrying.</summary>
+    public TimeSpan? RetryAfter { get; }
 
     /// <summary>
     /// Gets whether the failure should be retried.

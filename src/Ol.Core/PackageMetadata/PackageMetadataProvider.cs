@@ -22,6 +22,11 @@ public abstract class PackageMetadataProvider
     public abstract string Ecosystem { get; }
 
     /// <summary>
+    /// Gets the optional service index used to discover this provider's current API endpoint.
+    /// </summary>
+    public virtual Uri? ServiceIndexEndpoint => null;
+
+    /// <summary>
     /// Parses a versioned purl handled by this provider.
     /// </summary>
     /// <param name="purl">The purl without qualifiers or subpaths.</param>
@@ -38,11 +43,41 @@ public abstract class PackageMetadataProvider
     public abstract Uri CreateEndpoint(PackageMetadataRequest request);
 
     /// <summary>
+    /// Creates the registry endpoint from a service endpoint discovered once for this client.
+    /// </summary>
+    /// <param name="request">The request to retrieve.</param>
+    /// <param name="serviceEndpoint">The provider-owned endpoint selected from its service index.</param>
+    /// <returns>The registry endpoint.</returns>
+    public virtual Uri CreateEndpoint(PackageMetadataRequest request, Uri serviceEndpoint)
+        => CreateEndpoint(request);
+
+    /// <summary>
+    /// Selects the provider endpoint from its service index.
+    /// </summary>
+    /// <param name="root">The service-index root.</param>
+    /// <param name="serviceEndpoint">The selected endpoint.</param>
+    /// <returns><see langword="true" /> when a supported endpoint was found.</returns>
+    public virtual bool TryResolveServiceEndpoint(JsonElement root, out Uri serviceEndpoint)
+    {
+        serviceEndpoint = null!;
+        return false;
+    }
+
+    /// <summary>
     /// Creates an optional provider-owned endpoint referenced by a registry response.
     /// </summary>
     /// <param name="root">The root JSON response element.</param>
     /// <returns>A trusted follow-up endpoint, or <see langword="null"/>.</returns>
     public virtual Uri? CreateFollowUpEndpoint(JsonElement root) => null;
+
+    /// <summary>
+    /// Creates an optional provider-owned endpoint referenced by a registry response for a package request.
+    /// </summary>
+    /// <param name="root">The root JSON response element.</param>
+    /// <param name="request">The package request associated with the response.</param>
+    /// <returns>A trusted follow-up endpoint, or <see langword="null"/>.</returns>
+    public virtual Uri? CreateFollowUpEndpoint(JsonElement root, PackageMetadataRequest request)
+        => CreateFollowUpEndpoint(root);
 
     /// <summary>
     /// Projects a registry response into normalized metadata evidence.

@@ -13,7 +13,15 @@ public static class PackageMetadataFetchScheduler
     /// <param name="retryCount">The number of retries after the first attempt.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The normalized metadata record.</returns>
-    public static async Task<PackageMetadataRecord> FetchAsync(PackageMetadataRegistryClient registryClient, PackageMetadataRequest request, int retryCount, CancellationToken cancellationToken = default)
+    public static Task<PackageMetadataRecord> FetchAsync(PackageMetadataRegistryClient registryClient, PackageMetadataRequest request, int retryCount, CancellationToken cancellationToken = default)
+        => FetchAsync(registryClient, request, retryCount, static (delay, token) => Task.Delay(delay, token), cancellationToken);
+
+    internal static async Task<PackageMetadataRecord> FetchAsync(
+        PackageMetadataRegistryClient registryClient,
+        PackageMetadataRequest request,
+        int retryCount,
+        Func<TimeSpan, CancellationToken, Task> delayAsync,
+        CancellationToken cancellationToken = default)
     {
         for (var attempt = 0; ; attempt++)
         {
@@ -23,6 +31,12 @@ public static class PackageMetadataFetchScheduler
             }
             catch (PackageMetadataFetchException exception) when (attempt < retryCount && exception.IsTransient)
             {
+                var delay = exception.RetryAfter
+                    ?? (exception.StatusCode == System.Net.HttpStatusCode.TooManyRequests ? TimeSpan.FromSeconds(1) : TimeSpan.Zero);
+                if (delay > TimeSpan.Zero)
+                {
+                    await delayAsync(delay, cancellationToken).ConfigureAwait(false);
+                }
             }
             catch (HttpRequestException) when (attempt < retryCount)
             {

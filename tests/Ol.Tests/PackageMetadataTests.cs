@@ -370,7 +370,20 @@ public sealed class PackageMetadataTests
     [Test]
     public async Task Fetch_NuGetRegistrationResponse_ProducesLicenseExpression()
     {
-        var client = CreateClient("""{ "catalogEntry": { "licenseExpression": "Apache-2.0", "projectUrl": "https://example.test/project" } }""");
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    { "catalogEntry": { "version": "1.0.0", "licenseExpression": "Apache-2.0", "projectUrl": "https://example.test/project" } }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
 
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
@@ -380,11 +393,128 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
-    public async Task Fetch_NuGetRegistrationResponse_WithOfficialCatalogEntryUrl_FetchesCatalogMetadata()
+    public async Task Fetch_NuGetRegistrationIndex_WithInlineLeaf_UsesDocumentedIndexEndpoint()
     {
         var handler = new SequenceJsonResponseHandler(
-            """{ "catalogEntry": "https://api.nuget.org/v3/catalog0/data/example.1.0.0.json" }""",
-            """{ "licenseExpression": "MIT", "projectUrl": "https://github.com/example/project", "repository": { "commit": "abcdef" } }""");
+            NuGetServiceIndex(),
+            NuGetRegistrationIndex("1.0.0", "MIT"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(handler.RequestUris[1]).IsEqualTo("https://api.nuget.org/v3/registration5-gz-semver2/example/index.json");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationIndex_WithExternalPage_FollowsDiscoveredPageEndpoint()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "@id": "https://api.nuget.org/v3/registration5-gz-semver2/example/page/1.0.0/2.0.0.json",
+                  "lower": "1.0.0",
+                  "upper": "2.0.0"
+                }
+              ]
+            }
+            """,
+            """
+            {
+              "items": [
+                { "catalogEntry": { "version": "1.5.0", "licenseExpression": "Apache-2.0" } }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.5.0", "pkg:nuget/Example@1.5.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("Apache-2.0");
+        await Assert.That(handler.RequestUris[2]).IsEqualTo("https://api.nuget.org/v3/registration5-gz-semver2/example/page/1.0.0/2.0.0.json");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationIndex_WithBuildMetadata_MatchesNormalizedVersion()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationIndex("1.0.0", "MIT"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0+commit", "pkg:nuget/Example@1.0.0%2Bcommit"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationIndex_WithUntrustedExternalPage_DoesNotFollowIt()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "@id": "https://example.test/private.json",
+                  "lower": "1.0.0",
+                  "upper": "2.0.0"
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.5.0", "pkg:nuget/Example@1.5.0"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_DiscoversSemVer2ResourceOnceForConcurrentRequests()
+    {
+        using var handler = new NuGetServiceIndexHandler();
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var records = await Task.WhenAll(
+            client.FetchAsync(new PackageMetadataRequest("nuget", "", "First", "1.0.0", "pkg:nuget/First@1.0.0")),
+            client.FetchAsync(new PackageMetadataRequest("nuget", "", "Second", "2.0.0", "pkg:nuget/Second@2.0.0")));
+
+        await Assert.That(records[0].RawLicense).IsEqualTo("MIT");
+        await Assert.That(records[1].RawLicense).IsEqualTo("Apache-2.0");
+        await Assert.That(handler.ServiceIndexRequestCount).IsEqualTo(1);
+        await Assert.That(handler.RequestUris).Contains("https://api.nuget.org/v3/discovered-semver2/first/index.json");
+        await Assert.That(handler.RequestUris).Contains("https://api.nuget.org/v3/discovered-semver2/second/index.json");
+        await Assert.That(handler.RequestUris.Any(static uri => uri.Contains("registration5-semver1", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationIndex_WithInlineCatalogEntry_ProducesRepositoryMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "licenseExpression": "MIT",
+                        "projectUrl": "https://github.com/example/project",
+                        "repository": { "commit": "abcdef" }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
         var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
 
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
@@ -394,21 +524,178 @@ public sealed class PackageMetadataTests
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/project");
         await Assert.That(record.RepositoryRef).IsEqualTo("abcdef");
         await Assert.That(handler.RequestUris).IsEquivalentTo([
-            "https://api.nuget.org/v3/registration5-semver1/example/1.0.0.json",
-            "https://api.nuget.org/v3/catalog0/data/example.1.0.0.json",
+            "https://api.nuget.org/v3/index.json",
+            "https://api.nuget.org/v3/registration5-gz-semver2/example/index.json",
         ]);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithGzipContent_ProducesLicenseExpression()
+    {
+        using var handler = new GzipNuGetRegistrationHandler();
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(handler.RequestCount).IsEqualTo(2);
     }
 
     [Test]
     public async Task Fetch_NuGetRegistrationResponse_WithUntrustedCatalogEntryUrl_DoesNotFollowIt()
     {
-        var handler = new SequenceJsonResponseHandler("""{ "catalogEntry": "https://example.test/private.json" }""");
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """{ "catalogEntry": "https://example.test/private.json" }""");
         var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
 
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetServiceIndex_WithTypeArray_UsesSemVer2Resource()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex("[\"RegistrationsBaseUrl/3.6.0\", \"PackageBaseAddress/3.0.0\"]"),
+            NuGetRegistrationIndex("1.0.0", "MIT"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(handler.RequestUris[1]).IsEqualTo("https://api.nuget.org/v3/registration5-gz-semver2/example/index.json");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetServiceIndex_WithoutSemVer2Resource_RejectsMetadataRequest()
+    {
+        var handler = new SequenceJsonResponseHandler("""
+            {
+              "version": "3.0.0",
+              "resources": [
+                { "@id": "https://api.nuget.org/v3/registration5-gz-semver1/", "@type": "RegistrationsBaseUrl/3.4.0" }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        await Assert.That(async () => await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"))).Throws<PackageMetadataFetchException>();
         await Assert.That(handler.RequestUris.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetServiceIndex_WithUntrustedSemVer2Resource_RejectsMetadataRequest()
+    {
+        var handler = new SequenceJsonResponseHandler(NuGetServiceIndex("\"RegistrationsBaseUrl/3.6.0\"", "https://example.test/registration/"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        await Assert.That(async () => await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"))).Throws<PackageMetadataFetchException>();
+        await Assert.That(handler.RequestUris.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetServiceIndex_RateLimitedDiscoveryHonorsRetryAfterAndDoesNotCacheFailure()
+    {
+        using var handler = new RateLimitedNuGetServiceIndexHandler(TimeSpan.FromMilliseconds(20));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+        var observedDelay = TimeSpan.Zero;
+
+        var record = await PackageMetadataFetchScheduler.FetchAsync(
+            client,
+            new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"),
+            retryCount: 1,
+            (delay, _) =>
+            {
+                observedDelay = delay;
+                return Task.CompletedTask;
+            });
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(observedDelay).IsEqualTo(TimeSpan.FromMilliseconds(20));
+        await Assert.That(handler.ServiceIndexRequestCount).IsEqualTo(2);
+        await Assert.That(handler.RegistrationRequestCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Fetch_RateLimitedOrigin_BlocksSubsequentRequestUntilCancellation()
+    {
+        using var handler = new RateLimitedOriginHandler();
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+        var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
+
+        await Assert.That(async () => await client.FetchAsync(request)).Throws<PackageMetadataFetchException>();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        await Assert.That(async () => await client.FetchAsync(request, cancellation.Token)).Throws<OperationCanceledException>();
+
+        await Assert.That(handler.RequestCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Fetch_RateLimitedOrigin_AllowsOnlyOneProbeAfterCooldown()
+    {
+        using var handler = new ProbeRateLimitedOriginHandler();
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+        var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
+
+        await Assert.That(async () => await client.FetchAsync(request)).Throws<PackageMetadataFetchException>();
+        var first = client.FetchAsync(request);
+        var second = client.FetchAsync(request);
+        await handler.ProbeStarted;
+
+        await Assert.That(handler.RequestCount).IsEqualTo(2);
+        handler.CompleteProbe();
+        var records = await Task.WhenAll(first, second);
+
+        await Assert.That(records[0].RawLicense).IsEqualTo("MIT");
+        await Assert.That(records[1].RawLicense).IsEqualTo("MIT");
+        await Assert.That(handler.RequestCount).IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task FetchScheduler_ExcessiveRetryAfter_ClampsDelay()
+    {
+        var handler = new ExcessiveRetryAfterHandler();
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+        var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
+        var observedDelay = TimeSpan.Zero;
+        using var cancellation = new CancellationTokenSource();
+
+        await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(
+                client,
+                request,
+                retryCount: 1,
+                (delay, token) =>
+                {
+                    observedDelay = delay;
+                    cancellation.Cancel();
+                    return Task.FromCanceled(token);
+                },
+                cancellation.Token))
+            .Throws<OperationCanceledException>();
+
+        await Assert.That(observedDelay).IsLessThanOrEqualTo(TimeSpan.FromMinutes(5));
+    }
+
+    [Test]
+    public async Task Fetch_NuGetServiceIndex_CancelingFirstWaiterDoesNotCancelSharedDiscovery()
+    {
+        using var handler = new CancelableNuGetServiceIndexHandler();
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+        using var firstCancellation = new CancellationTokenSource();
+        var first = client.FetchAsync(new PackageMetadataRequest("nuget", "", "First", "1.0.0", "pkg:nuget/First@1.0.0"), firstCancellation.Token);
+        await handler.DiscoveryStarted;
+        var second = client.FetchAsync(new PackageMetadataRequest("nuget", "", "Second", "2.0.0", "pkg:nuget/Second@2.0.0"));
+
+        firstCancellation.Cancel();
+        await Assert.That(async () => await first).Throws<OperationCanceledException>();
+        handler.CompleteDiscovery();
+        var record = await second;
+
+        await Assert.That(record.RawLicense).IsEqualTo("Apache-2.0");
+        await Assert.That(handler.ServiceIndexRequestCount).IsEqualTo(1);
     }
 
     [Test]
@@ -852,6 +1139,33 @@ public sealed class PackageMetadataTests
     private static PackageMetadataRegistryClient CreateClient(string body)
         => OlDefaults.CreatePackageMetadataRegistryClient(new StaticResponseHandler(body));
 
+    private static string NuGetServiceIndex(
+        string registrationType = "\"RegistrationsBaseUrl/3.6.0\"",
+        string registrationBase = "https://api.nuget.org/v3/registration5-gz-semver2/")
+        => $$"""
+            {
+              "version": "3.0.0",
+              "resources": [
+                { "@id": "{{registrationBase}}", "@type": {{registrationType}} }
+              ]
+            }
+            """;
+
+    private static string NuGetRegistrationIndex(string version, string license)
+        => $$"""
+            {
+              "items": [
+                {
+                  "lower": "{{version}}",
+                  "upper": "{{version}}",
+                  "items": [
+                    { "catalogEntry": { "version": "{{version}}", "licenseExpression": "{{license}}" } }
+                  ]
+                }
+              ]
+            }
+            """;
+
     private static string CreatePackageCacheJson(int schemaVersion = 1)
     {
         var keyHash = PackageMetadataCache.GetCacheKeySha256("pkg:npm/example@1.0.0");
@@ -976,6 +1290,203 @@ public sealed class PackageMetadataTests
             RequestUris.Add(request.RequestUri!.AbsoluteUri);
             var body = bodies[Math.Min(RequestUris.Count - 1, bodies.Length - 1)];
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+        }
+    }
+
+    private sealed class RateLimitedOriginHandler : HttpMessageHandler
+    {
+        private int requestCount;
+
+        public int RequestCount => requestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref requestCount);
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(10));
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class ExcessiveRetryAfterHandler : HttpMessageHandler
+    {
+        private int requestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref requestCount) == 1)
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+                response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(DateTimeOffset.MaxValue);
+                return Task.FromResult(response);
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{ "license": "MIT" }""") });
+        }
+    }
+
+    private sealed class ProbeRateLimitedOriginHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource probeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource probeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int requestCount;
+
+        public Task ProbeStarted => probeStarted.Task;
+        public int RequestCount => requestCount;
+
+        public void CompleteProbe() => probeCompletion.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var current = Interlocked.Increment(ref requestCount);
+            if (current == 1)
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+                response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMilliseconds(20));
+                return response;
+            }
+
+            if (current == 2)
+            {
+                probeStarted.TrySetResult();
+                await probeCompletion.Task.WaitAsync(cancellationToken);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{ "license": "MIT" }""") };
+        }
+    }
+
+    private sealed class CancelableNuGetServiceIndexHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource discoveryStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource discoveryCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int serviceIndexRequestCount;
+
+        public Task DiscoveryStarted => discoveryStarted.Task;
+        public int ServiceIndexRequestCount => serviceIndexRequestCount;
+
+        public void CompleteDiscovery() => discoveryCompletion.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri!.AbsoluteUri;
+            if (uri == "https://api.nuget.org/v3/index.json")
+            {
+                Interlocked.Increment(ref serviceIndexRequestCount);
+                discoveryStarted.TrySetResult();
+                await discoveryCompletion.Task.WaitAsync(cancellationToken);
+                return Json(NuGetServiceIndex());
+            }
+
+            return Json(NuGetRegistrationIndex("2.0.0", "Apache-2.0"));
+        }
+
+        private static HttpResponseMessage Json(string body)
+            => new(HttpStatusCode.OK) { Content = new StringContent(body) };
+    }
+
+    private sealed class NuGetServiceIndexHandler : HttpMessageHandler
+    {
+        private int serviceIndexRequestCount;
+
+        public int ServiceIndexRequestCount => serviceIndexRequestCount;
+        public List<string> RequestUris { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri!.AbsoluteUri;
+            lock (RequestUris)
+            {
+                RequestUris.Add(uri);
+            }
+
+            if (uri == "https://api.nuget.org/v3/index.json")
+            {
+                Interlocked.Increment(ref serviceIndexRequestCount);
+                await Task.Yield();
+                return Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://api.nuget.org/v3/ignored-semver1/", "@type": "RegistrationsBaseUrl/3.4.0" },
+                        { "@id": "https://api.nuget.org/v3/discovered-semver2/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """);
+            }
+
+            if (uri.EndsWith("/first/index.json", StringComparison.Ordinal))
+            {
+                return Json(NuGetRegistrationIndex("1.0.0", "MIT"));
+            }
+
+            if (uri.EndsWith("/second/index.json", StringComparison.Ordinal))
+            {
+                return Json(NuGetRegistrationIndex("2.0.0", "Apache-2.0"));
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
+
+        private static HttpResponseMessage Json(string body)
+            => new(HttpStatusCode.OK) { Content = new StringContent(body) };
+    }
+
+    private sealed class RateLimitedNuGetServiceIndexHandler(TimeSpan retryAfter) : HttpMessageHandler
+    {
+        private int serviceIndexRequestCount;
+        private int registrationRequestCount;
+
+        public int ServiceIndexRequestCount => serviceIndexRequestCount;
+        public int RegistrationRequestCount => registrationRequestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri!.AbsoluteUri;
+            if (uri == "https://api.nuget.org/v3/index.json")
+            {
+                if (Interlocked.Increment(ref serviceIndexRequestCount) == 1)
+                {
+                    var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+                    limited.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAfter);
+                    return Task.FromResult(limited);
+                }
+
+                return Task.FromResult(Json(NuGetServiceIndex()));
+            }
+
+            Interlocked.Increment(ref registrationRequestCount);
+            return Task.FromResult(Json(NuGetRegistrationIndex("1.0.0", "MIT")));
+        }
+
+        private static HttpResponseMessage Json(string body)
+            => new(HttpStatusCode.OK) { Content = new StringContent(body) };
+    }
+
+    private sealed class GzipNuGetRegistrationHandler : HttpMessageHandler
+    {
+        private int requestCount;
+
+        public int RequestCount => requestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref requestCount) == 1)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(NuGetServiceIndex()) });
+            }
+
+            var output = new MemoryStream();
+            using (var gzip = new System.IO.Compression.GZipStream(output, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true))
+            using (var writer = new StreamWriter(gzip))
+            {
+                writer.Write(NuGetRegistrationIndex("1.0.0", "MIT"));
+            }
+
+            output.Position = 0;
+            var content = new StreamContent(output);
+            content.Headers.ContentEncoding.Add("gzip");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
         }
     }
 }

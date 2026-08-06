@@ -207,7 +207,18 @@ ol scan --input Package.resolved --format json > ol-report.json
 
 ### CocoaPods
 
-Install pods and scan `Podfile.lock` directly:
+Install the CycloneDX CocoaPods gem, generate a JSON SBOM, and scan it:
+
+```bash
+gem install cyclonedx-cocoapods
+pod install
+cyclonedx-cocoapods --output bom.cdx.json
+ol scan --input bom.cdx.json --format json > ol-report.json
+```
+
+See [CycloneDX CocoaPods](https://github.com/CycloneDX/cyclonedx-cocoapods) for component metadata and filtering options.
+
+Alternatively, install pods and scan `Podfile.lock` directly:
 
 ```bash
 pod install

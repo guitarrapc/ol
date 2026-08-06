@@ -28,7 +28,7 @@ ol自身は依存関係を解決しません。これは各言語の依存解決
 
 ## クイックスタート
 
-言語を問わず解決済みの依存関係を扱うには、SBOM（例では`bom.cdx.json`）が最も便利です。olはSBOM以外にも、各言語のパッケージマネージャーが解決したロックファイルや出力を直接入力として受け付けます。
+GitHub の Releases ページから利用 OS 向けアセットをダウンロードし、`ol`（Windows は `ol.exe`）を任意の場所に配置します。
 
 ```sh
 # .NET global tool
@@ -39,6 +39,8 @@ scoop bucket add guitarrapc https://github.com/guitarrapc/scoop-bucket
 scoop install ol
 ```
 
+言語を問わず解決済みの依存関係を扱うには、SBOM（例では`bom.cdx.json`）が最も便利です。olはSBOM以外にも、各言語のパッケージマネージャーが解決したロックファイルや出力を直接入力として受け付けます。
+
 > [!TIP]
 > CycloneDX JSON SBOMを生成するには、[@cyclonedx/cyclonedx-npm](https://www.npmjs.com/package/@cyclonedx/cyclonedx-npm)などのツールがあります。
 
@@ -46,13 +48,11 @@ scoop install ol
 # macOS/Linuxでは、必要に応じて実行権限を付与
 chmod +x ./ol
 
-# SBOMを生成
-npx @cyclonedx/cyclonedx-npm --output-format JSON --output-file bom.cdx.json
-
 # CycloneDXまたはSPDX形式のJSON SBOMをスキャン
+npx @cyclonedx/cyclonedx-npm --output-format JSON --output-file bom.cdx.json
 ol scan --input bom.cdx.json
 
-# カレントディレクトリ以下から対応する解決済み依存関係をスキャン
+# カレントディレクトリ以下から対応するエコシステムの解決済み依存関係をスキャン
 ol scan --input .
 
 # 対応するロックファイルやパッケージマネージャー出力を直接スキャン

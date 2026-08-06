@@ -86,7 +86,7 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
         }
 
         var repository = PackageMetadataJson.ReadElement(catalog, "repository");
-        var repositoryUrl = PackageMetadataJson.ReadString(repository, "url");
+        var repositoryUrl = PackageMetadataRegistryClient.SanitizeRepositoryUrl(PackageMetadataJson.ReadString(repository, "url"));
         var repositoryRef = PackageMetadataJson.ReadString(repository, "commit");
         var licenseExpression = PackageMetadataJson.ReadString(catalog, "licenseExpression");
         var licenseFile = PackageMetadataJson.ReadString(catalog, "licenseFile");
@@ -159,7 +159,7 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
             return false;
         }
 
-        if (offset >= path.Length || path[offset] == '/')
+        if (offset >= path.Length || path[offset] == '/' || path[offset..].Contains('/'))
         {
             return false;
         }
@@ -181,6 +181,7 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
     {
         if (value.Length == 0
             || ContainsUnsafeUrlCharacter(value)
+            || ContainsDotPathSegment(value)
             || !Uri.TryCreate(value, UriKind.Absolute, out uri!)
             || uri.Scheme != Uri.UriSchemeHttps
             || !uri.IsDefaultPort
@@ -196,6 +197,41 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
         }
 
         return true;
+    }
+
+    private static bool ContainsDotPathSegment(string value)
+    {
+        var schemeEnd = value.AsSpan().IndexOf("://", StringComparison.Ordinal);
+        if (schemeEnd < 0)
+        {
+            return false;
+        }
+
+        var pathStart = value.AsSpan(schemeEnd + 3).IndexOf('/');
+        if (pathStart < 0)
+        {
+            return false;
+        }
+
+        var path = value.AsSpan(schemeEnd + 3 + pathStart + 1);
+        while (!path.IsEmpty)
+        {
+            var separator = path.IndexOf('/');
+            var segment = separator < 0 ? path : path[..separator];
+            if (segment.SequenceEqual(".".AsSpan()) || segment.SequenceEqual("..".AsSpan()))
+            {
+                return true;
+            }
+
+            if (separator < 0)
+            {
+                break;
+            }
+
+            path = path[(separator + 1)..];
+        }
+
+        return false;
     }
 
     private static bool TryTakePathSegment(ReadOnlySpan<char> path, ref int offset, out Range range)

@@ -349,7 +349,7 @@ public sealed class PackageMetadataRegistryClient
         throw new PackageMetadataFetchException(null);
     }
 
-    private static string SanitizeRepositoryUrl(string value)
+    internal static string SanitizeRepositoryUrl(string value)
     {
         if (value.Length == 0)
         {

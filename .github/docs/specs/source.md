@@ -44,7 +44,7 @@ GitHub License API results are interpreted as source repository evidence:
 - valid `license.spdx_id` becomes a source-repository license candidate.
 - `NOASSERTION` or `null` becomes unknown source-repository evidence.
 - HTTP 404 becomes `license_not_detected` evidence.
-- HTTP 403, 429, and 5xx become error evidence.
+- HTTP 403, 429, and 5xx become error evidence. A 403 carrying GitHub rate-limit headers and every 429 are transient rate-limit failures: retries honor `Retry-After` or `X-RateLimit-Reset`, requests in the same scan share an origin wait gate, and an exhausted rate-limit failure is not persisted as a source-cache hit. A plain 403 remains non-transient.
 - missing repository URLs become `source_repository_unavailable` evidence, and non-GitHub or invalid repository URLs become `unsupported_source_repository` evidence.
 
 The API response body content is not parsed for custom license detection. If GitHub does not identify a license, `ol` does not try to outguess it.

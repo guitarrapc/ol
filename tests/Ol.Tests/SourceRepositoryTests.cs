@@ -168,6 +168,31 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task FetchScheduler_PrimaryRateLimitForbiddenThenSuccess_RetriesAndReturnsLicense()
+    {
+        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.Forbidden, retryAfterSeconds: null, remaining: 0);
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
+
+        var record = await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
+
+        await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
+        await Assert.That(handler.CallCount).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task FetchScheduler_RetryAfter_DelaysRetry()
+    {
+        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.TooManyRequests, retryAfterSeconds: 1, remaining: null);
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1);
+
+        await Assert.That(stopwatch.Elapsed).IsGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(800));
+        await Assert.That(handler.CallCount).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task FetchScheduler_ExhaustedServerFailure_ThrowsAfterConfiguredAttempts()
     {
         var handler = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.ServiceUnavailable);
@@ -484,6 +509,41 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Enrichment_WithRateLimitFailure_DoesNotCacheTransientError()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-rate-limit-{Guid.NewGuid():N}");
+        var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
+        var target = new SourceRepositoryTarget("owner", "repository", "default");
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.TooManyRequests, retryAfterSeconds: 0, remaining: null);
+        using var httpClient = new HttpClient(handler);
+        var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0, httpClient);
+        try
+        {
+            using (var firstWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty)))
+            {
+                var firstComponent = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+                var first = await service.EnrichAsync([firstComponent], firstWorkspace, concurrency: 1);
+
+                await Assert.That(first.Summary.FetchErrorCount).IsEqualTo(1);
+            }
+
+            await Assert.That((await sourceCache.ReadAsync(target.CacheKey)).Status).IsEqualTo(SourceRepositoryCacheReadStatus.Missing);
+
+            using var secondWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+            var secondComponent = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+            var second = await service.EnrichAsync([secondComponent], secondWorkspace, concurrency: 1);
+
+            await Assert.That(second.Components[0].License.ToString()).IsEqualTo("MIT");
+            await Assert.That(handler.CallCount).IsEqualTo(2);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Enrichment_WithCacheWriteFailure_KeepsFetchedLicenseAsComponentEvidence()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-write-failure-{Guid.NewGuid():N}");
@@ -729,6 +789,32 @@ public sealed class SourceRepositoryTests
             {
                 Content = new StringContent(status == HttpStatusCode.OK ? ReadGitHubLicenseFixture() : string.Empty),
             });
+        }
+    }
+
+    private sealed class RateLimitThenSuccessHandler(HttpStatusCode firstStatus, int? retryAfterSeconds, int? remaining) : HttpMessageHandler
+    {
+        public int CallCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = new HttpResponseMessage(CallCount++ == 0 ? firstStatus : HttpStatusCode.OK)
+            {
+                Content = new StringContent(CallCount == 1 ? string.Empty : ReadGitHubLicenseFixture()),
+            };
+            if (response.StatusCode != HttpStatusCode.OK)
+            {
+                if (retryAfterSeconds is { } seconds)
+                {
+                    response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(seconds));
+                }
+                if (remaining is { } value)
+                {
+                    response.Headers.TryAddWithoutValidation("X-RateLimit-Remaining", value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+            }
+
+            return Task.FromResult(response);
         }
     }
 

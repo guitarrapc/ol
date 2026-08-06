@@ -613,12 +613,44 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsafeRepositoryAndLegacyLicenseUrl_UsesLicenseRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "repository": { "url": "https://user@github.com/example/unsafe", "commit": "abcdef" },
+                        "licenseUrl": "https://github.com/example/versioned/blob/main/LICENSE"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/versioned");
+        await Assert.That(record.RepositoryRef).IsEqualTo("main");
+    }
+
+    [Test]
     [Arguments("http://go.microsoft.com/fwlink/?LinkId=329770")]
     [Arguments("http://github.com/example/project/blob/main/LICENSE")]
     [Arguments("https://github.com/example/project/blob/main")]
     [Arguments("https://github.com/example/project/blob/main/LICENSE?raw=1")]
     [Arguments("https://raw.githubusercontent.com/example/project/main/%2e%2e/LICENSE")]
     [Arguments("https://raw.githubusercontent.com/example/project/main//LICENSE")]
+    [Arguments("https://raw.githubusercontent.com/example/project/../other/main/LICENSE")]
+    [Arguments("https://github.com/example/project/blob/release/1.0/LICENSE")]
     public async Task Fetch_NuGetRegistrationResponse_WithUnsupportedLegacyLicenseUrl_DoesNotCreateRepositoryTarget(string licenseUrl)
     {
         var handler = new SequenceJsonResponseHandler(
@@ -1249,7 +1281,21 @@ public sealed class PackageMetadataTests
         try
         {
             var cache = new PackageMetadataCache(root);
-            await cache.WriteAsync(new PackageMetadataRecord(purl, "nuget-registry", "", "https://dot.net/", [], []));
+            Directory.CreateDirectory(root);
+            var keyHash = PackageMetadataCache.GetCacheKeySha256(purl);
+            await File.WriteAllTextAsync(cache.GetPath(purl), $$"""
+                {
+                  "SchemaVersion": 1,
+                  "CacheKey": "{{purl}}",
+                  "CacheKeySha256": "{{keyHash}}",
+                  "Source": "nuget-registry",
+                  "RawLicense": "",
+                  "RepositoryUrl": "https://dot.net/",
+                  "Warnings": [],
+                  "Errors": [],
+                  "FetchedAt": "2026-07-08T00:00:00+00:00"
+                }
+                """);
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
@@ -1265,6 +1311,64 @@ public sealed class PackageMetadataTests
             using var refreshed = await cache.TryReadAsync(purl);
             await Assert.That(refreshed.RepositoryUrl).IsEqualTo("https://github.com/dotnet/core");
             await Assert.That(refreshed.RepositoryRef).IsEqualTo("main");
+
+            var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
+            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
+            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+
+            await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_LegacyNuGetCacheWithSupportedProjectRepository_RefreshesOnce()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:nuget/Example@1.0.0";
+        using var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata(
+                "1.0.0",
+                projectUrl: "https://github.com/example/project",
+                licenseUrl: "https://github.com/example/versioned/blob/main/LICENSE"));
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            var keyHash = PackageMetadataCache.GetCacheKeySha256(purl);
+            await File.WriteAllTextAsync(cache.GetPath(purl), $$"""
+                {
+                  "SchemaVersion": 1,
+                  "CacheKey": "{{purl}}",
+                  "CacheKeySha256": "{{keyHash}}",
+                  "Source": "nuget-registry",
+                  "RawLicense": "",
+                  "RepositoryUrl": "https://github.com/example/project",
+                  "Warnings": [],
+                  "Errors": [],
+                  "FetchedAt": "2026-07-08T00:00:00+00:00"
+                }
+                """);
+            var index = new SpdxLicenseIndex(["MIT"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(0);
+            await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/example/versioned");
+            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryRef).IsEqualTo("main");
 
             var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
             using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);

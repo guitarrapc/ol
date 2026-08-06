@@ -67,6 +67,7 @@ public sealed class PackageMetadataCache(string root)
         var repositoryUrl = string.Empty;
         var repositoryRef = string.Empty;
         var fetchedAt = default(DateTimeOffset);
+        var resolverVersion = 0;
         try
         {
             if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
@@ -167,6 +168,13 @@ public sealed class PackageMetadataCache(string root)
 
                     present |= CacheField.FetchedAt;
                 }
+                else if (reader.ValueTextEquals("ResolverVersion"u8))
+                {
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out resolverVersion) || resolverVersion < 0)
+                    {
+                        return false;
+                    }
+                }
                 else if (reader.ValueTextEquals("Warnings"u8))
                 {
                     if (!TryCaptureStringArray(content, ref reader, out warnings))
@@ -202,7 +210,7 @@ public sealed class PackageMetadataCache(string root)
             return false;
         }
 
-        entry = new PackageMetadataCacheEntry(content, cacheKeySha256, source, rawLicense, warnings, repositoryUrl, repositoryRef, fetchedAt);
+        entry = new PackageMetadataCacheEntry(content, cacheKeySha256, source, rawLicense, warnings, repositoryUrl, repositoryRef, fetchedAt, resolverVersion);
         return true;
     }
 
@@ -419,6 +427,11 @@ public readonly record struct PackageMetadataRecord(
     /// Gets the package metadata cache schema version.
     /// </summary>
     public int SchemaVersion => 1;
+
+    /// <summary>
+    /// Gets the metadata resolver capability version.
+    /// </summary>
+    public int ResolverVersion => 2;
 
     /// <summary>
     /// Gets the SHA-256 hash of <see cref="CacheKey"/>.

@@ -330,7 +330,7 @@ internal sealed class PackageMetadataService(
         => entry.Source.Span.SequenceEqual("nuget-registry"u8)
         && entry.RawLicense.IsEmpty
         && entry.Warnings.Span.SequenceEqual("[]"u8)
-        && !SourceRepositoryTarget.TryCreate(entry.RepositoryUrl, entry.RepositoryRef, out _);
+        && entry.ResolverVersion < 2;
 
     /// <summary>Projects a cache entry before its pooled buffer is returned.</summary>
     private PackageMetadataLookupResult CreateCacheHit(PackageMetadataRequest request, in PackageMetadataCacheEntry entry)

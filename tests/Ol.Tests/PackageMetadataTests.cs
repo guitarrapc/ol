@@ -963,13 +963,13 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
-    public async Task FetchScheduler_ExcessiveRetryAfter_ClampsDelay()
+    public async Task FetchScheduler_RetryAfterBeyondWaitBudget_StopsInsteadOfRetryingEarly()
     {
         var handler = new ExcessiveRetryAfterHandler();
         var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
         var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
-        var observedDelay = TimeSpan.Zero;
-        using var cancellation = new CancellationTokenSource();
+        var waited = false;
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(
                 client,
@@ -977,14 +977,41 @@ public sealed class PackageMetadataTests
                 retryCount: 1,
                 (delay, token) =>
                 {
-                    observedDelay = delay;
-                    cancellation.Cancel();
-                    return Task.FromCanceled(token);
+                    waited = true;
+                    return Task.CompletedTask;
                 },
-                cancellation.Token))
-            .Throws<OperationCanceledException>();
+                CancellationToken.None))
+            .Throws<PackageMetadataFetchException>();
 
-        await Assert.That(observedDelay).IsLessThanOrEqualTo(TimeSpan.FromMinutes(5));
+        // The registry asked for far longer than a command-line run can absorb. Ol neither waits it out
+        // nor shortens it into an early retry that the registry did not sanction.
+        await Assert.That(waited).IsFalse();
+        await Assert.That(handler.RequestCount).IsEqualTo(1);
+        await Assert.That(stopwatch.Elapsed).IsLessThan(TimeSpan.FromSeconds(1));
+    }
+
+    [Test]
+    public async Task FetchScheduler_ShortRetryAfter_StillWaitsAndRetries()
+    {
+        var handler = new RateLimitedThenSuccessfulNpmHandler(TimeSpan.FromSeconds(2));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+        var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
+        var observedDelay = TimeSpan.MinValue;
+
+        var record = await PackageMetadataFetchScheduler.FetchAsync(
+            client,
+            request,
+            retryCount: 1,
+            (delay, token) =>
+            {
+                observedDelay = delay;
+                return Task.CompletedTask;
+            },
+            CancellationToken.None);
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(observedDelay).IsGreaterThan(TimeSpan.Zero);
+        await Assert.That(observedDelay).IsLessThanOrEqualTo(TimeSpan.FromSeconds(10));
     }
 
     [Test]
@@ -1761,12 +1788,31 @@ public sealed class PackageMetadataTests
     {
         private int requestCount;
 
+        public int RequestCount => requestCount;
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (Interlocked.Increment(ref requestCount) == 1)
             {
                 var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
                 response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(DateTimeOffset.MaxValue);
+                return Task.FromResult(response);
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{ "license": "MIT" }""") });
+        }
+    }
+
+    private sealed class RateLimitedThenSuccessfulNpmHandler(TimeSpan retryAfter) : HttpMessageHandler
+    {
+        private int requestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref requestCount) == 1)
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+                response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAfter);
                 return Task.FromResult(response);
             }
 

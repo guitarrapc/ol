@@ -11,6 +11,15 @@ namespace Ol.Core.GitHub;
 public sealed class GitHubLicenseApiClient
 {
     private static readonly Uri ApiBaseUri = new("https://api.github.com/");
+
+    /// <summary>The longest server-directed delay a command-line run absorbs before giving up on GitHub.</summary>
+    /// <remarks>
+    /// GitHub's limits are always longer than this in practice — a primary limit resets up to an hour
+    /// later, and a secondary limit asks for at least a minute — so collection effectively always stops
+    /// rather than waits. The budget is expressed anyway so this client and the registry client follow
+    /// one rule instead of two policies that happen to differ.
+    /// </remarks>
+    private static readonly TimeSpan MaximumWait = TimeSpan.FromSeconds(10);
     private static readonly long MinimumUnixTimeSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();
     private static readonly long MaximumUnixTimeSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
     private const int MaximumErrorBodyBytes = 16 * 1024;
@@ -74,9 +83,16 @@ public sealed class GitHubLicenseApiClient
 
         using (response)
         {
+            // A secondary limit says the pace was too high, so a delay within the wait budget is left to
+            // the retry policy. A primary limit says the allowance is spent, which no delay this run can
+            // absorb will change, so it ends collection whatever reset it names.
             if (rateLimitDecision.Kind != GitHubRateLimitKind.None)
             {
-                throw CreateRateLimitException(Reach(response.StatusCode, rateLimitDecision));
+                throw rateLimitDecision.Kind == GitHubRateLimitKind.Secondary
+                    && rateLimitDecision.RetryAfter is { } retryAfter
+                    && retryAfter <= MaximumWait
+                    ? new SourceRepositoryFetchException(response.StatusCode, retryAfter)
+                    : CreateRateLimitException(Reach(response.StatusCode, rateLimitDecision));
             }
 
             if (response.StatusCode == HttpStatusCode.NotFound)
@@ -309,7 +325,7 @@ public sealed class SourceRepositoryFetchException : Exception
 {
     /// <summary>Initializes a GitHub License API failure.</summary>
     public SourceRepositoryFetchException(HttpStatusCode? statusCode, Exception? innerException = null)
-        : this(statusCode, null, innerException) { }
+        : this(statusCode, rateLimit: null, innerException) { }
 
     /// <summary>Initializes a failure caused by a reached GitHub rate limit.</summary>
     public SourceRepositoryFetchException(HttpStatusCode? statusCode, GitHubRateLimitStatus? rateLimit, Exception? innerException = null)
@@ -317,20 +333,32 @@ public sealed class SourceRepositoryFetchException : Exception
     {
         StatusCode = statusCode;
         RateLimit = rateLimit;
+        RetryAfter = rateLimit?.RetryAfter;
+    }
+
+    /// <summary>Initializes a rate-limit failure GitHub clears within the run's wait budget.</summary>
+    internal SourceRepositoryFetchException(HttpStatusCode? statusCode, TimeSpan retryAfter)
+        : base("GitHub License API request failed.")
+    {
+        StatusCode = statusCode;
+        RetryAfter = retryAfter;
+        IsRetryableRateLimit = true;
     }
 
     /// <summary>Gets the response status when available.</summary>
     public HttpStatusCode? StatusCode { get; }
-    /// <summary>Gets the reached rate limit, or <see langword="null"/> when this failure is not one.</summary>
+    /// <summary>Gets the reached rate limit, or <see langword="null"/> when collection was not stopped.</summary>
     public GitHubRateLimitStatus? RateLimit { get; }
     /// <summary>Gets the server-directed retry delay when supplied.</summary>
-    public TimeSpan? RetryAfter => RateLimit?.RetryAfter;
+    public TimeSpan? RetryAfter { get; }
+    private bool IsRetryableRateLimit { get; }
     /// <summary>Gets whether the response represents a GitHub rate limit.</summary>
-    public bool IsRateLimited => RateLimit is not null;
+    public bool IsRateLimited => RateLimit is not null || IsRetryableRateLimit;
     /// <summary>Gets whether this failure may be retried.</summary>
     /// <remarks>
-    /// A rate limit is never retried. GitHub decides when it lifts, on a schedule a command-line run
-    /// cannot wait out, so retrying only spends the remaining allowance and can extend a secondary limit.
+    /// A limit whose delay exceeds the run's wait budget is never retried. GitHub decides when it lifts,
+    /// on a schedule a command-line run cannot absorb, so retrying only spends the remaining allowance
+    /// and can extend a secondary limit.
     /// </remarks>
-    public bool IsTransient => !IsRateLimited && StatusCode is { } value && (int)value >= 500;
+    public bool IsTransient => IsRetryableRateLimit || (RateLimit is null && StatusCode is { } value && (int)value >= 500);
 }

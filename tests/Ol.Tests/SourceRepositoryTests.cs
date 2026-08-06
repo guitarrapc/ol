@@ -156,9 +156,12 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
-    [Arguments(HttpStatusCode.TooManyRequests, 1, null)]
+    // Primary: the allowance is spent, so no delay this run can absorb changes the outcome.
     [Arguments(HttpStatusCode.Forbidden, null, 0)]
-    public async Task FetchScheduler_RateLimit_StopsWithoutRetryingOrWaiting(HttpStatusCode status, int? retryAfterSeconds, int? remaining)
+    // Secondary past the wait budget, and a bare 429 that names no delay at all.
+    [Arguments(HttpStatusCode.TooManyRequests, 60, null)]
+    [Arguments(HttpStatusCode.TooManyRequests, null, null)]
+    public async Task FetchScheduler_RateLimitBeyondWaitBudget_StopsWithoutRetryingOrWaiting(HttpStatusCode status, int? retryAfterSeconds, int? remaining)
     {
         var handler = new RateLimitThenSuccessHandler(status, retryAfterSeconds, remaining);
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
@@ -169,6 +172,31 @@ public sealed class SourceRepositoryTests
 
         await Assert.That(handler.CallCount).IsEqualTo(1);
         await Assert.That(stopwatch.Elapsed).IsLessThan(TimeSpan.FromMilliseconds(500));
+        await Assert.That(client.RateLimit).IsNotNull();
+    }
+
+    [Test]
+    public async Task FetchScheduler_SecondaryRateLimitWithinWaitBudget_HonorsTheDelayAndRetries()
+    {
+        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.TooManyRequests, retryAfterSeconds: 2, remaining: null);
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
+        var observedDelay = TimeSpan.MinValue;
+
+        var record = await GitHubLicenseFetchScheduler.FetchAsync(
+            client,
+            new SourceRepositoryTarget("owner", "repository", "default"),
+            retryCount: 1,
+            (delay, token) =>
+            {
+                observedDelay = delay;
+                return Task.CompletedTask;
+            });
+
+        await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
+        await Assert.That(handler.CallCount).IsEqualTo(2);
+        await Assert.That(observedDelay).IsEqualTo(TimeSpan.FromSeconds(2));
+        // A limit the run rode out is not a stopped collection.
+        await Assert.That(client.RateLimit).IsNull();
     }
 
     [Test]
@@ -639,7 +667,7 @@ public sealed class SourceRepositoryTests
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
         var index = new SpdxLicenseIndex(["MIT"], []);
-        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.TooManyRequests, retryAfterSeconds: 0, remaining: null);
+        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.TooManyRequests, retryAfterSeconds: null, remaining: null);
         using var httpClient = new HttpClient(handler);
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0, httpClient);
         try

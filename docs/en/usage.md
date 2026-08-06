@@ -187,7 +187,16 @@ ol scan --input build/reports/cyclonedx/bom.json --format json > ol-report.json
 
 ### SwiftPM
 
-Resolve the package graph and scan `Package.resolved` schema version 2 or 3:
+Generate a CycloneDX SBOM with SwiftPM and scan the output directory:
+
+```bash
+swift package generate-sbom --sbom-spec cyclonedx --sbom-output-dir .build/sboms
+ol scan --input .build/sboms --format json > ol-report.json
+```
+
+For the most accurate SBOM, including build-time conditionals, use `swift build --build-system swiftbuild`. See [Generating Software Bill of Materials (SBOM)](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/generatingsboms/).
+
+Alternatively, resolve the package graph and scan `Package.resolved` schema version 2 or 3 directly:
 
 ```bash
 swift package resolve

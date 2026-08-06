@@ -21,7 +21,7 @@ ol scan --input bom.cdx.json --format json > ol-report.json
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
 ```
 
-SBOMの生成は各エコシステム向けツールの役割です。olは入力されたコンポーネントへパッケージメタデータとGitHub License APIの証拠を追加し、未解決または競合する証拠をポリシー評価前に報告します。
+SBOMの生成は各エコシステム向けツールを使います。olは入力されたコンポーネントへパッケージメタデータとGitHub License APIの証拠を追加し、未解決または競合する証拠をポリシー評価前に報告します。
 
 ## .NET / NuGet
 
@@ -33,7 +33,7 @@ dotnet tool run dotnet-CycloneDX MySolution.slnx --output . --output-format Json
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-NuGetが生成した`project.assets.json`を直接スキャンすることもできます。ディレクトリを渡すと、配下のassets fileを再帰的に検出し、プロジェクト、ターゲットフレームワーク、Runtime Identifierのコンテキストを保持したまままとめます。
+NuGetが生成した`project.assets.json`も直接スキャンできます。ディレクトリを渡すと、配下のassets fileを再帰的に検出し、プロジェクト、ターゲットフレームワーク、Runtime Identifierのコンテキストを保持したまままとめます。
 
 ```bash
 dotnet restore MySolution.slnx
@@ -50,7 +50,7 @@ npx @cyclonedx/cyclonedx-npm --output-format JSON --output-file bom.cdx.json
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-対応する解決済み入力を直接スキャンすることもできます。
+対応する解決済み入力も直接スキャンできます。
 
 ```bash
 # npm package-lock.json version 2または3
@@ -100,7 +100,7 @@ go mod graph > go-mod-graph.txt
 ol scan --input go-list-modules.json --input go-mod-graph.txt --format json > ol-report.json
 ```
 
-2ファイルを含むディレクトリを渡すこともできます。olは選択済みmodule listを正しい情報源とし、ローカル置換のパスを公開しません。
+2ファイルを含むディレクトリも渡せます。olは選択済みmodule listを正しい情報源とし、ローカル置換のパスを公開しません。
 
 ## Python
 
@@ -129,7 +129,7 @@ composer CycloneDX:make-sbom --output-format=JSON --output-file=bom.cdx.json
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-同じディレクトリにある`composer.json`と`composer.lock`を直接スキャンすることもできます。マニフェストから利用するのはルートパッケージと直接依存関係だけで、Composerの実行や`vendor/`の調査は行いません。
+同じディレクトリにある`composer.json`と`composer.lock`も直接スキャンできます。マニフェストから利用するのはルートパッケージと直接依存関係だけで、Composerの実行や`vendor/`の調査は行いません。
 
 ```bash
 ol scan --input . --input-format composer-lock --format json > ol-report.json

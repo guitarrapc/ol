@@ -21,7 +21,7 @@ ol scan --input bom.cdx.json --format json > ol-report.json
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
 ```
 
-SBOM generation remains the responsibility of ecosystem-native tools. ol enriches the supplied components with package metadata and GitHub License API evidence, then reports missing or conflicting evidence before policy evaluation.
+Use ecosystem-native tools for SBOM generation. ol enriches the supplied components with package metadata and GitHub License API evidence, then reports missing or conflicting evidence before policy evaluation.
 
 ## .NET / NuGet
 

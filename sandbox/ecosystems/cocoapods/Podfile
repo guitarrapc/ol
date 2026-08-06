@@ -1,0 +1,7 @@
+source "https://cdn.cocoapods.org/"
+platform :ios, "13.0"
+install! "cocoapods", :integrate_targets => false
+
+target "Fixture" do
+  pod "Moya/Core", "~> 15.0"
+end

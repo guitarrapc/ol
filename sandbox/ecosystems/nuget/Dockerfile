@@ -4,4 +4,4 @@ COPY Ol.Ci.NuGet.csproj ./
 RUN dotnet restore Ol.Ci.NuGet.csproj --packages /nuget/packages
 
 FROM scratch AS export
-COPY --from=restore /src/obj/project.assets.json /
+COPY --from=restore /src/obj/project.assets.json /obj/project.assets.json

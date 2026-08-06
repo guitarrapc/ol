@@ -1,7 +1,7 @@
 PODS:
-  - Alamofire (5.10.2)
+  - Alamofire (5.12.0)
   - Moya/Core (15.0.0):
-    - Alamofire (~> 5.8)
+    - Alamofire (~> 5.0)
 
 DEPENDENCIES:
   - Moya/Core (~> 15.0)
@@ -12,9 +12,9 @@ SPEC REPOS:
     - Moya
 
 SPEC CHECKSUMS:
-  Alamofire: c64d0c2d7d9f66bda7eccfd5d0aa49bc0476c80e
-  Moya: 1f2637b7dce35a208d9b2a9c8b0a86f170e92f91
+  Alamofire: ddb8d5201667b256dbc225f3fc6e835a0753186f
+  Moya: 138f0573e53411fb3dc17016add0b748dfbd78ee
 
-PODFILE CHECKSUM: 9f10bfe25977a2b8c0f47ca9b071be3a0f089ee8
+PODFILE CHECKSUM: 525b65c334d06a66437f40fb074524a059bc63e2
 
 COCOAPODS: 1.16.2

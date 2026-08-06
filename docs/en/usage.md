@@ -25,7 +25,7 @@ SBOM generation remains the responsibility of ecosystem-native tools. ol enriche
 
 ## .NET / NuGet
 
-Generate a CycloneDX SBOM from a restored solution:
+Generate a CycloneDX SBOM from a restored solution. When generating from a single project file, specify `--recursive` to also scan referenced projects, avoiding missing development dependencies excluded from the root assets file by `PrivateAssets="all"` and similar (see [cyclonedx-dotnet#1107](https://github.com/CycloneDX/cyclonedx-dotnet/issues/1107)).
 
 ```bash
 dotnet tool restore

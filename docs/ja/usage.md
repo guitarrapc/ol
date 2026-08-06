@@ -25,7 +25,7 @@ SBOMの生成は各エコシステム向けツールの役割です。olは入�
 
 ## .NET / NuGet
 
-restore済みのソリューションからCycloneDX SBOMを生成します。
+restore済みのソリューションからCycloneDX SBOMを生成します。単一のproject fileから生成する場合は、参照先プロジェクトもスキャンするため`--recursive`を指定することで、`PrivateAssets="all"`などによってルートのassets fileから除外された開発用依存関係の取りこぼしも避けられます（[cyclonedx-dotnet#1107](https://github.com/CycloneDX/cyclonedx-dotnet/issues/1107)）。
 
 ```bash
 dotnet tool restore

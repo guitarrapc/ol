@@ -63,6 +63,8 @@ JSON report schema version 1 exposes this provenance once, as the typed `evidenc
 
 When package metadata supplies a repository commit or ref for the package version, that ref is part of the source target and cache identity. Otherwise GitHub resolves the repository default branch. Package metadata repository URLs take precedence over SBOM repository references.
 
+For NuGet packages, the package-metadata boundary may derive this repository/ref pair from a narrowly validated legacy GitHub `licenseUrl`. Source enrichment still performs only the repository-level GitHub License API request described above; it neither downloads that URL nor treats its file content or path as a license claim. Equivalent repository/ref pairs are deduplicated with ordinary package repository hints, so this compatibility path does not introduce a second request scheduler or bypass concurrency, retry, rate-limit, and cache controls.
+
 Report examples must not include token values or absolute local paths.
 
 <a id="contract-source-authentication"></a>

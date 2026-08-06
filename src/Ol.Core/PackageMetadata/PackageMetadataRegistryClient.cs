@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Text.Json;
 using System.IO.Compression;
+using Ol.Core.Licensing;
 
 namespace Ol.Core.PackageMetadata;
 
@@ -82,7 +83,7 @@ public sealed class PackageMetadataRegistryClient
                 metadata = provider.ParseResponse(document.RootElement, request);
             }
 
-            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), [], [], DateTimeOffset.UtcNow, metadata.RepositoryRef);
+            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), metadata.Warnings.ToStrings(), [], DateTimeOffset.UtcNow, metadata.RepositoryRef);
         }
         catch (JsonException exception)
         {

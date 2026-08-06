@@ -170,6 +170,10 @@ The NuGet provider discovers its registration base URL from `https://api.nuget.o
 
 For each NuGet metadata lookup, the provider requests the documented `{registration-base}/{lower-id}/index.json` endpoint. It reads an inline registration leaf when present; otherwise it uses NuGet version semantics to select the page whose inclusive `lower` and `upper` bounds contain the requested normalized version, then follows that page's trusted `@id`. Page and leaf URLs are never predicted from a package version. Registry responses are decoded according to their supported HTTP `Content-Encoding` before streaming JSON parsing; this includes the gzip representation exposed by the NuGet SemVer 2 registration resource.
 
+The NuGet catalog `repository.url` with its commit is the preferred source-repository hint. When it does not identify a source target supported by Ol, a legacy `licenseUrl` may supply the target before the unversioned `projectUrl`, but only for an HTTPS GitHub license-file shape: `github.com/{owner}/{repository}/blob/{ref}/{path}`, `raw.githubusercontent.com/{owner}/{repository}/{ref}/{path}`, or the legacy `raw.github.com` equivalent. Ol extracts the explicit single-segment ref and passes the normalized repository/ref to source enrichment. It does not fetch the `licenseUrl`, follow redirects, scrape a page, interpret a URL path as an SPDX expression, or substitute the repository default branch when that URL supplies a ref. Credentials, non-default ports, query/fragment data, escapes, backslashes, missing path segments, and refs exceeding the cache limit are rejected.
+
+An unhandled `licenseFile` is retained as `nuget_license_file_unresolved`. A legacy URL that cannot be converted by the rule above is retained as `nuget_license_url_unsupported`; absence of expression, file, usable repository, and URL is `nuget_license_metadata_missing`. These are unknown evidence states, not inferred license conclusions.
+
 Every registered ecosystem must have exactly one repository fixture in the ecosystem CI manifest. CI derives its smoke-test matrix from that manifest rather than maintaining another ecosystem list. The test contract compares manifest count and names with the provider registry, so adding a provider without a runnable fixture fails before release. Each matrix entry names one published dependency and its expected metadata source. CI must generate a CycloneDX SBOM, recognize the dependency under its registered purl type, collect its package metadata without a fetch error, and render text, Markdown, and JSON reports. Registry failures for fixture-local root packages emitted by an SBOM generator do not replace this per-dependency success check.
 
 Unsupported ecosystems do not introduce a new component status. They are recorded as evidence with unsupported reason metadata. The component's final status remains based on available license evidence.
@@ -215,6 +219,8 @@ Cache identity is the package schema's canonical versioned-purl key. Schema vers
 The exact persisted properties, casing, validation rules, and schema-version behavior are defined by [package metadata cache schema version 1](cache_format.md#contract-package-cache-v1). Package metadata code must not define an independent cache shape.
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing package metadata cache and overwrites it with newly fetched evidence.
+
+Before legacy NuGet URL projection existed, an empty NuGet license with no warning and no supported source repository was cached as a complete observation. That exact legacy capability shape is treated as a cache miss once. Recollection writes either a usable repository/ref or an explicit NuGet warning, so subsequent scans return to normal cache hits; other ecosystems and usable NuGet cache entries are not invalidated.
 
 `ol cache clear` removes evidence caches. It may accept cache categories such as `package-metadata`, `source-repository`, or `all`.
 

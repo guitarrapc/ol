@@ -1,6 +1,8 @@
 ﻿using NuGet.Versioning;
 using Ol.Core.PackageMetadata;
 using System.Text.Json;
+using Ol.Core.Licensing;
+using Ol.Core.SourceRepository;
 
 namespace Ol.Core.PackageManagers;
 
@@ -80,13 +82,149 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
     {
         if (!TryFindCatalogEntry(root, request.Version, out var catalog))
         {
-            return new("nuget-registry", "", "", "");
+            return new("nuget-registry", "", "", "", LicenseCandidateWarnings.NuGetLicenseMetadataMissing);
         }
 
         var repository = PackageMetadataJson.ReadElement(catalog, "repository");
         var repositoryUrl = PackageMetadataJson.ReadString(repository, "url");
-        if (repositoryUrl.Length == 0) repositoryUrl = PackageMetadataJson.ReadString(catalog, "projectUrl");
-        return new("nuget-registry", PackageMetadataJson.ReadString(catalog, "licenseExpression"), repositoryUrl, PackageMetadataJson.ReadString(repository, "commit"));
+        var repositoryRef = PackageMetadataJson.ReadString(repository, "commit");
+        var licenseExpression = PackageMetadataJson.ReadString(catalog, "licenseExpression");
+        var licenseFile = PackageMetadataJson.ReadString(catalog, "licenseFile");
+        var licenseUrl = PackageMetadataJson.ReadString(catalog, "licenseUrl");
+        var projectUrl = PackageMetadataJson.ReadString(catalog, "projectUrl");
+        if (!SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out _))
+        {
+            if (TryCreateRepositoryFromLicenseUrl(licenseUrl, out var licenseRepository, out var licenseRef))
+            {
+                repositoryUrl = licenseRepository;
+                repositoryRef = licenseRef;
+            }
+            else if (repositoryUrl.Length == 0)
+            {
+                repositoryUrl = projectUrl;
+            }
+        }
+
+        var warnings = LicenseCandidateWarnings.None;
+        if (licenseExpression.Length == 0 && licenseFile.Length != 0)
+        {
+            warnings = LicenseCandidateWarnings.NuGetLicenseFileUnresolved;
+        }
+        else if (licenseExpression.Length == 0
+            && !SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out _))
+        {
+            warnings = licenseUrl.Length == 0
+                ? LicenseCandidateWarnings.NuGetLicenseMetadataMissing
+                : LicenseCandidateWarnings.NuGetLicenseUrlUnsupported;
+        }
+
+        return new("nuget-registry", licenseExpression, repositoryUrl, repositoryRef, warnings);
+    }
+
+    private static bool TryCreateRepositoryFromLicenseUrl(string value, out string repositoryUrl, out string repositoryRef)
+    {
+        repositoryUrl = string.Empty;
+        repositoryRef = string.Empty;
+        if (!TryCreateTrustedGitHubUri(value, out var uri))
+        {
+            return false;
+        }
+
+        var path = uri.AbsolutePath.AsSpan();
+        if (path.IsEmpty || path[0] != '/')
+        {
+            return false;
+        }
+
+        path = path[1..];
+        var offset = 0;
+        if (!TryTakePathSegment(path, ref offset, out var ownerRange)
+            || !TryTakePathSegment(path, ref offset, out var repositoryRange))
+        {
+            return false;
+        }
+
+        Range referenceRange;
+        if (uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!TryTakePathSegment(path, ref offset, out var markerRange)
+                || !path[markerRange].Equals("blob", StringComparison.Ordinal)
+                || !TryTakePathSegment(path, ref offset, out referenceRange))
+            {
+                return false;
+            }
+        }
+        else if (!TryTakePathSegment(path, ref offset, out referenceRange))
+        {
+            return false;
+        }
+
+        if (offset >= path.Length || path[offset] == '/')
+        {
+            return false;
+        }
+
+        var owner = path[ownerRange];
+        var repository = path[repositoryRange];
+        var reference = path[referenceRange];
+        if (reference.Length > 256)
+        {
+            return false;
+        }
+
+        repositoryUrl = string.Concat("https://github.com/", owner, "/", repository);
+        repositoryRef = reference.ToString();
+        return true;
+    }
+
+    private static bool TryCreateTrustedGitHubUri(string value, out Uri uri)
+    {
+        if (value.Length == 0
+            || ContainsUnsafeUrlCharacter(value)
+            || !Uri.TryCreate(value, UriKind.Absolute, out uri!)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !uri.IsDefaultPort
+            || uri.UserInfo.Length != 0
+            || uri.Query.Length != 0
+            || uri.Fragment.Length != 0
+            || (!uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+                && !uri.Host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
+                && !uri.Host.Equals("raw.github.com", StringComparison.OrdinalIgnoreCase)))
+        {
+            uri = null!;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryTakePathSegment(ReadOnlySpan<char> path, ref int offset, out Range range)
+    {
+        range = default;
+        if ((uint)offset >= (uint)path.Length)
+        {
+            return false;
+        }
+
+        var separator = path[offset..].IndexOf('/');
+        var end = separator < 0 ? path.Length : offset + separator;
+        var segment = path[offset..end];
+        range = offset..end;
+        offset = separator < 0 ? path.Length : end + 1;
+        return !segment.IsEmpty && !segment.SequenceEqual(".".AsSpan()) && !segment.SequenceEqual("..".AsSpan());
+    }
+
+    private static bool ContainsUnsafeUrlCharacter(string value)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (value[i] is '%' or '\\' || char.IsControl(value[i]) || char.IsWhiteSpace(value[i]))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool TryFindCatalogEntry(JsonElement root, string requestedVersion, out JsonElement catalog)

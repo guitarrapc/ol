@@ -30,7 +30,7 @@ NuGet package が SPDX `licenseExpression` ではなく `.nupkg` 内の `license
 ## 非目標
 
 - NuGet Gallery の HTML や `/License` page を scrape しない。
-- `licenseUrl`、file 名、本文冒頭の自然言語を SPDX ID として推測しない。
+- `licenseUrl`、file 名、本文冒頭の自然言語を SPDX ID として推測しない。安全な GitHub license-file URL から repository/ref だけを抽出して既存の source evidence に渡す互換処理は、この禁止に含めない。
 - GitHub repository の現在の default branch を package version の証拠として代用しない。
 - NuGet global-packages folder や restore 済み host state を既定の証拠源にしない。
 - fuzzy similarity だけで `matched` にしない。
@@ -78,16 +78,17 @@ SBOM、`licenseExpression`、`licenseFile` 検出結果が異なる場合は、�
 |---|---:|---|---|
 | `licenseExpression` あり | expression | なし | 現行どおり正規化 |
 | expression なし、`licenseFile` あり | 空 | `nuget_license_file_unresolved` | `unknown`、file evidence が未処理と説明 |
-| expression/file なし、legacy `licenseUrl` あり | 空 | `nuget_license_url_unsupported` | `unknown`、registry metadata はあるが安全に正規化できないと説明 |
+| expression/file なし、安全な GitHub legacy `licenseUrl` あり | 空 | なし | repository/ref を source evidence 解決へ渡す |
+| expression/file なし、その他の legacy `licenseUrl` あり | 空 | `nuget_license_url_unsupported` | `unknown`、registry metadata はあるが安全に正規化できないと説明 |
 | expression/file/licenseUrl なし | 空 | `nuget_license_metadata_missing` | `unknown`、registry declaration 自体がないと説明 |
 
 warning 名は candidate の stable identifier として `LicenseCandidateWarnings`、cache JSON、text/Markdown/JSON report で同じ値を使う。file path を warning string へ連結しない。path は将来の typed provenance に置く。
 
 ### 旧 cache の扱い
 
-既存 cache には `Source = nuget-registry`、空の `RawLicense`、空の warnings という entry がある。この形だけを旧 capability の観測として cache miss 扱いにし、一度再収集する。
+既存 cache には `Source = nuget-registry`、空の `RawLicense`、空の warnings という entry がある。このうち source enrichment が利用できる repository/ref もない形だけを旧 capability の観測として cache miss 扱いにし、一度再収集する。既に利用可能な repository/ref を持つ entry は再収集しない。
 
-再収集後は `nuget_license_file_unresolved`、`nuget_license_url_unsupported`、`nuget_license_metadata_missing` のいずれかを必ず持つため、永続 unknown でも通常の cache hit に戻る。他 ecosystem と licenseExpression を持つ NuGet entry は無効化しない。全 package metadata cache の schema bump と全 ecosystem の一斉 refetch は避ける。
+再収集後は利用可能な repository/ref、または `nuget_license_file_unresolved`、`nuget_license_url_unsupported`、`nuget_license_metadata_missing` のいずれかを必ず持つため、永続 unknown でも通常の cache hit に戻る。他 ecosystem と licenseExpression を持つ NuGet entry は無効化しない。全 package metadata cache の schema bump と全 ecosystem の一斉 refetch は避ける。
 
 `--refresh` は従来どおり全対象を再取得する。migration と refresh の summary count を混同しない。
 
@@ -207,7 +208,8 @@ Phase 1 は license を MIT と確定しない。unknown の理由だけを改�
 | valid | none | any | not requested | n/a | expression candidate |
 | valid | present | any | not requested | n/a | expression candidate、不要な fetch なし |
 | absent | absent | absent | not requested | n/a | unknown + metadata-missing warning |
-| absent | absent | present | not requested | n/a | unknown + URL-unsupported warning |
+| absent | absent | safe GitHub URL | repository API | one SPDX result | source candidate |
+| absent | absent | unsupported URL | not requested | n/a | unknown + URL-unsupported warning |
 | absent | present | any | available | one | matched detected candidate |
 | absent | present | any | available | zero | unknown + unresolved warning |
 | absent | present | any | available | multiple | ambiguous + unresolved warning |

@@ -38,6 +38,9 @@ public enum LicenseCandidateWarnings : ushort
     UnsupportedSourceRepository = 1 << 7,
     ExternalEvidenceNotCollected = 1 << 8,
     PackageMetadataNotFound = 1 << 9,
+    NuGetLicenseUrlUnsupported = 1 << 10,
+    NuGetLicenseMetadataMissing = 1 << 11,
+    NuGetLicenseFileUnresolved = 1 << 12,
 }
 
 /// <summary>Identifies the evidence system that produced a license candidate.</summary>
@@ -85,6 +88,9 @@ public static class LicenseCandidateIdentifiers
         "unsupported_source_repository" => LicenseCandidateWarnings.UnsupportedSourceRepository,
         "external_evidence_not_collected" => LicenseCandidateWarnings.ExternalEvidenceNotCollected,
         "package_metadata_not_found" => LicenseCandidateWarnings.PackageMetadataNotFound,
+        "nuget_license_url_unsupported" => LicenseCandidateWarnings.NuGetLicenseUrlUnsupported,
+        "nuget_license_metadata_missing" => LicenseCandidateWarnings.NuGetLicenseMetadataMissing,
+        "nuget_license_file_unresolved" => LicenseCandidateWarnings.NuGetLicenseFileUnresolved,
         _ => LicenseCandidateWarnings.None,
     };
 
@@ -108,6 +114,9 @@ public static class LicenseCandidateIdentifiers
         if (value.SequenceEqual("unsupported_source_repository"u8)) return LicenseCandidateWarnings.UnsupportedSourceRepository;
         if (value.SequenceEqual("external_evidence_not_collected"u8)) return LicenseCandidateWarnings.ExternalEvidenceNotCollected;
         if (value.SequenceEqual("package_metadata_not_found"u8)) return LicenseCandidateWarnings.PackageMetadataNotFound;
+        if (value.SequenceEqual("nuget_license_url_unsupported"u8)) return LicenseCandidateWarnings.NuGetLicenseUrlUnsupported;
+        if (value.SequenceEqual("nuget_license_metadata_missing"u8)) return LicenseCandidateWarnings.NuGetLicenseMetadataMissing;
+        if (value.SequenceEqual("nuget_license_file_unresolved"u8)) return LicenseCandidateWarnings.NuGetLicenseFileUnresolved;
         return LicenseCandidateWarnings.None;
     }
 
@@ -149,7 +158,10 @@ public static class LicenseCandidateIdentifiers
         if ((value & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0) result[index++] = "unsupported_package_metadata";
         if ((value & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) result[index++] = "unsupported_source_repository";
         if ((value & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0) result[index++] = "external_evidence_not_collected";
-        if ((value & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) result[index] = "package_metadata_not_found";
+        if ((value & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) result[index++] = "package_metadata_not_found";
+        if ((value & LicenseCandidateWarnings.NuGetLicenseUrlUnsupported) != 0) result[index++] = "nuget_license_url_unsupported";
+        if ((value & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0) result[index++] = "nuget_license_metadata_missing";
+        if ((value & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0) result[index] = "nuget_license_file_unresolved";
         return result;
     }
 

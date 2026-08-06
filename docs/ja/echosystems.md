@@ -1,6 +1,6 @@
 # エコシステム別の使い方
 
-[English](../en/usage.md) | 日本語
+[English](../en/echosystems.md) | 日本語
 
 olは解決済みの依存グラフをスキャンします。CycloneDXまたはSPDX形式のJSON SBOM、対応するロックファイル、パッケージマネージャーの解決済み出力を指定します。`package.json`、`*.csproj`、`Cargo.toml`などの未解決マニフェストは単独で指定できません。
 

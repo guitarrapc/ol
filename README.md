@@ -472,13 +472,13 @@ Yes. Run `check` with a different `--allow-licenses` value against the saved can
 
 ## Ecosystem usage
 
-For ecosystem-specific SBOM generation, resolved-input commands, and important input constraints, see the [ecosystem usage guide](docs/en/usage.md).
+For ecosystem-specific SBOM generation, resolved-input commands, and important input constraints, see the [ecosystem usage guide](docs/en/echosystems.md).
 
 It covers .NET/NuGet, JavaScript, Rust, Go, Python, PHP/Composer, Ruby/Bundler, Java/Maven and Gradle, SwiftPM, and CocoaPods.
 
 ## Detailed documentation
 
-- [Ecosystem usage](docs/en/usage.md)
+- [Ecosystem usage](docs/en/echosystems.md)
 - [Design principles](.github/docs/DESIGN.md)
 - [Architecture](.github/docs/Architecture.md)
 - [CLI and report specification](.github/docs/specs/cli.md)

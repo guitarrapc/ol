@@ -1,6 +1,6 @@
 # Ecosystem Usage
 
-English | [日本語](../ja/usage.md)
+English | [日本語](../ja/echosystems.md)
 
 ol scans resolved dependency graphs. Use a CycloneDX or SPDX JSON SBOM, supported lockfile, or package-manager output. Unresolved manifests such as `package.json`, `*.csproj`, and `Cargo.toml` are not valid inputs by themselves.
 

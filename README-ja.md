@@ -476,13 +476,13 @@ stdoutの判定結果は変わらず、同じ違反集合をSARIF 2.1.0として
 
 ## エコシステム別の使い方
 
-エコシステムごとのSBOM生成方法、解決済み入力のコマンド例、入力時の注意点は[エコシステム別の使い方](docs/ja/usage.md)を参照してください。
+エコシステムごとのSBOM生成方法、解決済み入力のコマンド例、入力時の注意点は[エコシステム別の使い方](docs/ja/echosystems.md)を参照してください。
 
 .NET/NuGet、JavaScript、Rust、Go、Python、PHP/Composer、Ruby/Bundler、Java/Maven・Gradle、SwiftPM、CocoaPodsを掲載しています。
 
 ## 詳細ドキュメント
 
-- [エコシステム別の使い方](docs/ja/usage.md)
+- [エコシステム別の使い方](docs/ja/echosystems.md)
 - [デザイン原則](.github/docs/DESIGN.md)
 - [アーキテクチャ](.github/docs/Architecture.md)
 - [CLIとレポートの仕様](.github/docs/specs/cli.md)

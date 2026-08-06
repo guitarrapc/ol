@@ -159,9 +159,16 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
             return false;
         }
 
-        if (offset >= path.Length
-            || path[offset] == '/'
-            || path[offset..].Contains('/') && !IsFullCommitSha(path[referenceRange]))
+        if (offset >= path.Length)
+        {
+            return false;
+        }
+
+        // The repository-level License API answers with the license GitHub detects at the repository
+        // root, never with the file this URL names. Only a root file whose name is one GitHub detects
+        // can be assumed to be that answer, so a nested path or a qualified name is not projected.
+        var file = path[offset..];
+        if (file.Contains('/') || !IsDetectableLicenseFileName(file))
         {
             return false;
         }
@@ -179,22 +186,27 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
         return true;
     }
 
-    private static bool IsFullCommitSha(ReadOnlySpan<char> value)
+    /// <summary>Reports whether a root file name is one GitHub reports as the repository license.</summary>
+    /// <remarks>
+    /// A qualified name such as <c>LICENSE.MIT</c> or <c>COPYING.LESSER</c> is excluded: it names one
+    /// license among several in the same repository, and the repository-level answer would be a
+    /// different file.
+    /// </remarks>
+    private static bool IsDetectableLicenseFileName(ReadOnlySpan<char> value)
     {
-        if (value.Length is not 40 and not 64)
+        var dot = value.LastIndexOf('.');
+        if (dot >= 0
+            && !value[(dot + 1)..].Equals("txt", StringComparison.OrdinalIgnoreCase)
+            && !value[(dot + 1)..].Equals("md", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (!char.IsAsciiHexDigit(value[i]))
-            {
-                return false;
-            }
-        }
-
-        return true;
+        var stem = dot < 0 ? value : value[..dot];
+        return stem.Equals("LICENSE", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("LICENCE", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("COPYING", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("UNLICENSE", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryCreateTrustedGitHubUri(string value, out Uri uri)

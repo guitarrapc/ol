@@ -533,7 +533,11 @@ public sealed class PackageMetadataTests
     [Arguments("https://github.com/example/project/blob/v1.2.3/LICENSE", "v1.2.3")]
     [Arguments("https://raw.githubusercontent.com/example/project/v1.2.3/LICENSE", "v1.2.3")]
     [Arguments("https://raw.github.com/example/project/v1.2.3/LICENSE.txt", "v1.2.3")]
-    [Arguments("https://github.com/example/project/blob/0123456789abcdef0123456789abcdef01234567/licenses/LICENSE", "0123456789abcdef0123456789abcdef01234567")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/LICENSE.md", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/license.txt", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/LICENCE", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/COPYING", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/UNLICENSE", "v1.2.3")]
     public async Task Fetch_NuGetRegistrationResponse_WithLegacyGitHubLicenseUrl_ProducesRepositoryTarget(string licenseUrl, string expectedRef)
     {
         var handler = new SequenceJsonResponseHandler(
@@ -652,6 +656,14 @@ public sealed class PackageMetadataTests
     [Arguments("https://raw.githubusercontent.com/example/project/main//LICENSE")]
     [Arguments("https://raw.githubusercontent.com/example/project/../other/main/LICENSE")]
     [Arguments("https://github.com/example/project/blob/release/1.0/LICENSE")]
+    [Arguments("https://github.com/example/project/blob/0123456789abcdef0123456789abcdef01234567/licenses/LICENSE")]
+    [Arguments("https://github.com/example/project/blob/0123456789abcdef0123456789abcdef01234567/src/Example/LICENSE.txt")]
+    [Arguments("https://raw.githubusercontent.com/example/project/0123456789abcdef0123456789abcdef01234567/licenses/NOTICE")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/LICENSE.MIT")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/LICENSE-MIT")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/COPYING.LESSER")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/NOTICE")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/license.rst")]
     public async Task Fetch_NuGetRegistrationResponse_WithUnsupportedLegacyLicenseUrl_DoesNotCreateRepositoryTarget(string licenseUrl)
     {
         var handler = new SequenceJsonResponseHandler(

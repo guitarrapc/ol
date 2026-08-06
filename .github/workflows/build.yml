@@ -95,6 +95,16 @@ jobs:
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/nuget-assets-report.json" -TextReport "$env:RUNNER_TEMP/nuget-assets-report.txt" -MarkdownReport "$env:RUNNER_TEMP/nuget-assets-report.md" -Ecosystem nuget -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat nuget-assets
           }
 
+          if ($env:FIXTURE_ECOSYSTEM -eq "npm") {
+            $pnpmLock = Join-Path $env:FIXTURE_PATH "pnpm/pnpm-lock.yaml"
+            Invoke-OlScan $pnpmLock pnpm-lock-report
+            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/pnpm-lock-report.json" -TextReport "$env:RUNNER_TEMP/pnpm-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/pnpm-lock-report.md" -Ecosystem npm -Package is-odd -MetadataSource npm-registry -InputKind package-manager -InputFormat pnpm-lock
+
+            $yarnBerryLock = Join-Path $env:FIXTURE_PATH "yarn-berry/yarn.lock"
+            Invoke-OlScan $yarnBerryLock yarn-berry-lock-report
+            ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/yarn-berry-lock-report.json" -TextReport "$env:RUNNER_TEMP/yarn-berry-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/yarn-berry-lock-report.md" -Ecosystem npm -Package is-odd -MetadataSource npm-registry -InputKind package-manager -InputFormat yarn-berry-lock
+          }
+
           if ($env:FIXTURE_ECOSYSTEM -eq "composer") {
             Invoke-OlScan $env:FIXTURE_PATH composer-lock-report
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/composer-lock-report.json" -TextReport "$env:RUNNER_TEMP/composer-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/composer-lock-report.md" -Ecosystem composer -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat composer-lock
@@ -124,6 +134,8 @@ jobs:
             ${{ runner.temp }}/report.md
             ${{ runner.temp }}/report.json
             ${{ runner.temp }}/nuget-assets-report.*
+            ${{ runner.temp }}/pnpm-lock-report.*
+            ${{ runner.temp }}/yarn-berry-lock-report.*
             ${{ runner.temp }}/composer-lock-report.*
             ${{ runner.temp }}/bundler-lock-report.*
             ${{ runner.temp }}/maven-dependency-tree-report.*

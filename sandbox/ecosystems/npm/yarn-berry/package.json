@@ -1,0 +1,10 @@
+{
+  "name": "ol-ci-yarn-berry",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "yarn@4.9.4",
+  "dependencies": {
+    "is-odd": "3.0.1"
+  }
+}

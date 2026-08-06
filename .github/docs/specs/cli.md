@@ -28,7 +28,7 @@ Ol uses four exit codes:
 
 Exit codes `2` and `3` belong only to policy results. `scan` and `diff` do not use changes or unresolved components as an alternate failure code.
 
-`3` exists because the three states a CI job must tell apart are "fix the pipeline", "fix the dependency", and "try again". A component whose evidence could not be collected proves nothing about its license, so reporting it as a policy violation would make a registry outage indistinguishable from a forbidden license. It is not exit `1` either: the command ran, produced a complete report, and component-level collection failures are best-effort results rather than command failures. A run is inconclusive only when **every** violation is a collection failure; one genuine finding alongside them yields `2`, because a real violation is the more actionable fact. Status `error` cannot be acknowledged by a baseline, so a baseline never converts an inconclusive run into a pass.
+`3` exists because the three states a CI job must tell apart are "fix the pipeline", "fix the dependency", and "try again". A component whose evidence could not be collected proves nothing about its license, so reporting it as a policy violation would make a registry outage indistinguishable from a forbidden license. It is not exit `1` either: the command ran, produced a complete report, and component-level collection failures are best-effort results rather than command failures. A run is inconclusive only when **every** violation is a collection failure; one genuine finding alongside them yields `2`, because a real violation is the more actionable fact. Status `error` cannot be acknowledged into a baseline, so a baseline never converts an inconclusive run into a pass.
 
 Primary command output is written to stdout and ends with a line feed. Successful help is also stdout. Diagnostics and human-readable scan summaries are written to stderr. An expected failure writes one concise cause to stderr, leaves stdout empty, and does not print a stack trace or partial primary result.
 
@@ -114,7 +114,7 @@ Repeated and directory inputs are deduplicated by resolved file path and process
 
 <a id="contract-skip-evidence-packages"></a>
 
-`--skip-evidence-packages <prefixes>` disables registry, repository, and cache collection only for matching components. Each remains in the report and receives an `unknown` evidence candidate with `external_evidence_not_collected`; input evidence may still resolve its final status. An unresolved result fails closed in `check` unless a baseline acknowledges it. Combined with `--no-external-evidence`, the option has no additional effect.
+`--skip-evidence-packages <prefixes>` disables registry, repository, and cache collection only for matching components. Each remains in the report and receives an `unknown` evidence candidate with `external_evidence_not_collected`; input evidence may still resolve its final status. An unresolved result fails closed in `check` unless a baseline acknowledges that component. Combined with `--no-external-evidence`, the option has no additional effect.
 
 <a id="contract-dependency-filtering"></a>
 
@@ -135,7 +135,7 @@ ol check --report <scan.json> --allow-licenses <SPDX-ids>
 
 `--allow-licenses` is a required comma-separated list of SPDX License Identifiers. Whitespace and casing are normalized using active SPDX data. Empty entries, expressions, exception identifiers, natural-language names, and unknown identifiers are invalid. For a `matched` component, `AND` requires both operands, `OR` requires either operand, parentheses retain SPDX precedence, and `WITH` has the policy value of its base license.
 
-Policy evaluates all non-root, non-excluded components. `unknown` dependency type remains in scope. `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed unless the baseline rules below acknowledge the unresolved status. All violations are collected and deterministically ordered.
+Policy evaluates all non-root, non-excluded components. `unknown` dependency type remains in scope. `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed unless a baseline acknowledges that component under the rules below. All violations are collected and deterministically ordered.
 
 `--allow-dev-licenses` adds identifiers only for components proven development-only by resolver data persisted in the report. It uses the same identifier validation as `--allow-licenses`; a supplied empty value is invalid. Any runtime or usage-unknown occurrence keeps the component under the primary allow-list. Inputs without reliable development reachability therefore fail closed. When supplied, the count admitted by this policy is always printed.
 
@@ -143,9 +143,9 @@ Policy evaluates all non-root, non-excluded components. `unknown` dependency typ
 
 <a id="contract-policy-baseline"></a>
 
-`--baseline <file>` acknowledges reviewed unresolved components so that the unresolved set cannot grow silently. `--update-baseline` requires `--baseline`, replaces it with a deterministic complete snapshot, and then evaluates against that snapshot; it does not merely append or suppress evaluation.
+`--baseline <file>` supplies a baseline of acknowledged unresolved components: the components a reviewer has already seen and accepted because their evidence cannot be resolved. Acknowledging them removes their violations, so that the unresolved set cannot grow silently rather than so that it becomes empty. `--update-baseline` requires `--baseline`, replaces it with a deterministic complete snapshot, and then evaluates against that snapshot; it does not merely append or suppress evaluation.
 
-Only `unknown`, `ambiguous`, `conflict`, and `invalid` may be acknowledged, and only when no recognizable candidate is rejected by the active allow-list. `matched` belongs in the allow-list and `error` represents an operation to repair. Entries identify the component and fingerprint its status and evidence, so changed evidence or identity expires the acknowledgement. Applying a baseline rechecks the active allow-list. Missing, malformed, or incompatible baselines exit `1`; acknowledged counts, including zero, are reported.
+Only `unknown`, `ambiguous`, `conflict`, and `invalid` may be acknowledged into a baseline, and only when no recognizable candidate is rejected by the active allow-list. `matched` belongs in the allow-list and `error` represents an operation to repair. Entries identify the component and fingerprint its status and evidence, so changed evidence or identity expires that acknowledgement. Applying a baseline rechecks the active allow-list. Missing, malformed, or incompatible baselines exit `1`; acknowledged counts, including zero, are reported.
 
 <a id="contract-policy-sarif"></a>
 
@@ -188,7 +188,7 @@ The SPDX commands inspect and manage user-installed SPDX License List data. `upd
 - Detection must validate the complete document. Optional UTF-8 BOMs are common, and selecting the first recognizable marker can misclassify a document that contains conflicting format markers.
 - The documented command shape is part of the contract. A positional cache category implemented as both an option and an argument made help ambiguous and left conflicting forms without a principled winner.
 - Canonical artifacts must be stable under irrelevant ordering. Baseline fingerprints sort evidence claims before hashing, and report views never reuse their sorted indexes as inventory indexes.
-- Acknowledgement is not a license status. It removes a policy violation while preserving the original unresolved status and evidence, which keeps factual resolution separate from organizational policy.
+- A baseline acknowledgement is not a license status. It removes a policy violation while preserving the original unresolved status and evidence, which keeps factual resolution separate from organizational policy.
 - Root and unknown dependency relationships are not interchangeable. The inspected subject is outside dependency policy, while an unknown relationship remains fail-closed because missing graph evidence cannot prove first-party ownership.
 - Safe defaults matter across every parser: an absent license must become `unknown`, never an empty `matched` result.
 - Policy exclusion and skipped collection solve different problems. Exclusion belongs to `check` and changes scope; skipped collection belongs to `scan` and preserves a visible unresolved component.

@@ -4,17 +4,17 @@ This document tracks ideas that are intentionally outside the current v1, v2, an
 
 ## Policy and Enforcement
 
-Implemented and specified in [cli.md](specs/cli.md#contract-policy-checks): allow-list checking that fails closed, an acknowledgement [baseline](specs/cli.md#contract-policy-baseline) for reviewed unresolved components, and [persisted-report evaluation](specs/cli.md#contract-policy-report-input).
+Implemented and specified in [cli.md](specs/cli.md#contract-policy-checks): allow-list checking that fails closed, a [baseline](specs/cli.md#contract-policy-baseline) of acknowledged unresolved components, and [persisted-report evaluation](specs/cli.md#contract-policy-report-input).
 
 Remaining:
 
-- Consider richer policy categories such as `deny`, `review`, `notice_required`, `source_disclosure_required`, and `copyleft_review`. Deliberately deferred: a deny-list reduces noise rather than adding detection, and the baseline removes noise more precisely. Deny becomes meaningful only if acknowledgement is ever widened beyond unresolved components, where it would act as a floor that acknowledgement cannot cross.
-- License curation, that is recording that an upstream claim is factually wrong and what the correct license is. Not needed for a pass/fail verdict, which acknowledgement already covers, so it is justified only by verdict accuracy: acknowledgement can record that a reviewer accepted unresolved evidence, but not that the evidence itself is wrong.
+- Consider richer policy categories such as `deny`, `review`, `notice_required`, `source_disclosure_required`, and `copyleft_review`. Deliberately deferred: a deny-list reduces noise rather than adding detection, and a baseline removes noise more precisely. Deny becomes meaningful only if acknowledgement is ever widened beyond unresolved components, where it would act as a floor that acknowledgement cannot cross.
+- License curation, that is recording that an upstream claim is factually wrong and what the correct license is. Not needed for a pass/fail verdict, which a baseline already covers, so it is justified only by verdict accuracy: a baseline can record that a reviewer accepted unresolved evidence, but not that the evidence itself is wrong.
 - Per-package policy exceptions with owner and expiry, distinct from factual correction.
 
 ## Non-Public Registry Handling
 
-Resolved: a registry `404` contributes unknown evidence rather than a collection error, so a package published only to a private feed is acknowledgeable in every ecosystem. Cargo and Bundler additionally withhold a public-registry identity from packages their input records as coming from another source, which avoids the request entirely.
+Resolved: a registry `404` contributes unknown evidence rather than a collection error, so a package published only to a private feed can be acknowledged into a baseline in every ecosystem. Cargo and Bundler additionally withhold a public-registry identity from packages their input records as coming from another source, which avoids the request entirely.
 
 Deliberately not done: deriving the origin from a lockfile download URL for npm, pnpm, or Composer. A corporate proxy serves public packages from an internal host, so the host would misclassify an entire proxied dependency tree as private and silently disable enrichment for it. A public Composer package likewise records a GitHub `dist.url`, which says nothing about Packagist membership.
 

@@ -334,24 +334,85 @@ This does not prove that the package is absent from a production artifact. Check
 
 ### Adopt a baseline for an existing project
 
-A baseline records reviewed unresolved components so subsequent runs detect only new or changed unresolved evidence.
+An existing project can contain components ol cannot resolve: a package on a private feed, a registry with no license field, a source outside GitHub. They fail closed, and you cannot fix them by editing your own code.
 
 ```bash
-ol check --report ol-report.json \
-  --allow-licenses MIT,Apache-2.0 \
-  --baseline ol-baseline.json \
-  --update-baseline
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```
 
-Commit `ol-baseline.json`, then name it explicitly in later evaluations:
+```text
+License check failed: 1 violation.
+
+Package                  Version  Ecosystem  Purl                                     License/Status  Reason
+@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved
+```
+
+Record what you reviewed and accepted with `--update-baseline`:
 
 ```bash
-ol check --report ol-report.json \
-  --allow-licenses MIT,Apache-2.0 \
-  --baseline ol-baseline.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \
+  --baseline ol-baseline.json --update-baseline
 ```
 
-A baseline cannot acknowledge a recognizable license rejected by the allow-list or an `error` caused by collection failure. Evidence or version changes automatically expire the corresponding acknowledgement.
+```text
+Acknowledged by baseline: 1 component.
+License check passed: 2 components satisfy the allow-list.
+```
+
+`ol-baseline.json` now records that component with the evidence that produced it, plus a fingerprint of that evidence. Commit the file; the raw claims are in it, so a reviewer can judge a future change from the pull request diff alone.
+
+```json
+{
+  "schemaVersion": 1,
+  "acknowledged": [
+    {
+      "ecosystem": "npm",
+      "name": "@mycompany/internal-sdk",
+      "version": "1.0.0",
+      "purl": "pkg:npm/%40mycompany/internal-sdk@1.0.0",
+      "status": "unknown",
+      "evidence": [
+        { "source": "package-registry", "kind": "fetch", "raw": "" },
+        { "source": "source-repository", "kind": "unavailable", "raw": "" }
+      ],
+      "fingerprint": "eb7d5af4cdf1b2d6cff18128705d9a713c8d82d16426ba3a7d2463e4c512c41e"
+    }
+  ]
+}
+```
+
+Later runs name the file and drop `--update-baseline`:
+
+```bash
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json
+```
+
+**A newly unresolved component still fails.** This is the point of a baseline: the accepted set cannot grow without review.
+
+```text
+Acknowledged by baseline: 1 component.
+License check failed: 1 violation.
+
+Package                Version  Ecosystem  Purl                                   License/Status  Reason
+@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved
+```
+
+**A forbidden license is never absorbed**, even when you regenerate the file. Only `unknown`, `ambiguous`, `conflict`, and `invalid` can be acknowledged, and only when no recognizable candidate is rejected by the allow-list. A resolved license belongs in `--allow-licenses`, and an `error` is a collection failure to repair.
+
+```bash
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \
+  --baseline ol-baseline.json --update-baseline
+```
+
+```text
+Acknowledged by baseline: 1 component.
+License check failed: 1 violation.
+
+Package       Version  Ecosystem  Purl                          License/Status  Reason
+copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed
+```
+
+An acknowledged component keeps its unresolved status and evidence in the report; only its violation is removed. When the version changes, or a registry corrects its metadata, the fingerprint stops matching and the component fails again until it is reviewed anew.
 
 ### Skip collection or exclude evaluation for selected components
 

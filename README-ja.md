@@ -264,7 +264,7 @@ Commands:
 
 `matched`は「解決できた」という事実であり、「組織として許可する」という意味ではありません。許可・不許可は`check`の許可リストで判断します。`unknown`、`conflict`、`ambiguous`、`invalid`、`error`は、`check`では安全側に倒して違反として扱います。
 
-レジストリが`404`を返した場合はレジストリが応答しているため、`error`ではなく`unknown`（warningは`package_metadata_not_found`）になります。private feedにのみ公開されたパッケージがこの形になり、baselineで承認できます。`error`は応答自体が得られなかった場合、つまりタイムアウト、`429`、`5xx`に限られます。これが終了コード`3`の意味を成り立たせています。
+レジストリが`404`を返した場合はレジストリが応答しているため、`error`ではなく`unknown`（warningは`package_metadata_not_found`）になります。private feedにのみ公開されたパッケージがこの形になり、ベースラインで承認できます。`error`は応答自体が得られなかった場合、つまりタイムアウト、`429`、`5xx`に限られます。これが終了コード`3`の意味を成り立たせています。
 
 ## ライセンスの確度を高める
 
@@ -338,24 +338,85 @@ ol check --report ol-report.json \
 
 ### 既存プロジェクトへベースラインを導入する
 
-既に確認済みの未解決コンポーネントをベースラインへ記録すると、新規または変化した未解決項目だけを検出できます。
+既存プロジェクトには、olが解決できないコンポーネントが残りえます。プライベートフィードのパッケージ、ライセンス欄のないレジストリ、GitHub以外のソースなどです。これらは安全側に倒して違反になりますが、自分のコードを直しても解消できません。
 
 ```bash
-ol check --report ol-report.json \
-  --allow-licenses MIT,Apache-2.0 \
-  --baseline ol-baseline.json \
-  --update-baseline
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```
 
-生成した`ol-baseline.json`をバージョン管理へ追加し、以降の評価で明示的に指定します。
+```text
+License check failed: 1 violation.
+
+Package                  Version  Ecosystem  Purl                                     License/Status  Reason
+@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved
+```
+
+確認して受け入れたものを`--update-baseline`で記録します。
 
 ```bash
-ol check --report ol-report.json \
-  --allow-licenses MIT,Apache-2.0 \
-  --baseline ol-baseline.json
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \
+  --baseline ol-baseline.json --update-baseline
 ```
 
-ベースラインは、許可リストが拒否する認識可能なライセンスや、一時的な収集失敗である`error`を承認できません。証拠やバージョンが変化すると、対応する承認は自動的に失効します。
+```text
+Acknowledged by baseline: 1 component.
+License check passed: 2 components satisfy the allow-list.
+```
+
+`ol-baseline.json`には、対象コンポーネントと、その結論を生んだ証拠、そして証拠の指紋が記録されます。このファイルをバージョン管理へ追加します。生の証拠値が入っているため、以降の変更はPRのdiffだけで判断できます。
+
+```json
+{
+  "schemaVersion": 1,
+  "acknowledged": [
+    {
+      "ecosystem": "npm",
+      "name": "@mycompany/internal-sdk",
+      "version": "1.0.0",
+      "purl": "pkg:npm/%40mycompany/internal-sdk@1.0.0",
+      "status": "unknown",
+      "evidence": [
+        { "source": "package-registry", "kind": "fetch", "raw": "" },
+        { "source": "source-repository", "kind": "unavailable", "raw": "" }
+      ],
+      "fingerprint": "eb7d5af4cdf1b2d6cff18128705d9a713c8d82d16426ba3a7d2463e4c512c41e"
+    }
+  ]
+}
+```
+
+以降の実行では、ファイルを指定して`--update-baseline`を外します。
+
+```bash
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-baseline.json
+```
+
+**新たに未解決となったコンポーネントは、引き続き違反になります。** これがベースラインの目的です。承認済みの集合は、レビューを経ずに増えません。
+
+```text
+Acknowledged by baseline: 1 component.
+License check failed: 1 violation.
+
+Package                Version  Ecosystem  Purl                                   License/Status  Reason
+@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved
+```
+
+**禁止ライセンスは、再生成しても吸収されません。** 承認できるのは`unknown`、`ambiguous`、`conflict`、`invalid`だけで、しかも認識可能な候補が許可リストに拒否されない場合に限られます。解決済みのライセンスは`--allow-licenses`で扱う対象であり、`error`は修復すべき収集失敗です。
+
+```bash
+ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \
+  --baseline ol-baseline.json --update-baseline
+```
+
+```text
+Acknowledged by baseline: 1 component.
+License check failed: 1 violation.
+
+Package       Version  Ecosystem  Purl                          License/Status  Reason
+copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed
+```
+
+承認されたコンポーネントは、レポート上では未解決のステータスと証拠をそのまま保持します。外れるのは違反という扱いだけです。バージョンが上がったり、レジストリが記載を修正したりすると指紋が一致しなくなり、そのコンポーネントは再びレビューされるまで違反に戻ります。
 
 ### 一部コンポーネントの収集または評価を除外する
 
@@ -370,7 +431,7 @@ ol check --report ol-report.json \
 
 名前空間は、そのエコシステムでの表記のまま書けます。`--skip-evidence-packages pkg:npm/@acme/`は`pkg:npm/%40acme/util@1.0.0`に一致します。バージョン区切りの`@`はそのまま扱うため、`pkg:npm/left-pad@1.3.0`は引き続きそのコンポーネント1つだけを指します。
 
-private packageを扱うためにどちらかが必須ということはありません。レジストリの`404`はすでに`unknown`になるため、baselineで承認できます。成功し得ないリクエストを止めたいときに`--skip-evidence-packages`を、コンポーネント自体を検査の対象外にしたいときに`--exclude-packages`を使います。
+private packageを扱うためにどちらかが必須ということはありません。レジストリの`404`はすでに`unknown`になるため、ベースラインで承認できます。成功し得ないリクエストを止めたいときに`--skip-evidence-packages`を、コンポーネント自体を検査の対象外にしたいときに`--exclude-packages`を使います。
 
 ### 2つのレポートを比較する
 

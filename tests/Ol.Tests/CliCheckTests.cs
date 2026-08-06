@@ -874,6 +874,81 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    public async Task Check_ReportWithOnlyCollectionErrors_ReturnsThreeAsIncomplete()
+    {
+        var root = FindRepositoryRoot();
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        // A registry outage is not a licensing finding, so it must not carry the exit code that means one.
+        var report = """
+            { "schemaVersion": 1, "metadata": { "input": { "kind": "package-manager", "format": "npm-package-lock" }, "spdx": { "licenseListVersion": "3.0" } },
+              "components": [ { "name": "unreachable", "version": "1.0.0", "ecosystem": "npm", "purl": "pkg:npm/unreachable@1.0.0", "dependency": "direct", "status": "error" } ] }
+            """;
+        await File.WriteAllTextAsync(reportPath, report);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(3);
+            await Assert.That(result.Stdout).Contains("License check incomplete: 1 component could not be evaluated.");
+            await Assert.That(result.Stdout).Contains("license evidence could not be completed");
+        }
+        finally
+        {
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_ReportWithCollectionErrorAndPolicyViolation_ReturnsTwo()
+    {
+        var root = FindRepositoryRoot();
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        // A genuine finding decides the exit code even when a collection failure is present in the same run.
+        var report = """
+            { "schemaVersion": 1, "metadata": { "input": { "kind": "package-manager", "format": "npm-package-lock" }, "spdx": { "licenseListVersion": "3.0" } },
+              "components": [ { "name": "unreachable", "version": "1.0.0", "ecosystem": "npm", "purl": "pkg:npm/unreachable@1.0.0", "dependency": "direct", "status": "error" },
+                              { "name": "forbidden", "version": "1.0.0", "ecosystem": "npm", "purl": "pkg:npm/forbidden@1.0.0", "dependency": "direct", "status": "matched", "license": "GPL-3.0-only" } ] }
+            """;
+        await File.WriteAllTextAsync(reportPath, report);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).Contains("License check failed: 2 violations.");
+        }
+        finally
+        {
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_ReportWithAcknowledgedErrorOnly_StillReturnsThree()
+    {
+        var root = FindRepositoryRoot();
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        // Status error cannot be acknowledged, so a baseline must not turn an incomplete run into a pass.
+        var report = """
+            { "schemaVersion": 1, "metadata": { "input": { "kind": "package-manager", "format": "npm-package-lock" }, "spdx": { "licenseListVersion": "3.0" } },
+              "components": [ { "name": "unreachable", "version": "1.0.0", "ecosystem": "npm", "purl": "pkg:npm/unreachable@1.0.0", "dependency": "direct", "status": "error" } ] }
+            """;
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(reportPath, report);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", baselinePath, "--update-baseline");
+
+            await Assert.That(result.ExitCode).IsEqualTo(3);
+        }
+        finally
+        {
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+            if (File.Exists(baselinePath)) File.Delete(baselinePath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithInvalidExcludePackages_ReturnsOneWithoutPolicyOutput()
     {
         var root = FindRepositoryRoot();

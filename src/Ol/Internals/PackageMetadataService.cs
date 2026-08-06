@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Net;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.PackageMetadata;
@@ -23,7 +24,13 @@ internal static class PackageMetadataPaths
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ol", "cache", "package-metadata");
 }
 
-internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, PackageMetadataCache cache, bool refresh, int retryCount, PurlPrefixSet? uncollectedPackages = null)
+internal sealed class PackageMetadataService(
+    SpdxLicenseIndex spdxLicenseIndex,
+    PackageMetadataCache cache,
+    bool refresh,
+    int retryCount,
+    PurlPrefixSet? uncollectedPackages = null,
+    HttpClient? client = null)
 {
     private const int LinearPlanningComponentLimit = 8;
     private static readonly HttpClient HttpClient = new();
@@ -41,7 +48,7 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         false,
         LicenseCandidateWarnings.ExternalEvidenceNotCollected,
         new LicenseEvidence(LicenseEvidenceKind.PackageRegistry));
-    private readonly PackageMetadataRegistryClient registryClient = OlDefaults.CreatePackageMetadataRegistryClient(HttpClient);
+    private readonly PackageMetadataRegistryClient registryClient = OlDefaults.CreatePackageMetadataRegistryClient(client ?? HttpClient);
 
     public ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(
         ScanComponent[] components,
@@ -339,9 +346,14 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         {
             throw;
         }
-        catch (PackageMetadataFetchException)
+        catch (PackageMetadataFetchException exception)
         {
-            return CreateFetchError(request);
+            // A 404 is an answer, not a failed operation: the registry completed the request and reported that this
+            // package is not published there. Recording it as unknown keeps "asked and told no" separate from
+            // "could not ask", which is what makes a private package acknowledgeable instead of permanently errored.
+            return exception.StatusCode == HttpStatusCode.NotFound
+                ? CreateNotFoundResult(request)
+                : CreateFetchError(request);
         }
         catch (HttpRequestException)
         {
@@ -351,6 +363,23 @@ internal sealed class PackageMetadataService(SpdxLicenseIndex spdxLicenseIndex, 
         {
             return CreateFetchError(request);
         }
+    }
+
+    private static PackageMetadataLookupResult CreateNotFoundResult(PackageMetadataRequest request)
+    {
+        var evidence = new LicenseEvidence(
+            LicenseEvidenceKind.PackageRegistry,
+            PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey)));
+        var candidate = new LicenseCandidate(
+            LicenseCandidateSource.PackageRegistry,
+            LicenseCandidateKind.Fetch,
+            default,
+            default,
+            LicenseStatus.Unknown,
+            false,
+            LicenseCandidateWarnings.PackageMetadataNotFound,
+            evidence);
+        return new PackageMetadataLookupResult(null, candidate, true, false, true, false, false, false);
     }
 
     private static PackageMetadataLookupResult CreateFetchError(PackageMetadataRequest request)

@@ -245,6 +245,7 @@ Each command uses the following exit codes. CI can use the `check` result to dis
 | `0` | The command completed successfully. Help and version output also use `0`. |
 | `1` | Argument parsing, configuration, input, I/O, or another execution failure prevented completion. |
 | `2` | `check` completed policy evaluation and found one or more violations. |
+| `3` | `check` completed, but every finding is a collection failure, so the result is inconclusive. |
 
 ### Reading license results
 
@@ -260,6 +261,8 @@ Every component has one status:
 | `error` | Evidence collection or processing failed and no other evidence resolved the license. |
 
 `matched` means resolved, not allowed. `check` applies the organization's allow-list. `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed.
+
+A registry that answers `404` has answered, so the component becomes `unknown` with the warning `package_metadata_not_found` rather than `error`. This is what a package published only to a private feed looks like, and a baseline can acknowledge it. `error` is reserved for questions that were never answered — timeouts, `429`, and `5xx` — which is also what makes exit code `3` meaningful.
 
 ## Improving license confidence
 
@@ -360,6 +363,8 @@ These options solve different problems:
 | `check --exclude-packages <purl-prefix>` | Policy evaluation | Removes matching components from allow-list evaluation, baselines, violations, and SARIF. The scan report is unchanged. |
 
 Both use case-sensitive Package URL prefixes. ol does not infer package ownership or whether a package is private.
+
+Neither is required to keep a private package reviewable: a registry `404` already yields `unknown`, which a baseline can acknowledge. Use `--skip-evidence-packages` when you want to stop spending a request that cannot succeed, and `--exclude-packages` when the component is outside the check.
 
 ### Compare two reports
 

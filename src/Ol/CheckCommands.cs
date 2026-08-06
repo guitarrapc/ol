@@ -165,7 +165,11 @@ internal sealed class CheckCommands
             return 1;
         }
 
-        return violations.Length == 0 ? 0 : 2;
+        if (violations.Length == 0) return 0;
+
+        // A run whose only findings are collection failures resolved nothing and proved nothing; reporting it as a
+        // policy violation would make a registry outage indistinguishable from a forbidden license in CI.
+        return CheckRenderer.IsIncomplete(violations) ? 3 : 2;
     }
 
     private static void WriteExclusionMatches(LicenseAllowPolicy policy, ReadOnlySpan<ScanComponent> components)
@@ -264,6 +268,17 @@ internal static class BaselineFile
 
 internal static class CheckRenderer
 {
+    /// <summary>Reports whether every violation is a collection failure, which makes the run inconclusive rather than failed.</summary>
+    public static bool IsIncomplete(ReadOnlySpan<LicensePolicyViolation> violations)
+    {
+        for (var i = 0; i < violations.Length; i++)
+        {
+            if (violations[i].Kind != LicensePolicyViolationKind.Error) return false;
+        }
+
+        return true;
+    }
+
     public static string Render(
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<LicensePolicyViolation> violations,
@@ -285,11 +300,24 @@ internal static class CheckRenderer
         builder.Append(Exclusion(excludedCount));
         builder.Append(Acknowledgement(acknowledgedCount));
         builder.Append(DevelopmentAllowance(developmentAllowedCount));
-        builder.Append("License check failed: ");
-        builder.Append(violations.Length);
-        builder.Append(" violation");
-        if (violations.Length != 1) builder.Append('s');
-        builder.AppendLine(".");
+        // An incomplete run is stated as such: nothing was proven about those components, which is not the same
+        // claim as a policy violation, and the exit code makes the same distinction.
+        if (IsIncomplete(violations))
+        {
+            builder.Append("License check incomplete: ");
+            builder.Append(violations.Length);
+            builder.Append(" component");
+            if (violations.Length != 1) builder.Append('s');
+            builder.AppendLine(" could not be evaluated.");
+        }
+        else
+        {
+            builder.Append("License check failed: ");
+            builder.Append(violations.Length);
+            builder.Append(" violation");
+            if (violations.Length != 1) builder.Append('s');
+            builder.AppendLine(".");
+        }
         builder.AppendLine();
         builder.AppendLine("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason");
         for (var i = 0; i < violations.Length; i++)

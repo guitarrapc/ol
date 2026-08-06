@@ -12,6 +12,16 @@ Remaining:
 - License curation, that is recording that an upstream claim is factually wrong and what the correct license is. Not needed for a pass/fail verdict, which acknowledgement already covers, so it is justified only by verdict accuracy: acknowledgement can record that a reviewer accepted unresolved evidence, but not that the evidence itself is wrong.
 - Per-package policy exceptions with owner and expiry, distinct from factual correction.
 
+## Non-Public Registry Handling
+
+Resolved: a registry `404` contributes unknown evidence rather than a collection error, so a package published only to a private feed is acknowledgeable in every ecosystem. Cargo and Bundler additionally withhold a public-registry identity from packages their input records as coming from another source, which avoids the request entirely.
+
+Deliberately not done: deriving the origin from a lockfile download URL for npm, pnpm, or Composer. A corporate proxy serves public packages from an internal host, so the host would misclassify an entire proxied dependency tree as private and silently disable enrichment for it. A public Composer package likewise records a GitHub `dist.url`, which says nothing about Packagist membership.
+
+Remaining:
+
+- Negative cache entries. A private package is requested on every run because failures are not cached, so a persistent "not published here" record would remove the repeated request. This needs a cache schema decision in [cache_format.md](specs/cache_format.md), including how such an entry expires when a package is later published.
+
 ## Additional Output Formats
 
 Implemented: [SARIF](specs/cli.md#contract-policy-sarif) for code scanning and CI annotations, and a [report diff](specs/cli.md#contract-diff) in text and JSON.

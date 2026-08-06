@@ -17,15 +17,18 @@ The CLI follows the decisions in [Ol architecture](../Architecture.md):
 
 ### Process contract
 
-Ol uses three exit codes:
+Ol uses four exit codes:
 
 | Code | Meaning |
 |---|---|
 | `0` | The command completed successfully. Help and version output also use `0`. |
 | `1` | Invocation, configuration, input, SPDX data, cache, network-required operation, or output failed. |
 | `2` | `check` completed successfully and found one or more policy violations. |
+| `3` | `check` completed successfully, but every finding is a collection failure, so the result is inconclusive. |
 
-Exit code `2` belongs only to policy results. `scan` and `diff` do not use changes or unresolved components as an alternate failure code.
+Exit codes `2` and `3` belong only to policy results. `scan` and `diff` do not use changes or unresolved components as an alternate failure code.
+
+`3` exists because the three states a CI job must tell apart are "fix the pipeline", "fix the dependency", and "try again". A component whose evidence could not be collected proves nothing about its license, so reporting it as a policy violation would make a registry outage indistinguishable from a forbidden license. It is not exit `1` either: the command ran, produced a complete report, and component-level collection failures are best-effort results rather than command failures. A run is inconclusive only when **every** violation is a collection failure; one genuine finding alongside them yields `2`, because a real violation is the more actionable fact. Status `error` cannot be acknowledged by a baseline, so a baseline never converts an inconclusive run into a pass.
 
 Primary command output is written to stdout and ends with a line feed. Successful help is also stdout. Diagnostics and human-readable scan summaries are written to stderr. An expected failure writes one concise cause to stderr, leaves stdout empty, and does not print a stack trace or partial primary result.
 
@@ -188,4 +191,7 @@ The SPDX commands inspect and manage user-installed SPDX License List data. `upd
 - Safe defaults matter across every parser: an absent license must become `unknown`, never an empty `matched` result.
 - Policy exclusion and skipped collection solve different problems. Exclusion belongs to `check` and changes scope; skipped collection belongs to `scan` and preserves a visible unresolved component.
 - Option names should describe observable behavior. `--skip-evidence-packages` and `--exclude-packages` make their distinct effects visible without claiming ownership or package provenance that Ol cannot verify.
+- A collection failure and a policy violation must not share an exit code. Both leave a component unresolved, but only one is a fact about licensing, and a CI job that cannot tell them apart either retries genuine violations or treats registry outages as findings. The split needed no new status because `LicensePolicyViolationKind.Error` already carried the distinction to the renderer.
+- A definitive negative answer is not a collection failure. Classifying registry `404` as an error made a package published only to a private feed permanently unresolvable, because status `error` cannot be acknowledged — the exact dead end that motivated an escape-hatch option. Reclassifying it as unknown fixed every ecosystem at once, including the ones whose input cannot express where a package came from, and left `error` meaning only what a retry could change.
+- A lockfile download URL is not evidence of where a package is published. Withholding the public-registry identity from npm and pnpm entries whose host was not `registry.npmjs.org` looked like the rule Cargo and Bundler already apply, but those record a registry identity while npm records a download URL. A corporate proxy serves public packages from an internal host, so the rule would have silently disabled enrichment for an entire proxied dependency tree — harming exactly the organizations it was meant to help. It was implemented and then withdrawn before release.
 - Diff change kinds must remain independently filterable. A version change must not hide a simultaneous license or status change in machine-readable output.

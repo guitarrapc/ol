@@ -25,6 +25,58 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Enrichment_RegistryAnswersNotFound_RecordsUnknownRatherThanCollectionError()
+    {
+        // A 404 is a completed answer, not a failed operation: the registry successfully reported that the package
+        // is not published there. Classifying it as an error would make it unacknowledgeable and inconclusive.
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+        using var handler = new SequenceResponseHandler(HttpStatusCode.NotFound);
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var service = new PackageMetadataService(index, new PackageMetadataCache(root), refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, "pkg:npm/private-pkg@1.0.0") };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var (enriched, summary) = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enriched[0].Status).IsEqualTo(LicenseStatus.Unknown);
+            await Assert.That(enriched[0].Warnings).Contains("package_metadata_not_found");
+            await Assert.That(summary.FetchErrorCount).IsEqualTo(0);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_RegistryFailsTransiently_RemainsCollectionError()
+    {
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+        using var handler = new SequenceResponseHandler(HttpStatusCode.ServiceUnavailable);
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var service = new PackageMetadataService(index, new PackageMetadataCache(root), refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, "pkg:npm/example@1.0.0") };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var (enriched, summary) = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enriched[0].Status).IsEqualTo(LicenseStatus.Error);
+            await Assert.That(enriched[0].Warnings).Contains("package_metadata_fetch_failed");
+            await Assert.That(summary.FetchErrorCount).IsEqualTo(1);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task MetadataWorkspace_AfterDisposal_RejectsAccessInsteadOfReadingReturnedRental()
     {
         var workspace = new PackageMetadataWorkspace(2);

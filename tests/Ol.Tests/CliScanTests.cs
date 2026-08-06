@@ -515,7 +515,11 @@ public sealed class CliScanTests
             await Assert.That(metadata.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(0);
             await Assert.That(metadata.GetProperty("cacheMissCount").GetInt32()).IsEqualTo(1);
             await Assert.That(metadata.GetProperty("refreshedCount").GetInt32()).IsEqualTo(0);
-            await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("package_metadata_fetch_failed");
+            // The registry answers 404 for an unpublished package when the network is available and fails transport
+            // otherwise, and those are now different warnings. Either way the collection outcome must be recorded and
+            // must not override the SBOM claim.
+            var warnings = component.GetProperty("warnings").EnumerateArray().Select(static value => value.GetString()).ToArray();
+            await Assert.That(warnings.Any(static warning => warning is not null && warning.StartsWith("package_metadata_", StringComparison.Ordinal))).IsTrue();
         }
         finally
         {

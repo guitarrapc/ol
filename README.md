@@ -30,6 +30,12 @@ ol does not resolve dependencies. Ecosystem-native resolution is the most reliab
 
 An SBOM such as `bom.cdx.json` is the most convenient input when you need to cover resolved dependencies across languages. ol can also consume supported lockfiles and package-manager outputs directly.
 
+Install ol as a global .NET tool:
+
+```bash
+dotnet tool install --global ol --version 0.9.0
+```
+
 > [!TIP]
 > Tools such as [@cyclonedx/cyclonedx-npm](https://www.npmjs.com/package/@cyclonedx/cyclonedx-npm) can generate a CycloneDX JSON SBOM.
 

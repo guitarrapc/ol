@@ -30,6 +30,12 @@ ol自身は依存関係を解決しません。これは各言語の依存解決
 
 言語を問わず解決済みの依存関係を扱うには、SBOM（例では`bom.cdx.json`）が最も便利です。olはSBOM以外にも、各言語のパッケージマネージャーが解決したロックファイルや出力を直接入力として受け付けます。
 
+olをグローバル.NET toolとしてインストールします。
+
+```bash
+dotnet tool install --global ol --version 0.9.0
+```
+
 > [!TIP]
 > CycloneDX JSON SBOMを生成するには、[@cyclonedx/cyclonedx-npm](https://www.npmjs.com/package/@cyclonedx/cyclonedx-npm)などのツールがあります。
 

@@ -263,3 +263,50 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.validate.outputs.tag }}
           VERSION: ${{ needs.validate.outputs.version }}
+
+  nuget-publish:
+    name: Publish NuGet tool package
+    needs: [validate, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - uses: guitarrapc/actions/.github/actions/setup-dotnet@9122a18b0dea07585a242b9eb6ed7886f8587c49 # v1.0.1
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Pack global tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet pack src/Ol/Ol.csproj -c Release -o ./nupkg
+          test -f nupkg/ol.*.nupkg
+
+      - name: Verify global tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet tool install --tool-path tool-test ol --version "${{ needs.validate.outputs.version }}" --add-source ./nupkg
+          tool-test/ol --help
+
+      - name: NuGet login (OIDC)
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        id: login
+        with:
+          user: ${{ secrets.SYNCED_NUGET_USER }}
+
+      - name: Push to NuGet.org
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet nuget push ./nupkg/*.nupkg --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          echo "### NuGet published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Package:** \`ol\`" >> "$GITHUB_STEP_SUMMARY"

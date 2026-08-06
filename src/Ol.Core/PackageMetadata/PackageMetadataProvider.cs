@@ -22,6 +22,11 @@ public abstract class PackageMetadataProvider
     public abstract string Ecosystem { get; }
 
     /// <summary>
+    /// Gets the optional service index used to discover this provider's current API endpoint.
+    /// </summary>
+    public virtual Uri? ServiceIndexEndpoint => null;
+
+    /// <summary>
     /// Parses a versioned purl handled by this provider.
     /// </summary>
     /// <param name="purl">The purl without qualifiers or subpaths.</param>
@@ -36,6 +41,27 @@ public abstract class PackageMetadataProvider
     /// <param name="request">The request to retrieve.</param>
     /// <returns>The registry endpoint.</returns>
     public abstract Uri CreateEndpoint(PackageMetadataRequest request);
+
+    /// <summary>
+    /// Creates the registry endpoint from a service endpoint discovered once for this client.
+    /// </summary>
+    /// <param name="request">The request to retrieve.</param>
+    /// <param name="serviceEndpoint">The provider-owned endpoint selected from its service index.</param>
+    /// <returns>The registry endpoint.</returns>
+    public virtual Uri CreateEndpoint(PackageMetadataRequest request, Uri serviceEndpoint)
+        => CreateEndpoint(request);
+
+    /// <summary>
+    /// Selects the provider endpoint from its service index.
+    /// </summary>
+    /// <param name="root">The service-index root.</param>
+    /// <param name="serviceEndpoint">The selected endpoint.</param>
+    /// <returns><see langword="true" /> when a supported endpoint was found.</returns>
+    public virtual bool TryResolveServiceEndpoint(JsonElement root, out Uri serviceEndpoint)
+    {
+        serviceEndpoint = null!;
+        return false;
+    }
 
     /// <summary>
     /// Creates an optional provider-owned endpoint referenced by a registry response.

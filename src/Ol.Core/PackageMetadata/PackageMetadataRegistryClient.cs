@@ -10,10 +10,13 @@ namespace Ol.Core.PackageMetadata;
 public sealed class PackageMetadataRegistryClient
 {
     private const string UserAgent = "ol";
+    private static readonly TimeSpan MaximumRetryAfter = TimeSpan.FromMinutes(5);
     private readonly HttpClient httpClient;
     private readonly PackageMetadataProviders providers;
     private readonly Dictionary<PackageMetadataProvider, Task<Uri>> serviceEndpointTasks = [];
     private readonly object serviceEndpointGate = new();
+    private readonly Dictionary<string, OriginRateLimitState> originRateLimits = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object originRateLimitGate = new();
 
     /// <summary>
     /// Initializes a registry client using the supplied HTTP client.
@@ -61,7 +64,7 @@ public sealed class PackageMetadataRegistryClient
         try
         {
             using var document = await ReadJsonDocumentAsync(response, cancellationToken).ConfigureAwait(false);
-            var followUpEndpoint = provider.CreateFollowUpEndpoint(document.RootElement);
+            var followUpEndpoint = provider.CreateFollowUpEndpoint(document.RootElement, request);
             PackageMetadataResponse metadata;
             if (followUpEndpoint is not null)
             {
@@ -89,9 +92,25 @@ public sealed class PackageMetadataRegistryClient
 
     private async Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken)
     {
+        var origin = endpoint.GetLeftPart(UriPartial.Authority);
+        var isRateLimitProbe = await WaitForOriginRateLimitAsync(origin, cancellationToken).ConfigureAwait(false);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
-        return await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            UpdateOriginRateLimit(origin, response, isRateLimitProbe);
+            return response;
+        }
+        catch
+        {
+            if (isRateLimitProbe)
+            {
+                ClearOriginRateLimit(origin);
+            }
+
+            throw;
+        }
     }
 
     private Task<Uri?> ResolveServiceEndpointAsync(PackageMetadataProvider provider, CancellationToken cancellationToken)
@@ -101,15 +120,44 @@ public sealed class PackageMetadataRegistryClient
             return Task.FromResult<Uri?>(null);
         }
 
+        TaskCompletionSource<Uri>? pendingDiscovery = null;
+        Task<Uri> task;
         lock (serviceEndpointGate)
         {
-            if (!serviceEndpointTasks.TryGetValue(provider, out var task))
+            if (!serviceEndpointTasks.TryGetValue(provider, out task!))
             {
-                task = DiscoverServiceEndpointAsync(provider, serviceIndexEndpoint, cancellationToken);
+                pendingDiscovery = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                task = pendingDiscovery.Task;
                 serviceEndpointTasks.Add(provider, task);
             }
+        }
 
-            return AwaitDiscoveredServiceEndpointAsync(provider, task);
+        if (pendingDiscovery is not null)
+        {
+            _ = CompleteServiceEndpointDiscoveryAsync(provider, serviceIndexEndpoint, pendingDiscovery);
+        }
+
+        return AwaitDiscoveredServiceEndpointAsync(task, cancellationToken);
+    }
+
+    private async Task CompleteServiceEndpointDiscoveryAsync(PackageMetadataProvider provider, Uri serviceIndexEndpoint, TaskCompletionSource<Uri> completion)
+    {
+        try
+        {
+            var endpoint = await DiscoverServiceEndpointAsync(provider, serviceIndexEndpoint, CancellationToken.None).ConfigureAwait(false);
+            completion.TrySetResult(endpoint);
+        }
+        catch (Exception exception)
+        {
+            lock (serviceEndpointGate)
+            {
+                if (serviceEndpointTasks.TryGetValue(provider, out var current) && ReferenceEquals(current, completion.Task))
+                {
+                    serviceEndpointTasks.Remove(provider);
+                }
+            }
+
+            completion.TrySetException(exception);
         }
     }
 
@@ -137,25 +185,8 @@ public sealed class PackageMetadataRegistryClient
         }
     }
 
-    private async Task<Uri?> AwaitDiscoveredServiceEndpointAsync(PackageMetadataProvider provider, Task<Uri> task)
-    {
-        try
-        {
-            return await task.ConfigureAwait(false);
-        }
-        catch
-        {
-            lock (serviceEndpointGate)
-            {
-                if (serviceEndpointTasks.TryGetValue(provider, out var current) && ReferenceEquals(current, task))
-                {
-                    serviceEndpointTasks.Remove(provider);
-                }
-            }
-
-            throw;
-        }
-    }
+    private static async Task<Uri?> AwaitDiscoveredServiceEndpointAsync(Task<Uri> task, CancellationToken cancellationToken)
+        => await task.WaitAsync(cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Determines whether an HTTP response status represents a retryable registry failure.
@@ -166,6 +197,9 @@ public sealed class PackageMetadataRegistryClient
         => statusCode == HttpStatusCode.TooManyRequests || (int)statusCode >= 500;
 
     private static PackageMetadataFetchException CreateFetchException(HttpResponseMessage response)
+        => new(response.StatusCode, retryAfter: GetRetryDelay(response));
+
+    private static TimeSpan? GetRetryDelay(HttpResponseMessage response)
     {
         var retryAfter = response.Headers.RetryAfter;
         var delay = retryAfter?.Delta;
@@ -179,7 +213,94 @@ public sealed class PackageMetadataRegistryClient
             delay = TimeSpan.Zero;
         }
 
-        return new PackageMetadataFetchException(response.StatusCode, retryAfter: delay);
+        return delay > MaximumRetryAfter ? MaximumRetryAfter : delay;
+    }
+
+    private async Task<bool> WaitForOriginRateLimitAsync(string origin, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            TimeSpan delay;
+            Task? changed = null;
+            lock (originRateLimitGate)
+            {
+                if (!originRateLimits.TryGetValue(origin, out var state))
+                {
+                    return false;
+                }
+
+                delay = state.NotBefore - DateTimeOffset.UtcNow;
+                if (delay > MaximumRetryAfter)
+                {
+                    delay = MaximumRetryAfter;
+                }
+
+                if (delay <= TimeSpan.Zero)
+                {
+                    if (!state.ProbeInProgress)
+                    {
+                        state.ProbeInProgress = true;
+                        return true;
+                    }
+
+                    changed = state.Changed.Task;
+                }
+            }
+
+            if (changed is not null)
+            {
+                await changed.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private void UpdateOriginRateLimit(string origin, HttpResponseMessage response, bool isRateLimitProbe)
+    {
+        var retryDelay = GetRetryDelay(response);
+        if (response.StatusCode == HttpStatusCode.TooManyRequests || (retryDelay is not null && IsTransient(response.StatusCode)))
+        {
+            retryDelay ??= TimeSpan.FromSeconds(1);
+            lock (originRateLimitGate)
+            {
+                var notBefore = DateTimeOffset.UtcNow + retryDelay.Value;
+                if (!originRateLimits.TryGetValue(origin, out var state))
+                {
+                    originRateLimits.Add(origin, new OriginRateLimitState(notBefore));
+                }
+                else
+                {
+                    if (notBefore > state.NotBefore)
+                    {
+                        state.NotBefore = notBefore;
+                    }
+
+                    state.ProbeInProgress = false;
+                    state.SignalChanged();
+                }
+            }
+
+            return;
+        }
+
+        if (isRateLimitProbe)
+        {
+            ClearOriginRateLimit(origin);
+        }
+    }
+
+    private void ClearOriginRateLimit(string origin)
+    {
+        lock (originRateLimitGate)
+        {
+            if (originRateLimits.Remove(origin, out var state))
+            {
+                state.SignalChanged();
+            }
+        }
     }
 
     private static async Task<JsonDocument> ReadJsonDocumentAsync(HttpResponseMessage response, CancellationToken cancellationToken)
@@ -249,6 +370,20 @@ public sealed class PackageMetadataRegistryClient
         }
 
         return uri.IsFile || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 ? string.Empty : value;
+    }
+
+    private sealed class OriginRateLimitState(DateTimeOffset notBefore)
+    {
+        public DateTimeOffset NotBefore = notBefore;
+        public bool ProbeInProgress;
+        public TaskCompletionSource Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void SignalChanged()
+        {
+            var changed = Changed;
+            Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            changed.TrySetResult();
+        }
     }
 
 }

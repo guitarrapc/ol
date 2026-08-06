@@ -71,6 +71,15 @@ public abstract class PackageMetadataProvider
     public virtual Uri? CreateFollowUpEndpoint(JsonElement root) => null;
 
     /// <summary>
+    /// Creates an optional provider-owned endpoint referenced by a registry response for a package request.
+    /// </summary>
+    /// <param name="root">The root JSON response element.</param>
+    /// <param name="request">The package request associated with the response.</param>
+    /// <returns>A trusted follow-up endpoint, or <see langword="null"/>.</returns>
+    public virtual Uri? CreateFollowUpEndpoint(JsonElement root, PackageMetadataRequest request)
+        => CreateFollowUpEndpoint(root);
+
+    /// <summary>
     /// Projects a registry response into normalized metadata evidence.
     /// </summary>
     /// <param name="root">The root JSON response element.</param>

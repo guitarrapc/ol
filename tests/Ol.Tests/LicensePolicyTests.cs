@@ -266,10 +266,10 @@ public sealed class LicensePolicyTests
 
     [Test]
     [Arguments("pkg:npm/left-pad@1.3.0", "pkg:npm/left-pad@1.3.0", true)]
-    [Arguments("pkg:npm/@acme/", "pkg:npm/@acme/util@1.0.0", true)]
+    [Arguments("pkg:npm/@acme/", "pkg:npm/%40acme/util@1.0.0", true)]
     [Arguments("pkg:nuget/MyCompany.", "pkg:nuget/MyCompany.Core@1.0.0", true)]
     [Arguments("pkg:nuget/MyCompany", "pkg:nuget/MyCompany@1.0.0", true)]
-    [Arguments("pkg:npm/@acme", "pkg:npm/@acme/util@1.0.0", true)]
+    [Arguments("pkg:npm/@acme", "pkg:npm/%40acme/util@1.0.0", true)]
     [Arguments("pkg:nuget/MyCompany", "pkg:nuget/MyCompanyEvil@1.0.0", false)]
     [Arguments("pkg:npm/lodash", "pkg:npm/lodash.merge@1.0.0", false)]
     [Arguments("pkg:npm/example", "pkg:nuget/example@1.0.0", false)]
@@ -363,7 +363,7 @@ public sealed class LicensePolicyTests
         var prefixes = policy.ExclusionPrefixes.ToArray();
 
         await Assert.That(prefixes.Length).IsEqualTo(2);
-        await Assert.That(prefixes[0]).IsEqualTo("pkg:npm/@acme/");
+        await Assert.That(prefixes[0]).IsEqualTo("pkg:npm/%40acme/");
         await Assert.That(prefixes[1]).IsEqualTo("pkg:nuget/MyCompany.");
     }
 
@@ -373,8 +373,8 @@ public sealed class LicensePolicyTests
         LicenseAllowPolicy.TryCreate(["MIT"], [], ["pkg:npm/@acme/", "pkg:npm/@acme/util", "pkg:nuget/Absent."], Spdx, out var policy, out _);
         ScanComponent[] components =
         [
-            CreateComponentWithPurl("pkg:npm/@acme/util@1.0.0", LicenseStatus.Unknown),
-            CreateComponentWithPurl("pkg:npm/@acme/core@1.0.0", LicenseStatus.Unknown),
+            CreateComponentWithPurl("pkg:npm/%40acme/util@1.0.0", LicenseStatus.Unknown),
+            CreateComponentWithPurl("pkg:npm/%40acme/core@1.0.0", LicenseStatus.Unknown),
             CreateComponentWithPurl("pkg:npm/example@1.0.0", LicenseStatus.Unknown),
         ];
         var counts = new int[policy.ExclusionPrefixes.Length];

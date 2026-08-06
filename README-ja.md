@@ -368,6 +368,8 @@ ol check --report ol-report.json \
 
 どちらも大文字と小文字を区別するPackage URLの接頭辞を使います。所有者やプライベートパッケージをolが自動判定する機能ではありません。
 
+名前空間は、そのエコシステムでの表記のまま書けます。`--skip-evidence-packages pkg:npm/@acme/`は`pkg:npm/%40acme/util@1.0.0`に一致します。バージョン区切りの`@`はそのまま扱うため、`pkg:npm/left-pad@1.3.0`は引き続きそのコンポーネント1つだけを指します。
+
 private packageを扱うためにどちらかが必須ということはありません。レジストリの`404`はすでに`unknown`になるため、baselineで承認できます。成功し得ないリクエストを止めたいときに`--skip-evidence-packages`を、コンポーネント自体を検査の対象外にしたいときに`--exclude-packages`を使います。
 
 ### 2つのレポートを比較する

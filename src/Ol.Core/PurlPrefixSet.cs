@@ -52,7 +52,7 @@ public sealed class PurlPrefixSet
                 return false;
             }
 
-            var text = value.ToString();
+            var text = CanonicalizeScope(value);
             if (unique.Add(text)) ordered.Add(text);
         }
 
@@ -95,6 +95,34 @@ public sealed class PurlPrefixSet
         }
 
         return -1;
+    }
+
+    /// <summary>
+    /// Rewrites a namespace <c>@</c> into its canonical percent-encoded form so a user can write the prefix the way the
+    /// ecosystem spells it.
+    /// </summary>
+    /// <remarks>
+    /// A purl encodes an npm scope as <c>%40acme</c> while people write <c>@acme</c>, and requiring the encoded form
+    /// made a correct-looking prefix match nothing. Only an <c>@</c> that starts a segment is a namespace marker; the
+    /// one that separates a version is left alone, so <c>pkg:npm/left-pad@1.3.0</c> still addresses one component.
+    /// </remarks>
+    private static string CanonicalizeScope(ReadOnlySpan<char> value)
+    {
+        var typeSeparator = value[4..].IndexOf('/') + 5;
+        var scopeStart = -1;
+        for (var i = typeSeparator; i < value.Length; i++)
+        {
+            if (value[i] != '@') continue;
+            if (i == typeSeparator || value[i - 1] == '/')
+            {
+                scopeStart = i;
+                break;
+            }
+        }
+
+        if (scopeStart < 0) return value.ToString();
+
+        return string.Concat(value[..scopeStart], "%40", value[(scopeStart + 1)..]);
     }
 
     /// <summary>

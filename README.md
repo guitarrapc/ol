@@ -364,6 +364,8 @@ These options solve different problems:
 
 Both use case-sensitive Package URL prefixes. ol does not infer package ownership or whether a package is private.
 
+Write a namespace the way its ecosystem spells it: `--skip-evidence-packages pkg:npm/@acme/` matches `pkg:npm/%40acme/util@1.0.0`. A version separator is unaffected, so `pkg:npm/left-pad@1.3.0` still selects that one component.
+
 Neither is required to keep a private package reviewable: a registry `404` already yields `unknown`, which a baseline can acknowledge. Use `--skip-evidence-packages` when you want to stop spending a request that cannot succeed, and `--exclude-packages` when the component is outside the check.
 
 ### Compare two reports

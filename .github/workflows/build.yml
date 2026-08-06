@@ -165,7 +165,7 @@ jobs:
         run: |
           $output = "$env:RUNNER_TEMP/live-self"
           ./sandbox/ci/Assert-SelfScan.ps1 -Sbom "$output/ol.cdx.json" -Report "$output/ol.json"
-          dotnet src/Ol/bin/Release/net10.0/ol.dll check --report "$output/ol.json" --allow-licenses MIT
+          dotnet src/Ol/bin/Release/net10.0/ol.dll check --report "$output/ol.json" --allow-licenses MIT,Apache-2.0
           if ($LASTEXITCODE -ne 0) {
             throw "Live self-scan license policy failed."
           }

@@ -2,9 +2,9 @@
 
 English | [日本語](../ja/usage.md)
 
-ol reads a resolved dependency graph. Give it a CycloneDX or SPDX JSON SBOM, a supported lockfile, or supported package-manager output; do not pass an unresolved manifest such as `package.json`, `*.csproj`, or `Cargo.toml` by itself.
+ol scans resolved dependency graphs. Use a CycloneDX or SPDX JSON SBOM, supported lockfile, or package-manager output. Unresolved manifests such as `package.json`, `*.csproj`, and `Cargo.toml` are not valid inputs by themselves.
 
-The common workflow is:
+Scan, then apply a policy:
 
 ```bash
 ol scan --input <resolved-input> --format json > ol-report.json
@@ -13,7 +13,7 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
 
 ## SBOM
 
-For releases, audits, CI, and repositories containing several ecosystems, prefer one canonical CycloneDX or SPDX JSON SBOM produced from the build's resolved dependency graph.
+For releases, audits, CI, and multi-ecosystem repositories, use one CycloneDX or SPDX JSON SBOM generated from the build's resolved dependency graph.
 
 ```bash
 ol scan --input bom.cdx.json --format markdown
@@ -21,11 +21,11 @@ ol scan --input bom.cdx.json --format json > ol-report.json
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
 ```
 
-Use ecosystem-native tools for SBOM generation. ol enriches the supplied components with package metadata and GitHub License API evidence, then reports missing or conflicting evidence before policy evaluation.
+Generate the SBOM with an ecosystem-native tool. ol adds package metadata and GitHub License API evidence, then reports missing or conflicting evidence before policy evaluation.
 
 ## .NET / NuGet
 
-Generate a CycloneDX SBOM from a restored solution. When generating from a single project file, specify `--recursive` to also scan referenced projects, avoiding missing development dependencies excluded from the root assets file by `PrivateAssets="all"` and similar (see [cyclonedx-dotnet#1107](https://github.com/CycloneDX/cyclonedx-dotnet/issues/1107)).
+For NuGet SBOMs, use [cyclonedx-dotnet](https://github.com/CycloneDX/cyclonedx-dotnet). For a single project file, add `--recursive` to scan referenced projects and include development dependencies excluded from the root assets file by `PrivateAssets="all"` and similar settings ([cyclonedx-dotnet#1107](https://github.com/CycloneDX/cyclonedx-dotnet/issues/1107)).
 
 ```bash
 dotnet tool install -g cyclonedx-dotnet
@@ -33,7 +33,7 @@ dotnet-CycloneDX MySolution.slnx --output . --output-format Json --filename bom.
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-Or scan NuGet's resolved `project.assets.json` directly. A directory input recursively combines discovered assets files while preserving project, target-framework, and runtime contexts.
+To scan without an SBOM, use NuGet's `project.assets.json`. Directory inputs find files recursively.
 
 ```bash
 dotnet restore MySolution.slnx
@@ -43,14 +43,14 @@ ol scan --input src --input tests --format json > ol-report.json
 
 ## JavaScript / Node.js
 
-For npm, generate an SBOM with [CycloneDX for npm](https://github.com/CycloneDX/cyclonedx-node-npm). [cdxgen](https://github.com/CycloneDX/cdxgen) can cover pnpm, Yarn, and mixed repositories.
+For npm SBOMs, use [CycloneDX for npm](https://github.com/CycloneDX/cyclonedx-node-npm). For pnpm, Yarn, or mixed repositories, use [cdxgen](https://github.com/CycloneDX/cdxgen).
 
 ```bash
 npx @cyclonedx/cyclonedx-npm --output-format JSON --output-file bom.cdx.json
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-Supported resolved inputs can also be scanned directly:
+To scan without an SBOM, use a supported resolved input:
 
 ```bash
 # npm package-lock.json version 2 or 3
@@ -63,36 +63,36 @@ ol scan --input pnpm-lock.yaml
 ol scan --input yarn.lock
 ```
 
-Yarn lockfiles do not record development scope. Where the root relationship cannot be proven, dependency type remains `unknown`.
+Yarn lockfiles do not record development scope. Dependencies without a proven root relationship have type `unknown`.
 
 ## Rust / Cargo
 
-Generate a CycloneDX SBOM:
+Generate an SBOM with cargo-cyclonedx:
 
 ```bash
 cargo cyclonedx -f json
 ol scan --input bom.json --format json > ol-report.json
 ```
 
-Or capture Cargo metadata using the same locked feature and target selection as the build:
+To scan without an SBOM, generate Cargo metadata with the build's locked features and target selection:
 
 ```bash
 cargo metadata --format-version 1 --locked > cargo-metadata.json
 ol scan --input cargo-metadata.json --format json > ol-report.json
 ```
 
-ol retains workspace contexts, dependency kinds, features, and target expressions without evaluating them against the machine running the scan.
+ol preserves workspace context, dependency kinds, features, and target expressions. It does not reevaluate them for the scan host.
 
 ## Go modules
 
-Generate a CycloneDX SBOM with the same GOOS, GOARCH, CGO, and build-tag selection as the released application:
+Generate an SBOM with the release build's GOOS, GOARCH, CGO, and build tags:
 
 ```bash
 cyclonedx-gomod mod -json -output bom.cdx.json .
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-For direct input, generate both files from the same module or workspace using these exact names:
+To scan without an SBOM, generate both files from the same module or workspace with these names:
 
 ```bash
 go list -m -json all > go-list-modules.json
@@ -100,36 +100,36 @@ go mod graph > go-mod-graph.txt
 ol scan --input go-list-modules.json --input go-mod-graph.txt --format json > ol-report.json
 ```
 
-You may pass their containing directory instead. ol uses the selected module list as authoritative and does not expose local replacement paths.
+You may pass the containing directory. ol treats the selected module list as authoritative and does not expose local replacement paths.
 
 ## Python
 
-Generate an SBOM from the exact environment used by the build or deployment:
+Generate an SBOM from the build or deployment environment:
 
 ```bash
 cyclonedx-py environment .venv --output-format JSON --output-file bom.cdx.json
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-Or activate that environment and capture `pip inspect` JSON format version 1:
+To scan without an SBOM, activate that environment and generate `pip inspect` JSON format version 1:
 
 ```bash
 python -m pip inspect --local > pip-inspect.json
 ol scan --input pip-inspect.json --format json > ol-report.json
 ```
 
-ol treats the installed distribution set as authoritative. It does not resolve `requirements.txt`, `pyproject.toml`, Poetry, uv, or Pipenv declarations.
+ol uses the installed distributions as authoritative. It does not resolve declarations from `requirements.txt`, `pyproject.toml`, Poetry, uv, or Pipenv.
 
 ## PHP / Composer
 
-Generate a CycloneDX SBOM from the locked project:
+Generate an SBOM from the locked project:
 
 ```bash
 composer CycloneDX:make-sbom --output-format=JSON --output-file=bom.cdx.json
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-Or scan a same-directory `composer.json` and `composer.lock` pair. ol uses the manifest only for root identity and direct relationships; it does not run Composer or inspect `vendor/`.
+To scan without an SBOM, keep `composer.json` and `composer.lock` in the same directory. ol reads the manifest only for root identity and direct relationships. It does not run Composer or inspect `vendor/`.
 
 ```bash
 ol scan --input . --input-format composer-lock --format json > ol-report.json
@@ -137,7 +137,7 @@ ol scan --input . --input-format composer-lock --format json > ol-report.json
 
 ## Ruby / Bundler
 
-Generate a CycloneDX SBOM or scan `Gemfile.lock` directly:
+Generate a CycloneDX SBOM, or scan `Gemfile.lock` without one:
 
 ```bash
 cyclonedx-ruby -p . -f json -o bom.cdx.json
@@ -146,7 +146,7 @@ ol scan --input bom.cdx.json --format json > ol-report.json
 ol scan --input Gemfile.lock --format json > ol-report.json
 ```
 
-Only gems resolved from RubyGems.org receive `pkg:gem` identities and registry enrichment. Private, Git, and path sources remain visible without exposing their URLs or local paths.
+Only RubyGems.org packages receive `pkg:gem` identities and registry evidence. Private, Git, and path sources remain visible without exposing URLs or local paths.
 
 ## Java / JVM
 
@@ -159,18 +159,18 @@ mvn org.cyclonedx:cyclonedx-maven-plugin:2.9.2:makeAggregateBom -DoutputFormat=j
 ol scan --input target/bom.json --format json > ol-report.json
 ```
 
-Or generate dependency-tree JSON with Maven Dependency Plugin 3.7.0 or later:
+To scan without an SBOM, generate dependency-tree JSON with Maven Dependency Plugin 3.7.0 or later:
 
 ```bash
 mvn org.apache.maven.plugins:maven-dependency-plugin:3.11.0:tree -DoutputType=json -DoutputFile=maven-dependency-tree.json
 ol scan --input maven-dependency-tree.json
 ```
 
-The dependency-tree format contains no license metadata, so ol enriches versioned Maven packages with deps.dev evidence.
+Dependency-tree JSON has no license metadata. ol adds deps.dev evidence for versioned Maven packages.
 
 ### Gradle
 
-Gradle does not provide an official portable JSON contract for its resolved dependency graph. Generate a CycloneDX or SPDX JSON SBOM instead.
+Gradle has no official portable JSON format for its resolved dependency graph. Generate a CycloneDX or SPDX JSON SBOM.
 
 ```kotlin
 plugins {
@@ -187,27 +187,25 @@ ol scan --input build/reports/cyclonedx/bom.json --format json > ol-report.json
 
 ### SwiftPM
 
-Generate a CycloneDX SBOM with SwiftPM and scan the output directory:
+Generate a CycloneDX SBOM with SwiftPM. Use `swift build --build-system swiftbuild` to generate a more accurate SBOM. See [Generating Software Bill of Materials (SBOM)](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/generatingsboms/).
 
 ```bash
 swift package generate-sbom --sbom-spec cyclonedx --sbom-output-dir .build/sboms
 ol scan --input .build/sboms --format json > ol-report.json
 ```
 
-For the most accurate SBOM, including build-time conditionals, use `swift build --build-system swiftbuild`. See [Generating Software Bill of Materials (SBOM)](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/generatingsboms/).
-
-Alternatively, resolve the package graph and scan `Package.resolved` schema version 2 or 3 directly:
+To scan without an SBOM, resolve the package graph and use `Package.resolved` schema version 2 or 3:
 
 ```bash
 swift package resolve
 ol scan --input Package.resolved --format json > ol-report.json
 ```
 
-`Package.resolved` contains no package-to-package edges, so dependency type remains `unknown`.
+`Package.resolved` has no package-to-package edges. Dependency type is therefore `unknown`.
 
 ### CocoaPods
 
-Install the CycloneDX CocoaPods gem, generate a JSON SBOM, and scan it:
+Generate an SBOM with the CycloneDX CocoaPods gem. See [CycloneDX CocoaPods](https://github.com/CycloneDX/cyclonedx-cocoapods) for metadata and filter options.
 
 ```bash
 gem install cyclonedx-cocoapods
@@ -216,13 +214,11 @@ cyclonedx-cocoapods --output bom.cdx.json
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-See [CycloneDX CocoaPods](https://github.com/CycloneDX/cyclonedx-cocoapods) for component metadata and filtering options.
-
-Alternatively, install pods and scan `Podfile.lock` directly:
+To scan without an SBOM, use `Podfile.lock`:
 
 ```bash
 pod install
 ol scan --input Podfile.lock --format json > ol-report.json
 ```
 
-ol collapses subspecs into their root pod. Only pods proven to come from public Specs sources receive `pkg:cocoapods` identities and CocoaPods CDN enrichment.
+ol groups subspecs under their root pod. Only pods from verified public Specs sources receive `pkg:cocoapods` identities and CocoaPods CDN evidence.

@@ -28,8 +28,8 @@ Use ecosystem-native tools for SBOM generation. ol enriches the supplied compone
 Generate a CycloneDX SBOM from a restored solution. When generating from a single project file, specify `--recursive` to also scan referenced projects, avoiding missing development dependencies excluded from the root assets file by `PrivateAssets="all"` and similar (see [cyclonedx-dotnet#1107](https://github.com/CycloneDX/cyclonedx-dotnet/issues/1107)).
 
 ```bash
-dotnet tool restore
-dotnet tool run dotnet-CycloneDX MySolution.slnx --output . --output-format Json --filename bom.cdx.json
+dotnet tool install -g cyclonedx-dotnet
+dotnet-CycloneDX MySolution.slnx --output . --output-format Json --filename bom.cdx.json
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 

@@ -25,15 +25,15 @@ SBOMの生成は各エコシステム向けツールを使います。olは入�
 
 ## .NET / NuGet
 
-restore済みのソリューションからCycloneDX SBOMを生成します。単一のproject fileから生成する場合は、参照先プロジェクトもスキャンするため`--recursive`を指定することで、`PrivateAssets="all"`などによってルートのassets fileから除外された開発用依存関係の取りこぼしも避けられます（[cyclonedx-dotnet#1107](https://github.com/CycloneDX/cyclonedx-dotnet/issues/1107)）。
+SBOM作ってからolでスキャンするには、CycloneDX SBOMを用います。単一のproject fileから生成する場合は、参照先プロジェクトもスキャンするため`--recursive`を指定することで、`PrivateAssets="all"`などによってルートのassets fileから除外された開発用依存関係の取りこぼしも避けられます（[cyclonedx-dotnet#1107](https://github.com/CycloneDX/cyclonedx-dotnet/issues/1107)）。
 
 ```bash
-dotnet tool restore
-dotnet tool run dotnet-CycloneDX MySolution.slnx --output . --output-format Json --filename bom.cdx.json
+dotnet tool install -g cyclonedx-dotnet
+dotnet-CycloneDX MySolution.slnx --output . --output-format Json --filename bom.cdx.json
 ol scan --input bom.cdx.json --format json > ol-report.json
 ```
 
-NuGetが生成した`project.assets.json`も直接スキャンできます。ディレクトリを渡すと、配下のassets fileを再帰的に検出し、プロジェクト、ターゲットフレームワーク、Runtime Identifierのコンテキストを保持したまままとめます。
+SBOM抜きでスキャンするには、NuGetの`project.assets.json`を指定します。ディレクトリを指定すると、ファイルを再帰的に検出します。
 
 ```bash
 dotnet restore MySolution.slnx

@@ -969,7 +969,6 @@ public sealed class PackageMetadataTests
         var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
         var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
         var waited = false;
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(
                 client,
@@ -987,7 +986,50 @@ public sealed class PackageMetadataTests
         // nor shortens it into an early retry that the registry did not sanction.
         await Assert.That(waited).IsFalse();
         await Assert.That(handler.RequestCount).IsEqualTo(1);
-        await Assert.That(stopwatch.Elapsed).IsLessThan(TimeSpan.FromSeconds(1));
+    }
+
+    [Test]
+    public async Task Fetch_OriginCooldownEscalatingToStop_ReportsTheLongerDelayAndStaysNonRetryable()
+    {
+        var handler = new EscalatingOriginRateLimitHandler();
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        // Both requests are in flight before any cooldown exists for the origin.
+        var shortLimit = Swallow(client.FetchAsync(new PackageMetadataRequest("npm", "", "first", "1.0.0", "pkg:npm/first@1.0.0")));
+        var longLimit = Swallow(client.FetchAsync(new PackageMetadataRequest("npm", "", "second", "1.0.0", "pkg:npm/second@1.0.0")));
+        await handler.LongLimitEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        // The short delay establishes the cooldown, so the origin's NotBefore is already in the future.
+        handler.ReleaseShortLimit.TrySetResult();
+        await shortLimit;
+
+        // The long delay then escalates the same origin to stopped while NotBefore is still ahead of now.
+        handler.ReleaseLongLimit.TrySetResult();
+        await longLimit;
+
+        var failure = await CaptureFetchFailureAsync(client, "pkg:npm/third@1.0.0");
+
+        await Assert.That(failure.RetryAfter).IsEqualTo(TimeSpan.FromSeconds(300));
+        await Assert.That(failure.IsTransient).IsFalse();
+
+        static async Task Swallow(Task<PackageMetadataRecord> task)
+        {
+            try { await task; } catch (PackageMetadataFetchException) { }
+        }
+    }
+
+    private static async Task<PackageMetadataFetchException> CaptureFetchFailureAsync(PackageMetadataRegistryClient client, string purl)
+    {
+        try
+        {
+            await client.FetchAsync(new PackageMetadataRequest("npm", "", "third", "1.0.0", purl));
+        }
+        catch (PackageMetadataFetchException exception)
+        {
+            return exception;
+        }
+
+        throw new InvalidOperationException("Expected a package metadata fetch failure.");
     }
 
     [Test]
@@ -1800,6 +1842,40 @@ public sealed class PackageMetadataTests
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{ "license": "MIT" }""") });
+        }
+    }
+
+    /// <summary>Rate limits one origin twice: first with a short delay, then with one past the wait budget.</summary>
+    private sealed class EscalatingOriginRateLimitHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource LongLimitEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseShortLimit { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseLongLimit { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.Contains("second", StringComparison.Ordinal))
+            {
+                LongLimitEntered.TrySetResult();
+                await ReleaseLongLimit.Task.WaitAsync(cancellationToken);
+                return RateLimited(TimeSpan.FromSeconds(300));
+            }
+
+            if (path.Contains("first", StringComparison.Ordinal))
+            {
+                await ReleaseShortLimit.Task.WaitAsync(cancellationToken);
+                return RateLimited(TimeSpan.FromSeconds(5));
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{ "license": "MIT" }""") };
+        }
+
+        private static HttpResponseMessage RateLimited(TimeSpan retryAfter)
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAfter);
+            return response;
         }
     }
 

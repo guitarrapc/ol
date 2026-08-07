@@ -165,13 +165,21 @@ public sealed class SourceRepositoryTests
     {
         var handler = new RateLimitThenSuccessHandler(status, retryAfterSeconds, remaining);
         var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var waited = false;
 
-        await Assert.That(async () => await GitHubLicenseFetchScheduler.FetchAsync(client, new SourceRepositoryTarget("owner", "repository", "default"), retryCount: 1))
+        await Assert.That(async () => await GitHubLicenseFetchScheduler.FetchAsync(
+                client,
+                new SourceRepositoryTarget("owner", "repository", "default"),
+                retryCount: 1,
+                (delay, token) =>
+                {
+                    waited = true;
+                    return Task.CompletedTask;
+                }))
             .Throws<SourceRepositoryFetchException>();
 
+        await Assert.That(waited).IsFalse();
         await Assert.That(handler.CallCount).IsEqualTo(1);
-        await Assert.That(stopwatch.Elapsed).IsLessThan(TimeSpan.FromMilliseconds(500));
         await Assert.That(client.RateLimit).IsNotNull();
     }
 

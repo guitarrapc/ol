@@ -287,6 +287,13 @@ public sealed class PackageMetadataRegistryClient
                     if (notBefore > state.NotBefore)
                     {
                         state.NotBefore = notBefore;
+                    }
+
+                    // Tracked separately from NotBefore: a delay past the budget stops the origin and
+                    // pins NotBefore to now, so the longest delay the registry asked for would otherwise
+                    // be lost behind an existing cooldown and reported as a shorter, retryable one.
+                    if (state.RetryAfter is not { } known || retryDelay > known)
+                    {
                         state.RetryAfter = retryDelay;
                     }
 

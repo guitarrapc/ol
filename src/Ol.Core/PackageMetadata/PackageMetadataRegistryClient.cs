@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Text.Json;
 using System.IO.Compression;
+using Ol.Core.Licensing;
 
 namespace Ol.Core.PackageMetadata;
 
@@ -10,7 +11,15 @@ namespace Ol.Core.PackageMetadata;
 public sealed class PackageMetadataRegistryClient
 {
     private const string UserAgent = "ol";
-    private static readonly TimeSpan MaximumRetryAfter = TimeSpan.FromMinutes(5);
+
+    /// <summary>The longest server-directed delay a command-line run absorbs before giving up on an origin.</summary>
+    /// <remarks>
+    /// Registries answer a rate limit either with no delay at all, where a moment's pause clears it, or
+    /// with one measured in minutes, which no interactive run can absorb. Shortening the second case into
+    /// an earlier retry would spend the pause without honoring what the registry asked for, so a delay
+    /// past this budget stops the origin instead.
+    /// </remarks>
+    internal static readonly TimeSpan MaximumWait = TimeSpan.FromSeconds(10);
     private readonly HttpClient httpClient;
     private readonly PackageMetadataProviders providers;
     private readonly Dictionary<PackageMetadataProvider, Task<Uri>> serviceEndpointTasks = [];
@@ -82,7 +91,7 @@ public sealed class PackageMetadataRegistryClient
                 metadata = provider.ParseResponse(document.RootElement, request);
             }
 
-            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), [], [], DateTimeOffset.UtcNow, metadata.RepositoryRef);
+            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), metadata.Warnings.ToStrings(), [], DateTimeOffset.UtcNow, metadata.RepositoryRef);
         }
         catch (JsonException exception)
         {
@@ -213,7 +222,7 @@ public sealed class PackageMetadataRegistryClient
             delay = TimeSpan.Zero;
         }
 
-        return delay > MaximumRetryAfter ? MaximumRetryAfter : delay;
+        return delay;
     }
 
     private async Task<bool> WaitForOriginRateLimitAsync(string origin, CancellationToken cancellationToken)
@@ -229,12 +238,12 @@ public sealed class PackageMetadataRegistryClient
                     return false;
                 }
 
-                delay = state.NotBefore - DateTimeOffset.UtcNow;
-                if (delay > MaximumRetryAfter)
+                if (state.Stopped)
                 {
-                    delay = MaximumRetryAfter;
+                    throw new PackageMetadataFetchException(HttpStatusCode.TooManyRequests, retryAfter: state.RetryAfter);
                 }
 
+                delay = state.NotBefore - DateTimeOffset.UtcNow;
                 if (delay <= TimeSpan.Zero)
                 {
                     if (!state.ProbeInProgress)
@@ -264,12 +273,14 @@ public sealed class PackageMetadataRegistryClient
         if (response.StatusCode == HttpStatusCode.TooManyRequests || (retryDelay is not null && IsTransient(response.StatusCode)))
         {
             retryDelay ??= TimeSpan.FromSeconds(1);
+            var stopped = retryDelay > MaximumWait;
             lock (originRateLimitGate)
             {
-                var notBefore = DateTimeOffset.UtcNow + retryDelay.Value;
+                // A stopped origin is never waited on, and an unbounded delay would overflow the instant.
+                var notBefore = stopped ? DateTimeOffset.UtcNow : DateTimeOffset.UtcNow + retryDelay.Value;
                 if (!originRateLimits.TryGetValue(origin, out var state))
                 {
-                    originRateLimits.Add(origin, new OriginRateLimitState(notBefore));
+                    originRateLimits.Add(origin, new OriginRateLimitState(notBefore) { Stopped = stopped, RetryAfter = retryDelay });
                 }
                 else
                 {
@@ -278,7 +289,23 @@ public sealed class PackageMetadataRegistryClient
                         state.NotBefore = notBefore;
                     }
 
-                    state.ProbeInProgress = false;
+                    // Tracked separately from NotBefore: a delay past the budget stops the origin and
+                    // pins NotBefore to now, so the longest delay the registry asked for would otherwise
+                    // be lost behind an existing cooldown and reported as a shorter, retryable one.
+                    if (state.RetryAfter is not { } known || retryDelay > known)
+                    {
+                        state.RetryAfter = retryDelay;
+                    }
+
+                    state.Stopped |= stopped;
+
+                    // Only the probe owns the slot. A request that was already in flight when the limit
+                    // began also lands here, and releasing the slot for it admits a second probe.
+                    if (isRateLimitProbe)
+                    {
+                        state.ProbeInProgress = false;
+                    }
+
                     state.SignalChanged();
                 }
             }
@@ -348,7 +375,7 @@ public sealed class PackageMetadataRegistryClient
         throw new PackageMetadataFetchException(null);
     }
 
-    private static string SanitizeRepositoryUrl(string value)
+    internal static string SanitizeRepositoryUrl(string value)
     {
         if (value.Length == 0)
         {
@@ -376,6 +403,9 @@ public sealed class PackageMetadataRegistryClient
     {
         public DateTimeOffset NotBefore = notBefore;
         public bool ProbeInProgress;
+        /// <summary>Set when the registry asked for longer than <see cref="MaximumWait"/>, which ends this origin for the run.</summary>
+        public bool Stopped;
+        public TimeSpan? RetryAfter;
         public TaskCompletionSource Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void SignalChanged()
@@ -417,5 +447,12 @@ public sealed class PackageMetadataFetchException : Exception
     /// <summary>
     /// Gets whether the failure should be retried.
     /// </summary>
-    public bool IsTransient => StatusCode is { } statusCode && PackageMetadataRegistryClient.IsTransient(statusCode);
+    /// <remarks>
+    /// A delay past the run's wait budget is not retryable. Retrying it earlier than the registry asked
+    /// would ignore the instruction that came with the failure.
+    /// </remarks>
+    public bool IsTransient
+        => StatusCode is { } statusCode
+        && PackageMetadataRegistryClient.IsTransient(statusCode)
+        && (RetryAfter is not { } delay || delay <= PackageMetadataRegistryClient.MaximumWait);
 }

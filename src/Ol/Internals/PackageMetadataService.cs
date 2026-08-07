@@ -3,6 +3,7 @@ using System.Net;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.PackageMetadata;
+using Ol.Core.SourceRepository;
 using Ol.Core.Spdx;
 
 namespace Ol.Internals;
@@ -100,10 +101,12 @@ internal sealed class PackageMetadataService(
 
         if (!refresh)
         {
-            using var entry = cache.TryRead(request.CacheKey);
-            if (entry.IsHit)
+            using (var entry = cache.TryRead(request.CacheKey))
             {
-                return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateCacheHit(request, entry), concurrency, lookupCount: 1));
+                if (entry.IsHit && !IsLegacyNuGetEntry(entry))
+                {
+                    return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateCacheHit(request, entry), concurrency, lookupCount: 1));
+                }
             }
         }
 
@@ -311,15 +314,23 @@ internal sealed class PackageMetadataService(
     {
         if (!refresh)
         {
-            using var entry = await cache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false);
-            if (entry.IsHit)
+            using (var entry = await cache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false))
             {
-                return CreateCacheHit(request, entry);
+                if (entry.IsHit && !IsLegacyNuGetEntry(entry))
+                {
+                    return CreateCacheHit(request, entry);
+                }
             }
         }
 
         return await FetchLookupAsync(request, cancellationToken).ConfigureAwait(false);
     }
+
+    private static bool IsLegacyNuGetEntry(in PackageMetadataCacheEntry entry)
+        => entry.Source.Span.SequenceEqual("nuget-registry"u8)
+        && entry.RawLicense.IsEmpty
+        && LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span) == LicenseCandidateWarnings.None
+        && entry.ResolverVersion < 2;
 
     /// <summary>Projects a cache entry before its pooled buffer is returned.</summary>
     private PackageMetadataLookupResult CreateCacheHit(PackageMetadataRequest request, in PackageMetadataCacheEntry entry)

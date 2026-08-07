@@ -28,7 +28,8 @@ public readonly struct PackageMetadataCacheEntry : IDisposable
         Utf8Slice warnings,
         string repositoryUrl,
         string repositoryRef,
-        DateTimeOffset fetchedAt)
+        DateTimeOffset fetchedAt,
+        int resolverVersion)
     {
         this.content = content;
         CacheKeySha256 = cacheKeySha256;
@@ -38,6 +39,7 @@ public readonly struct PackageMetadataCacheEntry : IDisposable
         RepositoryUrl = repositoryUrl;
         RepositoryRef = repositoryRef;
         FetchedAt = fetchedAt;
+        ResolverVersion = resolverVersion;
         IsHit = true;
     }
 
@@ -64,6 +66,9 @@ public readonly struct PackageMetadataCacheEntry : IDisposable
 
     /// <summary>Gets the metadata fetch timestamp.</summary>
     public DateTimeOffset FetchedAt { get; }
+
+    /// <summary>Gets the metadata resolver capability version that produced this entry.</summary>
+    public int ResolverVersion { get; }
 
     /// <summary>Returns the pooled buffer and invalidates every UTF-8 value on this entry.</summary>
     public void Dispose()

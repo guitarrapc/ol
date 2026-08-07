@@ -530,6 +530,314 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/LICENSE", "v1.2.3")]
+    [Arguments("https://raw.githubusercontent.com/example/project/v1.2.3/LICENSE", "v1.2.3")]
+    [Arguments("https://raw.github.com/example/project/v1.2.3/LICENSE.txt", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/LICENSE.md", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/license.txt", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/LICENCE", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/COPYING", "v1.2.3")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/UNLICENSE", "v1.2.3")]
+    public async Task Fetch_NuGetRegistrationResponse_WithLegacyGitHubLicenseUrl_ProducesRepositoryTarget(string licenseUrl, string expectedRef)
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata("1.0.0", licenseUrl: licenseUrl));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/project");
+        await Assert.That(record.RepositoryRef).IsEqualTo(expectedRef);
+        await Assert.That(record.Warnings).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsupportedProjectAndLegacyGitHubLicenseUrl_UsesLicenseRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata(
+                "1.0.0",
+                projectUrl: "https://dot.net/",
+                licenseUrl: "https://github.com/dotnet/core/blob/main/LICENSE.TXT"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/dotnet/core");
+        await Assert.That(record.RepositoryRef).IsEqualTo("main");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithGitHubProjectAndVersionedLegacyLicenseUrl_PrefersVersionedLicenseRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata(
+                "1.0.0",
+                projectUrl: "https://github.com/example/current-project",
+                licenseUrl: "https://raw.githubusercontent.com/example/versioned-project/v1.0.0/LICENSE"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/versioned-project");
+        await Assert.That(record.RepositoryRef).IsEqualTo("v1.0.0");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithRepositoryAndLegacyLicenseUrl_PrefersRepositoryMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "repository": { "url": "https://github.com/example/canonical", "commit": "abcdef" },
+                        "licenseUrl": "https://github.com/example/legacy/blob/main/LICENSE"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/canonical");
+        await Assert.That(record.RepositoryRef).IsEqualTo("abcdef");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsafeRepositoryAndLegacyLicenseUrl_UsesLicenseRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "repository": { "url": "https://user@github.com/example/unsafe", "commit": "abcdef" },
+                        "licenseUrl": "https://github.com/example/versioned/blob/main/LICENSE"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/versioned");
+        await Assert.That(record.RepositoryRef).IsEqualTo("main");
+    }
+
+    [Test]
+    [Arguments("http://go.microsoft.com/fwlink/?LinkId=329770")]
+    [Arguments("http://github.com/example/project/blob/main/LICENSE")]
+    [Arguments("https://github.com/example/project/blob/main")]
+    [Arguments("https://github.com/example/project/blob/main/LICENSE?raw=1")]
+    [Arguments("https://raw.githubusercontent.com/example/project/main/%2e%2e/LICENSE")]
+    [Arguments("https://raw.githubusercontent.com/example/project/main//LICENSE")]
+    [Arguments("https://raw.githubusercontent.com/example/project/../other/main/LICENSE")]
+    [Arguments("https://github.com/example/project/blob/release/1.0/LICENSE")]
+    [Arguments("https://github.com/example/project/blob/0123456789abcdef0123456789abcdef01234567/licenses/LICENSE")]
+    [Arguments("https://github.com/example/project/blob/0123456789abcdef0123456789abcdef01234567/src/Example/LICENSE.txt")]
+    [Arguments("https://raw.githubusercontent.com/example/project/0123456789abcdef0123456789abcdef01234567/licenses/NOTICE")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/LICENSE.MIT")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/LICENSE-MIT")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/COPYING.LESSER")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/NOTICE")]
+    [Arguments("https://github.com/example/project/blob/v1.2.3/license.rst")]
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsupportedLegacyLicenseUrl_DoesNotCreateRepositoryTarget(string licenseUrl)
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata("1.0.0", licenseUrl: licenseUrl));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+        await Assert.That(record.RepositoryRef).IsEmpty();
+        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithOversizedLegacyLicenseRef_DoesNotCreateUncacheableTarget()
+    {
+        var licenseUrl = $"https://raw.githubusercontent.com/example/project/{new string('a', 257)}/LICENSE";
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata("1.0.0", licenseUrl: licenseUrl));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+        await Assert.That(record.RepositoryRef).IsEmpty();
+        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+    }
+
+    [Test]
+    [Arguments(LicenseCandidateWarnings.NuGetLicenseUrlUnsupported, "nuget_license_url_unsupported")]
+    [Arguments(LicenseCandidateWarnings.NuGetLicenseMetadataMissing, "nuget_license_metadata_missing")]
+    [Arguments(LicenseCandidateWarnings.NuGetLicenseFileUnresolved, "nuget_license_file_unresolved")]
+    public async Task NuGetWarningIdentifier_RoundTripsThroughStringAndUtf8(LicenseCandidateWarnings warning, string identifier)
+    {
+        await Assert.That(warning.ToStrings()).IsEquivalentTo([identifier]);
+        await Assert.That(LicenseCandidateIdentifiers.ParseWarning(identifier)).IsEqualTo(warning);
+        await Assert.That(LicenseCandidateIdentifiers.ParseWarning(System.Text.Encoding.UTF8.GetBytes(identifier))).IsEqualTo(warning);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithLicenseExpressionAndLegacyLicenseUrl_DoesNotProjectLicenseRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "licenseExpression": "MIT",
+                        "projectUrl": "https://dot.net/",
+                        "licenseUrl": "https://github.com/example/legacy/blob/main/LICENSE"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://dot.net/");
+        await Assert.That(record.RepositoryRef).IsEmpty();
+        await Assert.That(record.Warnings).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsupportedForgeRepository_KeepsDeclaredRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "repository": { "url": "https://gitlab.com/real/project", "commit": "deadbeef" },
+                        "licenseUrl": "https://github.com/someone/mirror/blob/main/LICENSE"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://gitlab.com/real/project");
+        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithLicenseFileAndSupportedRepository_DoesNotWarnUnresolvedFile()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "1.0.0",
+                        "licenseFile": "LICENSE.txt",
+                        "repository": { "url": "https://github.com/example/project", "commit": "0123456789abcdef0123456789abcdef01234567" }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/project");
+        await Assert.That(record.Warnings).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsafeProjectUrl_DiscardsRepositoryAndExplainsMissingMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata("1.0.0", projectUrl: "https://user@github.com/example/project"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+        await Assert.That(record.Warnings).Contains("nuget_license_metadata_missing");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationResponse_WithLicenseFile_RecordsUnresolvedFileWithoutGuessingLicense()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "items": [
+                    { "catalogEntry": { "version": "1.0.0", "licenseFile": "LICENSE.txt" } }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+        await Assert.That(record.Warnings).Contains("nuget_license_file_unresolved");
+    }
+
+    [Test]
     public async Task Fetch_NuGetRegistrationResponse_WithGzipContent_ProducesLicenseExpression()
     {
         using var handler = new GzipNuGetRegistrationHandler();
@@ -655,13 +963,12 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
-    public async Task FetchScheduler_ExcessiveRetryAfter_ClampsDelay()
+    public async Task FetchScheduler_RetryAfterBeyondWaitBudget_StopsInsteadOfRetryingEarly()
     {
         var handler = new ExcessiveRetryAfterHandler();
         var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
         var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
-        var observedDelay = TimeSpan.Zero;
-        using var cancellation = new CancellationTokenSource();
+        var waited = false;
 
         await Assert.That(async () => await PackageMetadataFetchScheduler.FetchAsync(
                 client,
@@ -669,14 +976,84 @@ public sealed class PackageMetadataTests
                 retryCount: 1,
                 (delay, token) =>
                 {
-                    observedDelay = delay;
-                    cancellation.Cancel();
-                    return Task.FromCanceled(token);
+                    waited = true;
+                    return Task.CompletedTask;
                 },
-                cancellation.Token))
-            .Throws<OperationCanceledException>();
+                CancellationToken.None))
+            .Throws<PackageMetadataFetchException>();
 
-        await Assert.That(observedDelay).IsLessThanOrEqualTo(TimeSpan.FromMinutes(5));
+        // The registry asked for far longer than a command-line run can absorb. Ol neither waits it out
+        // nor shortens it into an early retry that the registry did not sanction.
+        await Assert.That(waited).IsFalse();
+        await Assert.That(handler.RequestCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Fetch_OriginCooldownEscalatingToStop_ReportsTheLongerDelayAndStaysNonRetryable()
+    {
+        var handler = new EscalatingOriginRateLimitHandler();
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        // Both requests are in flight before any cooldown exists for the origin.
+        var shortLimit = Swallow(client.FetchAsync(new PackageMetadataRequest("npm", "", "first", "1.0.0", "pkg:npm/first@1.0.0")));
+        var longLimit = Swallow(client.FetchAsync(new PackageMetadataRequest("npm", "", "second", "1.0.0", "pkg:npm/second@1.0.0")));
+        await handler.LongLimitEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        // The short delay establishes the cooldown, so the origin's NotBefore is already in the future.
+        handler.ReleaseShortLimit.TrySetResult();
+        await shortLimit;
+
+        // The long delay then escalates the same origin to stopped while NotBefore is still ahead of now.
+        handler.ReleaseLongLimit.TrySetResult();
+        await longLimit;
+
+        var failure = await CaptureFetchFailureAsync(client, "pkg:npm/third@1.0.0");
+
+        await Assert.That(failure.RetryAfter).IsEqualTo(TimeSpan.FromSeconds(300));
+        await Assert.That(failure.IsTransient).IsFalse();
+
+        static async Task Swallow(Task<PackageMetadataRecord> task)
+        {
+            try { await task; } catch (PackageMetadataFetchException) { }
+        }
+    }
+
+    private static async Task<PackageMetadataFetchException> CaptureFetchFailureAsync(PackageMetadataRegistryClient client, string purl)
+    {
+        try
+        {
+            await client.FetchAsync(new PackageMetadataRequest("npm", "", "third", "1.0.0", purl));
+        }
+        catch (PackageMetadataFetchException exception)
+        {
+            return exception;
+        }
+
+        throw new InvalidOperationException("Expected a package metadata fetch failure.");
+    }
+
+    [Test]
+    public async Task FetchScheduler_ShortRetryAfter_StillWaitsAndRetries()
+    {
+        var handler = new RateLimitedThenSuccessfulNpmHandler(TimeSpan.FromSeconds(2));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+        var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
+        var observedDelay = TimeSpan.MinValue;
+
+        var record = await PackageMetadataFetchScheduler.FetchAsync(
+            client,
+            request,
+            retryCount: 1,
+            (delay, token) =>
+            {
+                observedDelay = delay;
+                return Task.CompletedTask;
+            },
+            CancellationToken.None);
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(observedDelay).IsGreaterThan(TimeSpan.Zero);
+        await Assert.That(observedDelay).IsLessThanOrEqualTo(TimeSpan.FromSeconds(10));
     }
 
     [Test]
@@ -1079,6 +1456,126 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Enrichment_LegacyNuGetCacheWithoutLicenseOrSupportedRepository_RefreshesOnce()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:nuget/Example@1.0.0";
+        using var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata(
+                "1.0.0",
+                projectUrl: "https://dot.net/",
+                licenseUrl: "https://github.com/dotnet/core/blob/main/LICENSE.TXT"));
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            var keyHash = PackageMetadataCache.GetCacheKeySha256(purl);
+            await File.WriteAllTextAsync(cache.GetPath(purl), $$"""
+                {
+                  "SchemaVersion": 1,
+                  "CacheKey": "{{purl}}",
+                  "CacheKeySha256": "{{keyHash}}",
+                  "Source": "nuget-registry",
+                  "RawLicense": "",
+                  "RepositoryUrl": "https://dot.net/",
+                  "Warnings": [],
+                  "Errors": [],
+                  "FetchedAt": "2026-07-08T00:00:00+00:00"
+                }
+                """);
+            var index = new SpdxLicenseIndex(["MIT"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(0);
+            await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/dotnet/core");
+            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryRef).IsEqualTo("main");
+
+            using var refreshed = await cache.TryReadAsync(purl);
+            await Assert.That(refreshed.RepositoryUrl).IsEqualTo("https://github.com/dotnet/core");
+            await Assert.That(refreshed.RepositoryRef).IsEqualTo("main");
+
+            var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
+            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
+            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+
+            await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_LegacyNuGetCacheWithSupportedProjectRepository_RefreshesOnce()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:nuget/Example@1.0.0";
+        using var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata(
+                "1.0.0",
+                projectUrl: "https://github.com/example/project",
+                licenseUrl: "https://github.com/example/versioned/blob/main/LICENSE"));
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            var keyHash = PackageMetadataCache.GetCacheKeySha256(purl);
+            await File.WriteAllTextAsync(cache.GetPath(purl), $$"""
+                {
+                  "SchemaVersion": 1,
+                  "CacheKey": "{{purl}}",
+                  "CacheKeySha256": "{{keyHash}}",
+                  "Source": "nuget-registry",
+                  "RawLicense": "",
+                  "RepositoryUrl": "https://github.com/example/project",
+                  "Warnings": [],
+                  "Errors": [],
+                  "FetchedAt": "2026-07-08T00:00:00+00:00"
+                }
+                """);
+            var index = new SpdxLicenseIndex(["MIT"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(0);
+            await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/example/versioned");
+            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryRef).IsEqualTo("main");
+
+            var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
+            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
+            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+
+            await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
     public async Task Enrichment_SingleComponentWithoutSupportedPurl_ReportsUnsupportedWithoutTarget()
     {
         var index = new SpdxLicenseIndex(["MIT"], []);
@@ -1160,6 +1657,27 @@ public sealed class PackageMetadataTests
                   "upper": "{{version}}",
                   "items": [
                     { "catalogEntry": { "version": "{{version}}", "licenseExpression": "{{license}}" } }
+                  ]
+                }
+              ]
+            }
+            """;
+
+    private static string NuGetRegistrationMetadata(string version, string projectUrl = "", string licenseUrl = "")
+        => $$"""
+            {
+              "items": [
+                {
+                  "lower": "{{version}}",
+                  "upper": "{{version}}",
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "version": "{{version}}",
+                        "projectUrl": "{{projectUrl}}",
+                        "licenseUrl": "{{licenseUrl}}"
+                      }
+                    }
                   ]
                 }
               ]
@@ -1312,12 +1830,65 @@ public sealed class PackageMetadataTests
     {
         private int requestCount;
 
+        public int RequestCount => requestCount;
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (Interlocked.Increment(ref requestCount) == 1)
             {
                 var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
                 response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(DateTimeOffset.MaxValue);
+                return Task.FromResult(response);
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{ "license": "MIT" }""") });
+        }
+    }
+
+    /// <summary>Rate limits one origin twice: first with a short delay, then with one past the wait budget.</summary>
+    private sealed class EscalatingOriginRateLimitHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource LongLimitEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseShortLimit { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseLongLimit { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.Contains("second", StringComparison.Ordinal))
+            {
+                LongLimitEntered.TrySetResult();
+                await ReleaseLongLimit.Task.WaitAsync(cancellationToken);
+                return RateLimited(TimeSpan.FromSeconds(300));
+            }
+
+            if (path.Contains("first", StringComparison.Ordinal))
+            {
+                await ReleaseShortLimit.Task.WaitAsync(cancellationToken);
+                return RateLimited(TimeSpan.FromSeconds(5));
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{ "license": "MIT" }""") };
+        }
+
+        private static HttpResponseMessage RateLimited(TimeSpan retryAfter)
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAfter);
+            return response;
+        }
+    }
+
+    private sealed class RateLimitedThenSuccessfulNpmHandler(TimeSpan retryAfter) : HttpMessageHandler
+    {
+        private int requestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref requestCount) == 1)
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+                response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAfter);
                 return Task.FromResult(response);
             }
 

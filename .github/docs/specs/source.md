@@ -44,7 +44,17 @@ GitHub License API results are interpreted as source repository evidence:
 - valid `license.spdx_id` becomes a source-repository license candidate.
 - `NOASSERTION` or `null` becomes unknown source-repository evidence.
 - HTTP 404 becomes `license_not_detected` evidence.
-- HTTP 403, 429, and 5xx become error evidence.
+- HTTP 403, 429, and 5xx become error evidence. A 403 or 429 reporting `X-RateLimit-Remaining: 0` is a primary rate limit; one carrying `Retry-After`, a bounded GitHub secondary-rate-limit error body, or a bare 429 is a secondary rate limit. That body only classifies a 403; when it cannot be read, the status alone decides and the failure stays a plain non-transient 403 rather than becoming a transport error. A plain non-rate-limit 403 remains non-transient.
+
+<a id="contract-source-rate-limit"></a>
+
+External collection honors one wait rule: Ol waits only for a delay the server itself named and that fits the run's wait budget of ten seconds. Anything longer is not shortened into an earlier retry, because retrying sooner than the server asked ignores the instruction that came with the failure, spends the remaining allowance, and can extend a secondary limit. The budget is not a per-request timeout; it bounds only the delay a failure asks the run to absorb.
+
+Applied to GitHub, this rule stops collection in practice every time. A secondary limit means the request pace was too high, so a named delay within the budget is retried once the delay elapses. A primary limit means the allowance is spent, which no delay this run can absorb will change, so it stops collection whatever reset it names. GitHub's own guidance puts a secondary limit at a minute or more and a primary reset up to an hour later, so both normally exceed the budget. `Retry-After` and `X-RateLimit-Reset` are then read to explain the outcome rather than to schedule a retry.
+
+A rate limit that stops collection stops it for the rest of the scan: requests still pending for other components are not sent.
+
+Rate-limit failures are never persisted as source-cache entries, so the affected targets are collected normally by a later run. Ol reports the limit on stderr even when the summary is suppressed, because the remedy differs by kind and the run can act on it: a primary limit reached without authentication names `OL_GITHUB_TOKEN`, an authenticated primary limit names the reset instant, and a secondary limit names `--concurrency`. A token raises the primary allowance and does nothing for a secondary limit, so the two must not be reported interchangeably.
 - missing repository URLs become `source_repository_unavailable` evidence, and non-GitHub or invalid repository URLs become `unsupported_source_repository` evidence.
 
 The API response body content is not parsed for custom license detection. If GitHub does not identify a license, `ol` does not try to outguess it.
@@ -62,6 +72,8 @@ Evidence may include:
 JSON report schema version 1 exposes this provenance once, as the typed `evidence` object nested in the source candidate. It contains only source-specific audit details and does not duplicate the candidate's raw/normalized claim, source, status, or warnings. Provenance fields do not inflate warning counts.
 
 When package metadata supplies a repository commit or ref for the package version, that ref is part of the source target and cache identity. Otherwise GitHub resolves the repository default branch. Package metadata repository URLs take precedence over SBOM repository references.
+
+For NuGet packages, the package-metadata boundary may derive this repository/ref pair from a narrowly validated legacy GitHub `licenseUrl`. Source enrichment still performs only the repository-level GitHub License API request described above; it neither downloads that URL nor treats its file content or path as a license claim. Because that request describes the repository root rather than the named file, the package-metadata boundary derives a pair only from a root license file GitHub itself would report, and otherwise leaves the package unresolved. Equivalent repository/ref pairs are deduplicated with ordinary package repository hints, so this compatibility path does not introduce a second request scheduler or bypass concurrency, retry, rate-limit, and cache controls.
 
 Report examples must not include token values or absolute local paths.
 
@@ -103,7 +115,7 @@ Reports may include auth mode but never token values:
 
 `ol` should issue the needed GET request directly and record the resulting status as evidence.
 
-Source repository fetches use the same bounded concurrency and retry controls as package metadata fetches. The default is one retry after the initial attempt. Timeout, HTTP 429, HTTP 5xx, and transient network failures are retryable; HTTP 400, 401, 403, 404, invalid repository identity, and unsupported hosts are not. Completion order must not change report ordering.
+Source repository fetches use the same bounded concurrency and retry controls as package metadata fetches. The default is one retry after the initial attempt. Timeout, HTTP 5xx, and transient network failures are retryable; HTTP 400, 401, plain 403, 404, every GitHub rate limit, invalid repository identity, and unsupported hosts are not. Completion order must not change report ordering.
 
 Report metadata distinguishes work deduplication from component outcomes: `targetCount` is the number of unique repository/ref targets, while `unknownCount` is the number of components that received no usable source license. Components sharing one unknown target therefore each contribute to `unknownCount` without increasing `targetCount`.
 
@@ -118,7 +130,9 @@ The exact persisted properties, casing, validation rules, and schema-version beh
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing source repository cache and overwrites it with newly fetched evidence.
 
-A corrupt entry is distinguished from a normal cache miss. Ol attempts recollection and retains `source_repository_cache_invalid` audit evidence even when recollection also fails. Retry-exhausted and non-retryable fetch failures are cacheable audit records so later reports can explain the collection outcome.
+A corrupt entry is distinguished from a normal cache miss. Ol attempts recollection and retains `source_repository_cache_invalid` audit evidence even when recollection also fails. Except for rate-limit failures, retry-exhausted and non-retryable fetch failures are cacheable audit records so later reports can explain the collection outcome.
+
+Source-cache entries carry a resolver capability version independently of the cache schema version. Pre-capability HTTP 429 and 403 error observations are collected once again because the old cache did not retain enough rate-limit context to distinguish a rate limit from an ordinary forbidden response. The refreshed result then follows normal cache behavior; rate-limit failures remain non-persistent.
 
 A source-cache write failure records `source_repository_cache_write_failed` but does not discard successfully fetched license evidence or fail the whole scan.
 

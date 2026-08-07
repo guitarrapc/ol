@@ -73,6 +73,7 @@ Package metadata schema version `1` is implemented in v2. It adds these properti
 | `RawLicense` | string | yes | License value returned by the package source; empty when the source returned no license text. |
 | `RepositoryUrl` | string | yes | Repository URL returned by package metadata; empty when unavailable. |
 | `RepositoryRef` | string | no | Repository commit or ref mapped to the package version; empty or absent when unavailable. |
+| `ResolverVersion` | integer | no | Metadata resolver capability version. Absence means the pre-capability resolver. |
 
 The package schema-version-1 `CacheKey` is the accepted versioned purl substring before the first `?` qualifier or `#` subpath marker. It preserves the input identity's spelling, casing, and percent encoding. Producers must use this identity directly rather than constructing an alternate spelling for the same package. Changing this identity rule requires migration or a new schema version because it changes the physical lookup hash.
 
@@ -85,6 +86,7 @@ Example:
   "RawLicense": "MIT",
   "RepositoryUrl": "https://github.com/facebook/react",
   "RepositoryRef": "0123456789abcdef",
+  "ResolverVersion": 2,
   "Warnings": [],
   "Errors": [],
   "FetchedAt": "2026-07-08T00:00:00+00:00",
@@ -112,6 +114,7 @@ In addition to the common fields, a source entry carries:
 | `Ref` | string | yes | Requested ref, or `default` when omitted. |
 | `HttpStatus` | integer or null | yes | Final HTTP status, or `null` when no response status exists. |
 | `License` | object or null | yes | GitHub license result, or `null` when no license was detected or collection failed. |
+| `ResolverVersion` | integer | no | Source resolver capability version. Absence means the pre-capability resolver. |
 
 When `License` is not `null`, it has this shape:
 
@@ -145,6 +148,7 @@ Example:
     "Sha": "...",
     "HtmlUrl": "https://github.com/owner/repo/blob/ref/LICENSE"
   },
+  "ResolverVersion": 2,
   "Warnings": [],
   "Errors": []
 }

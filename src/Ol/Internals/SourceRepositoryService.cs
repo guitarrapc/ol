@@ -15,12 +15,31 @@ internal static class SourceRepositoryPaths
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ol", "cache", "source-repository");
 }
 
-internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex, SourceRepositoryCache sourceCache, bool refresh, int retryCount, HttpClient? client = null, PurlPrefixSet? uncollectedPackages = null)
+internal sealed class SourceRepositoryService
 {
     private const int LinearPlanningComponentLimit = 8;
     private static readonly HttpClient SharedHttpClient = new();
-    private readonly HttpClient httpClient = client ?? SharedHttpClient;
-    private readonly GitHubAuthentication authentication = GitHubAuthentication.FromEnvironment();
+    private readonly SpdxLicenseIndex spdxLicenseIndex;
+    private readonly SourceRepositoryCache sourceCache;
+    private readonly bool refresh;
+    private readonly int retryCount;
+    private readonly PurlPrefixSet? uncollectedPackages;
+    private readonly GitHubAuthentication authentication;
+    private readonly GitHubLicenseApiClient githubClient;
+
+    public SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex, SourceRepositoryCache sourceCache, bool refresh, int retryCount, HttpClient? client = null, PurlPrefixSet? uncollectedPackages = null)
+    {
+        this.spdxLicenseIndex = spdxLicenseIndex;
+        this.sourceCache = sourceCache;
+        this.refresh = refresh;
+        this.retryCount = retryCount;
+        this.uncollectedPackages = uncollectedPackages;
+        authentication = GitHubAuthentication.FromEnvironment();
+        githubClient = new GitHubLicenseApiClient(client ?? SharedHttpClient, authentication);
+    }
+
+    /// <summary>Gets the rate limit that stopped source collection, or <see langword="null"/> while none was reached.</summary>
+    public GitHubRateLimitStatus? RateLimit => githubClient.RateLimit;
 
     public ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichAsync(
         ScanComponent[] components,
@@ -351,7 +370,6 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
     {
         try
         {
-            var githubClient = new GitHubLicenseApiClient(httpClient, authentication);
             var record = await GitHubLicenseFetchScheduler.FetchAsync(githubClient, target, retryCount, cancellationToken).ConfigureAwait(false);
             if (cacheWasInvalid)
             {
@@ -363,7 +381,7 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (OperationCanceledException) { return await CreateErrorAsync(target, null, cacheWasInvalid, cancellationToken).ConfigureAwait(false); }
-        catch (SourceRepositoryFetchException exception) { return await CreateErrorAsync(target, exception.StatusCode, cacheWasInvalid, cancellationToken).ConfigureAwait(false); }
+        catch (SourceRepositoryFetchException exception) { return await CreateErrorAsync(target, exception.StatusCode, cacheWasInvalid, !exception.IsRateLimited, cancellationToken).ConfigureAwait(false); }
         catch (HttpRequestException) { return await CreateErrorAsync(target, null, cacheWasInvalid, cancellationToken).ConfigureAwait(false); }
         catch (IOException) { return await CreateErrorAsync(target, null, cacheWasInvalid, cancellationToken).ConfigureAwait(false); }
     }
@@ -406,10 +424,17 @@ internal sealed class SourceRepositoryService(SpdxLicenseIndex spdxLicenseIndex,
     }
 
     private async Task<SourceRepositoryLookupResult> CreateErrorAsync(SourceRepositoryTarget target, System.Net.HttpStatusCode? statusCode, bool cacheWasInvalid, CancellationToken cancellationToken)
+        => await CreateErrorAsync(target, statusCode, cacheWasInvalid, persist: true, cancellationToken).ConfigureAwait(false);
+
+    private async Task<SourceRepositoryLookupResult> CreateErrorAsync(SourceRepositoryTarget target, System.Net.HttpStatusCode? statusCode, bool cacheWasInvalid, bool persist, CancellationToken cancellationToken)
     {
         var warnings = cacheWasInvalid ? new[] { "source_repository_cache_invalid" } : [];
         var record = new SourceRepositoryRecord(target.CacheKey, "github-license-api", authentication.Mode, target.Repository, target.Ref, statusCode, null, warnings, ["source_repository_fetch_failed"], DateTimeOffset.UtcNow);
-        record = await WriteCacheBestEffortAsync(record, cancellationToken).ConfigureAwait(false);
+        if (persist)
+        {
+            record = await WriteCacheBestEffortAsync(record, cancellationToken).ConfigureAwait(false);
+        }
+
         return CreateResult(record, SourceRepositoryCache.GetCacheKeySha256(target.CacheKey), cacheHit: false, cacheMiss: true, requested: true);
     }
 

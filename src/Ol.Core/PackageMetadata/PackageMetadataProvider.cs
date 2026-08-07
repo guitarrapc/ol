@@ -1,5 +1,6 @@
 ﻿using System.Collections.Frozen;
 using System.Text.Json;
+using Ol.Core.Licensing;
 namespace Ol.Core.PackageMetadata;
 
 /// <summary>
@@ -9,7 +10,13 @@ namespace Ol.Core.PackageMetadata;
 /// <param name="RawLicense">The registry license value.</param>
 /// <param name="RepositoryUrl">The repository URL supplied by the registry.</param>
 /// <param name="RepositoryRef">The repository commit or ref mapped to the package version, when supplied.</param>
-public readonly record struct PackageMetadataResponse(string Source, string RawLicense, string RepositoryUrl, string RepositoryRef = "");
+/// <param name="Warnings">Non-fatal metadata warnings.</param>
+public readonly record struct PackageMetadataResponse(
+    string Source,
+    string RawLicense,
+    string RepositoryUrl,
+    string RepositoryRef = "",
+    LicenseCandidateWarnings Warnings = LicenseCandidateWarnings.None);
 
 /// <summary>
 /// Owns purl validation, endpoint construction, and response projection for one package ecosystem.

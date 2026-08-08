@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using Ol.Core.Spdx;
 
 namespace Ol.Core.Licensing;
 
@@ -48,17 +49,20 @@ public static class LicenseReconciler
                 switch (candidate.Status)
                 {
                     case LicenseStatus.Matched:
-                        var duplicate = false;
+                        var combined = false;
                         for (var matchedIndex = 0; matchedIndex < matchedCount; matchedIndex++)
                         {
-                            if (matched[matchedIndex].Equals(candidate.Normalized))
+                            if (!TryCombine(matched[matchedIndex], candidate.Normalized, out var kept))
                             {
-                                duplicate = true;
-                                break;
+                                continue;
                             }
+
+                            matched[matchedIndex] = kept;
+                            combined = true;
+                            break;
                         }
 
-                        if (!duplicate)
+                        if (!combined)
                         {
                             matched[matchedCount] = candidate.Normalized;
                             matchedCount++;
@@ -94,5 +98,52 @@ public static class LicenseReconciler
             Array.Clear(matched, 0, matchedCount);
             ArrayPool<Utf8Slice>.Shared.Return(matched);
         }
+    }
+
+    /// <summary>
+    /// Combines two valid expressions when one states a choice that the other satisfies.
+    /// </summary>
+    /// <param name="kept">The expression that keeps every option both sources leave available.</param>
+    /// <returns><see langword="true"/> when the two do not disagree.</returns>
+    /// <remarks>
+    /// <para>
+    /// A disjunction is an offer, not a claim that every option applies at once. Repository license
+    /// detection answers with the one file it found at the repository root, so it names a single option
+    /// out of several by construction. Reading that as disagreement would make every dual-licensed
+    /// package a conflict, which is the ordinary case in some ecosystems, and would leave a scan that
+    /// collected more evidence worse off than one that collected none.
+    /// </para>
+    /// <para>
+    /// The result keeps the wider offer rather than the narrower observation. Nothing withdrew the
+    /// other options, and an allow-list that permits only one of them still passes, whereas narrowing
+    /// to the observed option would reject it.
+    /// </para>
+    /// </remarks>
+    private static bool TryCombine(Utf8Slice existing, Utf8Slice candidate, out Utf8Slice kept)
+    {
+        var existingSpan = existing.Span;
+        var candidateSpan = candidate.Span;
+        if (existingSpan.SequenceEqual(candidateSpan))
+        {
+            kept = existing;
+            return true;
+        }
+
+        // Equal sets spelled in a different order satisfy each other, and keeping the one already
+        // recorded makes the reported spelling depend on candidate order alone, which is deterministic.
+        if (SpdxDisjunctSet.IsSubsetOf(candidateSpan, existingSpan))
+        {
+            kept = existing;
+            return true;
+        }
+
+        if (SpdxDisjunctSet.IsSubsetOf(existingSpan, candidateSpan))
+        {
+            kept = candidate;
+            return true;
+        }
+
+        kept = default;
+        return false;
     }
 }

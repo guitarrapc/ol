@@ -217,7 +217,7 @@ Audit evidence is a traceable observation, not an independent license conclusion
 
 `acknowledgement: declared|concluded` records the producer's assertion semantics. It is not a verified attestation. CycloneDX `declarations.attestations`, BOM signatures, SPDX annotations, and package verification codes have broader document, conformance, or identity semantics and must not be projected onto a license candidate without an explicit relationship and a recorded verification result. Ol does not emit an inferred `attested` boolean.
 
-CycloneDX observed license collections under `component.evidence.licenses` are not flattened into independent reconciled candidates yet. A list of observed licenses does not state the AND/OR relationship needed to compare it safely with a concluded expression. Preserving that group relationship is required before Ol can use it without manufacturing false conflicts or conclusions.
+CycloneDX observed license collections under `component.evidence.licenses` are not flattened into independent reconciled candidates yet. A list of observed licenses does not state the AND/OR relationship needed to compare it safely with a concluded expression. Preserving that group relationship is required before Ol can use it without manufacturing false conflicts or conclusions. [Expression agreement](#contract-expression-agreement) supplies the comparison this needs for a single expression; what remains is deciding what an unordered list without a stated relationship may claim.
 
 The component `warnings` array aggregates candidate warnings. This preserves unknown-like, ambiguous, invalid, and deprecated values for later evidence sources to reconcile in v2 and v3.
 
@@ -229,10 +229,22 @@ SPDX SBOMs can contain both `licenseDeclared` and `licenseConcluded`. Both are e
 - If valid license candidates disagree, status is `conflict`.
 - Unknown-like values do not create a conflict when a valid candidate exists.
 
+<a id="contract-expression-agreement"></a>
+
+Two valid expressions collapse to one when neither offers an option the other withdraws. Ol decides that by comparing their **top-level disjunct sets**: the exact normalized text between top-level `OR` operators. When one set contains the other, the two agree and the wider offer is the reconciled expression. Otherwise they disagree and the status is `conflict`.
+
+A disjunction states a choice the publisher offers, not a claim that every option applies at once. Repository license detection answers with the one file it found at the repository root, so it names one option out of several by construction. Reading that as disagreement makes every dual-licensed package a conflict, which is the ordinary case in some ecosystems, and leaves a scan that collected more evidence worse off than one that collected none. That outcome contradicts the reason Ol collects from several sources at all.
+
+The reconciled value keeps the wider offer rather than the narrower observation, because nothing withdrew the other options. It is also the safe direction for policy: `OR` is permissive in an allow-list, so an allow-list permitting only the unobserved option still passes, whereas narrowing to the observed option would reject it.
+
+The comparison is deliberately shallow and does not interpret anything inside a disjunct. A conjunction, a parenthesized group, and a `WITH` exception are each compared whole. Consequently an expression whose top level is `AND` has exactly one disjunct, itself: `(MIT OR Apache-2.0) AND Unicode-3.0` is not satisfied by `Apache-2.0`, because distributing the conjunction would drop a required term. Relations Ol cannot decide this way remain `conflict` rather than becoming a guess. Equal sets written in a different order agree, and the reconciled value is the spelling of the first candidate in evidence order, which keeps the result deterministic.
+
 For CycloneDX, a single `expression` or a single license `id` can be `matched`. Multiple license IDs without explicit `AND`/`OR` semantics are `ambiguous`, not automatically synthesized into a license expression.
 
 ## Lessons Learned
 
+- Comparing normalized expressions as text made collecting more evidence produce a worse result. Measured against a Rust project, adding registry and repository evidence to a lockfile scan turned 164 resolved components into 76 resolved and 94 conflicting, because `MIT OR Apache-2.0` and an observed `Apache-2.0` differ as strings while agreeing as offers. Reconciliation across sources needs a relation between expressions, not equality.
+- The shallow relation was enough. Of those 94 conflicts, 93 were one expression appearing as a top-level disjunct of the other, and the single remaining one had a top-level `AND` that must not be distributed. Interpreting disjunct internals would have added risk without adding coverage.
 - `Ol.Update` remains a development-time generator. The Native AOT CLI consumes generated SPDX lookup data through `Ol.Core` and must not acquire a runtime dependency on the generator.
 - Installing and selecting user-managed SPDX data are separate operations. Explicit selection prevents a network refresh from silently changing the version used by later scans.
 - A version argument must resolve through the validated installation inventory rather than through path combination. Treating an arbitrary directory name as a version can escape the managed data root and can make command output disagree with the data a scan actually resolves.

@@ -2,9 +2,11 @@
 
 ## この文書の位置付け
 
-Ol の出発点は「SBOM と package manager と source repository を組み合わせて検証する」ことだった。5 つのエコシステムを実測した結果、この組み合わせが成立していないことが分かった。組み合わせるほど結果が悪くなる経路が存在し、片方の入力しか選べない制約が仕様として明文化されている。
+Ol の出発点は「SBOM と package manager と source repository を組み合わせて証拠を固める」ことだった。SBOM が最も整理された入力であることを前提に、SBOM だけでは見落とすもの、実際にはずれているものを他の経路で補う。5 つのエコシステムを実測した結果、この組み合わせが成立していないことが分かった。組み合わせるほど結果が悪くなる経路が存在し、片方の入力しか選べない制約が仕様として明文化されている。
 
-この文書は、その測定結果と、組み合わせを機能させるための実装順序を定める。実装済み仕様ではない。
+測定は入力経路の優劣を決めるためのものではない。どの経路が何を落とすかを知り、補い合わせるために行った。この文書は、その測定結果と、組み合わせを機能させるための実装順序を定める。実装済み仕様ではない。
+
+Phase 1 は 2026-08-09 に実装済み。結果は当該節に記録した。
 
 ## 背景: 測定
 
@@ -172,15 +174,17 @@ SBOM と package manager 入力を一つの収集として扱えるようにす�
 
 ## 実施順序
 
-### Phase 1: 式の関係判定と偽 conflict の除去
+### Phase 1: 式の関係判定と偽 conflict の除去 (実装済み)
 
-1. 上の表の関係を判定する failing tests を追加する。判定しない組が conflict のままであることも含める。
-2. reconciler が充足関係を conflict にしないようにする。報告する式は宣言側とする。
-3. Cargo の実測 fixture (`MIT OR Apache-2.0` 宣言 + `Apache-2.0` 観測) を回帰 fixture として固定する。
-4. 真の不一致が conflict のままであることを、npm の実測例 (`@webassemblyjs/leb128@1.13.2`: 宣言 `Apache-2.0` / repository `MIT`) で確認する。
-5. [spdx.md](../specs/spdx.md) の reconciliation 規則を更新する。
+1. 上の表の関係を判定する failing tests を追加した。判定しない組が conflict のままであることも含む。
+2. reconciler が充足関係を conflict にしないようにした。報告する式は広い方 (選択肢を残す方) とする。
+3. Cargo の実測形 (`MIT OR Apache-2.0` 宣言 + `Apache-2.0` 観測) を回帰テストに含めた。
+4. 真の不一致が conflict のまま残ることを、npm の実測例 (`@webassemblyjs/leb128@1.13.2`: 宣言 `Apache-2.0` / repository `MIT`) で確認した。
+5. [spdx.md](../specs/spdx.md) に [expression agreement](../specs/spdx.md#contract-expression-agreement) を追加した。
 
-Phase 1 だけで、Cargo の A 条件は 76 matched + 94 conflict から 169 matched + 1 conflict になる見込みである (解消 93 件、`AND` を含むため残る 1 件)。実装後に測って記録する。
+実測結果。Cargo の A 条件は **76 matched + 94 conflict から 169 matched + 1 conflict** になった (予測どおり解消 93 件)。残る 1 件は `unicode-ident@1.0.24` の `(MIT OR Apache-2.0) AND Unicode-3.0` で、最上位が `AND` のため判定しない設計どおりの結果である。Cargo の B 条件は 59 から 126 matched になった。NuGet、npm、Python、Go は変化なく、npm の真の conflict も保持された。
+
+allocation は変更前後でビット単位で一致した (`DependencyInputScannerBenchmark` 全 29 行と `E2EBenchmark` 全 4 行で ±0)。mean は 1 iteration 設定のため分解能が足りず、同一コード状態の再実行でも最大 19.1% 振れる。閾値を超えた行はいずれもその範囲内で、かつ新しい経路 (matched 候補が 2 件以上のときのみ実行) を通らない benchmark だった。
 
 ### Phase 2: detection 証拠の取り込み
 
@@ -253,7 +257,7 @@ Phase 1 から 4 の後、この文書の 5 エコシステム 4 条件を同じ
 
 ## Lessons learned
 
-- **入力経路の優劣は一般化できない。** 「SBOM を使えばよい」も「package manager が確実」も、エコシステム単位では両方とも反例がある。決めているのは経路ではなく、そのエコシステムでライセンス事実がどこに存在するかである。
+- **入力経路の優劣は一般化できない。** 「SBOM を使えばよい」も「package manager が確実」も、エコシステム単位では両方とも反例がある。決めているのは経路ではなく、そのエコシステムでライセンス事実がどこに存在するかである。だからどれか一つを選ぶのではなく、それぞれが何を落とすかを知ったうえで重ねる必要がある。
 - **SBOM ジェネレータの品質差は経路の差より大きい。** 同じ CycloneDX でも、artifact の本文を読むもの (`cyclonedx-gomod`) とメタデータしか見ないもの (`CycloneDX` .NET tool) で結果が正反対になる。SBOM を入力にすることは、解決をジェネレータに委譲することであって、解決が保証されることではない。
 - **証拠を増やすと悪化する経路があった。** Cargo で収集を足すと matched が 164 から 76 に落ちた。複数ソースの突き合わせは、比較の意味論を伴わなければ精度を下げる。
 - **意図的な保留が別の欠陥の原因になっていた。** `evidence.licenses` の見送りは「AND/OR 関係を保持できないから」という正しい理由で記録されていたが、その同じ不足が Cargo の偽 conflict を生んでいた。保留の理由が他の症状として現れていないかを見る価値がある。

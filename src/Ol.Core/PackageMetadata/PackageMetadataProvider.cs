@@ -11,12 +11,16 @@ namespace Ol.Core.PackageMetadata;
 /// <param name="RepositoryUrl">The repository URL supplied by the registry.</param>
 /// <param name="RepositoryRef">The repository commit or ref mapped to the package version, when supplied.</param>
 /// <param name="Warnings">Non-fatal metadata warnings.</param>
+/// <param name="DeclaredLicenseReferenceKind">What sort of place the publisher declared, when it declared one.</param>
+/// <param name="DeclaredLicenseReference">The declared location, empty for embedded text whose content is not retained.</param>
 public readonly record struct PackageMetadataResponse(
     string Source,
     string RawLicense,
     string RepositoryUrl,
     string RepositoryRef = "",
-    LicenseCandidateWarnings Warnings = LicenseCandidateWarnings.None);
+    LicenseCandidateWarnings Warnings = LicenseCandidateWarnings.None,
+    DeclaredLicenseReferenceKind DeclaredLicenseReferenceKind = DeclaredLicenseReferenceKind.None,
+    string DeclaredLicenseReference = "");
 
 /// <summary>
 /// Owns purl validation, endpoint construction, and response projection for one package ecosystem.

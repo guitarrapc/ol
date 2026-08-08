@@ -103,7 +103,7 @@ internal sealed class PackageMetadataService(
         {
             using (var entry = cache.TryRead(request.CacheKey))
             {
-                if (entry.IsHit && !IsLegacyNuGetEntry(entry))
+                if (entry.IsHit && !IsStaleUnresolvedEntry(entry))
                 {
                     return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateCacheHit(request, entry), concurrency, lookupCount: 1));
                 }
@@ -316,7 +316,7 @@ internal sealed class PackageMetadataService(
         {
             using (var entry = await cache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false))
             {
-                if (entry.IsHit && !IsLegacyNuGetEntry(entry))
+                if (entry.IsHit && !IsStaleUnresolvedEntry(entry))
                 {
                     return CreateCacheHit(request, entry);
                 }
@@ -327,18 +327,18 @@ internal sealed class PackageMetadataService(
     }
 
     /// <summary>
-    /// Reports whether a NuGet entry was observed by a resolver that could not see what this one can.
+    /// Reports whether an entry was observed by a resolver that could not see what this one can.
     /// </summary>
     /// <remarks>
-    /// An empty license is the only observation a newer resolver revisits: it is the state that makes
-    /// Ol read the catalog entry, and the entry can supply a repository, a license file, or a different
-    /// legacy URL than the registration showed. A declared expression is unaffected, so those entries
-    /// stay cache hits. Recollection writes the current version, so an unresolved package is refetched
-    /// once rather than on every scan.
+    /// An empty license is the only observation a newer resolver revisits, and it is stale in every
+    /// ecosystem rather than only the one whose resolver changed: every provider can now state where
+    /// a publisher said its license is, and a registry lookup can supply a repository the older
+    /// resolver never read. A declared license is unaffected, so those entries stay cache hits.
+    /// Recollection writes the current version, so an unresolved package is refetched once rather than
+    /// on every scan.
     /// </remarks>
-    private static bool IsLegacyNuGetEntry(in PackageMetadataCacheEntry entry)
-        => entry.Source.Span.SequenceEqual("nuget-registry"u8)
-        && entry.RawLicense.IsEmpty
+    private static bool IsStaleUnresolvedEntry(in PackageMetadataCacheEntry entry)
+        => entry.RawLicense.IsEmpty
         && entry.ResolverVersion < PackageMetadataRecord.CurrentResolverVersion;
 
     /// <summary>Projects a cache entry before its pooled buffer is returned.</summary>
@@ -444,15 +444,30 @@ internal sealed class PackageMetadataService(
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(entry.CacheKeySha256, entry.FetchedAt));
+        evidence = evidence with { DeclaredReference = CreateDeclaredReference(entry.DeclaredLicenseReferenceKind, entry.DeclaredLicenseReference.Span) };
         var candidate = LicenseCandidateFactory.Create(GetCandidateSource(entry.Source.Span), LicenseCandidateKind.License, entry.RawLicense.Span, spdxLicenseIndex, evidence);
         return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span) };
     }
+
+    /// <summary>Copies a declared location out of storage that the caller is about to release.</summary>
+    /// <remarks>
+    /// A cache entry's UTF-8 values point into a pooled buffer returned when the entry is disposed, and
+    /// the candidate outlives it. Only an entry that declares a location pays for the copy.
+    /// </remarks>
+    private static DeclaredLicenseReference? CreateDeclaredReference(DeclaredLicenseReferenceKind kind, ReadOnlySpan<byte> value)
+        => kind == DeclaredLicenseReferenceKind.None ? null : new(kind, Utf8Slice.FromOwnedBytes(value.ToArray()));
 
     private LicenseCandidate CreateMetadataCandidate(PackageMetadataRecord record)
     {
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(record.CacheKeySha256, record.FetchedAt));
+        evidence = evidence with
+        {
+            DeclaredReference = record.DeclaredLicenseReferenceKind == DeclaredLicenseReferenceKind.None
+                ? null
+                : new(record.DeclaredLicenseReferenceKind, Utf8Slice.FromString(record.DeclaredLicenseReference)),
+        };
         var candidate = LicenseCandidateFactory.Create(GetCandidateSource(record.Source), LicenseCandidateKind.License, Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex, evidence);
         return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(record.Warnings) };
     }

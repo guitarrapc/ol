@@ -1,4 +1,6 @@
-﻿namespace Ol.Core.PackageMetadata;
+﻿using Ol.Core.Licensing;
+
+namespace Ol.Core.PackageMetadata;
 
 /// <summary>
 /// Contains one validated package metadata cache entry read from pooled storage.
@@ -29,7 +31,9 @@ public readonly struct PackageMetadataCacheEntry : IDisposable
         string repositoryUrl,
         string repositoryRef,
         DateTimeOffset fetchedAt,
-        int resolverVersion)
+        int resolverVersion,
+        DeclaredLicenseReferenceKind declaredLicenseReferenceKind,
+        Utf8Slice declaredLicenseReference)
     {
         this.content = content;
         CacheKeySha256 = cacheKeySha256;
@@ -40,6 +44,8 @@ public readonly struct PackageMetadataCacheEntry : IDisposable
         RepositoryRef = repositoryRef;
         FetchedAt = fetchedAt;
         ResolverVersion = resolverVersion;
+        DeclaredLicenseReferenceKind = declaredLicenseReferenceKind;
+        DeclaredLicenseReference = declaredLicenseReference;
         IsHit = true;
     }
 
@@ -69,6 +75,16 @@ public readonly struct PackageMetadataCacheEntry : IDisposable
 
     /// <summary>Gets the metadata resolver capability version that produced this entry.</summary>
     public int ResolverVersion { get; }
+
+    /// <summary>Gets what sort of place the publisher declared, when it declared one.</summary>
+    public DeclaredLicenseReferenceKind DeclaredLicenseReferenceKind { get; }
+
+    /// <summary>Gets the declared location, pointing into the pooled buffer like the other UTF-8 values.</summary>
+    /// <remarks>
+    /// Kept as a slice rather than an owned string because almost no entry declares one, and materializing
+    /// it on every read would allocate for every cached component to serve the few that carry it.
+    /// </remarks>
+    public Utf8Slice DeclaredLicenseReference { get; }
 
     /// <summary>Returns the pooled buffer and invalidates every UTF-8 value on this entry.</summary>
     public void Dispose()

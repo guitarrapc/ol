@@ -1,4 +1,5 @@
-﻿using Ol.Core.PackageMetadata;
+﻿using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
 using System.Text.Json;
 
 namespace Ol.Core.PackageManagers;
@@ -13,6 +14,14 @@ public sealed class CargoPackageMetadataProvider : PackageMetadataProvider
     public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
     {
         var version = PackageMetadataJson.ReadElement(root, "version");
-        return new("cargo-registry", PackageMetadataJson.ReadString(version, "license"), PackageMetadataJson.ReadString(version, "repository"), string.Empty);
+        var licenseFile = PackageMetadataJson.ReadString(version, "license_file");
+        return new(
+            "cargo-registry",
+            PackageMetadataJson.ReadString(version, "license"),
+            PackageMetadataJson.ReadString(version, "repository"),
+            string.Empty,
+            LicenseCandidateWarnings.None,
+            licenseFile.Length == 0 ? DeclaredLicenseReferenceKind.None : DeclaredLicenseReferenceKind.ArtifactPath,
+            licenseFile);
     }
 }

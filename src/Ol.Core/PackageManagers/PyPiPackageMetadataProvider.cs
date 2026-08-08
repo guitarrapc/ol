@@ -1,4 +1,5 @@
-﻿using Ol.Core.PackageMetadata;
+﻿using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
 using System.Text.Json;
 
 namespace Ol.Core.PackageManagers;
@@ -24,6 +25,17 @@ public sealed class PyPiPackageMetadataProvider : PackageMetadataProvider
         if (repository.Length == 0) repository = PackageMetadataJson.ReadString(projectUrls, "Repository");
         if (repository.Length == 0) repository = PackageMetadataJson.ReadString(projectUrls, "Code");
         if (repository.Length == 0) repository = PackageMetadataJson.ReadString(projectUrls, "Homepage");
-        return new("pypi-registry", license, repository);
+        var licenseFiles = PackageMetadataJson.ReadElement(info, "license_files");
+        var licenseFile = licenseFiles.ValueKind == JsonValueKind.Array && licenseFiles.GetArrayLength() == 1 && licenseFiles[0].ValueKind == JsonValueKind.String
+            ? licenseFiles[0].GetString() ?? string.Empty
+            : string.Empty;
+        return new(
+            "pypi-registry",
+            license,
+            repository,
+            string.Empty,
+            LicenseCandidateWarnings.None,
+            licenseFile.Length == 0 ? DeclaredLicenseReferenceKind.None : DeclaredLicenseReferenceKind.ArtifactPath,
+            licenseFile);
     }
 }

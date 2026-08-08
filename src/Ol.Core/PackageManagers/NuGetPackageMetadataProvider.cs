@@ -130,7 +130,13 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
                 : LicenseCandidateWarnings.NuGetLicenseMetadataMissing;
         }
 
-        return new("nuget-registry", licenseExpression, repositoryUrl, repositoryRef, warnings);
+        // The file the package carries is the more specific place to look than a URL that may lead
+        // anywhere, so it is the reference when both are declared.
+        var (referenceKind, referenceValue) = licenseFile.Length != 0
+            ? (DeclaredLicenseReferenceKind.ArtifactPath, licenseFile)
+            : licenseUrl.Length != 0 ? (DeclaredLicenseReferenceKind.Location, licenseUrl)
+            : (DeclaredLicenseReferenceKind.None, string.Empty);
+        return new("nuget-registry", licenseExpression, repositoryUrl, repositoryRef, warnings, referenceKind, referenceValue);
     }
 
     private static bool TryCreateRepositoryFromLicenseUrl(string value, out string repositoryUrl, out string repositoryRef)

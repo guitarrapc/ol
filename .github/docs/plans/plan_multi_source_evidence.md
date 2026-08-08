@@ -6,7 +6,7 @@ Ol の出発点は「SBOM と package manager と source repository を組み合
 
 測定は入力経路の優劣を決めるためのものではない。どの経路が何を落とすかを知り、補い合わせるために行った。この文書は、その測定結果と、組み合わせを機能させるための実装順序を定める。実装済み仕様ではない。
 
-Phase 1 と Phase 2 は 2026-08-09 に実装済み。結果は各節に記録した。
+Phase 1 から Phase 3 は 2026-08-09 に実装済み。結果は各節に記録した。残るのは Phase 4 (入力の組み合わせ) と Phase 5 (再測定) である。
 
 ## 背景: 測定
 
@@ -69,7 +69,7 @@ github-license-api = Apache-2.0
 
 これは見落としではなく [spdx.md](../specs/spdx.md) に記録された意図的な保留であり、その理由は「観測ライセンスの列は AND/OR 関係を述べないため、結論済みの式と安全に比較できない」である。欠陥 1 と同じ、式の関係意味論の不在が阻害要因になっている。
 
-### 3. ジェネレータの非回答をライセンス名として受理している
+### 3. ジェネレータの非回答をライセンス名として受理している (Phase 3 で参照として保持)
 
 `CycloneDX` .NET tool は、nuspec が `licenseExpression` を持たない package に対して次を出力する。
 
@@ -199,7 +199,7 @@ allocation は変更前後でビット単位で一致した (`DependencyInputSca
 
 allocation は変更前後で全行不変。mean は `ScanCycloneDx` で +1.7%、閾値超えは無し。最初の測定では package manager 系の行が一斉に +75〜85% と出たが、同一コードの再測定が baseline と一致したため測定順による環境ドリフトだった。変更が触る CycloneDX の行は 3 回の測定を通じて平坦だった。
 
-### Phase 3: 宣言された参照のモデル化 (前半実装済み)
+### Phase 3: 宣言された参照のモデル化 (実装済み)
 
 実装した範囲。
 
@@ -213,11 +213,24 @@ allocation は変更前後で全行不変。mean は `ScanCycloneDx` で +1.7%�
 
 allocation は `LicenseEvidence` に nullable 参照を 1 つ足した分だけ増えた (+8 byte/candidate、`DependencyInputScannerBenchmark` で最大 +3.0%、`E2EBenchmark` で最大 +1.0%)。最初は値型で実装して +24 byte (最大 +9.1%) になったため、他の provenance 形と同じ nullable class に変えて 3 分の 1 に落とした。mean はこの benchmark 設定では分解能が足りない (同一コードの再測定で `ScanNuGetJsonWithCachedMetadata` が 486.9 から 372.0 μs に振れる)。
 
-残りの範囲。
+後半も実装した。
 
-6. NuGet (`licenseUrl`/`licenseFile`) と Cargo (`license_file`) を供給元にする。これらは registry 応答由来なので `PackageMetadataResponse` と package metadata cache に参照を通す必要がある。cache は任意プロパティ 2 つの追加で済み、解決には影響しないため schema version は据え置ける見込みだが、参照が意味を持つのは未解決 entry だけなので resolver capability version を上げて一度だけ再収集させる。
-7. CocoaPods (`license.file` / `text`)、PyPI (`license_files`) を供給元にする。埋め込み本文は存在の記録のみとし、`InlineText` 種別はこの時点で追加する。
-8. NuGet 固有の warning 語彙を横断語彙へ移行する。旧識別子の互換方針と報告 `schemaVersion` の扱いをここで決める。
+6. NuGet (`licenseFile` / `licenseUrl`)、Cargo (`license_file`)、PyPI (`license_files`)、CocoaPods (`license.file` / `text`) を供給元にした。`PackageMetadataResponse`、`PackageMetadataRecord`、package metadata cache、`PackageMetadataCacheEntry`、候補生成まで参照を通した。cache は任意プロパティ 2 つの追加で済み、schema version は据え置いた。`InlineText` 種別を追加し、埋め込み本文は存在の記録のみで内容を保持しない。
+7. resolver capability version を 4 に上げ、再収集の対象を全エコシステムへ広げた。どの provider も参照を述べられるようになった以上、license が空の観測はひとつのエコシステムだけでなくどこでも古い。
+
+実測結果。NuGet の package manager 経路で、宣言された場所が未解決セクションに並ぶようになった。`https://www.devexpress.com/Support/EULAs`、`http://go.microsoft.com/fwlink/?LinkID=320539` のような location と、`LICENSE.txt`、`MIT-LICENSE.txt` のような artifact path の両方である。これは以前「registration endpoint が消すため package manager 経路では出せない」と記録した値で、SBOM 経路と package manager 経路の双方から同じ形で得られるようになった。
+
+allocation は cache 経路で変化しなかった (`CacheReadBenchmark.PackageCacheHit` が 880 byte のまま)。cache entry の参照値を owned string ではなく `Utf8Slice` にしたため、参照を持たない大多数の entry が読み取りで何も追加で確保しない。`E2EBenchmark` は参照が実際に流れる NuGet の行だけ +0.3%、`DependencyInputScannerBenchmark` は不変。mean が閾値を超えた行は無い。
+
+### 判断: warning 語彙は改名しない
+
+当初 8 番目の項目として「NuGet 固有の warning 語彙を横断語彙へ移行し、旧識別子の互換方針と報告 `schemaVersion` を決める」を置いていた。これは行わないと決めた。
+
+横断表現は typed evidence の `DeclaredLicenseReference` が担うようになった。この時点で `nuget_license_url_unsupported` を `declared_license_location_unresolved` へ改名しても、新しい事実は 1 つも運ばれない。識別子は consumer が照合する安定 ID なので、改名は名前の好み以上の理由なしに互換を壊す。
+
+他のエコシステムに同等の warning を追加することもしない。参照を持つ未解決コンポーネントは、warning が無くても未解決セクションに status と宣言先を伴って現れる。人間が次に取る行動はそこで決まり、機械可読な事実は typed evidence にある。エコシステムごとに warning 語彙を増やすのは、この文書が避けようとした「1 エコシステムにつき 1 語彙」そのものである。
+
+したがって報告 `schemaVersion` は据え置く。追加した `declaredLicenseReferenceKind` と `declaredLicenseReference` は加算的なプロパティで、既存の consumer が読む値をどれも変えない。
 
 計画からの逸脱を 1 つ記録する。当初の項目に「`Unknown - See URL` 相当がライセンス名ではなく参照として扱われ、`ambiguous` にならないこと」があったが、これは実装しなかった。CycloneDX の `license.name` は「正規化できないライセンス名」と「ライセンス名の形をした非回答」を構造的に区別できず、区別する唯一の方法はジェネレータが書く文字列を条件に書くことである。それはこの文書自身が非目標として禁じている。`ambiguous` は「ライセンス表記はあるが推測なしには正規化できない」という定義どおりの状態であり、Ol は入力に書かれたことを忠実に報告している。人間が次に取る行動は、隣に並ぶ宣言された URL が与える。
 

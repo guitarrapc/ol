@@ -166,6 +166,12 @@ Package metadata support targets:
 
 Each ecosystem is an independently registered metadata provider. A provider owns the versioned-purl acceptance rules, registry endpoint, and normalized response evidence for that ecosystem. This keeps ecosystem-specific changes local: adding or removing a provider does not change central request parsing, registry dispatch, or SBOM ecosystem detection. Provider registration is immutable for a scan so repeated component processing performs only data lookup, not runtime configuration work.
 
+<a id="contract-provider-declared-reference"></a>
+
+Every provider retains a [declared license reference](spdx.md#contract-declared-license-reference) when its registry states one, so the concept stays one representation rather than one vocabulary per ecosystem. NuGet supplies `licenseFile` as an artifact path and `licenseUrl` as a location, preferring the file when both are declared because a file the package carries is a more specific place to look than a URL that may lead anywhere. Cargo supplies `license_file` and PyPI supplies a single `license_files` entry as artifact paths; a collection of several entries names no single place, so it supplies none. CocoaPods supplies `license.file` as an artifact path, and records `license.text` as embedded text whose content is deliberately not retained.
+
+A reference never contributes a license and never changes what a component resolves to. It is retained so a report can say where the publisher pointed, which for an unresolved component is the only actionable fact available.
+
 The npm provider reads the license from whichever declaration shape the published metadata uses. npm declared a license as an object and as a collection of them before the current string field, and packages published under those shapes are still installed today: reading only the current field reported `wrench@1.5.9` unresolved while its registry metadata plainly states `MIT`. The current field wins when both are present, because a package carrying both was republished with the newer one. A collection of several entries states no relationship between them, so it resolves nothing rather than having one entry picked or an operator invented.
 
 The NuGet provider discovers its registration base URL from `https://api.nuget.org/v3/index.json` and requires the `RegistrationsBaseUrl/3.6.0` resource so SemVer 2.0.0 packages remain visible. Discovery is single-flight and retained by the registry client for the scan: concurrent package lookups share one service-index request rather than requesting the index per component. Canceling one caller stops only that caller's wait and does not cancel discovery shared by other callers. Only an HTTPS `api.nuget.org` endpoint without credentials, a non-default port, query, or fragment is accepted from the public service index.
@@ -230,7 +236,7 @@ The exact persisted properties, casing, validation rules, and schema-version beh
 
 Cache entries are persistent. There is no automatic TTL. `--refresh` ignores existing package metadata cache and overwrites it with newly fetched evidence.
 
-A NuGet observation with an empty license that an older resolver capability version wrote is treated as a cache miss once. Recollection writes either a usable repository/ref or an explicit NuGet warning, so subsequent scans return to normal cache hits; other ecosystems and NuGet entries with a declared expression are not invalidated.
+An observation with an empty license that an older resolver capability version wrote is treated as a cache miss once, in every ecosystem rather than only the one whose resolver changed. Recollection writes either a usable repository/ref or an explicit NuGet warning, so subsequent scans return to normal cache hits; other ecosystems and NuGet entries with a declared expression are not invalidated.
 
 `ol cache clear` removes evidence caches. It may accept cache categories such as `package-metadata`, `source-repository`, or `all`.
 

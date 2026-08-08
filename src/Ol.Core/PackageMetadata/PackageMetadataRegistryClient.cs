@@ -77,7 +77,7 @@ public sealed class PackageMetadataRegistryClient
         {
             using var document = await ReadJsonDocumentAsync(response, cancellationToken).ConfigureAwait(false);
             var metadata = await ResolveMetadataAsync(provider, request, document, cancellationToken).ConfigureAwait(false);
-            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), metadata.Warnings.ToStrings(), [], DateTimeOffset.UtcNow, metadata.RepositoryRef);
+            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), metadata.Warnings.ToStrings(), [], DateTimeOffset.UtcNow, metadata.RepositoryRef, metadata.DeclaredLicenseReferenceKind, metadata.DeclaredLicenseReference);
         }
         catch (JsonException exception)
         {

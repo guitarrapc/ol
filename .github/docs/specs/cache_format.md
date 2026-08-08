@@ -74,6 +74,8 @@ Package metadata schema version `1` is implemented in v2. It adds these properti
 | `RepositoryUrl` | string | yes | Repository URL returned by package metadata; empty when unavailable. |
 | `RepositoryRef` | string | no | Repository commit or ref mapped to the package version; empty or absent when unavailable. |
 | `ResolverVersion` | integer | no | Metadata resolver capability version. Absence means the pre-capability resolver. |
+| `DeclaredLicenseReferenceKind` | string | no | `None`, `Location`, `ArtifactPath`, or `InlineText`. Absence means no location was declared. An unrecognized value rejects the entry rather than dropping the fact silently. |
+| `DeclaredLicenseReference` | string | no | The [declared license reference](spdx.md#contract-declared-license-reference) exactly as the publisher wrote it. Always empty for `InlineText`: a cache is not a place to keep a license document. |
 
 The package schema-version-1 `CacheKey` is the accepted versioned purl substring before the first `?` qualifier or `#` subpath marker. It preserves the input identity's spelling, casing, and percent encoding. Producers must use this identity directly rather than constructing an alternate spelling for the same package. Changing this identity rule requires migration or a new schema version because it changes the physical lookup hash.
 
@@ -86,7 +88,7 @@ Example:
   "RawLicense": "MIT",
   "RepositoryUrl": "https://github.com/facebook/react",
   "RepositoryRef": "0123456789abcdef",
-  "ResolverVersion": 3,
+  "ResolverVersion": 4,
   "Warnings": [],
   "Errors": [],
   "FetchedAt": "2026-07-08T00:00:00+00:00",

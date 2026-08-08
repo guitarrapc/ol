@@ -28,6 +28,7 @@ namespace Ol.Core.Licensing;
 public sealed record DeclaredLicenseReference(DeclaredLicenseReferenceKind Kind, Utf8Slice Value);
 
 /// <summary>Identifies what sort of place a <see cref="DeclaredLicenseReference"/> names.</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<DeclaredLicenseReferenceKind>))]
 public enum DeclaredLicenseReferenceKind : byte
 {
     /// <summary>No location was declared.</summary>
@@ -36,4 +37,6 @@ public enum DeclaredLicenseReferenceKind : byte
     Location,
     /// <summary>A path inside the published artifact.</summary>
     ArtifactPath,
+    /// <summary>License text carried in the metadata itself. Only its existence is recorded, never the text.</summary>
+    InlineText,
 }

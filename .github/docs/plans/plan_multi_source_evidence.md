@@ -6,7 +6,7 @@ Ol の出発点は「SBOM と package manager と source repository を組み合
 
 測定は入力経路の優劣を決めるためのものではない。どの経路が何を落とすかを知り、補い合わせるために行った。この文書は、その測定結果と、組み合わせを機能させるための実装順序を定める。実装済み仕様ではない。
 
-Phase 1 は 2026-08-09 に実装済み。結果は当該節に記録した。
+Phase 1 と Phase 2 は 2026-08-09 に実装済み。結果は各節に記録した。
 
 ## 背景: 測定
 
@@ -47,7 +47,7 @@ SBOM は各エコシステム純正のジェネレータで生成した (`Cyclon
 
 ## 判明した欠陥
 
-### 1. 選言を満たす観測を conflict にしている
+### 1. 選言を満たす観測を conflict にしている (Phase 1 で解消)
 
 Cargo の 94 件の conflict のうち 93 件が同一パターンだった。
 
@@ -63,7 +63,7 @@ github-license-api = Apache-2.0
 
 証拠を突き合わせるほど結論が悪化するのは、Ol の出発点そのものの否定である。
 
-### 2. `component.evidence.licenses` を使えていない
+### 2. `component.evidence.licenses` を使えていない (Phase 2 で解消)
 
 `cyclonedx-gomod` は検出したライセンスを既定で `component.evidence.licenses` に置く。「検出結果が正しい保証がないため」というのがツール側の理由であり、Ol の declaration と detection の区別と同じ考えである。測定した Go SBOM では 39/39 コンポーネントがそこに正しい SPDX ID を持っていた。Ol はそれを読まないため、`-assert-licenses` を付けずに生成された SBOM では C 条件が 0 件になる。
 
@@ -186,12 +186,18 @@ SBOM と package manager 入力を一つの収集として扱えるようにす�
 
 allocation は変更前後でビット単位で一致した (`DependencyInputScannerBenchmark` 全 29 行と `E2EBenchmark` 全 4 行で ±0)。mean は 1 iteration 設定のため分解能が足りず、同一コード状態の再実行でも最大 19.1% 振れる。閾値を超えた行はいずれもその範囲内で、かつ新しい経路 (matched 候補が 2 件以上のときのみ実行) を通らない benchmark だった。
 
-### Phase 2: detection 証拠の取り込み
+### Phase 2: detection 証拠の取り込み (実装済み)
 
-1. `component.evidence.licenses` を読む failing tests を追加する。単一要素、複数要素、declaration との一致・充足・不一致を網羅する。
-2. 候補の種別に detection を追加し、報告と cache に保持する。
-3. Go の実測 SBOM を fixture とし、`-assert-licenses` の有無で結果が同じになることを確認する。
-4. [spdx.md](../specs/spdx.md) の当該保留記述を、実装した内容に置き換える。
+1. `component.evidence.licenses` を読む failing tests を追加した。declaration 側 (無し・解決・解決不能・不正) と observed 側 (無し・単一・複数・不正) の組み合わせを等価クラスとして網羅した。
+2. `SbomLicenseField.CycloneDxEvidenceLicenses` を追加し、detection の出所を typed evidence に残した。
+3. Go の実測 SBOM で、`-assert-licenses` の有無にかかわらず同じ結果になることを確認した。
+4. [spdx.md](../specs/spdx.md) の保留記述を [observed licenses](../specs/spdx.md#contract-observed-licenses) に置き換えた。
+
+実測結果。`-assert-licenses` 無しで生成した Go SBOM の C 条件が **0 から 39/40 matched** になり、`-assert-licenses` 版と一致した。NuGet、npm、Python、Cargo の B/C 条件はいずれも Phase 1 時点から変化なし。
+
+実装中に、計画になかった欠陥が 1 つ見つかった。複数 ID の列は collection 全体としては `ambiguous` と報告されるのに、その各 entry は個別に解決済みのまま残っていた。そのため後から evidence source が 1 つ加わると、reconciler が「解決済みの主張が 2 つ食い違っている」と読んで、どの source も述べていない conflict を作った。これは `component.licenses` にも同じように存在した既存の欠陥で、collection の結論を entry へ押し下げることで両方を修正した。detection 用に別の reconciliation 規則は必要なかった。
+
+allocation は変更前後で全行不変。mean は `ScanCycloneDx` で +1.7%、閾値超えは無し。最初の測定では package manager 系の行が一斉に +75〜85% と出たが、同一コードの再測定が baseline と一致したため測定順による環境ドリフトだった。変更が触る CycloneDX の行は 3 回の測定を通じて平坦だった。
 
 ### Phase 3: 宣言された参照のモデル化
 

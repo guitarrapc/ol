@@ -254,6 +254,8 @@ public enum SbomLicenseField : byte
     None,
     /// <summary>CycloneDX component <c>licenses</c>.</summary>
     CycloneDxLicenses,
+    /// <summary>CycloneDX component <c>evidence.licenses</c>, which a producer detected rather than was told.</summary>
+    CycloneDxEvidenceLicenses,
     /// <summary>SPDX package <c>licenseDeclared</c>.</summary>
     SpdxLicenseDeclared,
     /// <summary>SPDX package <c>licenseConcluded</c>.</summary>

@@ -431,7 +431,10 @@ public readonly record struct PackageMetadataRecord(
     /// <summary>
     /// Gets the metadata resolver capability version.
     /// </summary>
-    public int ResolverVersion => 2;
+    public int ResolverVersion => CurrentResolverVersion;
+
+    /// <summary>The resolver capability version this build writes.</summary>
+    public const int CurrentResolverVersion = 3;
 
     /// <summary>
     /// Gets the SHA-256 hash of <see cref="CacheKey"/>.

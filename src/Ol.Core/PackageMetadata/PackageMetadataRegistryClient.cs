@@ -12,6 +12,9 @@ public sealed class PackageMetadataRegistryClient
 {
     private const string UserAgent = "ol";
 
+    /// <summary>Bounds the provider-owned document chain: NuGet needs index, page, then catalog entry.</summary>
+    private const int MaximumFollowUpHops = 2;
+
     /// <summary>The longest server-directed delay a command-line run absorbs before giving up on an origin.</summary>
     /// <remarks>
     /// Registries answer a rate limit either with no delay at all, where a moment's pause clears it, or
@@ -73,29 +76,55 @@ public sealed class PackageMetadataRegistryClient
         try
         {
             using var document = await ReadJsonDocumentAsync(response, cancellationToken).ConfigureAwait(false);
-            var followUpEndpoint = provider.CreateFollowUpEndpoint(document.RootElement, request);
-            PackageMetadataResponse metadata;
-            if (followUpEndpoint is not null)
+            var metadata = await ResolveMetadataAsync(provider, request, document, cancellationToken).ConfigureAwait(false);
+            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), metadata.Warnings.ToStrings(), [], DateTimeOffset.UtcNow, metadata.RepositoryRef);
+        }
+        catch (JsonException exception)
+        {
+            throw new PackageMetadataFetchException(null, exception);
+        }
+    }
+
+    /// <summary>Follows the provider-owned document chain and projects the last document it reaches.</summary>
+    /// <remarks>
+    /// One hop is not always enough. NuGet resolves a registration index to a page and a page entry to
+    /// the catalog entry that carries the metadata the registration omits. The bound keeps a malformed
+    /// or self-referential chain from requesting indefinitely.
+    /// </remarks>
+    private async Task<PackageMetadataResponse> ResolveMetadataAsync(
+        PackageMetadataProvider provider,
+        PackageMetadataRequest request,
+        JsonDocument document,
+        CancellationToken cancellationToken)
+    {
+        JsonDocument? current = null;
+        try
+        {
+            var root = document.RootElement;
+            for (var hop = 0; hop < MaximumFollowUpHops; hop++)
             {
+                if (provider.CreateFollowUpEndpoint(root, request) is not { } followUpEndpoint)
+                {
+                    break;
+                }
+
                 using var followUpResponse = await GetAsync(followUpEndpoint, cancellationToken).ConfigureAwait(false);
                 if (!followUpResponse.IsSuccessStatusCode)
                 {
                     throw CreateFetchException(followUpResponse);
                 }
 
-                using var followUpDocument = await ReadJsonDocumentAsync(followUpResponse, cancellationToken).ConfigureAwait(false);
-                metadata = provider.ParseResponse(followUpDocument.RootElement, request);
-            }
-            else
-            {
-                metadata = provider.ParseResponse(document.RootElement, request);
+                var followUpDocument = await ReadJsonDocumentAsync(followUpResponse, cancellationToken).ConfigureAwait(false);
+                current?.Dispose();
+                current = followUpDocument;
+                root = followUpDocument.RootElement;
             }
 
-            return new PackageMetadataRecord(request.CacheKey, metadata.Source, metadata.RawLicense, SanitizeRepositoryUrl(metadata.RepositoryUrl), metadata.Warnings.ToStrings(), [], DateTimeOffset.UtcNow, metadata.RepositoryRef);
+            return provider.ParseResponse(root, request);
         }
-        catch (JsonException exception)
+        finally
         {
-            throw new PackageMetadataFetchException(null, exception);
+            current?.Dispose();
         }
     }
 

@@ -48,10 +48,24 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
 
     public override Uri? CreateFollowUpEndpoint(JsonElement root, PackageMetadataRequest request)
     {
-        if (TryFindCatalogEntry(root, request.Version, out _)
-            || !NuGetVersion.TryParse(request.Version, out var requestedVersion))
+        if (!NuGetVersion.TryParse(request.Version, out var requestedVersion))
         {
             return null;
+        }
+
+        if (TryFindRegistrationCatalogEntry(root, requestedVersion, out var registrationEntry))
+        {
+            // The registration inlines only part of the catalog entry. It omits `licenseFile` and
+            // `repository`, and rewrites `licenseUrl` to the gallery license page, so the entry itself
+            // is the only place those are observable. It is worth one request only when the
+            // registration declared no expression, because an expression already answers the question.
+            if (PackageMetadataJson.ReadString(registrationEntry, "licenseExpression").Length != 0)
+            {
+                return null;
+            }
+
+            var catalogId = PackageMetadataJson.ReadString(registrationEntry, "@id");
+            return TryCreateTrustedNuGetEndpoint(catalogId, out var catalogEndpoint) ? catalogEndpoint : null;
         }
 
         var pages = PackageMetadataJson.ReadElement(root, "items");
@@ -301,6 +315,29 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
             return false;
         }
 
+        if (TryFindRegistrationCatalogEntry(root, version, out catalog))
+        {
+            return true;
+        }
+
+        // A catalog entry describes exactly one package version and carries no registration items, so
+        // the document Ol followed to is itself the entry to project.
+        if (root.ValueKind != JsonValueKind.Object
+            || PackageMetadataJson.ReadElement(root, "items").ValueKind == JsonValueKind.Array
+            || !NuGetVersion.TryParse(PackageMetadataJson.ReadString(root, "version"), out var catalogVersion)
+            || !VersionComparer.VersionRelease.Equals(version, catalogVersion))
+        {
+            catalog = default;
+            return false;
+        }
+
+        catalog = root;
+        return true;
+    }
+
+    private static bool TryFindRegistrationCatalogEntry(JsonElement root, NuGetVersion version, out JsonElement catalog)
+    {
+        catalog = default;
         var items = PackageMetadataJson.ReadElement(root, "items");
         if (items.ValueKind != JsonValueKind.Array)
         {

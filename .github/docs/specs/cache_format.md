@@ -86,7 +86,7 @@ Example:
   "RawLicense": "MIT",
   "RepositoryUrl": "https://github.com/facebook/react",
   "RepositoryRef": "0123456789abcdef",
-  "ResolverVersion": 2,
+  "ResolverVersion": 3,
   "Warnings": [],
   "Errors": [],
   "FetchedAt": "2026-07-08T00:00:00+00:00",

@@ -838,6 +838,157 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Fetch_NuGetRegistrationIndex_WithoutLicenseExpression_FollowsCatalogEntryForRepository()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationIndexWithoutExpression("1.0.0"),
+            NuGetCatalogLeaf("1.0.0", repositoryUrl: "https://github.com/example/project", repositoryCommit: "0123456789abcdef0123456789abcdef01234567"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(handler.RequestUris[2]).IsEqualTo(CatalogLeafUri);
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/project");
+        await Assert.That(record.RepositoryRef).IsEqualTo("0123456789abcdef0123456789abcdef01234567");
+        await Assert.That(record.Warnings).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationIndex_WithoutLicenseExpression_FollowsCatalogEntryForLicenseFile()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationIndexWithoutExpression("1.0.0"),
+            NuGetCatalogLeaf("1.0.0", licenseFile: "MIT-LICENSE.txt"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.Warnings).Contains("nuget_license_file_unresolved");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetCatalogEntry_WithLicenseExpression_ProducesLicenseExpression()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationIndexWithoutExpression("1.0.0"),
+            NuGetCatalogLeaf("1.0.0", licenseExpression: "MIT"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(record.Warnings).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_NuGetCatalogEntry_WithoutAnyLicenseMetadata_ExplainsMissingMetadata()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationIndexWithoutExpression("1.0.0"),
+            NuGetCatalogLeaf("1.0.0"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+        await Assert.That(record.Warnings).Contains("nuget_license_metadata_missing");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationIndex_WithLicenseExpression_DoesNotRequestCatalogEntry()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationIndex("1.0.0", "MIT"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT");
+        await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationPage_WithoutLicenseExpression_FollowsPageThenCatalogEntry()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "@id": "https://api.nuget.org/v3/registration5-gz-semver2/example/page/1.0.0/2.0.0.json",
+                  "lower": "1.0.0",
+                  "upper": "2.0.0"
+                }
+              ]
+            }
+            """,
+            NuGetRegistrationIndexWithoutExpression("1.5.0"),
+            NuGetCatalogLeaf("1.5.0", licenseFile: "LICENSE.txt"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.5.0", "pkg:nuget/Example@1.5.0"));
+
+        await Assert.That(handler.RequestUris[2]).IsEqualTo("https://api.nuget.org/v3/registration5-gz-semver2/example/page/1.0.0/2.0.0.json");
+        await Assert.That(handler.RequestUris[3]).IsEqualTo(CatalogLeafUri);
+        await Assert.That(record.Warnings).Contains("nuget_license_file_unresolved");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistrationIndex_WithUntrustedCatalogEntryId_DoesNotFollowIt()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            """
+            {
+              "items": [
+                {
+                  "lower": "1.0.0",
+                  "upper": "1.0.0",
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "@id": "https://example.test/private/example.1.0.0.json",
+                        "version": "1.0.0",
+                        "licenseUrl": "https://www.nuget.org/packages/Example/1.0.0/license"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
+        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+    }
+
+    [Test]
+    public async Task Fetch_NuGetCatalogEntry_WithLegacyGitHubLicenseUrl_ProjectsRepositoryTarget()
+    {
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationIndexWithoutExpression("1.0.0"),
+            NuGetCatalogLeaf("1.0.0", licenseUrl: "https://github.com/example/project/blob/v1.0.0/LICENSE.txt"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/project");
+        await Assert.That(record.RepositoryRef).IsEqualTo("v1.0.0");
+        await Assert.That(record.Warnings).IsEmpty();
+    }
+
+    [Test]
     public async Task Fetch_NuGetRegistrationResponse_WithGzipContent_ProducesLicenseExpression()
     {
         using var handler = new GzipNuGetRegistrationHandler();
@@ -1576,6 +1727,106 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Enrichment_LegacyNuGetCacheWithUnsupportedLicenseUrlWarning_RefreshesOnce()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:nuget/Example@1.0.0";
+        using var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationIndexWithoutExpression("1.0.0"),
+            NuGetCatalogLeaf("1.0.0", repositoryUrl: "https://github.com/example/project", repositoryCommit: "main"));
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            var keyHash = PackageMetadataCache.GetCacheKeySha256(purl);
+            await File.WriteAllTextAsync(cache.GetPath(purl), $$"""
+                {
+                  "SchemaVersion": 1,
+                  "ResolverVersion": 2,
+                  "CacheKey": "{{purl}}",
+                  "CacheKeySha256": "{{keyHash}}",
+                  "Source": "nuget-registry",
+                  "RawLicense": "",
+                  "RepositoryUrl": "",
+                  "Warnings": ["nuget_license_url_unsupported"],
+                  "Errors": [],
+                  "FetchedAt": "2026-07-08T00:00:00+00:00"
+                }
+                """);
+            var index = new SpdxLicenseIndex(["MIT"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/example/project");
+
+            var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
+            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
+            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+
+            await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(handler.RequestUris.Count).IsEqualTo(3);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_NuGetCacheWithLicenseExpression_RemainsCacheHit()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:nuget/Example@1.0.0";
+        using var handler = new SequenceJsonResponseHandler(NuGetServiceIndex(), NuGetRegistrationIndex("1.0.0", "MIT"));
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            var keyHash = PackageMetadataCache.GetCacheKeySha256(purl);
+            await File.WriteAllTextAsync(cache.GetPath(purl), $$"""
+                {
+                  "SchemaVersion": 1,
+                  "ResolverVersion": 2,
+                  "CacheKey": "{{purl}}",
+                  "CacheKeySha256": "{{keyHash}}",
+                  "Source": "nuget-registry",
+                  "RawLicense": "MIT",
+                  "RepositoryUrl": "",
+                  "Warnings": [],
+                  "Errors": [],
+                  "FetchedAt": "2026-07-08T00:00:00+00:00"
+                }
+                """);
+            var index = new SpdxLicenseIndex(["MIT"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(handler.RequestUris).IsEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
     public async Task Enrichment_SingleComponentWithoutSupportedPurl_ReportsUnsupportedWithoutTarget()
     {
         var index = new SpdxLicenseIndex(["MIT"], []);
@@ -1660,6 +1911,56 @@ public sealed class PackageMetadataTests
                   ]
                 }
               ]
+            }
+            """;
+
+    private const string CatalogLeafUri = "https://api.nuget.org/v3/catalog0/data/2026.01.02.03.04.05/example.json";
+
+    /// <summary>Reproduces the registration shape nuget.org serves for a package with no SPDX expression.</summary>
+    /// <remarks>
+    /// The inlined catalog entry omits <c>licenseFile</c> and <c>repository</c>, and rewrites
+    /// <c>licenseUrl</c> to the gallery license page, so only the catalog entry carries them.
+    /// </remarks>
+    private static string NuGetRegistrationIndexWithoutExpression(string version)
+        => $$"""
+            {
+              "items": [
+                {
+                  "lower": "{{version}}",
+                  "upper": "{{version}}",
+                  "items": [
+                    {
+                      "catalogEntry": {
+                        "@id": "{{CatalogLeafUri}}",
+                        "version": "{{version}}",
+                        "licenseExpression": "",
+                        "licenseUrl": "https://www.nuget.org/packages/Example/{{version}}/license",
+                        "projectUrl": "https://example.test/project"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """;
+
+    private static string NuGetCatalogLeaf(
+        string version,
+        string licenseExpression = "",
+        string licenseFile = "",
+        string licenseUrl = "",
+        string repositoryUrl = "",
+        string repositoryCommit = "")
+        => $$"""
+            {
+              "@id": "{{CatalogLeafUri}}",
+              "@type": ["PackageDetails", "catalog:Permalink"],
+              "id": "Example",
+              "version": "{{version}}",
+              "licenseExpression": "{{licenseExpression}}",
+              "licenseFile": "{{licenseFile}}",
+              "licenseUrl": "{{licenseUrl}}",
+              "repository": { "type": "git", "url": "{{repositoryUrl}}", "commit": "{{repositoryCommit}}" }
             }
             """;
 

@@ -326,11 +326,20 @@ internal sealed class PackageMetadataService(
         return await FetchLookupAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Reports whether a NuGet entry was observed by a resolver that could not see what this one can.
+    /// </summary>
+    /// <remarks>
+    /// An empty license is the only observation a newer resolver revisits: it is the state that makes
+    /// Ol read the catalog entry, and the entry can supply a repository, a license file, or a different
+    /// legacy URL than the registration showed. A declared expression is unaffected, so those entries
+    /// stay cache hits. Recollection writes the current version, so an unresolved package is refetched
+    /// once rather than on every scan.
+    /// </remarks>
     private static bool IsLegacyNuGetEntry(in PackageMetadataCacheEntry entry)
         => entry.Source.Span.SequenceEqual("nuget-registry"u8)
         && entry.RawLicense.IsEmpty
-        && LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span) == LicenseCandidateWarnings.None
-        && entry.ResolverVersion < 2;
+        && entry.ResolverVersion < PackageMetadataRecord.CurrentResolverVersion;
 
     /// <summary>Projects a cache entry before its pooled buffer is returned.</summary>
     private PackageMetadataLookupResult CreateCacheHit(PackageMetadataRequest request, in PackageMetadataCacheEntry entry)

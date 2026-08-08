@@ -286,7 +286,8 @@ public readonly record struct LicenseEvidence(
     LicenseAcknowledgement Acknowledgement = LicenseAcknowledgement.None,
     PackageRegistryEvidence? PackageRegistry = null,
     SourceRepositoryEvidence? SourceRepository = null,
-    DependencyInputEvidence? DependencyInput = null);
+    DependencyInputEvidence? DependencyInput = null,
+    DeclaredLicenseReference? DeclaredReference = null);
 
 /// <summary>Contains structured provenance for a non-SBOM dependency-input candidate.</summary>
 /// <param name="Format">The stable dependency input format.</param>

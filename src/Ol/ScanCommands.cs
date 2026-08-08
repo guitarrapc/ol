@@ -1202,15 +1202,20 @@ internal static class ReportRenderer
     /// A component can carry several warnings, and listing all of them restates plumbing rather than
     /// naming the next action. The order runs from the most specific and actionable mechanism to the
     /// most general, so a package whose license text is inside its own artifact is not described merely
-    /// as having an unusable repository. A component with no warning is not listed at all: repeating its
-    /// status would add a row per component without adding a fact the table does not already show.
+    /// as having an unusable repository. A component with neither a warning nor a declared location is
+    /// not listed at all: repeating its status would add a row per component without adding a fact the
+    /// table does not already show. A declared location is such a fact, so a component carrying one is
+    /// listed under its status even though no collection mechanism failed.
     /// </remarks>
     private static bool TryGetUnresolvedReason(in ScanComponent component, out ReadOnlySpan<byte> reason)
     {
         var warnings = LicenseCandidateWarnings.None;
+        var hasDeclaredReference = false;
         for (var i = 0; i < component.CandidateCount; i++)
         {
-            warnings |= component.GetCandidate(i).Warnings;
+            var candidate = component.GetCandidate(i);
+            warnings |= candidate.Warnings;
+            hasDeclaredReference |= candidate.Evidence.DeclaredReference is not null;
         }
 
         reason =
@@ -1226,6 +1231,7 @@ internal static class ReportRenderer
             : (warnings & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0 ? "source_repository_fetch_failed"u8
             : (warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0 ? "unsupported_package_metadata"u8
             : (warnings & LicenseCandidateWarnings.PackageMetadataFetchFailed) != 0 ? "package_metadata_fetch_failed"u8
+            : hasDeclaredReference ? component.Status.ToUtf8()
             : default;
         return !reason.IsEmpty;
     }
@@ -1240,6 +1246,16 @@ internal static class ReportRenderer
     /// </remarks>
     private static string GetUnresolvedReference(in ScanComponent component, ReadOnlySpan<byte> reason)
     {
+        // A location the publisher declared outranks anything Ol inferred, because it is the place the
+        // publisher said the license is rather than a place Ol happened to look.
+        for (var i = 0; i < component.CandidateCount; i++)
+        {
+            if (component.GetCandidate(i).Evidence.DeclaredReference is { } declared)
+            {
+                return declared.Value.ToString();
+            }
+        }
+
         var recognized = reason.SequenceEqual("license_not_recognized"u8);
         if (!recognized && !reason.SequenceEqual("unsupported_source_repository"u8))
         {
@@ -1725,6 +1741,14 @@ internal static class ReportRenderer
         }
 
         writer.WriteStartObject("evidence");
+        // The location a publisher declared is provenance for every source that can state one, so it is
+        // written once here rather than inside each source's own shape.
+        if (evidence.DeclaredReference is { } declaredReference)
+        {
+            writer.WriteString("declaredLicenseReferenceKind", declaredReference.Kind == DeclaredLicenseReferenceKind.Location ? "location" : "artifact-path");
+            writer.WriteString("declaredLicenseReference", declaredReference.Value.Span);
+        }
+
         switch (evidence.Kind)
         {
             case LicenseEvidenceKind.Sbom:
@@ -1732,6 +1756,7 @@ internal static class ReportRenderer
                 var field = evidence.SbomField switch
                 {
                     SbomLicenseField.CycloneDxLicenses => "licenses",
+                    SbomLicenseField.CycloneDxEvidenceLicenses => "evidence.licenses",
                     SbomLicenseField.SpdxLicenseDeclared => "licenseDeclared",
                     SbomLicenseField.SpdxLicenseConcluded => "licenseConcluded",
                     _ => null,

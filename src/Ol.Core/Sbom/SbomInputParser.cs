@@ -911,6 +911,7 @@ internal static class SbomInputParser
         var kind = LicenseCandidateKind.None;
         var candidate = LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, kind, default(Utf8Slice), spdxLicenseIndex);
         var acknowledgement = LicenseAcknowledgement.None;
+        var declaredUrl = default(Utf8Slice);
 
         while (reader.Read())
         {
@@ -943,10 +944,19 @@ internal static class SbomInputParser
                 continue;
             }
 
+            // `url` names where the license is, not what it is, so it is retained as a declared
+            // location and never read as a license value.
+            if (reader.ValueTextEquals("url"u8))
+            {
+                declaredUrl = ReadUtf8Slice(ref reader, source, offset);
+                continue;
+            }
+
             reader.Read();
         }
 
-        return candidate with { Evidence = new LicenseEvidence(LicenseEvidenceKind.Sbom, sbomField, acknowledgement) };
+        DeclaredLicenseReference? reference = declaredUrl.IsEmpty ? null : new(DeclaredLicenseReferenceKind.Location, declaredUrl);
+        return candidate with { Evidence = new LicenseEvidence(LicenseEvidenceKind.Sbom, sbomField, acknowledgement, DeclaredReference: reference) };
     }
 
     private static LicenseCandidate CreateLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, LicenseCandidateKind kind, SpdxLicenseIndex spdxLicenseIndex)

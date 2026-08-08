@@ -215,6 +215,12 @@ Audit evidence is a traceable observation, not an independent license conclusion
 - Package registry evidence records the opaque cache-key hash and collection timestamp when known.
 - Source repository evidence records the logical repository/ref, collection status, opaque cache-key hash, and detected license-file metadata when known.
 
+<a id="contract-declared-license-reference"></a>
+
+A publisher that cannot state an SPDX expression often states where its license is instead. Ol retains that as a declared license reference: a kind and the value exactly as the publisher wrote it. The kind is a URL location or a path inside the published artifact, and the same two shapes occur across ecosystems — NuGet `licenseUrl` and `licenseFile`, CycloneDX `license.url`, npm's legacy license collection, Cargo `license_file`, CocoaPods `license.file`. One representation keeps them one concept rather than one vocabulary per ecosystem.
+
+A reference is not a license and is not license text. Ol has not read what it names, so a reference never contributes a license value and never changes what a component resolves to. It is resolved by reading the thing it names, or it stays an unresolved declaration. Measuring the declared locations in three .NET repositories found that most lead to a licensing overview page or a redirector rather than to a license document, which is why the retained fact is where the publisher pointed and not what is there.
+
 `acknowledgement: declared|concluded` records the producer's assertion semantics. It is not a verified attestation. CycloneDX `declarations.attestations`, BOM signatures, SPDX annotations, and package verification codes have broader document, conformance, or identity semantics and must not be projected onto a license candidate without an explicit relationship and a recorded verification result. Ol does not emit an inferred `attested` boolean.
 
 <a id="contract-observed-licenses"></a>

@@ -367,6 +367,30 @@ public sealed class PackageMetadataTests
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/package");
     }
 
+    // npm carried its license declaration in three shapes before the current string field, and packages
+    // published under the older ones are still installed today. Reading only the current shape drops a
+    // license the registry states plainly: `wrench@1.5.9` publishes `licenses: [{ "type": "MIT" }]` and
+    // no `license`, and Ol reported it unresolved. Equivalence classes: current shape, each legacy
+    // shape, both shapes present, a collection stating no relationship, and nothing at all.
+
+    [Test]
+    [Arguments("string", """{ "license": "MIT" }""", "MIT")]
+    [Arguments("object", """{ "license": { "type": "MIT", "url": "https://example.test/LICENSE" } }""", "MIT")]
+    [Arguments("collection-single", """{ "licenses": [ { "type": "MIT", "url": "https://example.test/LICENSE" } ] }""", "MIT")]
+    [Arguments("collection-object", """{ "licenses": { "type": "MIT" } }""", "MIT")]
+    [Arguments("both-shapes", """{ "license": "Apache-2.0", "licenses": [ { "type": "MIT" } ] }""", "Apache-2.0")]
+    [Arguments("collection-several", """{ "licenses": [ { "type": "MIT" }, { "type": "Apache-2.0" } ] }""", "")]
+    [Arguments("absent", """{ "name": "example" }""", "")]
+    public async Task Fetch_NpmVersionResponse_ReadsEveryDeclarationShape(string label, string body, string expected)
+    {
+        var client = CreateClient(body);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo(expected);
+        await Assert.That(label).IsNotEmpty();
+    }
+
     [Test]
     public async Task Fetch_NuGetRegistrationResponse_ProducesLicenseExpression()
     {

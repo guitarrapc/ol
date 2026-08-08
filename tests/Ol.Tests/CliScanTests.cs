@@ -1685,6 +1685,43 @@ public sealed class CliScanTests
         }
     }
 
+    // A publisher that could not state an SPDX expression often states where the license is instead.
+    // That pointer is the one actionable fact about such a component, so it has to reach the report
+    // even though no collection mechanism failed and therefore no warning names one.
+    [Test]
+    public async Task Scan_WithDeclaredLicenseLocation_ListsItInTheUnresolvedSection()
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(sbomPath, """
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            {
+              "type": "library",
+              "name": "Example",
+              "version": "1.0.0",
+              "purl": "pkg:nuget/Example@1.0.0",
+              "licenses": [ { "license": { "name": "Unknown - See URL", "url": "https://example.test/LICENSE.txt" } } ]
+            }
+          ]
+        }
+        """, Encoding.UTF8);
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--format", "text", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).Contains("Unresolved components");
+            await Assert.That(stdout).Contains("Example 1.0.0 ambiguous https://example.test/LICENSE.txt");
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+        }
+    }
+
     [Test]
     public async Task Scan_WithEveryComponentResolved_OmitsUnresolvedSection()
     {

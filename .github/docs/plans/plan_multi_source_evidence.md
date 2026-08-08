@@ -199,14 +199,29 @@ allocation は変更前後でビット単位で一致した (`DependencyInputSca
 
 allocation は変更前後で全行不変。mean は `ScanCycloneDx` で +1.7%、閾値超えは無し。最初の測定では package manager 系の行が一斉に +75〜85% と出たが、同一コードの再測定が baseline と一致したため測定順による環境ドリフトだった。変更が触る CycloneDX の行は 3 回の測定を通じて平坦だった。
 
-### Phase 3: 宣言された参照のモデル化
+### Phase 3: 宣言された参照のモデル化 (前半実装済み)
 
-1. 参照の型と種別を追加し、`PackageMetadataResponse`、cache、evidence、報告に通す。
-2. NuGet (`licenseUrl`/`licenseFile`)、SBOM (`license.name` + `url`)、npm legacy 配列、Cargo `license_file` を供給元として実装する。
-3. 名前の完全一致解決を実装する。`wrench@1.5.9` が MIT に解決することを確認する。
-4. `Unknown - See URL` 相当がライセンス名ではなく参照として扱われ、`ambiguous` にならないことを確認する。
-5. NuGet 固有の warning 語彙を横断語彙へ移行する。旧識別子の互換方針と報告 `schemaVersion` の扱いをここで決める。
-6. [packagemanager.md](../specs/packagemanager.md)、[cache_format.md](../specs/cache_format.md)、[cli.md](../specs/cli.md) を更新する。
+実装した範囲。
+
+1. `DeclaredLicenseReference` と種別 (`Location` / `ArtifactPath`) を追加し、`LicenseEvidence` と報告に通した。
+2. SBOM (`license.url`) を供給元として実装した。
+3. npm の legacy 宣言形 (`license` object、`licenses` object、`licenses` 単一要素配列) を読むようにした。`wrench@1.5.9` が `unknown` から MIT に解決する。
+4. 報告に出した。JSON evidence に `declaredLicenseReferenceKind` と `declaredLicenseReference` を追加し、text/Markdown の未解決セクションでは宣言された場所が他のどの参照よりも優先される。
+5. [spdx.md](../specs/spdx.md#contract-declared-license-reference)、[cli.md](../specs/cli.md#contract-unresolved-section)、[packagemanager.md](../specs/packagemanager.md) を更新した。
+
+実測結果。NuGet の SBOM 経路で 51 件の未解決コンポーネントが、宣言された URL 付きで未解決セクションに並ぶようになった。`https://www.devexpress.com/Support/EULAs` や `http://go.microsoft.com/fwlink/?LinkID=320539` を含む。**これらは registration endpoint が書き換えて消してしまう値であり、SBOM 経路だけが供給できる**。SBOM と package manager を重ねる意味がそのまま現れた例になった。解決率はどのエコシステムでも変化していない。参照は結論を作らないという境界どおりである。
+
+allocation は `LicenseEvidence` に nullable 参照を 1 つ足した分だけ増えた (+8 byte/candidate、`DependencyInputScannerBenchmark` で最大 +3.0%、`E2EBenchmark` で最大 +1.0%)。最初は値型で実装して +24 byte (最大 +9.1%) になったため、他の provenance 形と同じ nullable class に変えて 3 分の 1 に落とした。mean はこの benchmark 設定では分解能が足りない (同一コードの再測定で `ScanNuGetJsonWithCachedMetadata` が 486.9 から 372.0 μs に振れる)。
+
+残りの範囲。
+
+6. NuGet (`licenseUrl`/`licenseFile`) と Cargo (`license_file`) を供給元にする。これらは registry 応答由来なので `PackageMetadataResponse` と package metadata cache に参照を通す必要がある。cache は任意プロパティ 2 つの追加で済み、解決には影響しないため schema version は据え置ける見込みだが、参照が意味を持つのは未解決 entry だけなので resolver capability version を上げて一度だけ再収集させる。
+7. CocoaPods (`license.file` / `text`)、PyPI (`license_files`) を供給元にする。埋め込み本文は存在の記録のみとし、`InlineText` 種別はこの時点で追加する。
+8. NuGet 固有の warning 語彙を横断語彙へ移行する。旧識別子の互換方針と報告 `schemaVersion` の扱いをここで決める。
+
+計画からの逸脱を 1 つ記録する。当初の項目に「`Unknown - See URL` 相当がライセンス名ではなく参照として扱われ、`ambiguous` にならないこと」があったが、これは実装しなかった。CycloneDX の `license.name` は「正規化できないライセンス名」と「ライセンス名の形をした非回答」を構造的に区別できず、区別する唯一の方法はジェネレータが書く文字列を条件に書くことである。それはこの文書自身が非目標として禁じている。`ambiguous` は「ライセンス表記はあるが推測なしには正規化できない」という定義どおりの状態であり、Ol は入力に書かれたことを忠実に報告している。人間が次に取る行動は、隣に並ぶ宣言された URL が与える。
+
+種別についても計画から減らした。当初表に挙げた `Name` 種別は、どの供給元でも候補の `Raw` と重複するため定義していない。`InlineText` は供給元を実装する時点で追加する。
 
 ### Phase 4: 入力の組み合わせ
 

@@ -1651,6 +1651,69 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithUnresolvedComponents_ExplainsEachOneInHumanFormats()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-unresolved-{Guid.NewGuid():N}");
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var sourceCacheRoot = Path.Combine(temporaryDirectory, "source");
+        var cache = new PackageMetadataCache(packageCacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Shared.Package@2.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Native.Package@4.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Project.Transitive@3.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        try
+        {
+            var text = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-evidence-packages", "pkg:nuget/Direct.Package", "--format", "text", "--quiet");
+            var markdown = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", inputPath, "--input-format", "nuget-assets", "--skip-evidence-packages", "pkg:nuget/Direct.Package", "--format", "markdown", "--quiet");
+
+            await Assert.That(text.ExitCode).IsEqualTo(0);
+            await Assert.That(text.Stdout).Contains("Unresolved components");
+            await Assert.That(text.Stdout).Contains("Direct.Package 1.0.0 external_evidence_not_collected");
+            // A resolved component is not restated in the section.
+            await Assert.That(text.Stdout).DoesNotContain("  Shared.Package 2.0.0");
+            await Assert.That(markdown.ExitCode).IsEqualTo(0);
+            await Assert.That(markdown.Stdout).Contains("## Unresolved components");
+            await Assert.That(markdown.Stdout).Contains("| Direct.Package | 1.0.0 | external_evidence_not_collected |");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithEveryComponentResolved_OmitsUnresolvedSection()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-resolved-{Guid.NewGuid():N}");
+        var inputPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json");
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var cache = new PackageMetadataCache(packageCacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Direct.Package@1.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Shared.Package@2.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Native.Package@4.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:nuget/Project.Transitive@3.0.0", "nuget-registry", "MIT", string.Empty, [], []));
+        try
+        {
+            var text = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", inputPath, "--input-format", "nuget-assets", "--format", "text", "--quiet");
+
+            await Assert.That(text.ExitCode).IsEqualTo(0);
+            await Assert.That(text.Stdout).DoesNotContain("Unresolved components");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Test]
     public async Task Scan_WithNuGetAssetsHumanFormats_DisplaysInputKindAndFormat()
     {
         var root = FindRepositoryRoot();

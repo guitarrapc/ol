@@ -401,7 +401,7 @@ internal sealed class SourceRepositoryService
             candidate = LicenseCandidateFactory.CreateError(LicenseCandidateSource.GitHubLicenseApi, LicenseCandidateKind.Fetch, LicenseCandidateIdentifiers.ParseWarning(record.Errors[0]));
         }
 
-        candidate = candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(record.Warnings) };
+        candidate = candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(record.Warnings) | GetUnresolvedLicenseWarning(record) };
 
         var license = record.License;
         candidate = candidate with
@@ -422,6 +422,19 @@ internal sealed class SourceRepositoryService
 
         return new SourceRepositoryLookupResult(candidate, cacheHit, cacheMiss, requested, record.Errors.Length != 0, unknown);
     }
+
+    /// <summary>Names why a completed source lookup produced no SPDX identifier.</summary>
+    /// <remarks>
+    /// Derived from the record's own fields rather than from a stored warning string, so an entry an
+    /// earlier version already cached explains itself without being collected again. A repository that
+    /// answered with a license file GitHub could not identify is a different fact from one that has no
+    /// license file at all, and only the first gives a human a document to read.
+    /// </remarks>
+    private static LicenseCandidateWarnings GetUnresolvedLicenseWarning(in SourceRepositoryRecord record)
+        => record.Errors.Length != 0 ? LicenseCandidateWarnings.None
+        : record.License is not { } license ? LicenseCandidateWarnings.None
+        : license.Path.Length != 0 && license.SpdxId is null or "NOASSERTION" ? LicenseCandidateWarnings.SourceLicenseNotRecognized
+        : LicenseCandidateWarnings.None;
 
     private async Task<SourceRepositoryLookupResult> CreateErrorAsync(SourceRepositoryTarget target, System.Net.HttpStatusCode? statusCode, bool cacheWasInvalid, CancellationToken cancellationToken)
         => await CreateErrorAsync(target, statusCode, cacheWasInvalid, persist: true, cancellationToken).ConfigureAwait(false);

@@ -41,6 +41,8 @@ public enum LicenseCandidateWarnings : ushort
     NuGetLicenseUrlUnsupported = 1 << 10,
     NuGetLicenseMetadataMissing = 1 << 11,
     NuGetLicenseFileUnresolved = 1 << 12,
+    SourceLicenseNotDetected = 1 << 13,
+    SourceLicenseNotRecognized = 1 << 14,
 }
 
 /// <summary>Identifies the evidence system that produced a license candidate.</summary>
@@ -91,6 +93,8 @@ public static class LicenseCandidateIdentifiers
         "nuget_license_url_unsupported" => LicenseCandidateWarnings.NuGetLicenseUrlUnsupported,
         "nuget_license_metadata_missing" => LicenseCandidateWarnings.NuGetLicenseMetadataMissing,
         "nuget_license_file_unresolved" => LicenseCandidateWarnings.NuGetLicenseFileUnresolved,
+        "license_not_detected" => LicenseCandidateWarnings.SourceLicenseNotDetected,
+        "license_not_recognized" => LicenseCandidateWarnings.SourceLicenseNotRecognized,
         _ => LicenseCandidateWarnings.None,
     };
 
@@ -117,6 +121,8 @@ public static class LicenseCandidateIdentifiers
         if (value.SequenceEqual("nuget_license_url_unsupported"u8)) return LicenseCandidateWarnings.NuGetLicenseUrlUnsupported;
         if (value.SequenceEqual("nuget_license_metadata_missing"u8)) return LicenseCandidateWarnings.NuGetLicenseMetadataMissing;
         if (value.SequenceEqual("nuget_license_file_unresolved"u8)) return LicenseCandidateWarnings.NuGetLicenseFileUnresolved;
+        if (value.SequenceEqual("license_not_detected"u8)) return LicenseCandidateWarnings.SourceLicenseNotDetected;
+        if (value.SequenceEqual("license_not_recognized"u8)) return LicenseCandidateWarnings.SourceLicenseNotRecognized;
         return LicenseCandidateWarnings.None;
     }
 
@@ -161,7 +167,9 @@ public static class LicenseCandidateIdentifiers
         if ((value & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) result[index++] = "package_metadata_not_found";
         if ((value & LicenseCandidateWarnings.NuGetLicenseUrlUnsupported) != 0) result[index++] = "nuget_license_url_unsupported";
         if ((value & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0) result[index++] = "nuget_license_metadata_missing";
-        if ((value & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0) result[index] = "nuget_license_file_unresolved";
+        if ((value & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0) result[index++] = "nuget_license_file_unresolved";
+        if ((value & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0) result[index++] = "license_not_detected";
+        if ((value & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) result[index] = "license_not_recognized";
         return result;
     }
 

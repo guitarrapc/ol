@@ -934,6 +934,58 @@ public sealed class SourceRepositoryTests
         await Assert.That(cache.Read("github:owner/repository@default").Status).IsEqualTo(SourceRepositoryCacheReadStatus.Missing);
     }
 
+    [Test]
+    [Arguments(HttpStatusCode.NotFound, "", "license_not_detected")]
+    [Arguments(HttpStatusCode.OK, """{ "license": { "spdx_id": "NOASSERTION", "key": "other", "name": "Other" }, "path": "LICENSE.txt", "html_url": "https://github.com/owner/repository/blob/main/LICENSE.txt" }""", "license_not_recognized")]
+    public async Task Enrichment_WithUnresolvedSourceLicense_ExplainsWhyTheLicenseIsUnknown(HttpStatusCode status, string body, string expectedWarning)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-unresolved-{Guid.NewGuid():N}");
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        using var httpClient = new HttpClient(new GitHubResponseHandler(status, body));
+        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+        try
+        {
+            var service = new SourceRepositoryService(index, new SourceRepositoryCache(Path.Combine(root, "source")), refresh: false, retryCount: 0, httpClient);
+
+            var enrichment = await service.EnrichAsync([CreateUnresolvedComponent(index)], workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Unknown);
+            await Assert.That(enrichment.Components[0].Warnings).Contains(expectedWarning);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_WithRecognizedSourceLicense_RecordsNoUnresolvedWarning()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-resolved-{Guid.NewGuid():N}");
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        using var httpClient = new HttpClient(new GitHubResponseHandler(
+            HttpStatusCode.OK,
+            """{ "license": { "spdx_id": "MIT", "key": "mit", "name": "MIT License" }, "path": "LICENSE", "html_url": "https://github.com/owner/repository/blob/main/LICENSE" }"""));
+        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+        try
+        {
+            var service = new SourceRepositoryService(index, new SourceRepositoryCache(Path.Combine(root, "source")), refresh: false, retryCount: 0, httpClient);
+
+            var enrichment = await service.EnrichAsync([CreateUnresolvedComponent(index)], workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
+            await Assert.That(enrichment.Components[0].Warnings).DoesNotContain("license_not_recognized");
+            await Assert.That(enrichment.Components[0].Warnings).DoesNotContain("license_not_detected");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static ScanComponent CreateUnresolvedComponent(SpdxLicenseIndex index)
+        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+
     private static PackageMetadataWorkspace CreateWorkspace(PackageMetadataResolution? resolution)
     {
         var workspace = new PackageMetadataWorkspace(1);

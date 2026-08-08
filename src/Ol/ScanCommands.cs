@@ -1148,6 +1148,122 @@ internal static class ReportRenderer
 
             WriteNewLine(writer);
         }
+
+        WriteUnresolvedText(writer, components);
+    }
+
+    /// <summary>
+    /// Explains every displayed component the scan did not resolve to one license.
+    /// </summary>
+    /// <remarks>
+    /// The table alone cannot answer "why", and the answer decides what a reviewer does next: wait for
+    /// Ol, open a document, or ask the publisher. The reason uses the same identifiers as the JSON
+    /// report so one vocabulary describes both, and the reference is a location Ol actually observed
+    /// rather than one it constructed. The section is omitted when there is nothing to explain.
+    /// </remarks>
+    private static void WriteUnresolvedText(IBufferWriter<byte> writer, ReadOnlySpan<ScanComponent> components)
+    {
+        var first = true;
+        for (var i = 0; i < components.Length; i++)
+        {
+            var component = components[i];
+            if (component.Status == LicenseStatus.Matched || !TryGetUnresolvedReason(component, out var reason))
+            {
+                continue;
+            }
+
+            if (first)
+            {
+                WriteNewLine(writer);
+                WriteUtf8(writer, "Unresolved components"u8);
+                WriteNewLine(writer);
+                first = false;
+            }
+
+            WriteUtf8(writer, "  "u8);
+            WriteDisplay(writer, component.Name);
+            WriteUtf8(writer, " "u8);
+            WriteDisplay(writer, component.Version);
+            WriteUtf8(writer, " "u8);
+            WriteUtf8(writer, reason);
+            var reference = GetUnresolvedReference(component, reason);
+            if (reference.Length != 0)
+            {
+                WriteUtf8(writer, " "u8);
+                WriteUtf8(writer, System.Text.Encoding.UTF8.GetBytes(reference));
+            }
+
+            WriteNewLine(writer);
+        }
+    }
+
+    /// <summary>Selects the one mechanism that best explains an unresolved component.</summary>
+    /// <remarks>
+    /// A component can carry several warnings, and listing all of them restates plumbing rather than
+    /// naming the next action. The order runs from the most specific and actionable mechanism to the
+    /// most general, so a package whose license text is inside its own artifact is not described merely
+    /// as having an unusable repository. A component with no warning is not listed at all: repeating its
+    /// status would add a row per component without adding a fact the table does not already show.
+    /// </remarks>
+    private static bool TryGetUnresolvedReason(in ScanComponent component, out ReadOnlySpan<byte> reason)
+    {
+        var warnings = LicenseCandidateWarnings.None;
+        for (var i = 0; i < component.CandidateCount; i++)
+        {
+            warnings |= component.GetCandidate(i).Warnings;
+        }
+
+        reason =
+            (warnings & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0 ? "external_evidence_not_collected"u8
+            : (warnings & LicenseCandidateWarnings.PackageMetadataNotFound) != 0 ? "package_metadata_not_found"u8
+            : (warnings & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0 ? "nuget_license_file_unresolved"u8
+            : (warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0 ? "license_not_recognized"u8
+            : (warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0 ? "license_not_detected"u8
+            : (warnings & LicenseCandidateWarnings.NuGetLicenseUrlUnsupported) != 0 ? "nuget_license_url_unsupported"u8
+            : (warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0 ? "unsupported_source_repository"u8
+            : (warnings & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0 ? "nuget_license_metadata_missing"u8
+            : (warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0 ? "source_repository_unavailable"u8
+            : (warnings & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0 ? "source_repository_fetch_failed"u8
+            : (warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0 ? "unsupported_package_metadata"u8
+            : (warnings & LicenseCandidateWarnings.PackageMetadataFetchFailed) != 0 ? "package_metadata_fetch_failed"u8
+            : default;
+        return !reason.IsEmpty;
+    }
+
+    /// <summary>Returns the location Ol observed for this reason, or an empty value.</summary>
+    /// <remarks>
+    /// Only the two mechanisms whose whole point is an unread document supply one: a repository license
+    /// file GitHub could not identify, and a repository URL Ol cannot collect from. It is tied to the
+    /// selected reason rather than to any candidate, because a homepage printed beside an unread license
+    /// file would read as the place that file can be found. Ol never constructs a URL evidence did not
+    /// supply, so a package whose license text is inside its own artifact shows no reference.
+    /// </remarks>
+    private static string GetUnresolvedReference(in ScanComponent component, ReadOnlySpan<byte> reason)
+    {
+        var recognized = reason.SequenceEqual("license_not_recognized"u8);
+        if (!recognized && !reason.SequenceEqual("unsupported_source_repository"u8))
+        {
+            return string.Empty;
+        }
+
+        for (var i = 0; i < component.CandidateCount; i++)
+        {
+            var candidate = component.GetCandidate(i);
+            if (recognized)
+            {
+                if ((candidate.Warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0
+                    && candidate.Evidence.SourceRepository is { LicenseUrl.Length: > 0 } evidence)
+                {
+                    return evidence.LicenseUrl;
+                }
+            }
+            else if ((candidate.Warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0 && !candidate.Raw.IsEmpty)
+            {
+                return candidate.Raw.ToString();
+            }
+        }
+
+        return string.Empty;
     }
 
     public static string RenderMarkdown(ReadOnlySpan<ScanComponent> components, bool verbose)
@@ -1179,7 +1295,42 @@ internal static class ReportRenderer
             builder.AppendLine(" |");
         }
 
+        AppendUnresolvedMarkdown(builder, components);
         return builder.ToString();
+    }
+
+    /// <summary>Renders the same explanation as the text report. See <see cref="WriteUnresolvedText"/>.</summary>
+    private static void AppendUnresolvedMarkdown(StringBuilder builder, ReadOnlySpan<ScanComponent> components)
+    {
+        var first = true;
+        for (var i = 0; i < components.Length; i++)
+        {
+            var component = components[i];
+            if (component.Status == LicenseStatus.Matched || !TryGetUnresolvedReason(component, out var reason))
+            {
+                continue;
+            }
+
+            if (first)
+            {
+                builder.AppendLine();
+                builder.AppendLine("## Unresolved components");
+                builder.AppendLine();
+                builder.AppendLine("| NAME | VERSION | REASON | REFERENCE |");
+                builder.AppendLine("|---|---|---|---|");
+                first = false;
+            }
+
+            builder.Append("| ");
+            AppendMarkdownValue(builder, component.Name);
+            builder.Append(" | ");
+            AppendMarkdownValue(builder, component.Version);
+            builder.Append(" | ");
+            builder.Append(System.Text.Encoding.UTF8.GetString(reason));
+            builder.Append(" | ");
+            AppendMarkdownValue(builder, GetUnresolvedReference(component, reason));
+            builder.AppendLine(" |");
+        }
     }
 
     public static void WriteText(
@@ -1669,6 +1820,8 @@ internal static class ReportRenderer
         if ((warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) writer.WriteStringValue("unsupported_source_repository"u8);
         if ((warnings & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0) writer.WriteStringValue("external_evidence_not_collected"u8);
         if ((warnings & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) writer.WriteStringValue("package_metadata_not_found"u8);
+        if ((warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0) writer.WriteStringValue("license_not_detected"u8);
+        if ((warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) writer.WriteStringValue("license_not_recognized"u8);
         writer.WriteEndArray();
     }
 

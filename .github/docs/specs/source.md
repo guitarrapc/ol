@@ -44,7 +44,10 @@ GitHub License API results are interpreted as source repository evidence:
 - valid `license.spdx_id` becomes a source-repository license candidate.
 - `NOASSERTION` or `null` becomes unknown source-repository evidence.
 - HTTP 404 becomes `license_not_detected` evidence.
+- a completed lookup that named a license file but no SPDX identifier becomes `license_not_recognized` evidence.
 - HTTP 403, 429, and 5xx become error evidence. A 403 or 429 reporting `X-RateLimit-Remaining: 0` is a primary rate limit; one carrying `Retry-After`, a bounded GitHub secondary-rate-limit error body, or a bare 429 is a secondary rate limit. That body only classifies a 403; when it cannot be read, the status alone decides and the failure stays a plain non-transient 403 rather than becoming a transport error. A plain non-rate-limit 403 remains non-transient.
+
+`license_not_detected` and `license_not_recognized` are both unknown outcomes, but they are not the same fact and a reviewer acts on them differently: the second names a license document that exists and can be read, the first says there is nothing at that repository and ref to read. Both are retained as warnings on the source-repository candidate so a report states which one occurred. They are derived from the recorded HTTP status and license fields rather than from a stored warning string, so an entry cached before these outcomes were named explains itself without being collected again.
 
 <a id="contract-source-rate-limit"></a>
 

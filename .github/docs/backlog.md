@@ -53,13 +53,15 @@ Remaining:
 - Evaluate other ecosystems based on purl support and registry metadata quality.
 - Consider whether lockfiles or manifests should be used as supplemental evidence for direct dependency classification or reproducibility checks.
 
-## SPDX Full License Name Matching
+## Free-Text License Values
 
-Ol resolves an SPDX License Identifier but not the SPDX full license name, although the SPDX license list publishes both in the same record. `uri-template@1.3.0` declares `MIT License`, which is exactly the `name` SPDX gives `MIT`, and it is reported ambiguous.
+Implemented and specified in [spdx.md](specs/spdx.md#contract-spdx-license-name): exact matching against the SPDX license list's own `name` field, which resolves `MIT License` and `Apache License 2.0`.
 
-- Consider matching a declared value against the SPDX license list's own `name` field, exactly, as a second lookup after the identifier. This resolves a name SPDX itself defines rather than guessing at a spelling.
-- This deliberately does not resolve values that only resemble a license name. `Apache 2.0`, `Modified BSD License`, `PSFL`, and `Dual License` are not SPDX names, and PyPI Trove classifiers such as `License :: OSI Approved :: BSD License` and `License :: OSI Approved :: Apache Software License` name a family without a version, so all of them must stay ambiguous.
-- Cost is not only the lookup: names must be added to the generated license data and to the `spdx update` parsing path, and name collisions with deprecated identifiers need a rule before this can be accepted.
+Remaining, all deliberately unresolved because each leaves the version or variant unstated:
+
+- PyPI Trove classifiers (`License :: OSI Approved :: BSD License`, `... :: Apache Software License`) name a family. A version could only come from another field, so this is a question about combining evidence within one source rather than about normalization.
+- Near-miss spellings (`Apache 2.0`, `Modified BSD License`, `PSFL`) name no SPDX record. Resolving them needs a curated alias table, which is guessing with extra steps and belongs with license curation above.
+- Values that state a relationship without an operator (`Dual License`) name no licenses at all.
 
 ## Warning Vocabulary Budget
 

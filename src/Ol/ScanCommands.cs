@@ -654,8 +654,13 @@ internal sealed class SpdxDataDigest
     public static SpdxDataDigest ForFiles(string licensesPath, string exceptionsPath) => new(licensesPath, exceptionsPath);
 
     /// <summary>Calculates the active licenses digest once per run.</summary>
+    /// <remarks>
+    /// Covers names as well as identifiers, because both decide what a value resolves to. Hashing only
+    /// the identifiers would give two snapshots that rename a license the same digest, while the file
+    /// digest used for user-managed data already distinguishes them.
+    /// </remarks>
     public string GetLicensesSha256()
-        => licenses ??= licensesPath is null ? ComputeGeneratedDataHash(SpdxGeneratedLicenseData.LicenseIds) : HashFile(licensesPath);
+        => licenses ??= licensesPath is null ? ComputeGeneratedDataHash(SpdxGeneratedLicenseData.LicenseIds, SpdxGeneratedLicenseData.LicenseNames) : HashFile(licensesPath);
 
     /// <summary>Calculates the active exceptions digest once per run.</summary>
     public string GetExceptionsSha256()
@@ -663,7 +668,7 @@ internal sealed class SpdxDataDigest
 
     private static string HashFile(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
 
-    private static string ComputeGeneratedDataHash(string[] identifiers) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', identifiers)))).ToLowerInvariant();
+    private static string ComputeGeneratedDataHash(params string[][] values) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', values.SelectMany(static value => value))))).ToLowerInvariant();
 }
 
 /// <remarks>
@@ -703,7 +708,7 @@ internal readonly record struct SpdxData(
     private static SpdxData CreateBundled()
     {
         return new SpdxData(
-            new SpdxLicenseIndex(SpdxGeneratedLicenseData.LicenseIds, SpdxGeneratedLicenseData.ExceptionIds, SpdxGeneratedLicenseData.DeprecatedLicenseIds),
+            new SpdxLicenseIndex(SpdxGeneratedLicenseData.LicenseIds, SpdxGeneratedLicenseData.ExceptionIds, SpdxGeneratedLicenseData.DeprecatedLicenseIds, SpdxGeneratedLicenseData.LicenseNames),
             "bundled",
             SpdxGeneratedLicenseData.LicenseListVersion,
             "bundled/spdx/builtin",
@@ -722,25 +727,33 @@ internal readonly record struct SpdxData(
         var licenses = ReadSpdxData(licensesPath, "licenses", "licenseId");
         var exceptions = ReadSpdxData(exceptionsPath, "exceptions", "licenseExceptionId");
         return new SpdxData(
-            new SpdxLicenseIndex(licenses.Ids, exceptions.Ids, licenses.DeprecatedIds),
+            new SpdxLicenseIndex(licenses.Ids, exceptions.Ids, licenses.DeprecatedIds, licenses.Names),
             source,
             licenses.Version,
             dataRef,
             SpdxDataDigest.ForFiles(licensesPath, exceptionsPath));
     }
 
-    private static (string Version, string[] Ids, string[] DeprecatedIds) ReadSpdxData(string path, string arrayName, string propertyName)
+    /// <summary>Reads identifiers, their SPDX names, and the deprecated set from one SPDX document.</summary>
+    /// <remarks>
+    /// <c>Names</c> shares its index with <c>Ids</c>, and an entry that states no name keeps an empty
+    /// string so the two stay aligned. The exceptions document carries names too, but Ol resolves an
+    /// exception only as an operand of <c>WITH</c>, where the operand is an identifier.
+    /// </remarks>
+    private static (string Version, string[] Ids, string[] Names, string[] DeprecatedIds) ReadSpdxData(string path, string arrayName, string propertyName)
     {
         var bytes = File.ReadAllBytes(path);
         using var document = JsonDocument.Parse(SkipUtf8Bom(bytes));
         var values = document.RootElement.GetProperty(arrayName);
         var ids = new string[values.GetArrayLength()];
+        var names = new string[ids.Length];
         var deprecatedIds = new List<string>();
         var index = 0;
         foreach (var item in values.EnumerateArray())
         {
             var id = item.GetProperty(propertyName).GetString() ?? string.Empty;
             ids[index] = id;
+            names[index] = item.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() ?? string.Empty : string.Empty;
             if (item.TryGetProperty("isDeprecatedLicenseId", out var deprecated) && deprecated.ValueKind == JsonValueKind.True)
             {
                 deprecatedIds.Add(id);
@@ -749,7 +762,7 @@ internal readonly record struct SpdxData(
             index++;
         }
 
-        return (document.RootElement.TryGetProperty("licenseListVersion", out var version) ? version.GetString() ?? "unknown" : "unknown", ids, deprecatedIds.ToArray());
+        return (document.RootElement.TryGetProperty("licenseListVersion", out var version) ? version.GetString() ?? "unknown" : "unknown", ids, names, deprecatedIds.ToArray());
     }
 
     private static ReadOnlyMemory<byte> SkipUtf8Bom(byte[] bytes)

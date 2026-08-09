@@ -14,6 +14,10 @@ Those decisions require normalization to be reproducible and explainable rather 
 
 `Ol.Update` is a development-time external generator, not an `ol` runtime dependency. Running `ol-update generate` refreshes the bundled SPDX snapshot used as the offline fallback. This keeps the published CLI independent from the generator and network while retaining versioned, reproducible data.
 
+The snapshot carries license identifiers, license [names](#contract-spdx-license-name), exception identifiers, and the deprecated set. Names are emitted as an array sharing its index with the identifier array, and a license that states no name keeps an empty entry so the two stay aligned; sorting them apart would give every license its neighbour's name. User-managed data supplies the same fields from `licenses.json`.
+
+`ol-update generate` reads the current upstream list and has no way to regenerate a snapshot at the version already bundled, so adding a field to the generated data necessarily advances the SPDX list version with it. Which licenses that upstream change adds, removes, or deprecates belongs in the same review as the field.
+
 <a id="contract-spdx-data-resolution"></a>
 ## Data Sources
 
@@ -139,7 +143,23 @@ apache-2.0 -> Apache-2.0
 classpath-exception-2.0 -> Classpath-exception-2.0
 ```
 
-This is not alias guessing. Natural language names and loose aliases are not normalized automatically.
+<a id="contract-spdx-license-name"></a>
+
+A declared value that is not an identifier is matched against the SPDX license list's `name` field next, exactly apart from case, and resolves to the identifier SPDX gives that name.
+
+```text
+MIT License                              -> MIT
+Apache License 2.0                       -> Apache-2.0
+BSD 3-Clause "New" or "Revised" License  -> BSD-3-Clause
+```
+
+This is not alias guessing. A name is published by the same SPDX record that defines the identifier, so resolving it reads the active SPDX data rather than interpreting a spelling. Loose aliases are still not normalized, and the distinction is what a value leaves unstated rather than how close it looks: `Apache 2.0` and `Modified BSD License` name no SPDX record, and a PyPI Trove classifier such as `License :: OSI Approved :: BSD License` names a family without a version, so all of them stay `ambiguous`.
+
+Two rules follow from a name being one license rather than an expression. It is resolved for a whole declared value only, never for an operand inside an expression, because admitting names there would make a value's meaning depend on whether a name happens to contain an operator word. And it is attempted before the value is read as an expression, because SPDX names do contain those words: `BSD 3-Clause "New" or "Revised" License` was previously parsed as a disjunction and rejected as `invalid`.
+
+Where SPDX gives one name to two identifiers, it is always a deprecated identifier and the replacement that supersedes it — `GPL-2.0` and `GPL-2.0-only` share a name because they are the same license — so the replacement is the answer and [deprecation](#contract-deprecated-identifiers) is not reported for the name. A name Ol cannot attribute to exactly one current identifier that way resolves nothing.
+
+License exception names are not matched. An exception is only ever an operand of `WITH`, where the operand is an identifier.
 
 <a id="contract-strict-normalization"></a>
 ## Strict Normalization
@@ -178,6 +198,7 @@ These values are treated as `unknown`:
 
 The raw value should remain in JSON evidence.
 
+<a id="contract-deprecated-identifiers"></a>
 ## Deprecated Identifiers
 
 If an SPDX identifier exists in the active SPDX data but is deprecated, the component may still be `matched`, but the report records a warning.

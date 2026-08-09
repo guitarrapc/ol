@@ -84,6 +84,15 @@ public static class LicenseCandidateFactory
             return LicenseStatus.Matched;
         }
 
+        // Before the value is read as an expression, not after. SPDX names contain the operator words:
+        // `BSD 3-Clause "New" or "Revised" License` is the name of BSD-3-Clause, and parsing it as a
+        // disjunction rejected a value the SPDX data itself defines. A name is one license, so it is
+        // resolved for a whole declared value only and never for an operand inside an expression.
+        if (spdxLicenseIndex.TryNormalizeLicenseNameUtf8Slice(value, out normalized, out deprecated))
+        {
+            return LicenseStatus.Matched;
+        }
+
         if (!LooksLikeSpdxExpression(value))
         {
             normalized = Utf8Slice.FromOwnedBytes(value.ToArray());

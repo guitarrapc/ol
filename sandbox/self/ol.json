@@ -20,10 +20,10 @@
     },
     "spdx": {
       "source": "bundled",
-      "licenseListVersion": "5e59516",
+      "licenseListVersion": "e4c1f27",
       "dataRef": "bundled/spdx/builtin",
-      "licensesSha256": "cc0e2ecf29810ab2a2a879ed8edb10fb8a6c264be6ec19fc1a385f94a43ceec1",
-      "exceptionsSha256": "211da1990cef279bced412f7f0ce5b855ff2b3caa3f9664a7eea9fda3e2a3312"
+      "licensesSha256": "10b3c5841fe7d2c65008ac58cad5c5f88b63b3fc0bcd1c37a6f837ead16b872b",
+      "exceptionsSha256": "345ed515e4b5ca426ef04c96805b9aa5b3cc4ad35b5fb471e9488a5359e5e21b"
     },
     "packageMetadata": {
       "targetCount": 0,

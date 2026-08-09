@@ -36,8 +36,8 @@ public sealed class UpdateCommandTests
         var ids = ReadArray(generated, "LicenseIds");
         var names = ReadArray(generated, "LicenseNames");
 
-        await Assert.That(ids).IsEquivalentTo(["Apache-2.0", "MIT", "Zlib"]);
-        await Assert.That(names).IsEquivalentTo(["Apache License 2.0", "MIT License", ""]);
+        await Assert.That(string.Join(" | ", ids.Zip(names, static (id, name) => $"{id}={name}")))
+            .IsEqualTo("Apache-2.0=Apache License 2.0 | MIT=MIT License | Zlib=");
     }
 
     private static string[] ReadArray(string generated, string name)

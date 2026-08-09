@@ -35,6 +35,8 @@ public sealed class CycloneDxEvidenceLicenseTests
     [Arguments("declared-disagrees", "MIT", "Apache-2.0", LicenseStatus.Conflict)]
     [Arguments("declared-conjunction-term-observed", "(MIT OR Apache-2.0) AND Unicode-3.0", "Apache-2.0", LicenseStatus.Matched)]
     [Arguments("declared-conjunction-term-absent", "(MIT OR Apache-2.0) AND Unicode-3.0", "GPL-3.0-only", LicenseStatus.Conflict)]
+    [Arguments("detected-offers-more-options", "MIT", "MIT OR Apache-2.0", LicenseStatus.Conflict)]
+    [Arguments("detected-requires-more-terms", "MIT", "MIT AND Unicode-3.0", LicenseStatus.Conflict)]
     [Arguments("declared-multiple-observed", "MIT", "MIT|Apache-2.0", LicenseStatus.Matched)]
     [Arguments("declared-invalid-observed", "MIT", "Not-A-License", LicenseStatus.Matched)]
     public async Task Scan_CycloneDxEvidenceLicenses_ReconcilesWithTheDeclaredLicense(string label, string? declared, string? observed, LicenseStatus expected)
@@ -53,6 +55,7 @@ public sealed class CycloneDxEvidenceLicenseTests
     [Arguments("MIT", "MIT", "MIT")]
     [Arguments("MIT OR Apache-2.0", "Apache-2.0", "MIT OR Apache-2.0")]
     [Arguments("MIT", "MIT|Apache-2.0", "MIT")]
+    [Arguments("(MIT OR Apache-2.0) AND Unicode-3.0", "Apache-2.0", "(MIT OR Apache-2.0) AND Unicode-3.0")]
     public async Task Scan_CycloneDxEvidenceLicenses_NeverReplacesADeclaredLicense(string? declared, string observed, string expected)
     {
         var component = ScanComponentOf(declared, observed);

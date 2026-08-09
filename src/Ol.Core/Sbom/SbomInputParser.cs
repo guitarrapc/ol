@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 
@@ -742,9 +742,7 @@ internal static class SbomInputParser
         var (license, status) = declaredStatus == LicenseStatus.Matched && observedStatus == LicenseStatus.Matched
             ? SpdxExpressionRelation.IsAccountedFor(observedLicense.Span, declaredLicense.Span)
                 ? (declaredLicense, LicenseStatus.Matched)
-                : SpdxExpressionRelation.IsAccountedFor(declaredLicense.Span, observedLicense.Span)
-                    ? (observedLicense, LicenseStatus.Matched)
-                    : (LicenseText.Conflict(declaredLicense, observedLicense), LicenseStatus.Conflict)
+                : (LicenseText.Conflict(declaredLicense, observedLicense), LicenseStatus.Conflict)
             : (declaredLicense, declaredStatus);
 
         return (license, status, candidates.Primary, candidates.Additional);

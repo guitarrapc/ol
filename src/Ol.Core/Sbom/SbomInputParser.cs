@@ -740,9 +740,9 @@ internal static class SbomInputParser
         }
 
         var (license, status) = declaredStatus == LicenseStatus.Matched && observedStatus == LicenseStatus.Matched
-            ? SpdxDisjunctSet.IsSubsetOf(observedLicense.Span, declaredLicense.Span)
+            ? SpdxExpressionRelation.IsAccountedFor(observedLicense.Span, declaredLicense.Span)
                 ? (declaredLicense, LicenseStatus.Matched)
-                : SpdxDisjunctSet.IsSubsetOf(declaredLicense.Span, observedLicense.Span)
+                : SpdxExpressionRelation.IsAccountedFor(declaredLicense.Span, observedLicense.Span)
                     ? (observedLicense, LicenseStatus.Matched)
                     : (LicenseText.Conflict(declaredLicense, observedLicense), LicenseStatus.Conflict)
             : (declaredLicense, declaredStatus);

@@ -69,14 +69,6 @@ Ol resolves an SPDX License Identifier but not the SPDX full license name, altho
 - A warning earns a bit when it records an outcome nothing else states: a collection that failed, was refused, or was never attempted.
 - `WarningVocabulary_EveryFlag_RoundTripsAndFitsItsStorage` fails if the set outgrows its storage or two flags share an identifier. Widen the enum deliberately rather than in passing.
 
-## Repository Detection Versus Declared Conjunctions
-
-`unicode-ident@1.0.24` declares `(MIT OR Apache-2.0) AND Unicode-3.0` on crates.io and its repository root reports `Apache-2.0`, so every Rust project that reaches it reports one conflict. Reconciliation already treats a repository detector's single answer as satisfying a declared disjunction, on the stated ground that a detector names one option out of several by construction. The same limitation applies to a conjunction — the GitHub License API cannot express `AND` at all — but a conjunction currently becomes a disagreement, which is [pinned behavior](specs/spdx.md#contract-expression-agreement) rather than an oversight — the measurement that produced the shallow relation recorded this exact case as the one conflict it left standing.
-
-- Consider treating a detector answer that occurs as a term of the declared expression as corroboration, keeping the declared expression as the result. Allow-list evaluation is unaffected because the declared expression is the stricter one and is what is retained.
-- The rule must keep `Apache-2.0 WITH LLVM-exception OR MIT` versus `Apache-2.0` a conflict: a `WITH` expression is one term, and the bare identifier is not among the options offered.
-- Left open deliberately: it weakens the one signal that says valid sources disagree, and the current behavior was chosen with that trade-off in view.
-
 ## Source Repository Expansion
 
 - Add GitHub Contents API fallback for root `LICENSE`, `COPYING`, and `NOTICE` files if GitHub License API evidence is insufficient.

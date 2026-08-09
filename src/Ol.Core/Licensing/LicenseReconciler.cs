@@ -101,23 +101,16 @@ public static class LicenseReconciler
     }
 
     /// <summary>
-    /// Combines two valid expressions when one states a choice that the other satisfies.
+    /// Combines two valid expressions when neither withdraws what the other states.
     /// </summary>
-    /// <param name="kept">The expression that keeps every option both sources leave available.</param>
+    /// <param name="kept">The expression that drops no option and no obligation either source stated.</param>
     /// <returns><see langword="true"/> when the two do not disagree.</returns>
     /// <remarks>
-    /// <para>
-    /// A disjunction is an offer, not a claim that every option applies at once. Repository license
-    /// detection answers with the one file it found at the repository root, so it names a single option
-    /// out of several by construction. Reading that as disagreement would make every dual-licensed
-    /// package a conflict, which is the ordinary case in some ecosystems, and would leave a scan that
-    /// collected more evidence worse off than one that collected none.
-    /// </para>
-    /// <para>
-    /// The result keeps the wider offer rather than the narrower observation. Nothing withdrew the
-    /// other options, and an allow-list that permits only one of them still passes, whereas narrowing
-    /// to the observed option would reject it.
-    /// </para>
+    /// The relation is defined by <see cref="SpdxExpressionRelation.IsAccountedFor"/>; this decides only
+    /// which of the two survives. The one that accounts for the other is kept, because narrowing to the
+    /// observation would drop a choice nothing withdrew, and widening past the statement would drop a
+    /// term the publisher required. Equal expressions keep the one already recorded, so the reported
+    /// spelling depends on candidate order alone, which is deterministic.
     /// </remarks>
     private static bool TryCombine(Utf8Slice existing, Utf8Slice candidate, out Utf8Slice kept)
     {
@@ -129,15 +122,13 @@ public static class LicenseReconciler
             return true;
         }
 
-        // Equal sets spelled in a different order satisfy each other, and keeping the one already
-        // recorded makes the reported spelling depend on candidate order alone, which is deterministic.
-        if (SpdxDisjunctSet.IsSubsetOf(candidateSpan, existingSpan))
+        if (SpdxExpressionRelation.IsAccountedFor(candidateSpan, existingSpan))
         {
             kept = existing;
             return true;
         }
 
-        if (SpdxDisjunctSet.IsSubsetOf(existingSpan, candidateSpan))
+        if (SpdxExpressionRelation.IsAccountedFor(existingSpan, candidateSpan))
         {
             kept = candidate;
             return true;

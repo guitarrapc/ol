@@ -17,7 +17,7 @@ namespace Ol.Tests;
 /// </remarks>
 public sealed class CycloneDxEvidenceLicenseTests
 {
-    private static readonly SpdxLicenseIndex Spdx = new(["MIT", "Apache-2.0", "GPL-2.0-only"], []);
+    private static readonly SpdxLicenseIndex Spdx = new(["MIT", "Apache-2.0", "GPL-2.0-only", "GPL-3.0-only", "Unicode-3.0"], []);
 
     // Equivalence classes for the pair (declared, observed). The declared side can be absent, resolved,
     // unresolvable, or invalid; the observed side can be absent, a single identifier, several
@@ -33,6 +33,8 @@ public sealed class CycloneDxEvidenceLicenseTests
     [Arguments("declared-agrees", "MIT", "MIT", LicenseStatus.Matched)]
     [Arguments("declared-satisfied", "MIT OR Apache-2.0", "Apache-2.0", LicenseStatus.Matched)]
     [Arguments("declared-disagrees", "MIT", "Apache-2.0", LicenseStatus.Conflict)]
+    [Arguments("declared-conjunction-term-observed", "(MIT OR Apache-2.0) AND Unicode-3.0", "Apache-2.0", LicenseStatus.Matched)]
+    [Arguments("declared-conjunction-term-absent", "(MIT OR Apache-2.0) AND Unicode-3.0", "GPL-3.0-only", LicenseStatus.Conflict)]
     [Arguments("declared-multiple-observed", "MIT", "MIT|Apache-2.0", LicenseStatus.Matched)]
     [Arguments("declared-invalid-observed", "MIT", "Not-A-License", LicenseStatus.Matched)]
     public async Task Scan_CycloneDxEvidenceLicenses_ReconcilesWithTheDeclaredLicense(string label, string? declared, string? observed, LicenseStatus expected)

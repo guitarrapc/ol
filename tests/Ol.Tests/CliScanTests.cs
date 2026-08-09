@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -379,6 +379,98 @@ public sealed class CliScanTests
         finally
         {
             Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithInputDeclaringNoComponents_ReportsAnEmptyInputWarningInJson()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var warnings = report.RootElement.GetProperty("warnings").EnumerateArray().Select(x => x.GetString()!).ToArray();
+            await Assert.That(warnings).IsEquivalentTo(new[] { "input_declares_no_components" });
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    [Arguments("text")]
+    [Arguments("markdown")]
+    public async Task Scan_WithInputDeclaringNoComponents_StatesItInThePrimaryResultEvenWhenQuiet(string format)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", format, "--no-external-evidence", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).Contains("No components");
+            await Assert.That(stdout).Contains("declares no resolved dependencies");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    // A view that displays nothing is not an input that declares nothing: the inventory decides.
+    [Test]
+    public async Task Scan_WithEveryComponentFilteredOutOfTheView_DoesNotReportAnEmptyInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [ { "name": "a", "version": "1.0.0", "purl": "pkg:npm/a@1.0.0" } ] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--no-external-evidence", "--dependency", "direct", "--quiet");
+            var (jsonExitCode, json, _) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence", "--dependency", "direct");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).DoesNotContain("No components");
+            await Assert.That(jsonExitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(json);
+            await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(0);
+            await Assert.That(report.RootElement.GetProperty("warnings").EnumerateArray().Select(x => x.GetString()!).ToArray()).IsEmpty();
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithComponents_DoesNotReportAnEmptyInput()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [ { "name": "a", "version": "1.0.0", "purl": "pkg:npm/a@1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] } ] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("warnings").EnumerateArray().Select(x => x.GetString()!).ToArray()).IsEmpty();
+        }
+        finally
+        {
+            File.Delete(inputPath);
         }
     }
 

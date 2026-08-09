@@ -50,16 +50,45 @@ public sealed class GitHubLicenseApiClient
     public GitHubRateLimitStatus? RateLimit => Volatile.Read(ref rateLimit);
 
     /// <summary>Fetches one GitHub License API response.</summary>
+    /// <remarks>
+    /// A pinned ref that answers <c>404</c> falls back to the repository's default ref. The ref reaches
+    /// this client from package metadata — a repository commit, a tag, or the branch named in a license
+    /// URL — and a branch moves or disappears while the repository keeps its license. GitHub answers a
+    /// ref that no longer exists with the same <c>404</c> it uses for a repository holding no license
+    /// file, so a single request cannot tell "the license is gone" from "the name is gone", and Ol
+    /// reported both as no license at all. The second request separates them, and it is not a guess about
+    /// the pinned version: the answer is reported as the default ref's, with
+    /// <c>source_repository_ref_not_found</c> retained so the substitution stays visible.
+    /// </remarks>
     public async Task<SourceRepositoryRecord> FetchAsync(SourceRepositoryTarget target, CancellationToken cancellationToken = default)
+    {
+        var pinned = target.Ref != "default";
+        var result = await SendAsync(target, pinned ? target.Ref : null, cancellationToken).ConfigureAwait(false);
+        if (pinned && result.StatusCode == HttpStatusCode.NotFound)
+        {
+            var fallback = await SendAsync(target, null, cancellationToken).ConfigureAwait(false);
+            if (fallback.StatusCode != HttpStatusCode.NotFound)
+            {
+                return new(target.CacheKey, "github-license-api", authentication.Mode, target.Repository, "default", fallback.StatusCode, fallback.License, ["source_repository_ref_not_found"], [], DateTimeOffset.UtcNow);
+            }
+        }
+
+        return result.StatusCode == HttpStatusCode.NotFound
+            ? CreateRecord(target, HttpStatusCode.NotFound, null, ["license_not_detected"], [])
+            : CreateRecord(target, result.StatusCode, result.License, [], []);
+    }
+
+    /// <summary>Sends one License API request, at a pinned ref or at the repository default.</summary>
+    private async Task<LicenseResponse> SendAsync(SourceRepositoryTarget target, string? pinnedRef, CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref rateLimit) is { } reached)
         {
             throw CreateRateLimitException(reached);
         }
 
-        var endpoint = target.Ref == "default"
+        var endpoint = pinnedRef is null
             ? new Uri(apiBaseUri, string.Concat("repos/", Uri.EscapeDataString(target.Owner), "/", Uri.EscapeDataString(target.Name), "/license"))
-            : new Uri(apiBaseUri, string.Concat("repos/", Uri.EscapeDataString(target.Owner), "/", Uri.EscapeDataString(target.Name), "/license?ref=", Uri.EscapeDataString(target.Ref)));
+            : new Uri(apiBaseUri, string.Concat("repos/", Uri.EscapeDataString(target.Owner), "/", Uri.EscapeDataString(target.Name), "/license?ref=", Uri.EscapeDataString(pinnedRef)));
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("ol", "1.0"));
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
@@ -97,7 +126,7 @@ public sealed class GitHubLicenseApiClient
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                return CreateRecord(target, response.StatusCode, null, ["license_not_detected"], []);
+                return new LicenseResponse(response.StatusCode, null);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -112,7 +141,7 @@ public sealed class GitHubLicenseApiClient
                 var root = document.RootElement;
                 var license = root.TryGetProperty("license", out var value) && value.ValueKind == JsonValueKind.Object ? value : default;
                 var result = new GitHubLicenseResult(ReadNullableString(license, "spdx_id"), ReadString(license, "key"), ReadString(license, "name"), ReadString(root, "path"), ReadString(root, "sha"), ReadString(root, "html_url"));
-                return CreateRecord(target, response.StatusCode, result, [], []);
+                return new LicenseResponse(response.StatusCode, result);
             }
             catch (JsonException exception)
             {
@@ -290,6 +319,7 @@ public sealed class GitHubLicenseApiClient
         => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private readonly record struct RateLimitDecision(GitHubRateLimitKind Kind, TimeSpan? RetryAfter, DateTimeOffset? ResetsAt);
+    private readonly record struct LicenseResponse(HttpStatusCode StatusCode, GitHubLicenseResult? License);
 }
 
 /// <summary>Identifies which GitHub rate limit a response reported.</summary>

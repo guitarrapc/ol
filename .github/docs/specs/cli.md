@@ -67,6 +67,12 @@ NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS
 
 Verbose output additionally includes `PURL`.
 
+<a id="contract-empty-inventory"></a>
+
+An input Ol recognized but that contributes no components produces a `No components` statement in every `scan` view and an `input_declares_no_components` entry in the canonical JSON report's top-level warnings. The statement belongs to the primary result, so `--quiet` does not suppress it.
+
+Silence would be the one false negative a policy gate cannot recover from: every count is zero, `check` finds no violation, and the run is indistinguishable from a project whose dependencies are all allowed. The ordinary causes are not exotic — an unrestored project, an `obj` directory left from a different build, an SBOM generated before install. It is not a command failure: the input was read and the report is complete, and only the reader knows whether "no dependencies" is the expected answer for that input. The condition is the resolved inventory, not the displayed view, so a `--dependency` filter that excludes every component is explained by the filter line rather than reported as an empty input.
+
 <a id="contract-unresolved-section"></a>
 
 A status alone does not tell a reviewer what to do next, and the mechanism that left a license unresolved decides that: wait for Ol to gain a capability, open a document, or ask the publisher. So `text` and `markdown` component views follow the table with an `Unresolved components` section listing each non-`matched` component as `NAME VERSION REASON [REFERENCE]`.

@@ -121,6 +121,116 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Client_Fetch_PinnedRefNotFound_AnswersFromTheDefaultRefAndRecordsTheMissingRef()
+    {
+        var handler = new RefFallbackHandler(HttpStatusCode.NotFound);
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
+
+        var record = await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "master"));
+
+        await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
+        await Assert.That(record.Ref).IsEqualTo("default");
+        await Assert.That(record.Warnings).IsEquivalentTo(new[] { "source_repository_ref_not_found" });
+        await Assert.That(record.CacheKey).IsEqualTo("github:owner/repository@master");
+        await Assert.That(record.HttpStatus).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(handler.RequestUris).IsEquivalentTo(new[]
+        {
+            "https://api.github.com/repos/owner/repository/license?ref=master",
+            "https://api.github.com/repos/owner/repository/license",
+        });
+    }
+
+    [Test]
+    public async Task Client_Fetch_DefaultRefNotFound_DoesNotSendASecondRequest()
+    {
+        var handler = new RefFallbackHandler(HttpStatusCode.NotFound, defaultRefStatus: HttpStatusCode.NotFound);
+
+        var record = await new GitHubLicenseApiClient(handler, GitHubAuthentication.Create()).FetchAsync(new SourceRepositoryTarget("owner", "repository", "default"));
+
+        await Assert.That(record.Warnings).IsEquivalentTo(new[] { "license_not_detected" });
+        await Assert.That(handler.RequestUris).Count().IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Client_Fetch_PinnedRefAndDefaultRefBothNotFound_ReportsLicenseNotDetected()
+    {
+        var handler = new RefFallbackHandler(HttpStatusCode.NotFound, defaultRefStatus: HttpStatusCode.NotFound);
+
+        var record = await new GitHubLicenseApiClient(handler, GitHubAuthentication.Create()).FetchAsync(new SourceRepositoryTarget("owner", "repository", "master"));
+
+        await Assert.That(record.License.HasValue).IsFalse();
+        await Assert.That(record.Ref).IsEqualTo("master");
+        await Assert.That(record.Warnings).IsEquivalentTo(new[] { "license_not_detected" });
+        await Assert.That(handler.RequestUris).Count().IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Client_Fetch_PinnedRefResolves_DoesNotSendASecondRequest()
+    {
+        var handler = new RefFallbackHandler(HttpStatusCode.OK, defaultRefStatus: HttpStatusCode.NotFound);
+
+        var record = await new GitHubLicenseApiClient(handler, GitHubAuthentication.Create()).FetchAsync(new SourceRepositoryTarget("owner", "repository", "master"));
+
+        await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
+        await Assert.That(record.Ref).IsEqualTo("master");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(handler.RequestUris).Count().IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Client_Fetch_PinnedRefFailsWithServerError_DoesNotFallBackToTheDefaultRef()
+    {
+        var handler = new RefFallbackHandler(HttpStatusCode.InternalServerError);
+
+        await Assert.That(async () => await new GitHubLicenseApiClient(handler, GitHubAuthentication.Create()).FetchAsync(new SourceRepositoryTarget("owner", "repository", "master")))
+            .Throws<SourceRepositoryFetchException>();
+
+        await Assert.That(handler.RequestUris).Count().IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Cache_Read_LegacyPinnedRefNotFoundEntry_IsStale()
+    {
+        const string cacheKey = "github:owner/repository@master";
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new SourceRepositoryCache(root);
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(cache.GetPath(cacheKey), CreatePinnedRefCacheJson(cacheKey, resolverVersion: 2, httpStatus: 404));
+
+            await Assert.That(cache.Read(cacheKey).Status).IsEqualTo(SourceRepositoryCacheReadStatus.Stale);
+            await Assert.That((await cache.ReadAsync(cacheKey)).Status).IsEqualTo(SourceRepositoryCacheReadStatus.Stale);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    // A resolved pinned ref, and a not-found entry a current resolver already wrote, are both still usable.
+    [Arguments(2, 200, SourceRepositoryCacheReadStatus.Hit)]
+    [Arguments(3, 404, SourceRepositoryCacheReadStatus.Hit)]
+    public async Task Cache_Read_PinnedRefEntry_IsRefetchedOnlyWhenTheResolverGainedTheFallback(int resolverVersion, int httpStatus, SourceRepositoryCacheReadStatus expected)
+    {
+        const string cacheKey = "github:owner/repository@master";
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = new SourceRepositoryCache(root);
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(cache.GetPath(cacheKey), CreatePinnedRefCacheJson(cacheKey, resolverVersion, httpStatus));
+
+            await Assert.That(cache.Read(cacheKey).Status).IsEqualTo(expected);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Cache_Read_CorruptEntry_DistinguishesInvalidFromMissing()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-cache-{Guid.NewGuid():N}");
@@ -1064,6 +1174,42 @@ public sealed class SourceRepositoryTests
               "FetchedAt": "2026-07-08T00:00:00+00:00"
             }
             """;
+
+    private static string CreatePinnedRefCacheJson(string cacheKey, int resolverVersion, int httpStatus)
+        => $$"""
+            {
+              "SchemaVersion": 1,
+              "CacheKey": "{{cacheKey}}",
+              "CacheKeySha256": "{{SourceRepositoryCache.GetCacheKeySha256(cacheKey)}}",
+              "Source": "github-license-api",
+              "AuthMode": "none",
+              "Repository": "owner/repository",
+              "Ref": "master",
+              "HttpStatus": {{httpStatus}},
+              "License": null,
+              "Warnings": [],
+              "Errors": [],
+              "ResolverVersion": {{resolverVersion}},
+              "FetchedAt": "2026-07-08T00:00:00+00:00"
+            }
+            """;
+
+    /// <summary>Answers a pinned-ref request and a default-ref request with separately chosen statuses.</summary>
+    private sealed class RefFallbackHandler(HttpStatusCode pinnedRefStatus, HttpStatusCode defaultRefStatus = HttpStatusCode.OK) : HttpMessageHandler
+    {
+        public List<string> RequestUris { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri!.ToString();
+            RequestUris.Add(uri);
+            var status = uri.Contains("?ref=", StringComparison.Ordinal) ? pinnedRefStatus : defaultRefStatus;
+            return Task.FromResult(new HttpResponseMessage(status)
+            {
+                Content = new StringContent(status == HttpStatusCode.OK ? ReadGitHubLicenseFixture() : string.Empty),
+            });
+        }
+    }
 
     private sealed class GitHubResponseHandler(HttpStatusCode statusCode, string body) : HttpMessageHandler
     {

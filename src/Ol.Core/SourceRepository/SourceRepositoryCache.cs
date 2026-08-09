@@ -96,7 +96,7 @@ public sealed class SourceRepositoryCache(string root)
                 return new(SourceRepositoryCacheReadStatus.Invalid, null);
             }
 
-            return IsLegacyRateLimitError(record, resolverVersion)
+            return IsLegacyRateLimitError(record, resolverVersion) || IsLegacyPinnedRefNotFound(record, resolverVersion)
                 ? new(SourceRepositoryCacheReadStatus.Stale, null)
                 : new(SourceRepositoryCacheReadStatus.Hit, record, cacheKeySha256);
         }
@@ -107,6 +107,17 @@ public sealed class SourceRepositoryCache(string root)
         => resolverVersion < 2
         && record.Errors.Length != 0
         && record.HttpStatus is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests;
+
+    /// <summary>Rejects a pinned-ref not-found entry written before the resolver retried at the default ref.</summary>
+    /// <remarks>
+    /// Such an entry records that one named ref answered nothing, which the current resolver no longer
+    /// treats as the repository having no license. Keeping it would hold a stale unresolved result for as
+    /// long as the cache lives, so the entry is refetched instead.
+    /// </remarks>
+    private static bool IsLegacyPinnedRefNotFound(in SourceRepositoryRecord record, int resolverVersion)
+        => resolverVersion < 3
+        && record.HttpStatus == HttpStatusCode.NotFound
+        && !string.Equals(record.Ref, "default", StringComparison.Ordinal);
 
     private static bool TryParse(ReadOnlySpan<byte> utf8, string cacheKey, string cacheKeySha256, out SourceRepositoryRecord record, out int resolverVersion)
     {
@@ -402,7 +413,7 @@ public readonly record struct SourceRepositoryRecord(
     /// <summary>Gets the source-cache schema version.</summary>
     public int SchemaVersion => 1;
     /// <summary>Gets the source resolver capability version.</summary>
-    public int ResolverVersion => 2;
+    public int ResolverVersion => 3;
     /// <summary>Gets the source cache-key SHA-256.</summary>
     /// <remarks>
     /// This exists so the digest is persisted with the entry. It hashes <see cref="CacheKey"/> on every

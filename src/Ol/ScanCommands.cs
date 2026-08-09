@@ -153,7 +153,7 @@ internal sealed class ScanCommands
         {
             try
             {
-                WriteText(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory.Input, components, groups, groupBy, verbose);
+                WriteText(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory.Input, components, groups, groupBy, verbose, scanResult.Inventory.Components.Length == 0);
             }
             catch (IOException exception)
             {
@@ -163,9 +163,10 @@ internal sealed class ScanCommands
         }
         else
         {
+            var emptyInventory = scanResult.Inventory.Components.Length == 0;
             var text = groups is null
-                ? ReportRenderer.RenderMarkdown(components, verbose)
-                : ReportRenderer.RenderMarkdown(groups, groupBy!);
+                ? ReportRenderer.RenderMarkdown(components, verbose, emptyInventory)
+                : ReportRenderer.RenderMarkdown(groups, groupBy!, emptyInventory);
             text = ReportRenderer.RenderInputHeader(format, scanResult.Inventory.Input) + text;
             if (!text.EndsWith('\n'))
             {
@@ -222,16 +223,17 @@ internal sealed class ScanCommands
         ReadOnlySpan<ScanComponent> components,
         GroupRow[]? groups,
         string? groupBy,
-        bool verbose)
+        bool verbose,
+        bool emptyInventory)
     {
         using var buffer = new PooledStreamBufferWriter(output);
         if (groups is null)
         {
-            ReportRenderer.WriteText(buffer, input, components, verbose);
+            ReportRenderer.WriteText(buffer, input, components, verbose, emptyInventory);
         }
         else
         {
-            ReportRenderer.WriteText(buffer, input, groups, groupBy!);
+            ReportRenderer.WriteText(buffer, input, groups, groupBy!, emptyInventory);
         }
     }
 
@@ -1129,11 +1131,26 @@ internal static class ReportRenderer
             ? $"Input: `{input.Kind.Name}/{input.Format.Name}`{Environment.NewLine}{Environment.NewLine}"
             : $"Input: {input.Kind.Name}/{input.Format.Name}{Environment.NewLine}{Environment.NewLine}";
 
+    /// <summary>The identifier and sentence that state an input contributed no dependency inventory.</summary>
+    /// <remarks>
+    /// A recognized input that resolves nothing produces a report where every count is zero, and a
+    /// zero-violation policy result follows from it. Read as a pass, that is the one false negative a
+    /// compliance gate cannot recover from, and the causes are ordinary: an unrestored project, an obj
+    /// directory from a different build, an SBOM generated before install. So it is stated in the primary
+    /// result, which <c>--quiet</c> does not suppress, and retained in the JSON report's warnings. It is
+    /// not a command failure: the input was read and the report is complete, and only the reader knows
+    /// whether "no dependencies" is the expected answer.
+    /// </remarks>
+    private const string EmptyInventoryWarning = "input_declares_no_components";
+    private static ReadOnlySpan<byte> EmptyInventoryHeadingUtf8 => "No components"u8;
+    private static ReadOnlySpan<byte> EmptyInventorySentenceUtf8 => "The input declares no resolved dependencies, so this report states nothing about licenses."u8;
+
     public static void WriteText(
         IBufferWriter<byte> writer,
         ScanInputDescriptor input,
         ReadOnlySpan<ScanComponent> components,
-        bool verbose)
+        bool verbose,
+        bool emptyInventory = false)
     {
         WriteInputHeader(writer, input);
         WriteUtf8(writer, verbose
@@ -1163,7 +1180,23 @@ internal static class ReportRenderer
             WriteNewLine(writer);
         }
 
+        WriteEmptyInventoryText(writer, emptyInventory);
         WriteUnresolvedText(writer, components);
+    }
+
+    private static void WriteEmptyInventoryText(IBufferWriter<byte> writer, bool emptyInventory)
+    {
+        if (!emptyInventory)
+        {
+            return;
+        }
+
+        WriteNewLine(writer);
+        WriteUtf8(writer, EmptyInventoryHeadingUtf8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "  "u8);
+        WriteUtf8(writer, EmptyInventorySentenceUtf8);
+        WriteNewLine(writer);
     }
 
     /// <summary>
@@ -1326,7 +1359,7 @@ internal static class ReportRenderer
         return string.Empty;
     }
 
-    public static string RenderMarkdown(ReadOnlySpan<ScanComponent> components, bool verbose)
+    public static string RenderMarkdown(ReadOnlySpan<ScanComponent> components, bool verbose, bool emptyInventory = false)
     {
         var builder = new StringBuilder();
         builder.AppendLine(verbose ? "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | PURL |" : "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |");
@@ -1355,8 +1388,23 @@ internal static class ReportRenderer
             builder.AppendLine(" |");
         }
 
+        AppendEmptyInventoryMarkdown(builder, emptyInventory);
         AppendUnresolvedMarkdown(builder, components);
         return builder.ToString();
+    }
+
+    /// <summary>Renders the same statement as the text report. See <see cref="EmptyInventoryWarning"/>.</summary>
+    private static void AppendEmptyInventoryMarkdown(StringBuilder builder, bool emptyInventory)
+    {
+        if (!emptyInventory)
+        {
+            return;
+        }
+
+        builder.AppendLine();
+        builder.Append("## ").AppendLine(Encoding.UTF8.GetString(EmptyInventoryHeadingUtf8));
+        builder.AppendLine();
+        builder.AppendLine(Encoding.UTF8.GetString(EmptyInventorySentenceUtf8));
     }
 
     /// <summary>Renders the same explanation as the text report. See <see cref="WriteUnresolvedText"/>.</summary>
@@ -1397,7 +1445,8 @@ internal static class ReportRenderer
         IBufferWriter<byte> writer,
         ScanInputDescriptor input,
         ReadOnlySpan<GroupRow> groups,
-        string groupBy)
+        string groupBy,
+        bool emptyInventory = false)
     {
         WriteInputHeader(writer, input);
         var headerCount = GetGroupFieldCount(groupBy);
@@ -1435,9 +1484,11 @@ internal static class ReportRenderer
             writer.Advance(bytesWritten);
             WriteNewLine(writer);
         }
+
+        WriteEmptyInventoryText(writer, emptyInventory);
     }
 
-    public static string RenderMarkdown(ReadOnlySpan<GroupRow> groups, string groupBy)
+    public static string RenderMarkdown(ReadOnlySpan<GroupRow> groups, string groupBy, bool emptyInventory = false)
     {
         var headers = groupBy.ToUpperInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var builder = new StringBuilder();
@@ -1464,6 +1515,7 @@ internal static class ReportRenderer
             builder.AppendLine(" |");
         }
 
+        AppendEmptyInventoryMarkdown(builder, emptyInventory);
         return builder.ToString();
     }
 
@@ -1510,7 +1562,7 @@ internal static class ReportRenderer
         writer.WriteEndArray();
 
         WriteSummary(writer, ScanSummary.Create(components));
-        WriteWarnings(writer, components);
+        WriteWarnings(writer, components, inventory.Components.Length == 0);
         writer.WriteEndObject();
     }
 
@@ -1556,7 +1608,7 @@ internal static class ReportRenderer
 
         writer.WriteEndArray();
         WriteSummary(writer, ScanSummary.Create(groups));
-        WriteWarnings(writer, groups);
+        WriteWarnings(writer, groups, inventory.Components.Length == 0);
         writer.WriteEndObject();
     }
 
@@ -1897,6 +1949,7 @@ internal static class ReportRenderer
         if ((warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0) writer.WriteStringValue("license_not_detected"u8);
         if ((warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) writer.WriteStringValue("license_not_recognized"u8);
         if ((warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0) writer.WriteStringValue("source_repository_subdirectory"u8);
+        if ((warnings & LicenseCandidateWarnings.SourceRepositoryRefNotFound) != 0) writer.WriteStringValue("source_repository_ref_not_found"u8);
         writer.WriteEndArray();
     }
 
@@ -1912,7 +1965,7 @@ internal static class ReportRenderer
         writer.WriteEndObject();
     }
 
-    private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<ScanComponent> components)
+    private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<ScanComponent> components, bool emptyInventory)
     {
         writer.WriteStartArray("warnings");
         if (HasDeprecatedWarning(components))
@@ -1920,10 +1973,15 @@ internal static class ReportRenderer
             writer.WriteStringValue("deprecated_spdx_identifier");
         }
 
+        if (emptyInventory)
+        {
+            writer.WriteStringValue(EmptyInventoryWarning);
+        }
+
         writer.WriteEndArray();
     }
 
-    private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<GroupRow> groups)
+    private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<GroupRow> groups, bool emptyInventory)
     {
         writer.WriteStartArray("warnings");
         for (var i = 0; i < groups.Length; i++)
@@ -1933,6 +1991,11 @@ internal static class ReportRenderer
                 writer.WriteStringValue("deprecated_spdx_identifier");
                 break;
             }
+        }
+
+        if (emptyInventory)
+        {
+            writer.WriteStringValue(EmptyInventoryWarning);
         }
 
         writer.WriteEndArray();

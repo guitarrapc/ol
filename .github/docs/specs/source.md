@@ -49,6 +49,14 @@ GitHub License API results are interpreted as source repository evidence:
 
 `license_not_detected` and `license_not_recognized` are both unknown outcomes, but they are not the same fact and a reviewer acts on them differently: the second names a license document that exists and can be read, the first says there is nothing at that repository and ref to read. Both are retained as warnings on the source-repository candidate so a report states which one occurred. They are derived from the recorded HTTP status and license fields rather than from a stored warning string, so an entry cached before these outcomes were named explains itself without being collected again.
 
+<a id="contract-source-ref-fallback"></a>
+
+A lookup at a named ref that answers `404` is repeated once at the repository default ref, and only then becomes `license_not_detected`. The ref comes from package metadata — a commit, a tag, or the branch inside a legacy license URL — and a branch moves or is deleted while the repository keeps its license, so the same `404` covers both "there is no license file" and "there is no such ref". `dotnet/standard@master` and `Microsoft/dotnet@master` are the ordinary case: both branches are gone, both repositories are MIT, and one request cannot tell which fact it observed.
+
+The second answer is reported as the default ref's, not as the named ref's. The record carries `Ref` = `default` and retains `source_repository_ref_not_found`, so a report never implies that the version's own ref was read. A default-ref lookup is never repeated, and a named ref that answers `404` twice keeps the original ref in its record so the evidence still names what was asked for. Any other failure — a rate limit, a 5xx, a transport error — is not a fallback case and is raised unchanged.
+
+Entries a previous resolver wrote for a named ref that answered `404` are stale rather than valid, because that resolver stopped at the first answer. They are refetched instead of being kept as a stale unresolved result for the life of the cache.
+
 <a id="contract-source-rate-limit"></a>
 
 External collection honors one wait rule: Ol waits only for a delay the server itself named and that fits the run's wait budget of ten seconds. Anything longer is not shortened into an earlier retry, because retrying sooner than the server asked ignores the instruction that came with the failure, spends the remaining allowance, and can extend a secondary limit. The budget is not a per-request timeout; it bounds only the delay a failure asks the run to absorb.

@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 
 namespace Ol.Core.Licensing;
 
@@ -50,6 +50,7 @@ public enum LicenseCandidateWarnings : ushort
     SourceLicenseNotDetected = 1 << 10,
     SourceLicenseNotRecognized = 1 << 11,
     SourceRepositorySubdirectory = 1 << 12,
+    SourceRepositoryRefNotFound = 1 << 13,
 }
 
 /// <summary>Identifies the evidence system that produced a license candidate.</summary>
@@ -100,6 +101,7 @@ public static class LicenseCandidateIdentifiers
         "license_not_detected" => LicenseCandidateWarnings.SourceLicenseNotDetected,
         "license_not_recognized" => LicenseCandidateWarnings.SourceLicenseNotRecognized,
         "source_repository_subdirectory" => LicenseCandidateWarnings.SourceRepositorySubdirectory,
+        "source_repository_ref_not_found" => LicenseCandidateWarnings.SourceRepositoryRefNotFound,
         _ => LicenseCandidateWarnings.None,
     };
 
@@ -126,6 +128,7 @@ public static class LicenseCandidateIdentifiers
         if (value.SequenceEqual("license_not_detected"u8)) return LicenseCandidateWarnings.SourceLicenseNotDetected;
         if (value.SequenceEqual("license_not_recognized"u8)) return LicenseCandidateWarnings.SourceLicenseNotRecognized;
         if (value.SequenceEqual("source_repository_subdirectory"u8)) return LicenseCandidateWarnings.SourceRepositorySubdirectory;
+        if (value.SequenceEqual("source_repository_ref_not_found"u8)) return LicenseCandidateWarnings.SourceRepositoryRefNotFound;
         return LicenseCandidateWarnings.None;
     }
 
@@ -170,7 +173,8 @@ public static class LicenseCandidateIdentifiers
         if ((value & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) result[index++] = "package_metadata_not_found";
         if ((value & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0) result[index++] = "license_not_detected";
         if ((value & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) result[index++] = "license_not_recognized";
-        if ((value & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0) result[index] = "source_repository_subdirectory";
+        if ((value & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0) result[index++] = "source_repository_subdirectory";
+        if ((value & LicenseCandidateWarnings.SourceRepositoryRefNotFound) != 0) result[index] = "source_repository_ref_not_found";
         return result;
     }
 

@@ -152,11 +152,13 @@ Example:
     "Sha": "...",
     "HtmlUrl": "https://github.com/owner/repo/blob/ref/LICENSE"
   },
-  "ResolverVersion": 2,
+  "ResolverVersion": 3,
   "Warnings": [],
   "Errors": []
 }
 ```
+
+Resolver version `3` revisits entries whose `Ref` is not `default` and whose `HttpStatus` is `404`. An earlier resolver stopped at that answer, while the current one repeats the lookup at the repository default ref before concluding that no license file exists; see the [ref fallback contract](source.md#contract-source-ref-fallback). Recollection writes the current version, so each affected entry is refetched once rather than on every scan.
 
 HTTP 404 and a successful response with no identified license are cacheable unknown outcomes, not malformed entries. Retry-exhausted or non-retryable source failures may also be retained when needed for audit, but cache use must continue to follow the best-effort and refresh behavior defined by the source specification.
 

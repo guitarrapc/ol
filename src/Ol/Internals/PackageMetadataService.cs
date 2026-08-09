@@ -35,6 +35,13 @@ internal sealed class PackageMetadataService(
     HttpClient? client = null)
 {
     private const int LinearPlanningComponentLimit = 8;
+
+    /// <summary>Plan index for a purl whose ecosystem has no registered provider.</summary>
+    private const int UnsupportedEcosystemIndex = -1;
+
+    /// <summary>Plan index for a purl whose ecosystem is supported but which names no single package version.</summary>
+    private const int UnversionedPurlIndex = -2;
+
     private static readonly HttpClient HttpClient = new();
 
     /// <summary>
@@ -95,9 +102,9 @@ internal sealed class PackageMetadataService(
             return ValueTask.FromResult(ApplySingleLookup(components, workspace, default, concurrency, lookupCount: 0));
         }
 
-        if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request))
+        if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request, out var ecosystemSupported))
         {
-            return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateUnsupportedPurlResult(purl), concurrency, lookupCount: 0));
+            return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateUnqueryablePurlResult(purl, ecosystemSupported), concurrency, lookupCount: 0));
         }
 
         if (!refresh)
@@ -206,10 +213,13 @@ internal sealed class PackageMetadataService(
                     continue;
                 }
 
-                if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request))
+                if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request, out var ecosystemSupported))
                 {
-                    lookupByPurl?.Add(purl, -1);
-                    componentLookupIndexes[i] = -1;
+                    // Two distinct "no request" outcomes share the plan's negative index space, so the projection can
+                    // name the right one without parsing the purl a second time.
+                    var unqueryable = ecosystemSupported ? UnversionedPurlIndex : UnsupportedEcosystemIndex;
+                    lookupByPurl?.Add(purl, unqueryable);
+                    componentLookupIndexes[i] = unqueryable;
                     continue;
                 }
 
@@ -297,7 +307,7 @@ internal sealed class PackageMetadataService(
             var lookupIndex = componentLookupIndexes[i];
             var result = lookupIndex >= 0
                 ? lookupResults[lookupIndex]
-                : components[i].Purl.IsEmpty ? default : CreateUnsupportedPurlResult(components[i].Purl);
+                : components[i].Purl.IsEmpty ? default : CreateUnqueryablePurlResult(components[i].Purl, lookupIndex == UnversionedPurlIndex);
             records[i] = result.Resolution;
             components[i] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];
             supported += result.Supported ? 1 : 0;
@@ -434,7 +444,16 @@ internal sealed class PackageMetadataService(
         return new PackageMetadataLookupResult(null, error, true, false, true, false, true, false);
     }
 
-    private static PackageMetadataLookupResult CreateUnsupportedPurlResult(Utf8Slice purl)
+    /// <summary>
+    /// Records that no registry could be asked about this purl, naming which of the two reasons applies.
+    /// </summary>
+    /// <remarks>
+    /// A purl that states no version is not the same outcome as an ecosystem Ol has no provider for, even though
+    /// neither issues a request. The first is answered by fixing the input; the second only by Ol gaining a provider.
+    /// Multi-module builds make the first common: a generator reading a child POM emits the module without the
+    /// version its parent supplies.
+    /// </remarks>
+    private static PackageMetadataLookupResult CreateUnqueryablePurlResult(Utf8Slice purl, bool ecosystemSupported = false)
     {
         var candidate = new LicenseCandidate(
             LicenseCandidateSource.PackageRegistry,
@@ -443,7 +462,9 @@ internal sealed class PackageMetadataService(
             default,
             LicenseStatus.Unknown,
             false,
-            LicenseCandidateWarnings.UnsupportedPackageMetadata,
+            ecosystemSupported
+                ? LicenseCandidateWarnings.PackageMetadataUnversionedPurl
+                : LicenseCandidateWarnings.UnsupportedPackageMetadata,
             new LicenseEvidence(LicenseEvidenceKind.PackageRegistry));
         return new PackageMetadataLookupResult(null, candidate, true, false, false, false, false, true);
     }

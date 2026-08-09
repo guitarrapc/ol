@@ -91,6 +91,73 @@ public sealed class MixedInputScanTests
     }
 
     [Test]
+    public async Task Scan_WithGoMajorVersionWrittenAsSubpath_MatchesTheSameModule()
+    {
+        // A Go module at major version 2 or above carries the major in its module path. Generators disagree about
+        // where that lands in the purl: Ol's module-graph input writes ".../go-md2man/v2@v2.0.6" while syft writes
+        // ".../go-md2man@v2.0.6#v2". Both name one module, so a collection must not report it twice.
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-go-major-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(
+            Path.Combine(temporaryDirectory, "go-list-modules.json"),
+            """
+            { "Path": "example.com/app", "Main": true, "Dir": "/repo", "GoMod": "/repo/go.mod", "GoVersion": "1.25" }
+            { "Path": "github.com/cpuguy83/go-md2man/v2", "Version": "v2.0.6", "Indirect": false }
+            { "Path": "github.com/go-playground/validator/v10", "Version": "v10.30.3", "Indirect": false }
+            { "Path": "github.com/sirupsen/logrus", "Version": "v1.9.3", "Indirect": false }
+            { "Path": "github.com/ugorji/go/codec", "Version": "v1.3.1", "Indirect": false }
+            """);
+        await File.WriteAllTextAsync(
+            Path.Combine(temporaryDirectory, "go-mod-graph.txt"),
+            """
+            example.com/app github.com/cpuguy83/go-md2man/v2@v2.0.6
+            example.com/app github.com/go-playground/validator/v10@v10.30.3
+            example.com/app github.com/sirupsen/logrus@v1.9.3
+            example.com/app github.com/ugorji/go/codec@v1.3.1
+            """);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input", temporaryDirectory,
+                "--input", FixturePath("mixed-go-major.cdx.json"),
+                "--no-external-evidence",
+                "--format", "json");
+
+            await Assert.That(stderr).IsEmpty();
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            // v10 exercises the whole-number test: a suffix starting with "1" is still a major-version suffix.
+            foreach (var purl in new[]
+                     {
+                         "pkg:golang/github.com/cpuguy83/go-md2man/v2@v2.0.6",
+                         "pkg:golang/github.com/go-playground/validator/v10@v10.30.3",
+                         // Not a major-version suffix but the same split: the module is github.com/ugorji/go/codec.
+                         "pkg:golang/github.com/ugorji/go/codec@v1.3.1",
+                     })
+            {
+                var matched = FindComponents(report, purl);
+                await Assert.That(matched).Count().IsEqualTo(1);
+                await Assert.That(SuppliedBy(matched[0])).IsEquivalentTo(new[] { "sbom", "package-manager" });
+                await Assert.That(matched[0].GetProperty("license").GetString()).IsEqualTo("MIT");
+            }
+
+            // A module below v2 has no suffix to fold away, and must still match on its plain module path.
+            var single = FindComponents(report, "pkg:golang/github.com/sirupsen/logrus@v1.9.3");
+            await Assert.That(single).Count().IsEqualTo(1);
+            await Assert.That(SuppliedBy(single[0])).IsEquivalentTo(new[] { "sbom", "package-manager" });
+            await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithTwoPackageManagerFormatsSharingPurl_KeepsThemSeparate()
     {
         // Two lockfiles describe two installations, so the same purl in each is two observations rather

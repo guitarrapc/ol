@@ -25,14 +25,27 @@ public readonly record struct PackageMetadataRequest(
     /// <param name="request">The parsed request when the purl is supported and versioned.</param>
     /// <returns><see langword="true"/> when a supported request was created.</returns>
     public static bool TryCreate(string purl, PackageMetadataProviders providers, out PackageMetadataRequest request)
+        => TryCreate(purl, providers, out request, out _);
+
+    /// <summary>
+    /// Creates a registry request, reporting whether a failure was the ecosystem or the purl itself.
+    /// </summary>
+    /// <param name="ecosystemSupported">
+    /// <see langword="true"/> when a provider owns this purl's ecosystem. A supported ecosystem that still produced
+    /// no request means the purl does not identify one package version, which asks the reader to fix the input
+    /// rather than to wait for Ol to gain a provider.
+    /// </param>
+    public static bool TryCreate(string purl, PackageMetadataProviders providers, out PackageMetadataRequest request, out bool ecosystemSupported)
     {
         ArgumentNullException.ThrowIfNull(providers);
         request = default;
+        ecosystemSupported = false;
         if (!TryGetEcosystem(purl, out var ecosystem) || !providers.TryGet(ecosystem, out var provider))
         {
             return false;
         }
 
+        ecosystemSupported = true;
         return provider.TryCreate(purl, out request);
     }
 

@@ -1317,6 +1317,9 @@ internal static class ReportRenderer
             : (warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0 ? "license_not_detected"u8
             : declaredLocation ? "declared_license_location_not_collected"u8
             : familyClassifier ? "license_classifier_not_specific"u8
+            // Ranked above every repository reason: a purl that names no version is why nothing could be looked up,
+            // and reporting the missing repository instead sends the reader hunting for one that was never sought.
+            : (warnings & LicenseCandidateWarnings.PackageMetadataUnversionedPurl) != 0 ? "package_metadata_unversioned_purl"u8
             : (warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0 ? "unsupported_source_repository"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0 ? "source_repository_subdirectory"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0 ? "source_repository_unavailable"u8
@@ -1981,6 +1984,7 @@ internal static class ReportRenderer
         if ((warnings & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0) writer.WriteStringValue("source_repository_fetch_failed"u8);
         if ((warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0) writer.WriteStringValue("source_repository_unavailable"u8);
         if ((warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0) writer.WriteStringValue("unsupported_package_metadata"u8);
+        if ((warnings & LicenseCandidateWarnings.PackageMetadataUnversionedPurl) != 0) writer.WriteStringValue("package_metadata_unversioned_purl"u8);
         if ((warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) writer.WriteStringValue("unsupported_source_repository"u8);
         if ((warnings & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0) writer.WriteStringValue("external_evidence_not_collected"u8);
         if ((warnings & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) writer.WriteStringValue("package_metadata_not_found"u8);

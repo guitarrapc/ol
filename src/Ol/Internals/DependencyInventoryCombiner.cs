@@ -354,17 +354,37 @@ internal static class DependencyInventoryCombiner
     // one still rejects it.
     private static bool MatchesIdentity(Utf8Slice left, Utf8Slice right, DependencyComponentIdentityComparison comparison)
     {
-        var leftIdentity = PurlIdentityKey.Identity(left.Span);
-        var rightIdentity = PurlIdentityKey.Identity(right.Span);
-        if (leftIdentity.Length != rightIdentity.Length) return false;
-        if (comparison != DependencyComponentIdentityComparison.AsciiIgnoreCase)
+        PurlIdentityKey.Split(left.Span, out var leftPath, out var leftVersion);
+        PurlIdentityKey.Split(right.Span, out var rightPath, out var rightVersion);
+        var ignoreCase = comparison == DependencyComponentIdentityComparison.AsciiIgnoreCase;
+        return PathEquals(leftPath, rightPath, ignoreCase) && PartEquals(leftVersion, rightVersion, ignoreCase);
+    }
+
+    private static bool PathEquals(PackagePath left, PackagePath right, bool ignoreCase)
+    {
+        if (left.Length != right.Length) return false;
+
+        // Only Go purls ever arrive in two pieces, and most of those are in one. Comparing spans directly keeps the
+        // ordinary case off the indexer, whose per-byte branch is what a two-piece path costs.
+        if (left.IsContiguous && right.IsContiguous) return PartEquals(left.Head, right.Head, ignoreCase);
+
+        for (var i = 0; i < left.Length; i++)
         {
-            return leftIdentity.SequenceEqual(rightIdentity);
+            var a = ignoreCase ? ToLowerAscii(left[i]) : left[i];
+            var b = ignoreCase ? ToLowerAscii(right[i]) : right[i];
+            if (a != b) return false;
         }
 
-        for (var i = 0; i < leftIdentity.Length; i++)
+        return true;
+    }
+
+    private static bool PartEquals(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right, bool ignoreCase)
+    {
+        if (left.Length != right.Length) return false;
+        if (!ignoreCase) return left.SequenceEqual(right);
+        for (var i = 0; i < left.Length; i++)
         {
-            if (ToLowerAscii(leftIdentity[i]) != ToLowerAscii(rightIdentity[i])) return false;
+            if (ToLowerAscii(left[i]) != ToLowerAscii(right[i])) return false;
         }
 
         return true;
@@ -419,11 +439,53 @@ internal static class DependencyInventoryCombiner
     /// </summary>
     private readonly record struct PurlIdentityKey(Utf8Slice Purl)
     {
-        public static ReadOnlySpan<byte> Identity(ReadOnlySpan<byte> purl)
+        /// <summary>
+        /// Splits a purl into the parts that decide whether two observations name the same package: the package path
+        /// and the version. Qualifiers are dropped because generators disagree about which to emit for one artifact.
+        /// </summary>
+        /// <remarks>
+        /// The subpath is dropped for the same reason, with one exception. A Go module path is not always written in
+        /// the purl name: generators split it, putting the trailing segments in the subpath, so
+        /// <c>github.com/ugorji/go/codec</c> is written as <c>pkg:golang/github.com/ugorji/go@v1.3.1#codec</c> and
+        /// <c>github.com/cpuguy83/go-md2man/v2</c> as <c>pkg:golang/github.com/cpuguy83/go-md2man@v2.0.6#v2</c>. For
+        /// Go the subpath therefore belongs to the path rather than beside it. Dropping it instead would be worse
+        /// than a missed match: it would leave a submodule looking like its parent.
+        /// </remarks>
+        public static void Split(ReadOnlySpan<byte> purl, out PackagePath path, out ReadOnlySpan<byte> version)
         {
-            var end = purl.IndexOfAny((byte)'?', (byte)'#');
-            return end < 0 ? purl : purl[..end];
+            var qualifier = purl.IndexOf((byte)'?');
+            var withoutQualifier = qualifier < 0 ? purl : purl[..qualifier];
+            var subpathStart = withoutQualifier.IndexOf((byte)'#');
+            var identity = subpathStart < 0 ? withoutQualifier : withoutQualifier[..subpathStart];
+            var subpath = subpathStart < 0 || !purl.StartsWith("pkg:golang/"u8)
+                ? default
+                : withoutQualifier[(subpathStart + 1)..];
+
+            var at = identity.LastIndexOf((byte)'@');
+            path = new PackagePath(at < 0 ? identity : identity[..at], subpath);
+            version = at < 0 ? default : identity[(at + 1)..];
         }
+    }
+
+    /// <summary>
+    /// A package path that may be stated in two pieces, compared as though they were joined by <c>/</c>. Keeping it a
+    /// pair avoids building the joined string on a path that runs once per component.
+    /// </summary>
+    private readonly ref struct PackagePath(ReadOnlySpan<byte> head, ReadOnlySpan<byte> tail)
+    {
+        private readonly ReadOnlySpan<byte> head = head;
+        private readonly ReadOnlySpan<byte> tail = tail;
+
+        public ReadOnlySpan<byte> Head => head;
+
+        public bool IsContiguous => tail.IsEmpty;
+
+        public int Length => tail.IsEmpty ? head.Length : head.Length + tail.Length + 1;
+
+        public byte this[int index]
+            => index < head.Length ? head[index]
+            : index == head.Length ? (byte)'/'
+            : tail[index - head.Length - 1];
     }
 
     private sealed class PurlIdentityKeyComparer : IEqualityComparer<PurlIdentityKey>
@@ -432,26 +494,27 @@ internal static class DependencyInventoryCombiner
 
         public bool Equals(PurlIdentityKey left, PurlIdentityKey right)
         {
-            var leftIdentity = PurlIdentityKey.Identity(left.Purl.Span);
-            var rightIdentity = PurlIdentityKey.Identity(right.Purl.Span);
-            if (leftIdentity.Length != rightIdentity.Length) return false;
-            for (var i = 0; i < leftIdentity.Length; i++)
-            {
-                if (ToLowerAscii(leftIdentity[i]) != ToLowerAscii(rightIdentity[i])) return false;
-            }
-
-            return true;
+            PurlIdentityKey.Split(left.Purl.Span, out var leftPath, out var leftVersion);
+            PurlIdentityKey.Split(right.Purl.Span, out var rightPath, out var rightVersion);
+            return PathEquals(leftPath, rightPath, ignoreCase: true) && PartEquals(leftVersion, rightVersion, ignoreCase: true);
         }
 
         public int GetHashCode(PurlIdentityKey value)
         {
+            PurlIdentityKey.Split(value.Purl.Span, out var path, out var version);
             var hash = new HashCode();
-            var identity = PurlIdentityKey.Identity(value.Purl.Span);
-            for (var i = 0; i < identity.Length; i++)
+            if (path.IsContiguous)
             {
-                hash.Add(ToLowerAscii(identity[i]));
+                var head = path.Head;
+                for (var i = 0; i < head.Length; i++) hash.Add(ToLowerAscii(head[i]));
+            }
+            else
+            {
+                for (var i = 0; i < path.Length; i++) hash.Add(ToLowerAscii(path[i]));
             }
 
+            hash.Add((byte)'@');
+            for (var i = 0; i < version.Length; i++) hash.Add(ToLowerAscii(version[i]));
             return hash.ToHashCode();
         }
     }

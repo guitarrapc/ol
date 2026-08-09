@@ -51,6 +51,7 @@ public enum LicenseCandidateWarnings : ushort
     SourceLicenseNotRecognized = 1 << 11,
     SourceRepositorySubdirectory = 1 << 12,
     SourceRepositoryRefNotFound = 1 << 13,
+    PackageMetadataUnversionedPurl = 1 << 14,
 }
 
 /// <summary>Identifies the evidence system that produced a license candidate.</summary>
@@ -91,6 +92,7 @@ public static class LicenseCandidateIdentifiers
         "deprecated_spdx_identifier" => LicenseCandidateWarnings.DeprecatedSpdxIdentifier,
         "package_metadata_fetch_failed" => LicenseCandidateWarnings.PackageMetadataFetchFailed,
         "unsupported_package_metadata" => LicenseCandidateWarnings.UnsupportedPackageMetadata,
+        "package_metadata_unversioned_purl" => LicenseCandidateWarnings.PackageMetadataUnversionedPurl,
         "source_repository_cache_invalid" => LicenseCandidateWarnings.SourceRepositoryCacheInvalid,
         "source_repository_cache_write_failed" => LicenseCandidateWarnings.SourceRepositoryCacheWriteFailed,
         "source_repository_fetch_failed" => LicenseCandidateWarnings.SourceRepositoryFetchFailed,
@@ -118,6 +120,7 @@ public static class LicenseCandidateIdentifiers
         if (value.SequenceEqual("deprecated_spdx_identifier"u8)) return LicenseCandidateWarnings.DeprecatedSpdxIdentifier;
         if (value.SequenceEqual("package_metadata_fetch_failed"u8)) return LicenseCandidateWarnings.PackageMetadataFetchFailed;
         if (value.SequenceEqual("unsupported_package_metadata"u8)) return LicenseCandidateWarnings.UnsupportedPackageMetadata;
+        if (value.SequenceEqual("package_metadata_unversioned_purl"u8)) return LicenseCandidateWarnings.PackageMetadataUnversionedPurl;
         if (value.SequenceEqual("source_repository_cache_invalid"u8)) return LicenseCandidateWarnings.SourceRepositoryCacheInvalid;
         if (value.SequenceEqual("source_repository_cache_write_failed"u8)) return LicenseCandidateWarnings.SourceRepositoryCacheWriteFailed;
         if (value.SequenceEqual("source_repository_fetch_failed"u8)) return LicenseCandidateWarnings.SourceRepositoryFetchFailed;
@@ -168,6 +171,7 @@ public static class LicenseCandidateIdentifiers
         if ((value & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0) result[index++] = "source_repository_fetch_failed";
         if ((value & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0) result[index++] = "source_repository_unavailable";
         if ((value & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0) result[index++] = "unsupported_package_metadata";
+        if ((value & LicenseCandidateWarnings.PackageMetadataUnversionedPurl) != 0) result[index++] = "package_metadata_unversioned_purl";
         if ((value & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) result[index++] = "unsupported_source_repository";
         if ((value & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0) result[index++] = "external_evidence_not_collected";
         if ((value & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) result[index++] = "package_metadata_not_found";

@@ -1,0 +1,39 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "components": [
+    {
+      "bom-ref": "go-md2man",
+      "type": "library",
+      "name": "github.com/cpuguy83/go-md2man",
+      "version": "v2.0.6",
+      "purl": "pkg:golang/github.com/cpuguy83/go-md2man@v2.0.6#v2",
+      "licenses": [{ "license": { "id": "MIT" } }]
+    },
+    {
+      "bom-ref": "validator",
+      "type": "library",
+      "name": "github.com/go-playground/validator",
+      "version": "v10.30.3",
+      "purl": "pkg:golang/github.com/go-playground/validator@v10.30.3#v10",
+      "licenses": [{ "license": { "id": "MIT" } }]
+    },
+    {
+      "bom-ref": "single-major",
+      "type": "library",
+      "name": "github.com/sirupsen/logrus",
+      "version": "v1.9.3",
+      "purl": "pkg:golang/github.com/sirupsen/logrus@v1.9.3",
+      "licenses": [{ "license": { "id": "MIT" } }]
+    },
+    {
+      "bom-ref": "submodule",
+      "type": "library",
+      "name": "github.com/ugorji/go",
+      "version": "v1.3.1",
+      "purl": "pkg:golang/github.com/ugorji/go@v1.3.1#codec",
+      "licenses": [{ "license": { "id": "MIT" } }]
+    }
+  ]
+}

@@ -23,6 +23,10 @@ public static class OlDefaults
     public static bool TryCreatePackageMetadataRequest(string purl, out PackageMetadataRequest request)
         => PackageMetadataRequest.TryCreate(purl, PackageMetadataProviders, out request);
 
+    /// <summary>Parses a package URL, also reporting whether its ecosystem has a registered provider.</summary>
+    public static bool TryCreatePackageMetadataRequest(string purl, out PackageMetadataRequest request, out bool ecosystemSupported)
+        => PackageMetadataRequest.TryCreate(purl, PackageMetadataProviders, out request, out ecosystemSupported);
+
     /// <summary>Creates a package metadata registry client using Ol's built-in package metadata providers.</summary>
     public static PackageMetadataRegistryClient CreatePackageMetadataRegistryClient(HttpClient httpClient)
         => new(httpClient, PackageMetadataProviders);

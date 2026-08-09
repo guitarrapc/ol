@@ -25,6 +25,37 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Enrichment_PurlStatesNoVersion_SeparatesIncompleteIdentityFromUnsupportedEcosystem()
+    {
+        // A version-less purl and an ecosystem Ol cannot query both end in "no lookup was attempted", but they ask
+        // the reader for different things: fix the input, or wait for Ol to gain a provider. Reporting an incomplete
+        // Maven purl as an unsupported ecosystem tells a reviewer that Ol does not support Maven, which is false.
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var service = new PackageMetadataService(index, new PackageMetadataCache(root), refresh: false, retryCount: 0);
+            var components = new[]
+            {
+                CreateEnrichmentComponent(index, "pkg:maven/com.tencent.polaris/auth-block-allow-list"),
+                CreateEnrichmentComponent(index, "pkg:conan/zlib@1.3"),
+            };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var (enriched, summary) = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enriched[0].Warnings).Contains("package_metadata_unversioned_purl");
+            await Assert.That(enriched[0].Warnings).DoesNotContain("unsupported_package_metadata");
+            await Assert.That(enriched[1].Warnings).Contains("unsupported_package_metadata");
+            await Assert.That(summary.TargetCount).IsEqualTo(0);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Enrichment_RegistryAnswersNotFound_RecordsUnknownRatherThanCollectionError()
     {
         // A 404 is a completed answer, not a failed operation: the registry successfully reported that the package
@@ -748,6 +779,60 @@ public sealed class PackageMetadataTests
         await Assert.That(combined.ToStrings()).Count().IsEqualTo(flags.Length);
         await Assert.That((uint)combined).IsLessThanOrEqualTo(ushort.MaxValue);
         await Assert.That(flags.Length).IsLessThanOrEqualTo(16);
+    }
+
+    [Test]
+    public async Task WarningVocabulary_EveryFlag_ReachesTheCanonicalReport()
+    {
+        // The canonical report writes candidate warnings from its own list rather than from ToStrings, so a flag can
+        // round-trip through the vocabulary and still never reach a reader. Rendering every flag catches that.
+        var flags = Enum.GetValues<LicenseCandidateWarnings>().Where(static value => value != LicenseCandidateWarnings.None).ToArray();
+        var combined = flags.Aggregate(LicenseCandidateWarnings.None, static (accumulated, flag) => accumulated | flag);
+        var component = new ScanComponent(
+            Utf8Slice.FromOwnedBytes("example"u8.ToArray()),
+            Utf8Slice.FromOwnedBytes("1.0.0"u8.ToArray()),
+            default,
+            "npm",
+            DependencyType.Unknown,
+            LicenseStatus.Unknown,
+            Utf8Slice.FromOwnedBytes("pkg:npm/example@1.0.0"u8.ToArray()),
+            default,
+            new LicenseCandidate(
+                LicenseCandidateSource.PackageRegistry,
+                LicenseCandidateKind.Unsupported,
+                default,
+                default,
+                LicenseStatus.Unknown,
+                false,
+                combined,
+                new LicenseEvidence(LicenseEvidenceKind.PackageRegistry)),
+            [],
+            []);
+
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>(4 * 1024);
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            ReportRenderer.WriteJson(
+                writer,
+                new DependencyInventory(default, [], [component], [], []),
+                new[] { component },
+                SpdxData.Load(null),
+                new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 1, 0),
+                new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", 1, 0));
+        }
+
+        var rendered = System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+        using var report = JsonDocument.Parse(rendered);
+        var written = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var warning in report.RootElement.GetProperty("components")[0].GetProperty("licenseCandidates")[0].GetProperty("warnings").EnumerateArray())
+        {
+            written.Add(warning.GetString()!);
+        }
+
+        foreach (var flag in flags)
+        {
+            await Assert.That(written).Contains(flag.ToStrings().Single());
+        }
     }
 
     [Test]

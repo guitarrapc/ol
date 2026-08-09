@@ -10,7 +10,7 @@ Remaining:
 
 - Consider richer policy categories such as `deny`, `review`, `notice_required`, `source_disclosure_required`, and `copyleft_review`. Deliberately deferred: a deny-list reduces noise rather than adding detection, and a baseline removes noise more precisely. Deny becomes meaningful only if acknowledgement is ever widened beyond unresolved components, where it would act as a floor that acknowledgement cannot cross.
 - License curation, that is recording that an upstream claim is factually wrong and what the correct license is. Not needed for a pass/fail verdict, which a baseline already covers, so it is justified only by verdict accuracy: a baseline can record that a reviewer accepted unresolved evidence, but not that the evidence itself is wrong.
-- Per-package policy exceptions with owner and expiry, distinct from factual correction.
+- Per-package policy exceptions with owner and expiry, distinct from factual correction. Designed but unimplemented in [plan_package_license_exceptions.md](plans/plan_package_license_exceptions.md).
 
 ## Non-Public Registry Handling
 
@@ -50,6 +50,7 @@ Remaining:
 ## Package and Ecosystem Expansion
 
 - Add Maven package metadata support after the initial v2 ecosystems.
+- Survey Dart Pub. `pubspec.lock` is the only resolved-input ecosystem identified during the adapter work that was never evaluated, so its determinism, context model, and allocation floor are unknown. Adoption criteria are the ones every adopted adapter met: a machine-readable resolved graph the tool itself emits, contexts expressible without inferring anything from the scanning host, and no Native AOT dependency.
 - Evaluate other ecosystems based on purl support and registry metadata quality.
 - Consider whether lockfiles or manifests should be used as supplemental evidence for direct dependency classification or reproducibility checks.
 

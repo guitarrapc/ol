@@ -174,69 +174,21 @@ SBOM と package manager 入力を一つの収集として扱えるようにす�
 
 ## 実施順序
 
-### Phase 1: 式の関係判定と偽 conflict の除去 (実装済み)
+### Phase 1-3 (実装済み)
 
-1. 上の表の関係を判定する failing tests を追加した。判定しない組が conflict のままであることも含む。
-2. reconciler が充足関係を conflict にしないようにした。報告する式は広い方 (選択肢を残す方) とする。
-3. Cargo の実測形 (`MIT OR Apache-2.0` 宣言 + `Apache-2.0` 観測) を回帰テストに含めた。
-4. 真の不一致が conflict のまま残ることを、npm の実測例 (`@webassemblyjs/leb128@1.13.2`: 宣言 `Apache-2.0` / repository `MIT`) で確認した。
-5. [spdx.md](../specs/spdx.md) に [expression agreement](../specs/spdx.md#contract-expression-agreement) を追加した。
+確定した仕様は spec にある。ここには残作業の前提になる結果だけを残す。
 
-実測結果。Cargo の A 条件は **76 matched + 94 conflict から 169 matched + 1 conflict** になった (予測どおり解消 93 件)。残る 1 件は `unicode-ident@1.0.24` の `(MIT OR Apache-2.0) AND Unicode-3.0` で、最上位が `AND` のため判定しない設計どおりの結果である。Cargo の B 条件は 59 から 126 matched になった。NuGet、npm、Python、Go は変化なく、npm の真の conflict も保持された。
+| Phase | 内容 | 仕様 |
+|---|---|---|
+| 1 | 式の関係判定。充足する観測を conflict にしない | [expression agreement](../specs/spdx.md#contract-expression-agreement) |
+| 2 | `component.evidence.licenses` を detection 証拠として取り込む | [observed licenses](../specs/spdx.md#contract-observed-licenses) |
+| 3 | 宣言された参照を横断モデルとして保持する | [declared license reference](../specs/spdx.md#contract-declared-license-reference)、[unresolved section](../specs/cli.md#contract-unresolved-section) |
 
-allocation は変更前後でビット単位で一致した (`DependencyInputScannerBenchmark` 全 29 行と `E2EBenchmark` 全 4 行で ±0)。mean は 1 iteration 設定のため分解能が足りず、同一コード状態の再実行でも最大 19.1% 振れる。閾値を超えた行はいずれもその範囲内で、かつ新しい経路 (matched 候補が 2 件以上のときのみ実行) を通らない benchmark だった。
+欠陥 1 と 2 は解消した。Cargo の A 条件は 76 matched + 94 conflict から **169 matched + 1 conflict** になり、B 条件は 59 から 126 matched になった。残る 1 件は `unicode-ident` の `(MIT OR Apache-2.0) AND Unicode-3.0` で、後に第二の関係規則を追加して解消した。`-assert-licenses` 無しで生成した Go SBOM の C 条件は **0 から 39/40 matched** になった。欠陥 3 は参照として保持する形で解消し、解決率はどのエコシステムでも変わっていない (参照は結論を作らない)。
 
-### Phase 2: detection 証拠の取り込み (実装済み)
+上の測定表は Phase 1-3 より前の値である。Phase 5 の再測定はこの表を更新する。
 
-1. `component.evidence.licenses` を読む failing tests を追加した。declaration 側 (無し・解決・解決不能・不正) と observed 側 (無し・単一・複数・不正) の組み合わせを等価クラスとして網羅した。
-2. `SbomLicenseField.CycloneDxEvidenceLicenses` を追加し、detection の出所を typed evidence に残した。
-3. Go の実測 SBOM で、`-assert-licenses` の有無にかかわらず同じ結果になることを確認した。
-4. [spdx.md](../specs/spdx.md) の保留記述を [observed licenses](../specs/spdx.md#contract-observed-licenses) に置き換えた。
-
-実測結果。`-assert-licenses` 無しで生成した Go SBOM の C 条件が **0 から 39/40 matched** になり、`-assert-licenses` 版と一致した。NuGet、npm、Python、Cargo の B/C 条件はいずれも Phase 1 時点から変化なし。
-
-実装中に、計画になかった欠陥が 1 つ見つかった。複数 ID の列は collection 全体としては `ambiguous` と報告されるのに、その各 entry は個別に解決済みのまま残っていた。そのため後から evidence source が 1 つ加わると、reconciler が「解決済みの主張が 2 つ食い違っている」と読んで、どの source も述べていない conflict を作った。これは `component.licenses` にも同じように存在した既存の欠陥で、collection の結論を entry へ押し下げることで両方を修正した。detection 用に別の reconciliation 規則は必要なかった。
-
-allocation は変更前後で全行不変。mean は `ScanCycloneDx` で +1.7%、閾値超えは無し。最初の測定では package manager 系の行が一斉に +75〜85% と出たが、同一コードの再測定が baseline と一致したため測定順による環境ドリフトだった。変更が触る CycloneDX の行は 3 回の測定を通じて平坦だった。
-
-### Phase 3: 宣言された参照のモデル化 (実装済み)
-
-実装した範囲。
-
-1. `DeclaredLicenseReference` と種別 (`Location` / `ArtifactPath`) を追加し、`LicenseEvidence` と報告に通した。
-2. SBOM (`license.url`) を供給元として実装した。
-3. npm の legacy 宣言形 (`license` object、`licenses` object、`licenses` 単一要素配列) を読むようにした。`wrench@1.5.9` が `unknown` から MIT に解決する。
-4. 報告に出した。JSON evidence に `declaredLicenseReferenceKind` と `declaredLicenseReference` を追加し、text/Markdown の未解決セクションでは宣言された場所が他のどの参照よりも優先される。
-5. [spdx.md](../specs/spdx.md#contract-declared-license-reference)、[cli.md](../specs/cli.md#contract-unresolved-section)、[packagemanager.md](../specs/packagemanager.md) を更新した。
-
-実測結果。NuGet の SBOM 経路で 51 件の未解決コンポーネントが、宣言された URL 付きで未解決セクションに並ぶようになった。`https://www.devexpress.com/Support/EULAs` や `http://go.microsoft.com/fwlink/?LinkID=320539` を含む。**これらは registration endpoint が書き換えて消してしまう値であり、SBOM 経路だけが供給できる**。SBOM と package manager を重ねる意味がそのまま現れた例になった。解決率はどのエコシステムでも変化していない。参照は結論を作らないという境界どおりである。
-
-allocation は `LicenseEvidence` に nullable 参照を 1 つ足した分だけ増えた (+8 byte/candidate、`DependencyInputScannerBenchmark` で最大 +3.0%、`E2EBenchmark` で最大 +1.0%)。最初は値型で実装して +24 byte (最大 +9.1%) になったため、他の provenance 形と同じ nullable class に変えて 3 分の 1 に落とした。mean はこの benchmark 設定では分解能が足りない (同一コードの再測定で `ScanNuGetJsonWithCachedMetadata` が 486.9 から 372.0 μs に振れる)。
-
-後半も実装した。
-
-6. NuGet (`licenseFile` / `licenseUrl`)、Cargo (`license_file`)、PyPI (`license_files`)、CocoaPods (`license.file` / `text`) を供給元にした。`PackageMetadataResponse`、`PackageMetadataRecord`、package metadata cache、`PackageMetadataCacheEntry`、候補生成まで参照を通した。cache は任意プロパティ 2 つの追加で済み、schema version は据え置いた。`InlineText` 種別を追加し、埋め込み本文は存在の記録のみで内容を保持しない。
-7. resolver capability version を 4 に上げ、再収集の対象を全エコシステムへ広げた。どの provider も参照を述べられるようになった以上、license が空の観測はひとつのエコシステムだけでなくどこでも古い。
-
-実測結果。NuGet の package manager 経路で、宣言された場所が未解決セクションに並ぶようになった。`https://www.devexpress.com/Support/EULAs`、`http://go.microsoft.com/fwlink/?LinkID=320539` のような location と、`LICENSE.txt`、`MIT-LICENSE.txt` のような artifact path の両方である。これは以前「registration endpoint が消すため package manager 経路では出せない」と記録した値で、SBOM 経路と package manager 経路の双方から同じ形で得られるようになった。
-
-allocation は cache 経路で変化しなかった (`CacheReadBenchmark.PackageCacheHit` が 880 byte のまま)。cache entry の参照値を owned string ではなく `Utf8Slice` にしたため、参照を持たない大多数の entry が読み取りで何も追加で確保しない。`E2EBenchmark` は参照が実際に流れる NuGet の行だけ +0.3%、`DependencyInputScannerBenchmark` は不変。mean が閾値を超えた行は無い。
-
-### 判断: warning 語彙は改名しない
-
-当初 8 番目の項目として「NuGet 固有の warning 語彙を横断語彙へ移行し、旧識別子の互換方針と報告 `schemaVersion` を決める」を置いていた。これは行わないと決めた。
-
-横断表現は typed evidence の `DeclaredLicenseReference` が担うようになった。この時点で `nuget_license_url_unsupported` を `declared_license_location_unresolved` へ改名しても、新しい事実は 1 つも運ばれない。識別子は consumer が照合する安定 ID なので、改名は名前の好み以上の理由なしに互換を壊す。
-
-他のエコシステムに同等の warning を追加することもしない。参照を持つ未解決コンポーネントは、warning が無くても未解決セクションに status と宣言先を伴って現れる。人間が次に取る行動はそこで決まり、機械可読な事実は typed evidence にある。エコシステムごとに warning 語彙を増やすのは、この文書が避けようとした「1 エコシステムにつき 1 語彙」そのものである。
-
-**後日の結果（追記）**: 改名しないという判断も、他エコシステムへ warning を増やさないという判断も維持された。誤っていたのは「warning が無くても status が現れるから十分」という前提のほうだった。status は機構を名指さないので、同じ事実が NuGet では `nuget_license_file_unresolved`、CocoaPods では `ambiguous` と表示され、`InlineText` は空の参照として出ていた。結論は改名でも追加でもなく、3 つの NuGet warning を**削除**して reason を `DeclaredLicenseReferenceKind` から導出することだった。詳細は [cli.md](../specs/cli.md#contract-unresolved-section) を参照。導出はこの節が守ろうとした性質をそのまま満たし、加えて 16 bit の warning 語彙から 3 bit を返した。
-
-したがって報告 `schemaVersion` は据え置く。追加した `declaredLicenseReferenceKind` と `declaredLicenseReference` は加算的なプロパティで、既存の consumer が読む値をどれも変えない。
-
-計画からの逸脱を 1 つ記録する。当初の項目に「`Unknown - See URL` 相当がライセンス名ではなく参照として扱われ、`ambiguous` にならないこと」があったが、これは実装しなかった。CycloneDX の `license.name` は「正規化できないライセンス名」と「ライセンス名の形をした非回答」を構造的に区別できず、区別する唯一の方法はジェネレータが書く文字列を条件に書くことである。それはこの文書自身が非目標として禁じている。`ambiguous` は「ライセンス表記はあるが推測なしには正規化できない」という定義どおりの状態であり、Ol は入力に書かれたことを忠実に報告している。人間が次に取る行動は、隣に並ぶ宣言された URL が与える。
-
-種別についても計画から減らした。当初表に挙げた `Name` 種別は、どの供給元でも候補の `Raw` と重複するため定義していない。`InlineText` は供給元を実装する時点で追加する。
+**欠陥 4 (入力の排他) だけが未解消であり、以降が残作業である。**
 
 ### Phase 4: 入力の組み合わせ
 
@@ -251,50 +203,28 @@ Phase 1 から 4 の後、この文書の 5 エコシステム 4 条件を同じ
 
 ## Test matrix
 
-| 宣言 | detection / repository 観測 | 期待 |
-|---|---|---|
-| `MIT` | `MIT` | matched `MIT` |
-| `MIT OR Apache-2.0` | `Apache-2.0` | matched `MIT OR Apache-2.0`、conflict にしない |
-| `Apache-2.0 OR MIT` | `MIT OR Apache-2.0` | matched、集合として一致 |
-| `MIT` | `Apache-2.0` | conflict |
-| `(MIT OR Apache-2.0) AND Unicode-3.0` | `Apache-2.0` | conflict。連言を分配しない |
-| `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | `Apache-2.0` | matched。最上位選言要素なので充足する |
-| `Apache-2.0 WITH LLVM-exception OR MIT` | `Apache-2.0` | conflict。例外付きの要素とは一致しない |
-| なし | detection 単一要素 | matched |
-| なし | detection 複数要素 | ambiguous、AND/OR を補わない |
-| `MIT` | detection 複数要素に `MIT` を含む | matched `MIT`、補強として保持 |
-| 参照のみ (名前 `MIT`) | なし | matched `MIT` |
-| 参照のみ (名前 `BSD`) | なし | unknown、参照を保持 |
-| 参照のみ (名前 `Unknown - See URL` + URL) | なし | unknown、参照として保持、ambiguous にしない |
-| SBOM と PM の両方に同一 purl | 双方が宣言 | 双方を候補として保持 |
-| SBOM のみに存在する purl | — | 報告に残り、供給入力が分かる |
-| PM のみに存在する purl | — | 報告に残り、供給入力が分かる |
+Phase 1-3 の等価クラスは回帰テストとして存在する。残りは Phase 4 の分である。
+
+| 入力 | 期待 |
+|---|---|
+| SBOM と PM の両方に同一 purl、双方が宣言 | 双方を候補として保持 |
+| SBOM のみに存在する purl | 報告に残り、供給入力が分かる |
+| PM のみに存在する purl | 報告に残り、供給入力が分かる |
 
 ## 仕様更新
 
 | 文書 | 更新内容 |
 |---|---|
-| [spdx.md](../specs/spdx.md) | 式の関係判定の範囲と、判定しない組の扱い。conflict の定義。detection 証拠の意味論と、現在の保留記述の置き換え |
-| [cli.md](../specs/cli.md) | 複数入力の組み合わせ規則。入力ごとの供給範囲の報告。参照に由来する warning の利用者向け意味 |
-| [packagemanager.md](../specs/packagemanager.md) | 宣言された参照の供給元と横断語彙。npm legacy `licenses` 配列 |
-| [cache_format.md](../specs/cache_format.md) | 参照と detection 証拠の永続化、互換方針 |
+| [cli.md](../specs/cli.md) | 複数入力の組み合わせ規則。入力ごとの供給範囲の報告 |
 | [Architecture.md](../Architecture.md) | 「Preserve evidence instead of selecting one source」を、入力経路の排他が否定していた事実と、その解消 |
 | [verification.md](../specs/verification.md) | 5 エコシステム 4 条件の再測定を検証手順として位置付けるか判断する |
 
 ## 完了条件
 
-- 選言を満たす観測が conflict にならず、真の不一致は conflict のまま残る。
-- 判定できない関係を判定したことにしていない。
-- `evidence.licenses` が detection として取り込まれ、declaration と区別されて報告される。
-- 参照がライセンス名として報告されない。
 - SBOM と package manager 入力を一度に scan でき、母集団の差が報告から分かる。
 - 5 エコシステムの再測定で、条件 A と B の和が単独条件を下回らない。
 - 全テスト、ecosystem smoke、関連ベンチマークが合格する。
 
 ## Lessons learned
 
-- **入力経路の優劣は一般化できない。** 「SBOM を使えばよい」も「package manager が確実」も、エコシステム単位では両方とも反例がある。決めているのは経路ではなく、そのエコシステムでライセンス事実がどこに存在するかである。だからどれか一つを選ぶのではなく、それぞれが何を落とすかを知ったうえで重ねる必要がある。
-- **SBOM ジェネレータの品質差は経路の差より大きい。** 同じ CycloneDX でも、artifact の本文を読むもの (`cyclonedx-gomod`) とメタデータしか見ないもの (`CycloneDX` .NET tool) で結果が正反対になる。SBOM を入力にすることは、解決をジェネレータに委譲することであって、解決が保証されることではない。
-- **証拠を増やすと悪化する経路があった。** Cargo で収集を足すと matched が 164 から 76 に落ちた。複数ソースの突き合わせは、比較の意味論を伴わなければ精度を下げる。
-- **意図的な保留が別の欠陥の原因になっていた。** `evidence.licenses` の見送りは「AND/OR 関係を保持できないから」という正しい理由で記録されていたが、その同じ不足が Cargo の偽 conflict を生んでいた。保留の理由が他の症状として現れていないかを見る価値がある。
-- **ジェネレータの非回答は入力として渡ってくる。** `Unknown - See URL` のような文字列は、ライセンス名の形をした「わかりません」である。入力の値をそのまま信じると、Ol は他人の推測を自分の結論として報告してしまう。
+Phase 1-3 の lessons learned は spec へ移した。入力経路と SBOM ジェネレータの品質差は [packagemanager.md](../specs/packagemanager.md#lessons-learned)、式の関係判定と collection の結論押し下げは [spdx.md](../specs/spdx.md#lessons-learned)、warning 語彙の予算は [backlog.md](../backlog.md#warning-vocabulary-budget) にある。

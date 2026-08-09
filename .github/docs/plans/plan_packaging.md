@@ -4,9 +4,9 @@
 
 `ol` の製品名と実行コマンドを維持しながら、NuGet、Homebrew、npm の名前空間衝突を避ける方針と実装順序を定める。
 
-Homebrew 対応は現在の working tree で実装中である。npm 対応は将来実装とし、この文書では package 名、native binary の格納境界、公開認証、release verification までを決める。これは npm package が公開済みであることを示す文書ではない。
+NuGet と Homebrew は対応済みである (`Formula/ol.rb`、`.github/workflows/homebrew-formula.yaml`、fully qualified install への README 更新)。**npm 対応は未着手で、`npm/` directory も存在しない。** この文書は package 名、native binary の格納境界、公開認証、release verification を決めるが、npm package が公開済みであることを示すものではない。
 
-調査日は 2026-08-06 とする。registry の公開状態と外部仕様は実装着手時に再確認する。
+調査日は 2026-08-06 とする。registry の公開状態と外部仕様は実装着手時に再確認する。npm の名前取得状況は時間とともに変わるため、Phase 2 で必ず再確認する。
 
 ## 結論
 
@@ -14,10 +14,10 @@ Homebrew 対応は現在の working tree で実装中である。npm 対応は�
 
 | Distribution | Package / formula identifier | Installed command | Status |
 |---|---|---|---|
-| GitHub Releases | `ol-<os>-<arch>` assets | `ol` / `ol.exe` | 現行 |
-| NuGet | `ol` | `ol` | 現行、名前取得済み |
-| Homebrew | `guitarrapc/ol/ol` | `ol` | working tree で対応中 |
-| npm | `@guitarrapc/ol` | `ol` | 将来対応 |
+| GitHub Releases | `ol-<os>-<arch>` assets | `ol` / `ol.exe` | 対応済み |
+| NuGet | `ol` | `ol` | 対応済み、名前取得済み |
+| Homebrew | `guitarrapc/ol/ol` | `ol` | 対応済み |
+| npm | `@guitarrapc/ol` | `ol` | **未着手** |
 
 npm の unscoped `ol` を別名へ変更させようとせず、管理下の scope で衝突を解消する。Homebrew は tap を含む fully qualified formula 名で core の同名 formula と区別する。
 
@@ -178,14 +178,10 @@ release job は Git tag の version を唯一の version source とし、次を�
 
 ## 実装順序
 
-### Phase 1: 現在の Homebrew 対応を完了する
+### Phase 1: Homebrew 対応 (実装済み、実機検証だけ残る)
 
-- [x] release checksum から `Formula/ol.rb` を生成する。
-- [x] formula が release の macOS / Linux x64 / arm64 artifact を選択する。
-- [x] formula が executable `ol` を install する。
-- [x] fixture による formula render regression test を build workflow へ追加する。
-- [x] release publish 後に default branch の formula を更新する workflow を追加する。
-- [x] README の install を `guitarrapc/ol/ol` へ fully qualify する。
+formula 生成、artifact 選択、`ol` の install、fixture による render regression test、release 後の formula 更新 workflow、README の fully qualified install はすべて実装済みである。残るのは自動化できない実機検証だけで、これは Phase 2 以降の前提ではない。
+
 - [ ] 公開済み release を使い、macOS arm64 / x64 と Linux arm64 / x64 で `brew install guitarrapc/ol/ol`、`ol --version`、`brew test guitarrapc/ol/ol` を検証する。
 - [ ] core の `ol` が未 install / install 済みの両状態で挙動を確認し、同時 link を支援しない場合はその制約を README に明記する。
 

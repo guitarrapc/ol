@@ -1,10 +1,10 @@
-# NuGet `licenseFile` warning とライセンス本文解決
+# NuGet `licenseFile` のライセンス本文解決
 
 ## この文書の位置付け
 
-NuGet package が SPDX `licenseExpression` ではなく `.nupkg` 内の `licenseFile` を宣言した場合に、Ol が現在 `unknown` だけを返して理由を説明できない問題と、埋め込み本文から再現可能な SPDX candidate を得るための実装順序を定める。
+NuGet package が SPDX `licenseExpression` ではなく `.nupkg` 内の `licenseFile` を宣言した場合に、埋め込み本文から再現可能な SPDX candidate を得るための実装順序を定める。
 
-これは実装済み仕様ではない。warning の追加は現行の識別子データで独立して実施できるが、本文同定は [SPDX data contract](../specs/spdx.md) と [package metadata evidence](../specs/packagemanager.md) の変更を先に確定してから着手する。
+**未実装である。** 「なぜ unknown なのか」を説明する部分 (当初の目標 1) は別経路で達成済みで、後述の節に経緯を残した。残るのは本文照合そのもので、[SPDX data contract](../specs/spdx.md) と [package metadata evidence](../specs/packagemanager.md) の変更を先に確定してから着手する。
 
 ## 背景
 
@@ -20,12 +20,12 @@ NuGet package が SPDX `licenseExpression` ではなく `.nupkg` 内の `license
 
 ## 目標
 
-1. `licenseExpression` が空で `licenseFile` が存在するとき、unknown の理由を stable warning で説明する。
+1. ~~`licenseExpression` が空で `licenseFile` が存在するとき、unknown の理由を stable warning で説明する。~~ 達成済み (後述)。
 2. versioned NuGet artifact 内の宣言された file だけを bounded に取得し、版固定の SPDX matcher で同定する。
 3. matched、no-match、multiple-match、取得不能、archive 不正を別の観測として保持し、unknown を false certainty に変えない。
 4. 同じ package/version、SPDX data version、artifact bytes から同じ candidate と provenance を得る。
 5. component 数ではなく deduplicated package target 数に比例して cache・network・archive work を行う。
-6. 既存の空 NuGet cache が新実装を永久に隠さない migration path を持つ。
+6. ~~既存の空 NuGet cache が新実装を永久に隠さない migration path を持つ。~~ resolver capability version で達成済み。matcher data version による再 match は Phase 4 の対象として残る。
 
 ## 非目標
 
@@ -44,7 +44,7 @@ NuGet package が SPDX `licenseExpression` ではなく `.nupkg` 内の `license
 
 NuGet catalog の `licenseExpression` が存在する場合は、現在どおりその declaration を使い、artifact を取得しない。`licenseFile` 解決は `licenseExpression` が空の場合だけ計画する。
 
-両方が存在する不正または将来形式の応答を黙って統合しない。expression を declaration として保持し、file の存在は warning にできるが、不要な archive request は行わない。
+両方が存在する不正または将来形式の応答を黙って統合しない。expression を declaration として保持し、file の存在は declared reference として残せるが、不要な archive request は行わない。
 
 ### Artifact の取得元
 
@@ -68,34 +68,15 @@ package-registry evidence は opaque cache identity と収集時刻だけでは�
 
 SBOM、`licenseExpression`、`licenseFile` 検出結果が異なる場合は、既存 reconciler で conflict を保持する。source ごとの特別な勝者を作らない。
 
-## Warning の先行実装
+## 目標 1 (unknown の理由の説明) は別経路で達成済み
 
-本文 matcher を待たず、次を先に実装する。
+当初はこの文書で NuGet 固有の warning を 3 つ (`nuget_license_file_unresolved`、`nuget_license_url_unsupported`、`nuget_license_metadata_missing`) 定義し、本文 matcher を待たずに先行実装する計画だった。実装したが、その後 [multi-source evidence](plan_multi_source_evidence.md) の Phase 3 が同じ事実を横断的な typed evidence として表現したため、3 つとも**削除**した。
 
-### 状態
+現在は publisher が示したライセンスの所在を [declared license reference](../specs/spdx.md#contract-declared-license-reference) が保持し、未解決コンポーネントの reason はその `DeclaredLicenseReferenceKind` から導出される ([unresolved section](../specs/cli.md#contract-unresolved-section))。`licenseFile` は `artifact-path`、legacy `licenseUrl` は `location` として現れる。安全な GitHub license-file URL からの repository/ref 抽出も実装済みで、source evidence 解決へ渡る。旧 cache の一度きり再収集も resolver capability version 4 で全エコシステムに対して実施済みである。
 
-| Catalog state | Raw license | Warning | Result |
-|---|---:|---|---|
-warning は expression が無く、かつ収集可能な source target も無いときだけ付ける。収集可能な repository がある package は source evidence が結果を語るため、registry 側で重ねて警告しない。
+したがって残るのはこの文書の目標 2 以降、すなわち**宣言された `artifact-path` を実際に読んで SPDX ID を同定すること**だけである。参照は結論を作らないという境界は維持し、本文照合だけがそれを解決に変える。
 
-| Catalog state | Raw license | Warning | Result |
-|---|---:|---|---|
-| `licenseExpression` あり | expression | なし | 現行どおり正規化 |
-| expression なし、収集可能な repository あり | 空 | なし | source evidence 解決へ渡す |
-| expression なし、収集可能な repository なし、`licenseFile` あり | 空 | `nuget_license_file_unresolved` | `unknown`、file evidence が未処理と説明 |
-| expression/repository なし、安全な GitHub legacy `licenseUrl` あり | 空 | なし | repository/ref を source evidence 解決へ渡す |
-| expression/repository/file なし、その他の legacy `licenseUrl` あり | 空 | `nuget_license_url_unsupported` | `unknown`、registry metadata はあるが安全に正規化できないと説明 |
-| expression/repository/file/licenseUrl なし | 空 | `nuget_license_metadata_missing` | `unknown`、registry declaration 自体がないと説明 |
-
-warning 名は candidate の stable identifier として `LicenseCandidateWarnings`、cache JSON、text/Markdown/JSON report で同じ値を使う。file path を warning string へ連結しない。path は将来の typed provenance に置く。
-
-### 旧 cache の扱い
-
-既存 cache には `Source = nuget-registry`、空の `RawLicense`、空の warnings という entry がある。この形を旧 capability の観測として cache miss 扱いにし、一度だけ再収集する。旧 entry の `RepositoryUrl` が既に GitHub URL であっても、旧 resolver が `projectUrl` をそのまま入れたのか新 resolver の判定を通ったのかを entry から区別できないため、判定材料にはしない。resolver capability version がこの一度きりの再収集を境界付ける。
-
-再収集後は利用可能な repository/ref、または `nuget_license_file_unresolved`、`nuget_license_url_unsupported`、`nuget_license_metadata_missing` のいずれかを必ず持つため、永続 unknown でも通常の cache hit に戻る。他 ecosystem と licenseExpression を持つ NuGet entry は無効化しない。全 package metadata cache の schema bump と全 ecosystem の一斉 refetch は避ける。
-
-`--refresh` は従来どおり全対象を再取得する。migration と refresh の summary count を混同しない。
+なぜ warning を横断語彙へ改名せず削除したかは [backlog.md](../backlog.md#warning-vocabulary-budget) に残した。
 
 ## 本文解決の前提: SPDX data contract
 
@@ -164,15 +145,9 @@ cache は normalized conclusion だけでなく、少なくとも artifact hash�
 
 ## 実施順序
 
-### Phase 1: 理由を説明する warning
+### Phase 1: 理由を説明する (完了、ただし別の形で)
 
-1. NuGet provider response が expression/file/missing を区別する failing tests を追加する。
-2. stable warning flags と report identifiers を追加する。
-3. empty legacy NuGet cache の targeted recollection test を追加する。
-4. `Microsoft.DotNet.PlatformAbstractions@3.1.6` 相当 fixture が `nuget_license_file_unresolved` を持つことを確認する。
-5. [packagemanager.md](../specs/packagemanager.md) と [cache_format.md](../specs/cache_format.md) を実装結果に合わせる。
-
-Phase 1 は license を MIT と確定しない。unknown の理由だけを改善する。
+`licenseFile` と legacy `licenseUrl` の存在は declared license reference として保持され、未解決コンポーネントの reason はその種別から導出される。NuGet 固有 warning は不要と判明して削除した。旧 cache の再収集も実施済みである。
 
 ### Phase 2: SPDX template data
 
@@ -193,15 +168,15 @@ Phase 1 は license を MIT と確定しない。unknown の理由だけを改�
 1. file provenance と match outcome を cache/report schema に追加する。
 2. matched/no-match/multiple-match/fetch-failure を candidate へ投影する。
 3. SBOM/registry expression/file detection の agreement と conflict tests を追加する。
-4. old empty cache、new warning-only cache、matched cache、matcher-version change の migration tests を追加する。
+4. reference-only cache、matched cache、matcher-version change の migration tests を追加する。
 5. golden self-scan と ecosystem smoke の report change を review する。
 
 ### Phase 5: 実例検証
 
 `Microsoft.DotNet.PlatformAbstractions@3.1.6` を固定 fixture とし、次を確認する。
 
-- Phase 1: unknown のままだが `nuget_license_file_unresolved` が出る。
-- Phase 4: exact `LICENSE.TXT` が versioned MIT template に一意 match し、MIT candidate になる。
+- 現状: unknown のままだが `artifact-path` の declared reference として `LICENSE.TXT` が出る。
+- Phase 4: その exact `LICENSE.TXT` が versioned MIT template に一意 match し、MIT candidate になる。
 - 同じ artifact を変更した near-miss fixture は MIT にならない。
 - package metadata cache clear 後と cache hit 後で conclusion/provenance が一致する。
 - `--refresh` は再取得し、`--skip-enrichment` は artifact request を一切行わない。
@@ -213,13 +188,12 @@ Phase 1 は license を MIT と確定しない。unknown の理由だけを改�
 | valid | none | any | not requested | n/a | expression candidate |
 | valid | present | any | not requested | n/a | expression candidate、不要な fetch なし |
 | valid | any | safe GitHub URL | not requested | n/a | expression candidate、legacy URL を repository に射影しない |
-| absent | absent | absent | not requested | n/a | unknown + metadata-missing warning |
-| absent | absent | safe GitHub root URL | repository API | one SPDX result | source candidate |
-| absent | absent | nested path または非標準 file 名 | not requested | n/a | unknown + URL-unsupported warning |
-| absent | absent | unsupported URL | not requested | n/a | unknown + URL-unsupported warning |
+| absent | absent | absent | not requested | n/a | unknown、declared reference なし (実装済み) |
+| absent | absent | safe GitHub root URL | repository API | one SPDX result | source candidate (実装済み) |
+| absent | absent | その他の URL | not requested | n/a | unknown + `location` reference (実装済み) |
 | absent | present | any | available | one | matched detected candidate |
-| absent | present | any | available | zero | unknown + unresolved warning |
-| absent | present | any | available | multiple | ambiguous + unresolved warning |
+| absent | present | any | available | zero | unknown、`artifact-path` reference を保持 |
+| absent | present | any | available | multiple | ambiguous、`artifact-path` reference を保持 |
 | absent | present | any | missing entry | invalid | error/unavailable evidence、scan 継続 |
 | absent | present | any | hash mismatch | invalid | error evidence、cache へ成功結果を書かない |
 | absent | present | any | oversized/malicious | rejected | bounded error evidence、scan 継続 |
@@ -246,19 +220,17 @@ file unavailable を `unknown` と `error` のどちらへ写像するかは、�
 実装した phase ごとに次を更新する。
 
 - [packagemanager.md](../specs/packagemanager.md): NuGet expression/file precedence、best-effort outcome、request/caching contract
-- [spdx.md](../specs/spdx.md): template corpus、version、resolution、matcher semantics
+- [spdx.md](../specs/spdx.md): template corpus、version、resolution、matcher semantics。宣言された `artifact-path` が「参照は結論を作らない」から抜ける唯一の経路であること
 - [cache_format.md](../specs/cache_format.md): file provenance、capability/migration、compatibility
-- [cli.md](../specs/cli.md): report warning/provenance と status の利用者向け意味
+- [cli.md](../specs/cli.md): matcher provenance と status の利用者向け意味
 - [verification.md](../specs/verification.md): real NuGet fixture と deterministic smoke assertions
 
 ## 完了条件
 
-- unknown の理由が warning と typed evidence から説明できる。
 - `Microsoft.DotNet.PlatformAbstractions@3.1.6` が package に埋め込まれた exact bytes と版固定 matcher によって MIT へ解決される。
 - file 名、license URL、現在の repository state から MIT を推測していない。
 - no-match、multiple-match、missing、malicious、oversized のいずれも false `matched` を作らない。
 - expression-only NuGet package は追加 artifact request を行わない。
 - duplicate purl、cache hit、refresh、skip-enrichment の request count が契約どおりである。
 - report と cache が artifact/matcher provenance を保持し、本文と秘密情報を既定出力へ含めない。
-- targeted migration により旧 empty NuGet cache が新しい解決を隠さない。
 - full test suite、ecosystem smoke、relevant benchmarks が合格する。

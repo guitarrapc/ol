@@ -736,12 +736,20 @@ internal static class CargoMetadataInputParser
     {
         var candidate = node.License.IsEmpty
             ? default
-            : LicenseCandidateFactory.Create(
-                LicenseCandidateSource.DependencyInput,
-                LicenseCandidateKind.License,
-                node.License,
-                spdxLicenseIndex,
-                PackageLicenseEvidence);
+            : CargoLicenseExpression.TryRewriteLegacyChoice(node.License.Span, out var choice)
+                ? LicenseCandidateFactory.CreateRewritten(
+                    LicenseCandidateSource.DependencyInput,
+                    LicenseCandidateKind.License,
+                    node.License,
+                    choice,
+                    spdxLicenseIndex,
+                    PackageLicenseEvidence)
+                : LicenseCandidateFactory.Create(
+                    LicenseCandidateSource.DependencyInput,
+                    LicenseCandidateKind.License,
+                    node.License,
+                    spdxLicenseIndex,
+                    PackageLicenseEvidence);
         var (license, status) = candidate.Status switch
         {
             LicenseStatus.Matched => (candidate.Normalized, LicenseStatus.Matched),

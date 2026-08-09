@@ -38,6 +38,28 @@ public static class LicenseCandidateFactory
     }
 
     /// <summary>
+    /// Creates one candidate whose classification reads a rewritten value while the evidence keeps the original.
+    /// </summary>
+    /// <param name="source">The evidence source.</param>
+    /// <param name="kind">The source field or license value kind.</param>
+    /// <param name="raw">The license value exactly as the source published it.</param>
+    /// <param name="classified">The SPDX expression that spelling denotes.</param>
+    /// <param name="spdxLicenseIndex">The active SPDX data index.</param>
+    /// <param name="evidence">Typed provenance that substantiates the candidate.</param>
+    /// <returns>The classified candidate.</returns>
+    /// <remarks>
+    /// Used where an ecosystem defines a pre-SPDX spelling for an expression it already states, so the
+    /// rewrite resolves a documented notation rather than guessing a license. Keeping <paramref name="raw"/>
+    /// unchanged is what makes that safe to audit: a report shows the published value beside the
+    /// expression it was read as, instead of quietly presenting Ol's rewrite as the publisher's words.
+    /// </remarks>
+    public static LicenseCandidate CreateRewritten(LicenseCandidateSource source, LicenseCandidateKind kind, Utf8Slice raw, ReadOnlySpan<byte> classified, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
+    {
+        var status = Classify(classified, spdxLicenseIndex, out var normalized, out var deprecated);
+        return new LicenseCandidate(source, kind, raw, normalized, status, deprecated, deprecated ? LicenseCandidateWarnings.DeprecatedSpdxIdentifier : LicenseCandidateWarnings.None, evidence);
+    }
+
+    /// <summary>
     /// Creates an error candidate for failed external evidence collection.
     /// </summary>
     /// <param name="source">The attempted evidence source.</param>

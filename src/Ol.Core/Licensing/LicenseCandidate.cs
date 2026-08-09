@@ -43,6 +43,7 @@ public enum LicenseCandidateWarnings : ushort
     NuGetLicenseFileUnresolved = 1 << 12,
     SourceLicenseNotDetected = 1 << 13,
     SourceLicenseNotRecognized = 1 << 14,
+    SourceRepositorySubdirectory = 1 << 15,
 }
 
 /// <summary>Identifies the evidence system that produced a license candidate.</summary>
@@ -95,6 +96,7 @@ public static class LicenseCandidateIdentifiers
         "nuget_license_file_unresolved" => LicenseCandidateWarnings.NuGetLicenseFileUnresolved,
         "license_not_detected" => LicenseCandidateWarnings.SourceLicenseNotDetected,
         "license_not_recognized" => LicenseCandidateWarnings.SourceLicenseNotRecognized,
+        "source_repository_subdirectory" => LicenseCandidateWarnings.SourceRepositorySubdirectory,
         _ => LicenseCandidateWarnings.None,
     };
 
@@ -123,6 +125,7 @@ public static class LicenseCandidateIdentifiers
         if (value.SequenceEqual("nuget_license_file_unresolved"u8)) return LicenseCandidateWarnings.NuGetLicenseFileUnresolved;
         if (value.SequenceEqual("license_not_detected"u8)) return LicenseCandidateWarnings.SourceLicenseNotDetected;
         if (value.SequenceEqual("license_not_recognized"u8)) return LicenseCandidateWarnings.SourceLicenseNotRecognized;
+        if (value.SequenceEqual("source_repository_subdirectory"u8)) return LicenseCandidateWarnings.SourceRepositorySubdirectory;
         return LicenseCandidateWarnings.None;
     }
 
@@ -169,7 +172,8 @@ public static class LicenseCandidateIdentifiers
         if ((value & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0) result[index++] = "nuget_license_metadata_missing";
         if ((value & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0) result[index++] = "nuget_license_file_unresolved";
         if ((value & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0) result[index++] = "license_not_detected";
-        if ((value & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) result[index] = "license_not_recognized";
+        if ((value & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) result[index++] = "license_not_recognized";
+        if ((value & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0) result[index] = "source_repository_subdirectory";
         return result;
     }
 

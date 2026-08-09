@@ -53,6 +53,22 @@ Remaining:
 - Evaluate other ecosystems based on purl support and registry metadata quality.
 - Consider whether lockfiles or manifests should be used as supplemental evidence for direct dependency classification or reproducibility checks.
 
+## SPDX Full License Name Matching
+
+Ol resolves an SPDX License Identifier but not the SPDX full license name, although the SPDX license list publishes both in the same record. `uri-template@1.3.0` declares `MIT License`, which is exactly the `name` SPDX gives `MIT`, and it is reported ambiguous.
+
+- Consider matching a declared value against the SPDX license list's own `name` field, exactly, as a second lookup after the identifier. This resolves a name SPDX itself defines rather than guessing at a spelling.
+- This deliberately does not resolve values that only resemble a license name. `Apache 2.0`, `Modified BSD License`, `PSFL`, and `Dual License` are not SPDX names, and PyPI Trove classifiers such as `License :: OSI Approved :: BSD License` and `License :: OSI Approved :: Apache Software License` name a family without a version, so all of them must stay ambiguous.
+- Cost is not only the lookup: names must be added to the generated license data and to the `spdx update` parsing path, and name collisions with deprecated identifiers need a rule before this can be accepted.
+
+## Repository Detection Versus Declared Conjunctions
+
+`unicode-ident@1.0.24` declares `(MIT OR Apache-2.0) AND Unicode-3.0` on crates.io and its repository root reports `Apache-2.0`, so every Rust project that reaches it reports one conflict. Reconciliation already treats a repository detector's single answer as satisfying a declared disjunction, on the stated ground that a detector names one option out of several by construction. The same limitation applies to a conjunction — the GitHub License API cannot express `AND` at all — but a conjunction currently becomes a disagreement, which is [pinned behavior](specs/spdx.md#contract-expression-agreement) rather than an oversight — the measurement that produced the shallow relation recorded this exact case as the one conflict it left standing.
+
+- Consider treating a detector answer that occurs as a term of the declared expression as corroboration, keeping the declared expression as the result. Allow-list evaluation is unaffected because the declared expression is the stricter one and is what is retained.
+- The rule must keep `Apache-2.0 WITH LLVM-exception OR MIT` versus `Apache-2.0` a conflict: a `WITH` expression is one term, and the bare identifier is not among the options offered.
+- Left open deliberately: it weakens the one signal that says valid sources disagree, and the current behavior was chosen with that trade-off in view.
+
 ## Source Repository Expansion
 
 - Add GitHub Contents API fallback for root `LICENSE`, `COPYING`, and `NOTICE` files if GitHub License API evidence is insufficient.

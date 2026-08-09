@@ -81,6 +81,14 @@ internal sealed class SourceRepositoryService
         }
 
         var metadata = workspace.Records[0];
+        if (metadata is { RepositorySubdirectoryDeclared: true })
+        {
+            components[0] = AddSubdirectoryCandidate(components[0], metadata.Value.RepositoryUrl);
+            return ValueTask.FromResult((
+                Components: components,
+                Summary: new SourceRepositorySummary(0, 0, 0, 0, 0, 1, authentication.Mode, concurrency, retryCount)));
+        }
+
         var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[0]);
         if (repositoryUrl.Length == 0)
         {
@@ -255,6 +263,13 @@ internal sealed class SourceRepositoryService
             if (uncollectedPackages is not null && uncollectedPackages.Contains(components[i].Purl)) continue;
 
             var metadata = records[i];
+            if (metadata is { RepositorySubdirectoryDeclared: true })
+            {
+                components[i] = AddSubdirectoryCandidate(components[i], metadata.Value.RepositoryUrl);
+                unplannedUnknownCount++;
+                continue;
+            }
+
             var repositoryUrl = metadata is { } record && record.RepositoryUrl.Length != 0 ? record.RepositoryUrl : GetSbomRepositoryUrl(components[i]);
             if (repositoryUrl.Length == 0)
             {
@@ -483,6 +498,27 @@ internal sealed class SourceRepositoryService
             LicenseStatus.Unknown,
             false,
             LicenseCandidateWarnings.UnsupportedSourceRepository,
+            new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
+    }
+
+    /// <summary>Records that the repository is known but answers for more than this component.</summary>
+    /// <remarks>
+    /// The repository-level License API describes the repository root, so for a package the publisher
+    /// placed in one directory of a shared repository the answer is about a different package. Reading it
+    /// as this component's license turned a correctly declared license into a conflict with whatever the
+    /// repository as a whole is licensed under, which is the case this candidate replaces. The repository
+    /// is still reported, because a reviewer needs to see which one was set aside and why.
+    /// </remarks>
+    private static ScanComponent AddSubdirectoryCandidate(ScanComponent component, string repositoryUrl)
+    {
+        return LicenseReconciler.AddCandidate(component, new LicenseCandidate(
+            LicenseCandidateSource.SourceRepository,
+            LicenseCandidateKind.Unsupported,
+            Utf8Slice.FromString(repositoryUrl),
+            default,
+            LicenseStatus.Unknown,
+            false,
+            LicenseCandidateWarnings.SourceRepositorySubdirectory,
             new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
     }
 

@@ -1283,6 +1283,76 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Fetch_GoResponseWithoutOrigin_DerivesRepositoryFromGitHubModulePath()
+    {
+        // proxy.golang.org omits Origin for module versions cached before it recorded one, and the
+        // module path is the repository for github.com by the Go module resolution rule itself.
+        var go = CreateClient("""{ "Version": "v1.1.1", "Time": "2018-02-21T23:26:28Z" }""");
+
+        var record = await go.FetchAsync(new PackageMetadataRequest("golang", "github.com/davecgh", "go-spew", "v1.1.1", "pkg:golang/github.com/davecgh/go-spew@v1.1.1"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/davecgh/go-spew");
+        await Assert.That(record.RepositoryRef).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_GoResponseWithoutOrigin_DerivesRepositoryRootFromMajorVersionSuffixedModulePath()
+    {
+        var go = CreateClient("""{ "Version": "v2.2.4" }""");
+
+        var record = await go.FetchAsync(new PackageMetadataRequest("golang", "github.com/pelletier/go-toml", "v2", "v2.2.4", "pkg:golang/github.com/pelletier/go-toml/v2@v2.2.4"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/pelletier/go-toml/v2");
+    }
+
+    [Test]
+    [Arguments("gopkg.in", "yaml.v3")]
+    [Arguments("rsc.io", "pdf")]
+    [Arguments("", "example.test")]
+    public async Task Fetch_GoResponseWithoutOrigin_LeavesNonGitHubModulePathUnresolved(string moduleNamespace, string moduleName)
+    {
+        // A vanity import path is not a repository URL, and Ol does not resolve one by following it.
+        var go = CreateClient("""{ "Version": "v1.0.0" }""");
+
+        var record = await go.FetchAsync(new PackageMetadataRequest("golang", moduleNamespace, moduleName, "v1.0.0", $"pkg:golang/{moduleName}@v1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_GoResponseWithOrigin_KeepsProxyRepositoryOverModulePath()
+    {
+        var go = CreateClient("""{ "Origin": { "URL": "https://go.googlesource.com/sys", "Ref": "refs/tags/v0.13.0" } }""");
+
+        var record = await go.FetchAsync(new PackageMetadataRequest("golang", "golang.org/x", "sys", "v0.13.0", "pkg:golang/golang.org/x/sys@v0.13.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://go.googlesource.com/sys");
+        await Assert.That(record.RepositoryRef).IsEqualTo("refs/tags/v0.13.0");
+    }
+
+    [Test]
+    public async Task Fetch_NpmResponseDeclaringRepositoryDirectory_RecordsThatTheRepositoryHoldsMoreThanThisPackage()
+    {
+        var npm = CreateClient("""{ "license": "Apache-2.0", "repository": { "url": "https://github.com/eslint/js.git", "directory": "packages/eslint-visitor-keys" } }""");
+
+        var record = await npm.FetchAsync(new PackageMetadataRequest("npm", "", "eslint-visitor-keys", "5.0.1", "pkg:npm/eslint-visitor-keys@5.0.1"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("Apache-2.0");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/eslint/js.git");
+        await Assert.That(record.Warnings).Contains("source_repository_subdirectory");
+    }
+
+    [Test]
+    public async Task Fetch_NpmResponseWithoutRepositoryDirectory_KeepsRepositoryAsThisPackagesSubject()
+    {
+        var npm = CreateClient("""{ "license": "MIT", "repository": { "url": "https://github.com/owner/repository.git" } }""");
+
+        var record = await npm.FetchAsync(new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0"));
+
+        await Assert.That(record.Warnings).IsEmpty();
+    }
+
+    [Test]
     public async Task Fetch_PyPiResponse_UsesReleaseSpecificMetadata()
     {
         var handler = new SequenceJsonResponseHandler("""{ "info": { "license_expression": "MIT", "license": "Legacy", "project_urls": { "Source": "https://github.com/example/python" } } }""");
@@ -1795,6 +1865,60 @@ public sealed class PackageMetadataTests
 
             await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(handler.RequestUris.Count).IsEqualTo(3);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_ResolvedNpmCacheWrittenBeforeRepositoryDirectoryWasRead_RefreshesOnce()
+    {
+        // A license does not make the subdirectory fact observable, so an npm entry that predates reading
+        // it is collected again once rather than keeping a monorepo package reported as conflicting.
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:npm/example@1.0.0";
+        using var handler = new SequenceJsonResponseHandler("""{ "license": "MIT", "repository": { "url": "https://github.com/owner/monorepo", "directory": "packages/example" } }""");
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(cache.GetPath(purl), $$"""
+                {
+                  "SchemaVersion": 1,
+                  "ResolverVersion": 4,
+                  "CacheKey": "{{purl}}",
+                  "CacheKeySha256": "{{PackageMetadataCache.GetCacheKeySha256(purl)}}",
+                  "Source": "npm-registry",
+                  "RawLicense": "MIT",
+                  "RepositoryUrl": "https://github.com/owner/monorepo",
+                  "Warnings": [],
+                  "Errors": [],
+                  "FetchedAt": "2026-07-08T00:00:00+00:00"
+                }
+                """);
+            var index = new SpdxLicenseIndex(["MIT"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(GetRecord(workspace, 0)!.Value.RepositorySubdirectoryDeclared).IsTrue();
+
+            var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
+            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
+            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+
+            await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(GetRecord(cachedWorkspace, 0)!.Value.RepositorySubdirectoryDeclared).IsTrue();
+            await Assert.That(handler.RequestUris.Count).IsEqualTo(1);
         }
         finally
         {

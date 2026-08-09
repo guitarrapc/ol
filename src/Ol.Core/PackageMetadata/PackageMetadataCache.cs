@@ -466,7 +466,15 @@ public readonly record struct PackageMetadataRecord(
     public int ResolverVersion => CurrentResolverVersion;
 
     /// <summary>The resolver capability version this build writes.</summary>
-    public const int CurrentResolverVersion = 4;
+    public const int CurrentResolverVersion = 5;
+
+    /// <summary>The first resolver version that reads npm's <c>repository.directory</c>.</summary>
+    /// <remarks>
+    /// An npm entry written before this version records no answer either way about whether the package
+    /// sits in one directory of a shared repository, and a resolved license does not make that fact
+    /// observable, so such an entry is recollected once even though it carries a license.
+    /// </remarks>
+    public const int NpmRepositoryDirectoryResolverVersion = 5;
 
     /// <summary>
     /// Gets the SHA-256 hash of <see cref="CacheKey"/>.

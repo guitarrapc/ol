@@ -1226,6 +1226,7 @@ internal static class ReportRenderer
             : (warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0 ? "license_not_detected"u8
             : (warnings & LicenseCandidateWarnings.NuGetLicenseUrlUnsupported) != 0 ? "nuget_license_url_unsupported"u8
             : (warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0 ? "unsupported_source_repository"u8
+            : (warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0 ? "source_repository_subdirectory"u8
             : (warnings & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0 ? "nuget_license_metadata_missing"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0 ? "source_repository_unavailable"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0 ? "source_repository_fetch_failed"u8
@@ -1847,6 +1848,10 @@ internal static class ReportRenderer
         if ((warnings & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) writer.WriteStringValue("package_metadata_not_found"u8);
         if ((warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0) writer.WriteStringValue("license_not_detected"u8);
         if ((warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) writer.WriteStringValue("license_not_recognized"u8);
+        if ((warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0) writer.WriteStringValue("source_repository_subdirectory"u8);
+        if ((warnings & LicenseCandidateWarnings.NuGetLicenseUrlUnsupported) != 0) writer.WriteStringValue("nuget_license_url_unsupported"u8);
+        if ((warnings & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0) writer.WriteStringValue("nuget_license_metadata_missing"u8);
+        if ((warnings & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0) writer.WriteStringValue("nuget_license_file_unresolved"u8);
         writer.WriteEndArray();
     }
 

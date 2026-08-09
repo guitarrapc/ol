@@ -364,6 +364,36 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Enrichment_WithRepositorySubdirectoryDeclared_LeavesRepositoryRootLicenseOutOfTheComponent()
+    {
+        // The publisher said the package lives in one directory of a repository that holds several, so the
+        // repository-level answer describes a different subject and must not contradict the declared license.
+        var root = Path.Combine(Path.GetTempPath(), $"ol-source-subdirectory-{Guid.NewGuid():N}");
+        var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
+        var target = new SourceRepositoryTarget("owner", "monorepo", "default");
+        await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("ISC", "isc", "ISC License", "LICENSE", "sha", string.Empty), [], []));
+        var index = new SpdxLicenseIndex(["MIT", "ISC"], []);
+        var component = new ScanComponent("example", "1.0.0", Utf8Slice.FromString("MIT"), "npm", DependencyType.Unknown, LicenseStatus.Matched, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.DependencyInput, LicenseCandidateKind.License, "MIT"u8, index), [], []);
+        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/monorepo", string.Empty, RepositorySubdirectoryDeclared: true));
+        var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
+
+        try
+        {
+            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
+            await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
+            await Assert.That(enrichment.Components[0].Warnings).Contains("source_repository_subdirectory");
+            await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(0);
+            await Assert.That(enrichment.Summary.TargetCount).IsEqualTo(0);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Target_TryCreate_UrlShapes_NormalizeOrRejectExactly()
     {
         // Pins the normalization of every URL shape the parser must keep answering the same way.

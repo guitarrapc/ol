@@ -2,6 +2,7 @@
 using System.Net;
 using Ol.Core;
 using Ol.Core.Licensing;
+using Ol.Core.PackageManagers;
 using Ol.Core.PackageMetadata;
 using Ol.Core.SourceRepository;
 using Ol.Core.Spdx;
@@ -338,13 +339,35 @@ internal sealed class PackageMetadataService(
     /// on every scan.
     /// </remarks>
     private static bool IsStaleUnresolvedEntry(in PackageMetadataCacheEntry entry)
-        => entry.RawLicense.IsEmpty
-        && entry.ResolverVersion < PackageMetadataRecord.CurrentResolverVersion;
+        => entry.ResolverVersion < PackageMetadataRecord.CurrentResolverVersion
+        && (entry.RawLicense.IsEmpty || IsPreSubdirectoryNpmEntry(entry));
+
+    /// <summary>
+    /// Reports whether an npm entry predates reading npm's <c>repository.directory</c>.
+    /// </summary>
+    /// <remarks>
+    /// The one observation a resolved entry can still be missing. Whether a package sits in one directory
+    /// of a shared repository decides whether the repository's own license describes it, so an entry
+    /// written before that field was read leaves a correctly licensed package reported as conflicting
+    /// with its monorepo's root license until it is collected again. Narrow on purpose: it names the
+    /// entries one capability change can improve and stops applying once entries carry that version.
+    /// </remarks>
+    private static bool IsPreSubdirectoryNpmEntry(in PackageMetadataCacheEntry entry)
+        => entry.ResolverVersion < PackageMetadataRecord.NpmRepositoryDirectoryResolverVersion
+        && entry.Source.Span.SequenceEqual("npm-registry"u8);
+
+    /// <summary>Reads the subdirectory fact back out of the warnings a registry answer persisted.</summary>
+    /// <remarks>
+    /// The warning is the persisted form of the fact, so a cache hit and a fresh fetch reach the source
+    /// stage carrying the same answer without a second cache field to validate and version.
+    /// </remarks>
+    private static bool HasSubdirectoryWarning(LicenseCandidateWarnings warnings)
+        => (warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0;
 
     /// <summary>Projects a cache entry before its pooled buffer is returned.</summary>
     private PackageMetadataLookupResult CreateCacheHit(PackageMetadataRequest request, in PackageMetadataCacheEntry entry)
         => new(
-            new PackageMetadataResolution(request.CacheKey, entry.RepositoryUrl, entry.RepositoryRef),
+            new PackageMetadataResolution(request.CacheKey, entry.RepositoryUrl, entry.RepositoryRef, HasSubdirectoryWarning(LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span))),
             CreateMetadataCandidate(entry),
             true,
             true,
@@ -359,7 +382,7 @@ internal sealed class PackageMetadataService(
         {
             var record = await PackageMetadataFetchScheduler.FetchAsync(registryClient, request, retryCount, cancellationToken).ConfigureAwait(false);
             await cache.WriteAsync(record, cancellationToken).ConfigureAwait(false);
-            var resolution = new PackageMetadataResolution(record.CacheKey, record.RepositoryUrl, record.RepositoryRef);
+            var resolution = new PackageMetadataResolution(record.CacheKey, record.RepositoryUrl, record.RepositoryRef, HasSubdirectoryWarning(LicenseCandidateIdentifiers.ParseWarnings(record.Warnings)));
             return new PackageMetadataLookupResult(resolution, CreateMetadataCandidate(record), true, false, true, refresh, false, false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -445,7 +468,7 @@ internal sealed class PackageMetadataService(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(entry.CacheKeySha256, entry.FetchedAt));
         evidence = evidence with { DeclaredReference = CreateDeclaredReference(entry.DeclaredLicenseReferenceKind, entry.DeclaredLicenseReference.Span) };
-        var candidate = LicenseCandidateFactory.Create(GetCandidateSource(entry.Source.Span), LicenseCandidateKind.License, entry.RawLicense.Span, spdxLicenseIndex, evidence);
+        var candidate = CreateRegistryCandidate(GetCandidateSource(entry.Source.Span), Utf8Slice.FromOwnedBytes(entry.RawLicense.Span.ToArray()), evidence);
         return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span) };
     }
 
@@ -468,9 +491,20 @@ internal sealed class PackageMetadataService(
                 ? null
                 : new(record.DeclaredLicenseReferenceKind, Utf8Slice.FromString(record.DeclaredLicenseReference)),
         };
-        var candidate = LicenseCandidateFactory.Create(GetCandidateSource(record.Source), LicenseCandidateKind.License, Utf8Slice.FromString(record.RawLicense), spdxLicenseIndex, evidence);
+        var candidate = CreateRegistryCandidate(GetCandidateSource(record.Source), Utf8Slice.FromString(record.RawLicense), evidence);
         return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(record.Warnings) };
     }
+
+    /// <summary>Classifies a registry license, reading Cargo's pre-SPDX spelling as the expression it denotes.</summary>
+    /// <remarks>
+    /// Applied here rather than at the crates.io boundary so the cache keeps the license crates.io
+    /// published. A cached entry is therefore still classified with the active SPDX data, and the
+    /// rewrite cannot become a conclusion frozen into the cache by an older SPDX snapshot.
+    /// </remarks>
+    private LicenseCandidate CreateRegistryCandidate(LicenseCandidateSource source, Utf8Slice raw, LicenseEvidence evidence)
+        => source == LicenseCandidateSource.CargoRegistry && CargoLicenseExpression.TryRewriteLegacyChoice(raw.Span, out var choice)
+            ? LicenseCandidateFactory.CreateRewritten(source, LicenseCandidateKind.License, raw, choice, spdxLicenseIndex, evidence)
+            : LicenseCandidateFactory.Create(source, LicenseCandidateKind.License, raw, spdxLicenseIndex, evidence);
 
     private static LicenseCandidateSource GetCandidateSource(string source) => source switch
     {

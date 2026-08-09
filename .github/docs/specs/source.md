@@ -60,6 +60,10 @@ A rate limit that stops collection stops it for the rest of the scan: requests s
 Rate-limit failures are never persisted as source-cache entries, so the affected targets are collected normally by a later run. Ol reports the limit on stderr even when the summary is suppressed, because the remedy differs by kind and the run can act on it: a primary limit reached without authentication names `OL_GITHUB_TOKEN`, an authenticated primary limit names the reset instant, and a secondary limit names `--concurrency`. A token raises the primary allowance and does nothing for a secondary limit, so the two must not be reported interchangeably.
 - missing repository URLs become `source_repository_unavailable` evidence, and non-GitHub or invalid repository URLs become `unsupported_source_repository` evidence.
 
+<a id="contract-source-subdirectory"></a>
+
+A component whose package metadata states that the publisher placed it in one directory of a shared repository is not planned as a source target. It receives `source_repository_subdirectory` evidence naming the repository that was set aside, and no request is made. This is the repository case the model already excludes: the repository-level API answers for the repository root, so in a monorepo it answers for a different package, and reading it as this component's license turned a correctly declared license into a conflict with a sibling's. The repository is still reported because a reviewer needs to see which one was set aside and why. The evidence contributes no license either way, so a package that declared none stays unresolved rather than inheriting one from its neighbours. npm supplies this fact through [`repository.directory`](packagemanager.md#contract-npm-repository-directory).
+
 The API response body content is not parsed for custom license detection. If GitHub does not identify a license, `ol` does not try to outguess it.
 
 Evidence may include:

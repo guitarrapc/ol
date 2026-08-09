@@ -88,7 +88,7 @@ Example:
   "RawLicense": "MIT",
   "RepositoryUrl": "https://github.com/facebook/react",
   "RepositoryRef": "0123456789abcdef",
-  "ResolverVersion": 4,
+  "ResolverVersion": 5,
   "Warnings": [],
   "Errors": [],
   "FetchedAt": "2026-07-08T00:00:00+00:00",
@@ -97,7 +97,9 @@ Example:
 }
 ```
 
-The cache stores the raw source license rather than a final reconciled status. On use, Ol validates the raw value with the active SPDX data and passes the resulting candidate through common reconciliation. This prevents a cached conclusion produced with one SPDX snapshot from silently becoming authoritative under another snapshot.
+The cache stores the raw source license rather than a final reconciled status. On use, Ol validates the raw value with the active SPDX data and passes the resulting candidate through common reconciliation. This prevents a cached conclusion produced with one SPDX snapshot from silently becoming authoritative under another snapshot. An ecosystem spelling that a registry defines as standing for an SPDX expression, such as Cargo's pre-SPDX `MIT/Apache-2.0`, is likewise resolved on use rather than at write time, so the entry keeps what the registry said.
+
+`ResolverVersion` records which observations the writing build could make, and a newer resolver revisits only the entries whose observation it can improve. An entry with no license is revisited in every ecosystem, because every provider can now state where a publisher said its license is. Resolver version `5` additionally revisits npm entries written earlier even when they carry a license: whether a package occupies one directory of a shared repository decides whether that repository's license describes it, and a resolved license does not make that fact observable. Recollection writes the current version, so each affected entry is refetched once rather than on every scan.
 
 <a id="contract-source-cache-v1"></a>
 ## Source Repository Entry — Schema Version 1

@@ -1765,6 +1765,44 @@ public sealed class CliScanTests
         }
     }
 
+    // A classifier that names a license family is unresolvable by construction, and saying so is the
+    // only thing a report can add: the reviewer's next step is to ask the publisher or read the
+    // artifact, not to wait for Ol to gain a capability.
+    [Test]
+    [Arguments("License :: OSI Approved :: BSD License", "license_classifier_not_specific")]
+    [Arguments("License :: OSI Approved :: Apache Software License", "license_classifier_not_specific")]
+    public async Task Scan_WithLicenseFamilyClassifier_ExplainsWhyItCannotResolve(string declared, string expectedReason)
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-classifier-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(sbomPath, $$"""
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            {
+              "type": "library",
+              "name": "example",
+              "version": "1.0.0",
+              "purl": "pkg:pypi/example@1.0.0",
+              "licenses": [ { "license": { "name": "{{declared}}" } } ]
+            }
+          ]
+        }
+        """, Encoding.UTF8);
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--format", "text", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).Contains($"example 1.0.0 {expectedReason}");
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+        }
+    }
+
     // Embedded license text is a declaration with no place to name, and Ol deliberately never retains
     // the text. Its empty value must not be presented as the reference, nor suppress one that exists.
     [Test]

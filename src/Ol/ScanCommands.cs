@@ -9,6 +9,7 @@ using Ol.Core;
 using Ol.Core.Generated;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
+using Ol.Core.PackageManagers;
 using Ol.Core.Spdx;
 using Ol.Internals;
 
@@ -1231,6 +1232,11 @@ internal static class ReportRenderer
     /// sources can each declare a different kind for one component, so the strongest kind present
     /// decides, not the first source that stated one.
     /// </para>
+    /// <para>
+    /// A <see cref="PyPiLicenseClassifier">license family classifier</see> is derived the same way and
+    /// ranks below every one of those, because it names no document at all: it says the value can never
+    /// resolve, which is worth stating only when nothing points somewhere a reviewer could read.
+    /// </para>
     /// </remarks>
     private static bool TryGetUnresolvedReason(in ScanComponent component, out ReadOnlySpan<byte> reason)
     {
@@ -1238,6 +1244,7 @@ internal static class ReportRenderer
         var declaredFile = false;
         var declaredText = false;
         var declaredLocation = false;
+        var familyClassifier = false;
         for (var i = 0; i < component.CandidateCount; i++)
         {
             var candidate = component.GetCandidate(i);
@@ -1248,6 +1255,8 @@ internal static class ReportRenderer
                 case DeclaredLicenseReferenceKind.InlineText: declaredText = true; break;
                 case DeclaredLicenseReferenceKind.Location: declaredLocation = true; break;
             }
+
+            familyClassifier |= candidate.Status == LicenseStatus.Ambiguous && PyPiLicenseClassifier.IsNotSpecific(candidate.Raw.Span);
         }
 
         reason =
@@ -1258,6 +1267,7 @@ internal static class ReportRenderer
             : (warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0 ? "license_not_recognized"u8
             : (warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0 ? "license_not_detected"u8
             : declaredLocation ? "declared_license_location_not_collected"u8
+            : familyClassifier ? "license_classifier_not_specific"u8
             : (warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0 ? "unsupported_source_repository"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0 ? "source_repository_subdirectory"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0 ? "source_repository_unavailable"u8

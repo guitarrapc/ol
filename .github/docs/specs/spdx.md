@@ -161,6 +161,14 @@ Where SPDX gives one name to two identifiers, it is always a deprecated identifi
 
 License exception names are not matched. An exception is only ever an operand of `WITH`, where the operand is an identifier.
 
+<a id="contract-license-family-classifier"></a>
+
+A PyPI license classifier that names a license family resolves nothing and is [reported as that](cli.md#contract-unresolved-section) rather than only as `ambiguous`. The set is the one PEP 639's appendix enumerates as classifiers that "intend to specify a particular license, but do not specify the particular version or variant", and from which tools "MUST NOT attempt to automatically infer a `License-Expression`" — `License :: OSI Approved :: BSD License`, `... :: Apache Software License`, and twelve others. Recognizing them adds no mapping: the value stays unresolved, and `check` still fails closed on it. What changes is that a report can say the value can never resolve, so a reviewer asks the publisher or reads the artifact instead of waiting for Ol to gain a capability.
+
+Matching is exact. A classifier comes from a closed vocabulary PyPI validates on upload, and PEP 639 states that new license classifiers must not be added to it, so a value differing at all is not one of these and is not described as one.
+
+Ol maps no classifier to an identifier. PEP 639 says the remaining classifiers each correspond to one SPDX identifier and permits tools to infer them when analyzing packages, but publishes no machine-readable table for that direction: of PyPI's 89 license classifiers only 29 are derivable from the SPDX name they contain, and the rest embed an identifier or an abbreviation under no consistent rule. Reproducing the remainder would make Ol the author of a license mapping rather than a reader of published data, which is the same reason the free-text `License` field is left alone — PEP 639 forbids converting that field without affirmative user action, and no authority defines what `Apache 2.0`, `Modified BSD License`, or `PSFL` denote.
+
 <a id="contract-strict-normalization"></a>
 ## Strict Normalization
 

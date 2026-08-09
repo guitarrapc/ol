@@ -1,45 +1,45 @@
 Input: sbom/cyclonedx
 
-NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS
-Ol 0.0.0 - - root unknown
-BenchmarkDotNet 0.15.8 MIT nuget direct matched
-BenchmarkDotNet.Annotations 0.15.8 MIT nuget transitive matched
-CommandLineParser 2.9.1 - nuget transitive unknown
-ConsoleAppFramework 5.7.13 MIT nuget direct matched
-EnumerableAsyncProcessor 3.8.4 MIT nuget transitive matched
-Gee.External.Capstone 2.3.0 MIT nuget transitive matched
-Iced 1.21.0 MIT nuget transitive matched
-Microsoft.ApplicationInsights 2.23.0 MIT nuget transitive matched
-Microsoft.CodeAnalysis.Analyzers 3.11.0 MIT nuget transitive matched
-Microsoft.CodeAnalysis.CSharp 4.14.0 MIT nuget transitive matched
-Microsoft.CodeAnalysis.Common 4.14.0 MIT nuget transitive matched
-Microsoft.DiaSymReader 2.0.0 MIT nuget transitive matched
-Microsoft.Diagnostics.NETCore.Client 0.2.510501 MIT nuget transitive matched
-Microsoft.Diagnostics.Runtime 3.1.512801 MIT nuget transitive matched
-Microsoft.Diagnostics.Tracing.TraceEvent 3.1.21 MIT nuget transitive matched
-Microsoft.DotNet.ILCompiler 10.0.10 MIT nuget direct matched
-Microsoft.DotNet.PlatformAbstractions 3.1.6 - nuget transitive unknown
-Microsoft.Extensions.DependencyInjection 6.0.0 MIT nuget transitive matched
-Microsoft.Extensions.DependencyInjection.Abstractions 6.0.0 MIT nuget transitive matched
-Microsoft.Extensions.DependencyModel 6.0.2 MIT nuget transitive matched
-Microsoft.Extensions.Logging 6.0.0 MIT nuget transitive matched
-Microsoft.Extensions.Logging.Abstractions 6.0.0 MIT nuget transitive matched
-Microsoft.Extensions.Options 6.0.0 MIT nuget transitive matched
-Microsoft.Extensions.Primitives 6.0.0 MIT nuget transitive matched
-Microsoft.NET.ILLink.Tasks 10.0.10 MIT nuget direct matched
-Microsoft.Testing.Extensions.CodeCoverage 18.3.2 - nuget transitive unknown
-Microsoft.Testing.Extensions.Telemetry 2.0.2 MIT nuget transitive matched
-Microsoft.Testing.Extensions.TrxReport 2.0.2 MIT nuget transitive matched
-Microsoft.Testing.Extensions.TrxReport.Abstractions 2.0.2 MIT nuget transitive matched
-Microsoft.Testing.Platform 2.0.2 MIT nuget transitive matched
-Microsoft.Testing.Platform.MSBuild 2.0.2 MIT nuget transitive matched
-Perfolizer 0.6.1 MIT nuget transitive matched
-Pragmastat 3.2.4 MIT nuget transitive matched
-System.CodeDom 9.0.5 MIT nuget transitive matched
-System.Management 9.0.5 MIT nuget transitive matched
-System.Reflection.TypeExtensions 4.7.0 MIT nuget transitive matched
-TUnit 1.12.111 MIT nuget direct matched
-TUnit.Assertions 1.12.111 MIT nuget transitive matched
-TUnit.Core 1.12.111 MIT nuget transitive matched
-TUnit.Engine 1.12.111 MIT nuget transitive matched
-runtime.linux-x64.Microsoft.DotNet.ILCompiler 10.0.10 MIT nuget unknown matched
+NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS SUPPLIED
+Ol 0.0.0 - - root unknown sbom
+BenchmarkDotNet 0.15.8 MIT nuget direct matched sbom
+BenchmarkDotNet.Annotations 0.15.8 MIT nuget transitive matched sbom
+CommandLineParser 2.9.1 - nuget transitive unknown sbom
+ConsoleAppFramework 5.7.13 MIT nuget direct matched sbom
+EnumerableAsyncProcessor 3.8.4 MIT nuget transitive matched sbom
+Gee.External.Capstone 2.3.0 MIT nuget transitive matched sbom
+Iced 1.21.0 MIT nuget transitive matched sbom
+Microsoft.ApplicationInsights 2.23.0 MIT nuget transitive matched sbom
+Microsoft.CodeAnalysis.Analyzers 3.11.0 MIT nuget transitive matched sbom
+Microsoft.CodeAnalysis.CSharp 4.14.0 MIT nuget transitive matched sbom
+Microsoft.CodeAnalysis.Common 4.14.0 MIT nuget transitive matched sbom
+Microsoft.DiaSymReader 2.0.0 MIT nuget transitive matched sbom
+Microsoft.Diagnostics.NETCore.Client 0.2.510501 MIT nuget transitive matched sbom
+Microsoft.Diagnostics.Runtime 3.1.512801 MIT nuget transitive matched sbom
+Microsoft.Diagnostics.Tracing.TraceEvent 3.1.21 MIT nuget transitive matched sbom
+Microsoft.DotNet.ILCompiler 10.0.10 MIT nuget direct matched sbom
+Microsoft.DotNet.PlatformAbstractions 3.1.6 - nuget transitive unknown sbom
+Microsoft.Extensions.DependencyInjection 6.0.0 MIT nuget transitive matched sbom
+Microsoft.Extensions.DependencyInjection.Abstractions 6.0.0 MIT nuget transitive matched sbom
+Microsoft.Extensions.DependencyModel 6.0.2 MIT nuget transitive matched sbom
+Microsoft.Extensions.Logging 6.0.0 MIT nuget transitive matched sbom
+Microsoft.Extensions.Logging.Abstractions 6.0.0 MIT nuget transitive matched sbom
+Microsoft.Extensions.Options 6.0.0 MIT nuget transitive matched sbom
+Microsoft.Extensions.Primitives 6.0.0 MIT nuget transitive matched sbom
+Microsoft.NET.ILLink.Tasks 10.0.10 MIT nuget direct matched sbom
+Microsoft.Testing.Extensions.CodeCoverage 18.3.2 - nuget transitive unknown sbom
+Microsoft.Testing.Extensions.Telemetry 2.0.2 MIT nuget transitive matched sbom
+Microsoft.Testing.Extensions.TrxReport 2.0.2 MIT nuget transitive matched sbom
+Microsoft.Testing.Extensions.TrxReport.Abstractions 2.0.2 MIT nuget transitive matched sbom
+Microsoft.Testing.Platform 2.0.2 MIT nuget transitive matched sbom
+Microsoft.Testing.Platform.MSBuild 2.0.2 MIT nuget transitive matched sbom
+Perfolizer 0.6.1 MIT nuget transitive matched sbom
+Pragmastat 3.2.4 MIT nuget transitive matched sbom
+System.CodeDom 9.0.5 MIT nuget transitive matched sbom
+System.Management 9.0.5 MIT nuget transitive matched sbom
+System.Reflection.TypeExtensions 4.7.0 MIT nuget transitive matched sbom
+TUnit 1.12.111 MIT nuget direct matched sbom
+TUnit.Assertions 1.12.111 MIT nuget transitive matched sbom
+TUnit.Core 1.12.111 MIT nuget transitive matched sbom
+TUnit.Engine 1.12.111 MIT nuget transitive matched sbom
+runtime.linux-x64.Microsoft.DotNet.ILCompiler 10.0.10 MIT nuget unknown matched sbom

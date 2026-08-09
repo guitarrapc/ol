@@ -1,0 +1,16 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "components": [
+    {
+      "bom-ref": "transitive",
+      "type": "library",
+      "group": "org.example",
+      "name": "transitive",
+      "version": "3.0.0",
+      "purl": "pkg:maven/org.example/transitive@3.0.0",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }]
+    }
+  ]
+}

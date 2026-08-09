@@ -1,0 +1,34 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "bom-ref": "root-app",
+      "type": "application",
+      "name": "mixed-nuget-app",
+      "version": "0.0.0"
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "direct-package",
+      "type": "library",
+      "name": "direct.package",
+      "version": "1.0.0",
+      "purl": "pkg:nuget/direct.package@1.0.0",
+      "licenses": [{ "license": { "id": "MIT" } }]
+    },
+    {
+      "bom-ref": "native-package",
+      "type": "library",
+      "name": "Native.Package",
+      "version": "4.0.0",
+      "purl": "pkg:nuget/Native.Package@4.0.0",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }]
+    }
+  ],
+  "dependencies": [
+    { "ref": "root-app", "dependsOn": ["direct-package", "native-package"] }
+  ]
+}

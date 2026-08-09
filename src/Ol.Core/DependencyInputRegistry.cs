@@ -327,6 +327,7 @@ public static class DependencyInputScanner
 
         var inventory = handler.Parser(inputUtf8, offset, spdxLicenseIndex, retainGraph);
         var descriptor = inventory.Input with { Kind = handler.Kind, Format = handler.Format };
+        StampSupply(inventory.Components, handler.Kind);
         return inventory with { Input = descriptor };
     }
 
@@ -350,7 +351,19 @@ public static class DependencyInputScanner
         for (var sourceIndex = 0; sourceIndex < sources.Length; sourceIndex++) ArgumentNullException.ThrowIfNull(sources[sourceIndex]);
         var inventory = handler.BundleParser(sources, spdxLicenseIndex, retainGraph);
         var descriptor = inventory.Input with { Kind = handler.Kind, Format = handler.Format };
+        StampSupply(inventory.Components, handler.Kind);
         return inventory with { Input = descriptor };
+    }
+
+    // Recording the supplying input kind here keeps every parser free of it: the registry already knows which
+    // kind it dispatched to, and the components it just produced are owned and not yet shared.
+    private static void StampSupply(ScanComponent[] components, ScanInputKind kind)
+    {
+        var supply = kind == ScanInputKind.Sbom ? ComponentSupply.Sbom : ComponentSupply.PackageManager;
+        for (var i = 0; i < components.Length; i++)
+        {
+            components[i] = components[i] with { SuppliedBy = supply };
+        }
     }
 
     private static bool HasUtf8Bom(ReadOnlySpan<byte> inputUtf8)

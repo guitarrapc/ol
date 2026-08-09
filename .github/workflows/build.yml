@@ -91,8 +91,15 @@ jobs:
           Invoke-OlScan "$env:RUNNER_TEMP/ecosystem.cdx.json" report
           ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/report.json" -TextReport "$env:RUNNER_TEMP/report.txt" -MarkdownReport "$env:RUNNER_TEMP/report.md" -Ecosystem $env:FIXTURE_ECOSYSTEM -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind sbom -InputFormat cyclonedx
 
+          # The package-manager input this fixture also scans, so the collection contract can be exercised on a
+          # repository where an SBOM and a resolved input genuinely describe the same resolution.
+          $combinedInput = $null
+          $combinedPackageManagerReport = $null
+
           if ($env:FIXTURE_ECOSYSTEM -eq "nuget") {
             $assets = Join-Path $env:FIXTURE_PATH "obj/project.assets.json"
+            $combinedInput = $assets
+            $combinedPackageManagerReport = "nuget-assets-report"
             Invoke-OlScan $assets nuget-assets-report
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/nuget-assets-report.json" -TextReport "$env:RUNNER_TEMP/nuget-assets-report.txt" -MarkdownReport "$env:RUNNER_TEMP/nuget-assets-report.md" -Ecosystem nuget -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat nuget-assets
           }
@@ -108,17 +115,23 @@ jobs:
           }
 
           if ($env:FIXTURE_ECOSYSTEM -eq "composer") {
+            $combinedInput = $env:FIXTURE_PATH
+            $combinedPackageManagerReport = "composer-lock-report"
             Invoke-OlScan $env:FIXTURE_PATH composer-lock-report
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/composer-lock-report.json" -TextReport "$env:RUNNER_TEMP/composer-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/composer-lock-report.md" -Ecosystem composer -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat composer-lock
           }
 
           if ($env:FIXTURE_ECOSYSTEM -eq "gem") {
+            $combinedInput = $env:FIXTURE_PATH
+            $combinedPackageManagerReport = "bundler-lock-report"
             Invoke-OlScan $env:FIXTURE_PATH bundler-lock-report
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/bundler-lock-report.json" -TextReport "$env:RUNNER_TEMP/bundler-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/bundler-lock-report.md" -Ecosystem gem -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat bundler-lock
           }
 
           if ($env:FIXTURE_ECOSYSTEM -eq "maven") {
             $dependencyTree = Join-Path $env:FIXTURE_PATH "target/maven-dependency-tree.json"
+            $combinedInput = $dependencyTree
+            $combinedPackageManagerReport = "maven-dependency-tree-report"
             Invoke-OlScan $dependencyTree maven-dependency-tree-report
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/maven-dependency-tree-report.json" -TextReport "$env:RUNNER_TEMP/maven-dependency-tree-report.txt" -MarkdownReport "$env:RUNNER_TEMP/maven-dependency-tree-report.md" -Ecosystem maven -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat maven-dependency-tree
           }
@@ -126,6 +139,11 @@ jobs:
           if ($env:FIXTURE_ECOSYSTEM -eq "cocoapods") {
             Invoke-OlScan $env:FIXTURE_PATH cocoapods-lock-report
             ./sandbox/ci/Assert-EcosystemReport.ps1 -Report "$env:RUNNER_TEMP/cocoapods-lock-report.json" -TextReport "$env:RUNNER_TEMP/cocoapods-lock-report.txt" -MarkdownReport "$env:RUNNER_TEMP/cocoapods-lock-report.md" -Ecosystem cocoapods -Package $env:FIXTURE_PACKAGE -MetadataSource $env:FIXTURE_METADATA_SOURCE -InputKind package-manager -InputFormat cocoapods-lock
+          }
+
+          if ($null -ne $combinedInput) {
+            dotnet $ol scan --input "$env:RUNNER_TEMP/ecosystem.cdx.json" --input $combinedInput --format json --retry 0 --cache-dir "$env:RUNNER_TEMP/ol-cache" > "$env:RUNNER_TEMP/combined-report.json"
+            ./sandbox/ci/Assert-CombinedReport.ps1 -CombinedReport "$env:RUNNER_TEMP/combined-report.json" -SbomReport "$env:RUNNER_TEMP/report.json" -PackageManagerReport "$env:RUNNER_TEMP/$combinedPackageManagerReport.json"
           }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -142,6 +160,7 @@ jobs:
             ${{ runner.temp }}/bundler-lock-report.*
             ${{ runner.temp }}/maven-dependency-tree-report.*
             ${{ runner.temp }}/cocoapods-lock-report.*
+            ${{ runner.temp }}/combined-report.json
 
   self-scan:
     runs-on: ubuntu-24.04

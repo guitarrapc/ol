@@ -1,0 +1,43 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "bom-ref": "root-app",
+      "type": "application",
+      "name": "mixed-app",
+      "version": "0.0.0"
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "alpha",
+      "type": "library",
+      "name": "alpha",
+      "version": "1.0.0",
+      "purl": "pkg:npm/alpha@1.0.0",
+      "licenses": [{ "license": { "id": "MIT" } }]
+    },
+    {
+      "bom-ref": "shared",
+      "type": "library",
+      "name": "shared",
+      "version": "1.0.0",
+      "purl": "pkg:npm/shared@1.0.0",
+      "licenses": [{ "license": { "id": "MIT" } }]
+    },
+    {
+      "bom-ref": "sbom-only",
+      "type": "library",
+      "name": "sbom-only",
+      "version": "9.0.0",
+      "purl": "pkg:npm/sbom-only@9.0.0",
+      "licenses": [{ "license": { "id": "BSD-3-Clause" } }]
+    }
+  ],
+  "dependencies": [
+    { "ref": "root-app", "dependsOn": ["alpha", "sbom-only"] },
+    { "ref": "alpha", "dependsOn": ["shared"] }
+  ]
+}

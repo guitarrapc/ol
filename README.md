@@ -320,7 +320,7 @@ For release and audit artifacts, prefer one CycloneDX or SPDX JSON SBOM covering
 | CocoaPods | `Podfile.lock` | Run `pod install`. |
 
 > [!TIP]
-> ol detects formats from content, so `--input-format` is normally unnecessary. Repeat `--input A --input B` to combine package-manager inputs. SBOM and package-manager inputs cannot be mixed in one report.
+> ol detects formats from content, so `--input-format` is normally unnecessary. Repeat `--input A --input B` to combine inputs. One SBOM can be combined with package-manager inputs in a single report; a second SBOM cannot.
 
 ## Common operations
 
@@ -471,6 +471,8 @@ No. These manifests describe requested dependencies, not the exact versions and 
 ### Should I use an SBOM or package-manager input?
 
 Prefer one SBOM for releases, audits, and repositories containing several ecosystems. Direct package-manager inputs are convenient for local feedback or when a resolved graph is already generated or committed.
+
+You can also pass both. ol matches them on package URL and combines their evidence, and the `SUPPLIED` column shows whether a component came from the SBOM, the package-manager input, or both. This is worth doing when the two inputs enumerate different sets — a lockfile often holds entries an SBOM omits — or when you want disagreements between them reported rather than hidden by scanning separately.
 
 ### Does ol require network access?
 

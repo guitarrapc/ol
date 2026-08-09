@@ -308,6 +308,7 @@ internal sealed class ScanCommands
         var format = default(ScanInputFormat);
         var specificationVersion = default(Utf8Slice);
         var inventoryCount = 0;
+        var sbomCount = 0;
         try
         {
             if (sourceHash is not null)
@@ -355,9 +356,17 @@ internal sealed class ScanCommands
                     }
                 }
 
-                if ((files.Length > 1 || inventoryCount > 0) && inventory.Input.Kind != ScanInputKind.PackageManager)
+                // A repository-wide SBOM and per-project package-manager inputs describe one resolution at two
+                // granularities, so they combine. Two repository-wide documents are a contradiction in the input
+                // rather than something Ol can resolve.
+                if (inventory.Input.Kind == ScanInputKind.Sbom)
                 {
-                    throw new InvalidOperationException("Multiple inputs must all be package-manager inputs.");
+                    if (sbomCount > 0)
+                    {
+                        throw new InvalidOperationException("A collection accepts at most one SBOM document.");
+                    }
+
+                    sbomCount++;
                 }
 
                 inventories[inventoryCount] = inventory;
@@ -370,6 +379,11 @@ internal sealed class ScanCommands
                 }
                 else
                 {
+                    if (kind != inventory.Input.Kind)
+                    {
+                        kind = ScanInputKind.Collection;
+                    }
+
                     if (format != inventory.Input.Format)
                     {
                         format = ScanInputFormat.Collection;
@@ -1154,8 +1168,8 @@ internal static class ReportRenderer
     {
         WriteInputHeader(writer, input);
         WriteUtf8(writer, verbose
-            ? "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS PURL"u8
-            : "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS"u8);
+            ? "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS SUPPLIED PURL"u8
+            : "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS SUPPLIED"u8);
         WriteNewLine(writer);
         for (var i = 0; i < components.Length; i++)
         {
@@ -1171,6 +1185,8 @@ internal static class ReportRenderer
             WriteUtf8(writer, GetDependencyTypeUtf8(component.DependencyType));
             WriteUtf8(writer, " "u8);
             WriteUtf8(writer, component.Status.ToUtf8());
+            WriteUtf8(writer, " "u8);
+            WriteUtf8(writer, GetSuppliedByUtf8(component.SuppliedBy));
             if (verbose)
             {
                 WriteUtf8(writer, " "u8);
@@ -1362,8 +1378,8 @@ internal static class ReportRenderer
     public static string RenderMarkdown(ReadOnlySpan<ScanComponent> components, bool verbose, bool emptyInventory = false)
     {
         var builder = new StringBuilder();
-        builder.AppendLine(verbose ? "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | PURL |" : "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS |");
-        builder.AppendLine(verbose ? "|---|---|---|---|---|---|---|" : "|---|---|---|---|---|---|");
+        builder.AppendLine(verbose ? "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED | PURL |" : "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED |");
+        builder.AppendLine(verbose ? "|---|---|---|---|---|---|---|---|" : "|---|---|---|---|---|---|---|");
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
@@ -1379,6 +1395,8 @@ internal static class ReportRenderer
             builder.Append(component.DependencyType.ToString().ToLowerInvariant());
             builder.Append(" | ");
             builder.Append(component.Status.ToString().ToLowerInvariant());
+            builder.Append(" | ");
+            builder.Append(Encoding.UTF8.GetString(GetSuppliedByUtf8(component.SuppliedBy)));
             if (verbose)
             {
                 builder.Append(" | ");
@@ -1549,6 +1567,7 @@ internal static class ReportRenderer
             writer.WriteString("status"u8, component.Status.ToUtf8());
             writer.WriteString("purl"u8, component.Purl.Span);
             writer.WriteString("sourceId"u8, component.SourceId.Span);
+            WriteSuppliedBy(writer, component.SuppliedBy);
             if (i < componentUsages.Length && componentUsages[i] != DependencyUsage.Unknown)
             {
                 writer.WriteString("usage"u8, componentUsages[i] == DependencyUsage.Development ? "development"u8 : "runtime"u8);
@@ -1722,6 +1741,15 @@ internal static class ReportRenderer
         _ => default,
     };
 
+    // Human output keeps the same tokens the canonical JSON uses so one vocabulary describes both views.
+    private static ReadOnlySpan<byte> GetSuppliedByUtf8(ComponentSupply value) => value switch
+    {
+        ComponentSupply.Sbom => "sbom"u8,
+        ComponentSupply.PackageManager => "package-manager"u8,
+        ComponentSupply.Sbom | ComponentSupply.PackageManager => "sbom,package-manager"u8,
+        _ => "-"u8,
+    };
+
     private static ReadOnlySpan<byte> GetGroupPropertyNameUtf8(string groupBy, int targetIndex)
     {
         var value = groupBy.AsSpan();
@@ -1806,6 +1834,16 @@ internal static class ReportRenderer
         writer.WriteStartObject("network");
         writer.WriteString("githubAuth", summary.AuthMode);
         writer.WriteEndObject();
+    }
+
+    // Which inputs supplied a component is a list rather than a single token so that a collection needs no combined
+    // vocabulary such as "both", and so a reader parses the same shape whatever the input was.
+    private static void WriteSuppliedBy(Utf8JsonWriter writer, ComponentSupply supply)
+    {
+        writer.WriteStartArray("suppliedBy"u8);
+        if ((supply & ComponentSupply.Sbom) != 0) writer.WriteStringValue("sbom"u8);
+        if ((supply & ComponentSupply.PackageManager) != 0) writer.WriteStringValue("package-manager"u8);
+        writer.WriteEndArray();
     }
 
     private static void WriteLicenseCandidates(Utf8JsonWriter writer, ScanComponent component)

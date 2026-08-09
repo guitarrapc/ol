@@ -821,6 +821,9 @@
       "status": "unknown",
       "purl": "",
       "sourceId": "Ol@0.0.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [],
       "warnings": []
     },
@@ -833,6 +836,9 @@
       "status": "matched",
       "purl": "pkg:nuget/BenchmarkDotNet@0.15.8",
       "sourceId": "pkg:nuget/BenchmarkDotNet@0.15.8",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -859,6 +865,9 @@
       "status": "matched",
       "purl": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
       "sourceId": "pkg:nuget/BenchmarkDotNet.Annotations@0.15.8",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -885,6 +894,9 @@
       "status": "unknown",
       "purl": "pkg:nuget/CommandLineParser@2.9.1",
       "sourceId": "pkg:nuget/CommandLineParser@2.9.1",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [],
       "warnings": []
     },
@@ -897,6 +909,9 @@
       "status": "matched",
       "purl": "pkg:nuget/ConsoleAppFramework@5.7.13",
       "sourceId": "pkg:nuget/ConsoleAppFramework@5.7.13",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -923,6 +938,9 @@
       "status": "matched",
       "purl": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
       "sourceId": "pkg:nuget/EnumerableAsyncProcessor@3.8.4",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -949,6 +967,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Gee.External.Capstone@2.3.0",
       "sourceId": "pkg:nuget/Gee.External.Capstone@2.3.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -975,6 +996,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Iced@1.21.0",
       "sourceId": "pkg:nuget/Iced@1.21.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1001,6 +1025,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
       "sourceId": "pkg:nuget/Microsoft.ApplicationInsights@2.23.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1027,6 +1054,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
       "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.11.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1053,6 +1083,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
       "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.14.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1079,6 +1112,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
       "sourceId": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.14.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1105,6 +1141,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
       "sourceId": "pkg:nuget/Microsoft.DiaSymReader@2.0.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1131,6 +1170,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
       "sourceId": "pkg:nuget/Microsoft.Diagnostics.NETCore.Client@0.2.510501",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1157,6 +1199,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
       "sourceId": "pkg:nuget/Microsoft.Diagnostics.Runtime@3.1.512801",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1183,6 +1228,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
       "sourceId": "pkg:nuget/Microsoft.Diagnostics.Tracing.TraceEvent@3.1.21",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1209,6 +1257,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
       "sourceId": "pkg:nuget/Microsoft.DotNet.ILCompiler@10.0.10",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1235,6 +1286,9 @@
       "status": "unknown",
       "purl": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
       "sourceId": "pkg:nuget/Microsoft.DotNet.PlatformAbstractions@3.1.6",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [],
       "warnings": []
     },
@@ -1247,6 +1301,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
       "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection@6.0.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1273,6 +1330,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
       "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@6.0.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1299,6 +1359,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
       "sourceId": "pkg:nuget/Microsoft.Extensions.DependencyModel@6.0.2",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1325,6 +1388,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
       "sourceId": "pkg:nuget/Microsoft.Extensions.Logging@6.0.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1351,6 +1417,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
       "sourceId": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@6.0.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1377,6 +1446,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
       "sourceId": "pkg:nuget/Microsoft.Extensions.Options@6.0.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1403,6 +1475,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
       "sourceId": "pkg:nuget/Microsoft.Extensions.Primitives@6.0.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1429,6 +1504,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
       "sourceId": "pkg:nuget/Microsoft.NET.ILLink.Tasks@10.0.10",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1455,6 +1533,9 @@
       "status": "unknown",
       "purl": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
       "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage@18.3.2",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [],
       "warnings": []
     },
@@ -1467,6 +1548,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
       "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.Telemetry@2.0.2",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1493,6 +1577,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
       "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport@2.0.2",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1519,6 +1606,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
       "sourceId": "pkg:nuget/Microsoft.Testing.Extensions.TrxReport.Abstractions@2.0.2",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1545,6 +1635,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
       "sourceId": "pkg:nuget/Microsoft.Testing.Platform@2.0.2",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1571,6 +1664,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
       "sourceId": "pkg:nuget/Microsoft.Testing.Platform.MSBuild@2.0.2",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1597,6 +1693,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Perfolizer@0.6.1",
       "sourceId": "pkg:nuget/Perfolizer@0.6.1",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1623,6 +1722,9 @@
       "status": "matched",
       "purl": "pkg:nuget/Pragmastat@3.2.4",
       "sourceId": "pkg:nuget/Pragmastat@3.2.4",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1649,6 +1751,9 @@
       "status": "matched",
       "purl": "pkg:nuget/System.CodeDom@9.0.5",
       "sourceId": "pkg:nuget/System.CodeDom@9.0.5",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1675,6 +1780,9 @@
       "status": "matched",
       "purl": "pkg:nuget/System.Management@9.0.5",
       "sourceId": "pkg:nuget/System.Management@9.0.5",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1701,6 +1809,9 @@
       "status": "matched",
       "purl": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
       "sourceId": "pkg:nuget/System.Reflection.TypeExtensions@4.7.0",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1727,6 +1838,9 @@
       "status": "matched",
       "purl": "pkg:nuget/TUnit@1.12.111",
       "sourceId": "pkg:nuget/TUnit@1.12.111",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1753,6 +1867,9 @@
       "status": "matched",
       "purl": "pkg:nuget/TUnit.Assertions@1.12.111",
       "sourceId": "pkg:nuget/TUnit.Assertions@1.12.111",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1779,6 +1896,9 @@
       "status": "matched",
       "purl": "pkg:nuget/TUnit.Core@1.12.111",
       "sourceId": "pkg:nuget/TUnit.Core@1.12.111",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1805,6 +1925,9 @@
       "status": "matched",
       "purl": "pkg:nuget/TUnit.Engine@1.12.111",
       "sourceId": "pkg:nuget/TUnit.Engine@1.12.111",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",
@@ -1831,6 +1954,9 @@
       "status": "matched",
       "purl": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.10",
       "sourceId": "pkg:nuget/runtime.linux-x64.Microsoft.DotNet.ILCompiler@10.0.10",
+      "suppliedBy": [
+        "sbom"
+      ],
       "licenseCandidates": [
         {
           "source": "sbom",

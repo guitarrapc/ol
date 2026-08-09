@@ -6,7 +6,7 @@ Ol の出発点は「SBOM と package manager と source repository を組み合
 
 測定は入力経路の優劣を決めるためのものではない。どの経路が何を落とすかを知り、補い合わせるために行った。この文書は、その測定結果と、組み合わせを機能させるための実装順序を定める。実装済み仕様ではない。
 
-Phase 1 から Phase 3 は 2026-08-09 に実装済み。結果は各節に記録した。残るのは Phase 4 (入力の組み合わせ) と Phase 5 (再測定) である。
+Phase 1 から Phase 3 は 2026-08-09 に、Phase 4 は 2026-08-10 に実装済み。結果は各節に記録した。残るのは Phase 5 (再測定) である。
 
 ## 背景: 測定
 
@@ -188,42 +188,53 @@ SBOM と package manager 入力を一つの収集として扱えるようにす�
 
 上の測定表は Phase 1-3 より前の値である。Phase 5 の再測定はこの表を更新する。
 
-**欠陥 4 (入力の排他) だけが未解消であり、以降が残作業である。**
+### Phase 4 (実装済み)
 
-### Phase 4: 入力の組み合わせ
+欠陥 4 も解消した。SBOM 1 つと package manager 入力 N 個を一度に scan でき、purl identity で突き合わせる。確定した仕様は [input combination](../specs/cli.md#contract-input-combination) と [component supply](../specs/cli.md#contract-component-supply) にある。
 
-1. SBOM と package manager 入力の同時 scan を許す failing tests を追加する。
-2. purl による突き合わせと、片方にしかない component の保持を実装する。
-3. 入力ごとの供給範囲を報告に追加する。
-4. [cli.md](../specs/cli.md) の「must be scanned separately」を改める。
+実装中に決めた、計画時点では未定だった点を記録する。
+
+- **突合は purl の identity 部分で行う。** qualifier と subpath を落とし、format が既に宣言している大小文字規則で比較する。Ol 自身が maven・gem・cocoapods で qualifier 付き purl を出すため、purl 全体の一致では実測のほとんどが突合されない。
+- **fan-out の向きは package manager 側が行を持つ。** SBOM が 1 つの component として述べるものを package manager は install path ごとに分けて持つ。潰すと母集団が package manager 単独より減るため、SBOM 側を吸収して宣言を全行に配る。SBOM の occurrence は入力順で最初の行に付く。SBOM が区別していない以上、これ以外に発明せずに選べる端点がない。
+- **突合は SBOM の境界だけに適用する。** lockfile 同士は別々のインストールを記述しているので、同じ purl でも別の観測である。加えて、どちらが行を持つかを決める根拠が無い。
+- **母集団差の表現は component の supply とした。** context に入力の情報を持たせる案は、SBOM が context を持たないため合成 context の追加を要し、SBOM 単独 scan の出力まで変えてしまう。候補の source から逆算する案は、宣言を持たない component が候補を持たないため機能しない。母集団差で問題になるのはまさにその種の component である。
+- **`schemaVersion` は 1 のまま据え置いた。** reader が完全一致で判定するため、追加フィールドのために上げると利用者の保存済み report が読めなくなる。
 
 ### Phase 5: 再測定
 
-Phase 1 から 4 の後、この文書の 5 エコシステム 4 条件を同じ手順で測り直し、表を更新する。条件 A と B の和が、それぞれ単独を下回らないことを確認する。
+5 エコシステムを測り直し、上の表を更新する。条件は 4 つから 5 つに増やす。
+
+| 条件 | 入力 | 外部証拠収集 |
+|---|---|---|
+| A | package manager の解決済み入力 | あり |
+| B | CycloneDX SBOM | あり |
+| C | CycloneDX SBOM | `--no-external-evidence` |
+| D | package manager の解決済み入力 | `--no-external-evidence` |
+| E | SBOM + package manager の同時入力 | あり |
+
+条件 E を直接測れるようになったので、完了条件は「A と B の和」という抽象的な言い方をやめ、**E が A も B も下回らない**という形にする。あわせて、E の母集団が A と B のいずれの母集団も包含することを確認する。
 
 ## Test matrix
 
-Phase 1-3 の等価クラスは回帰テストとして存在する。残りは Phase 4 の分である。
-
-| 入力 | 期待 |
-|---|---|
-| SBOM と PM の両方に同一 purl、双方が宣言 | 双方を候補として保持 |
-| SBOM のみに存在する purl | 報告に残り、供給入力が分かる |
-| PM のみに存在する purl | 報告に残り、供給入力が分かる |
+Phase 1-4 の等価クラスは回帰テストとして存在する。Phase 4 の分は `MixedInputScanTests` にある。残りは Phase 5 の分で、これはテストではなく測定である。
 
 ## 仕様更新
 
-| 文書 | 更新内容 |
-|---|---|
-| [cli.md](../specs/cli.md) | 複数入力の組み合わせ規則。入力ごとの供給範囲の報告 |
-| [Architecture.md](../Architecture.md) | 「Preserve evidence instead of selecting one source」を、入力経路の排他が否定していた事実と、その解消 |
-| [verification.md](../specs/verification.md) | 5 エコシステム 4 条件の再測定を検証手順として位置付けるか判断する |
+| 文書 | 更新内容 | 状態 |
+|---|---|---|
+| [cli.md](../specs/cli.md) | 複数入力の組み合わせ規則。入力ごとの供給範囲の報告 | 済 |
+| [Architecture.md](../Architecture.md) | 「Preserve evidence instead of selecting one source」を、入力経路の排他が否定していた事実と、その解消 | 済 |
+| [verification.md](../specs/verification.md) | 5 エコシステム 4 条件の再測定を検証手順として位置付けるか判断する | 済。契約は ecosystem smoke に入れ、解決率は CI の合格条件にしない |
 
 ## 完了条件
 
-- SBOM と package manager 入力を一度に scan でき、母集団の差が報告から分かる。
-- 5 エコシステムの再測定で、条件 A と B の和が単独条件を下回らない。
-- 全テスト、ecosystem smoke、関連ベンチマークが合格する。
+- SBOM と package manager 入力を一度に scan でき、母集団の差が報告から分かる。**達成済み。**
+- 5 エコシステムの再測定で、条件 E が条件 A も B も下回らない。**Phase 5 で確認する。**
+- 全テスト、ecosystem smoke、関連ベンチマークが合格する。**Phase 4 時点で合格。**
+
+## この計画の値打ちについて
+
+実装前に見積もった時点で、Phase 4 が解決率に足すものはほぼ無いと分かっていた。Phase 1-3 が既に取り切っていたためである。それでも実施したのは、獲得が解決率ではなく**母集団差の可視化と結論の由来説明**にあるからで、完了条件もそう読めるように書き換えてある。Phase 5 の測定は「増えたか」ではなく「減っていないか」を確認するものである。
 
 ## Lessons learned
 

@@ -17,6 +17,7 @@ namespace Ol.Core;
 /// <param name="AdditionalCandidates">The additional extracted candidates, when present.</param>
 /// <param name="Warnings">Warnings associated with this component.</param>
 /// <param name="RepositoryUrl">The source repository URL supplied by the SBOM, when present.</param>
+/// <param name="SuppliedBy">The input kinds that supplied this component.</param>
 public readonly record struct ScanComponent(
     Utf8Slice Name,
     Utf8Slice Version,
@@ -29,7 +30,8 @@ public readonly record struct ScanComponent(
     LicenseCandidate PrimaryCandidate,
     LicenseCandidate[] AdditionalCandidates,
     string[] Warnings,
-    Utf8Slice RepositoryUrl = default)
+    Utf8Slice RepositoryUrl = default,
+    ComponentSupply SuppliedBy = ComponentSupply.None)
 {
     /// <summary>Gets the number of retained license candidates.</summary>
     public int CandidateCount => PrimaryCandidate.Source != LicenseCandidateSource.None ? AdditionalCandidates.Length + 1 : 0;
@@ -39,4 +41,22 @@ public readonly record struct ScanComponent(
         => index == 0 && PrimaryCandidate.Source != LicenseCandidateSource.None ? PrimaryCandidate
         : (uint)(index - 1) < (uint)AdditionalCandidates.Length ? AdditionalCandidates[index - 1]
         : throw new ArgumentOutOfRangeException(nameof(index));
+}
+
+/// <summary>
+/// The input kinds that supplied one component. A collection that scans an SBOM alongside resolved
+/// package-manager inputs sets both flags on the components both inputs describe, so a reader can tell an
+/// agreed component from one only a single input knows about.
+/// </summary>
+[Flags]
+public enum ComponentSupply : byte
+{
+    /// <summary>No input recorded.</summary>
+    None = 0,
+
+    /// <summary>An SBOM document supplied this component.</summary>
+    Sbom = 1,
+
+    /// <summary>A resolved package-manager input supplied this component.</summary>
+    PackageManager = 2,
 }

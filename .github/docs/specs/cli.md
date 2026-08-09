@@ -62,10 +62,18 @@ An external-source failure is retained as warning evidence when another source s
 Dependency type is `root`, `direct`, `transitive`, or `unknown`. It is `unknown` whenever the input cannot prove the relationship. The value is required in canonical JSON and shown in the default human-readable columns:
 
 ```text
-NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS
+NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS SUPPLIED
 ```
 
 Verbose output additionally includes `PURL`.
+
+<a id="contract-component-supply"></a>
+
+`SUPPLIED` names the input kinds that supplied a component, as `sbom`, `package-manager`, or both. Canonical JSON carries the same tokens in a `suppliedBy` array, so one vocabulary describes both views and a collection needs no combined value such as "both".
+
+The value is present in every report, including a scan of one input where it is constant. A field that appears only when a collection mixed kinds would force a reader to determine the input composition before it could interpret the field's absence, and would leave "this scan had one input" indistinguishable from "an older Ol wrote this report".
+
+Supply is what makes a combined scan readable. Two inputs rarely enumerate the same set: a lockfile can hold entries an SBOM omits, and a module graph can count modules that never enter a build. Ol reports the union and never fills a gap in one input from the other, so the difference between the inputs is only visible if each component states which of them saw it.
 
 <a id="contract-empty-inventory"></a>
 
@@ -134,9 +142,23 @@ ol scan --input <file-or-directory> [--input <file-or-directory> ...]
 
 `--input` is required and repeatable. It accepts CycloneDX JSON, SPDX JSON, or supported resolved package-manager inputs: NuGet assets, npm, pnpm, Yarn Classic/Berry, Cargo metadata, Go module graph, pip inspect, Composer, Bundler, Maven dependency tree, Swift `Package.resolved`, and CocoaPods lock data. `--input-format` defaults to `auto`; an explicit format is an assertion and must match every discovered document.
 
-Ol consumes already resolved inventories; it does not resolve manifests or version ranges. Directory discovery uses only registered resolved-input names, does not follow reparse points, and requires complete companion-file sets for Go and Composer. Content signatures, not filenames or registration order, determine a document's format. Unsupported versions, no match, ambiguous matches, malformed companion sets, SBOM/package-manager mixtures, and multiple SBOM documents are input failures.
+Ol consumes already resolved inventories; it does not resolve manifests or version ranges. Directory discovery uses only registered resolved-input names, does not follow reparse points, and requires complete companion-file sets for Go and Composer. Content signatures, not filenames or registration order, determine a document's format. Unsupported versions, no match, ambiguous matches, malformed companion sets, and more than one SBOM document are input failures.
 
-Repeated and directory inputs are deduplicated by resolved file path and processed in deterministic logical-path order. Multiple package-manager formats form one collection while retaining their own contexts and graphs; Ol does not invent edges between inventories. A repository-wide SBOM and direct package-manager inputs are alternative authoritative sources and must be scanned separately.
+Repeated and directory inputs are deduplicated by resolved file path and processed in deterministic logical-path order. Multiple package-manager formats form one collection while retaining their own contexts and graphs; Ol does not invent edges between inventories.
+
+<a id="contract-input-combination"></a>
+
+One SBOM document may be scanned together with any number of package-manager inputs. The two describe one resolution at two granularities, so combining them lets evidence from both reach the same component; a second repository-wide document would be a contradiction in the input rather than something Ol can resolve, which is why only one is accepted.
+
+Components are matched across that boundary on package URL identity: the part of the purl before any qualifier or subpath, compared with the case rule the package-manager format already declares. Whole-purl comparison would miss matches, because Ol and SBOM generators disagree about which qualifiers to emit for the same artifact, and because ecosystems differ on whether casing is significant.
+
+Package-manager inputs own the resulting rows and the SBOM folds into them. A package manager distinguishes installed copies that an SBOM states once, so a single SBOM component answers for every copy and its declaration reaches all of them. Collapsing them instead would report fewer components than the package-manager input alone, and Ol does not shrink a population. The SBOM's own occurrence attaches to the first matching row in input order; that is the only endpoint its graph can name without inventing a distinction the SBOM never made. A purl no package-manager input supplies keeps its own row, and a component without a purl is never matched.
+
+Matching only spans the SBOM boundary. Two lockfiles describe two installations, so a purl they share is two observations rather than one, and package-manager inputs never fold into each other. Each input keeps its own contexts and graph, and folding adds evidence without replacing anything the receiving row already states.
+
+Because the package-manager row is the one that survives, a folded component is reported with that input's purl spelling and qualifiers. The same component can therefore be printed as `pkg:nuget/Direct.Package@1.0.0` by a collection and as `pkg:nuget/direct.package@1.0.0` by a scan of the SBOM alone. Nothing is lost, but a consumer comparing two reports must compare purl identity rather than the printed string, exactly as the matching rule does.
+
+Combining inputs can produce a `conflict` that neither input produces alone, because it introduces a comparison the inputs never had: what one declares against what the other declares. That is the point of scanning them together rather than a cost of it. Report identity follows the mixture: the input kind is `collection`, and the SBOM-specific identity fields are omitted because the collection's reference and hash describe every input rather than the SBOM.
 
 `scan` collects external package and source evidence by default. `--refresh` bypasses reusable entries. `--no-external-evidence` reads neither external sources nor their caches and reports that collection was not attempted.
 

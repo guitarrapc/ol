@@ -1691,7 +1691,7 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithRepeatedSbomAndPackageManagerInput_RejectsMixedCollection()
+    public async Task Scan_WithSbomAndPackageManagerInput_ScansThemAsOneCollection()
     {
         var root = FindRepositoryRoot();
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-mixed-input-{Guid.NewGuid():N}");
@@ -1703,11 +1703,15 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--input", assetsPath, "--no-external-evidence");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--input", assetsPath, "--no-external-evidence", "--format", "json");
 
-            await Assert.That(exitCode).IsEqualTo(1);
-            await Assert.That(stdout).IsEmpty();
-            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Multiple inputs must all be package-manager inputs.");
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("collection");
+            // The SBOM declares no components, so the collection is exactly the package-manager population.
+            await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(4);
         }
         finally
         {

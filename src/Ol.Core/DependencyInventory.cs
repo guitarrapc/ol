@@ -10,6 +10,9 @@ public readonly record struct ScanInputKind(string Name)
     /// <summary>A package-manager resolved dependency input.</summary>
     public static ScanInputKind PackageManager { get; } = new("package-manager");
 
+    /// <summary>A collection combining an SBOM document with resolved package-manager inputs.</summary>
+    public static ScanInputKind Collection { get; } = new("collection");
+
     /// <inheritdoc />
     public override string ToString() => Name;
 }

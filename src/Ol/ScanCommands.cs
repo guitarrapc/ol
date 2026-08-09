@@ -1199,40 +1199,58 @@ internal static class ReportRenderer
 
     /// <summary>Selects the one mechanism that best explains an unresolved component.</summary>
     /// <remarks>
+    /// <para>
     /// A component can carry several warnings, and listing all of them restates plumbing rather than
     /// naming the next action. The order runs from the most specific and actionable mechanism to the
     /// most general, so a package whose license text is inside its own artifact is not described merely
-    /// as having an unusable repository. A component with neither a warning nor a declared location is
+    /// as having an unusable repository. A component with neither a warning nor a declared reference is
     /// not listed at all: repeating its status would add a row per component without adding a fact the
-    /// table does not already show. A declared location is such a fact, so a component carrying one is
-    /// listed under its status even though no collection mechanism failed.
+    /// table does not already show.
+    /// </para>
+    /// <para>
+    /// An unread declaration is one of these mechanisms, derived here rather than recorded by each
+    /// provider. What the reviewer does next follows from the kind of place the publisher named and
+    /// from nothing else: open the file the package carries, read the text the registry holds, or
+    /// follow the URL. The registry that answered does not change any of those, which is why this is
+    /// one rule over <see cref="DeclaredLicenseReferenceKind"/> instead of a warning per ecosystem.
+    /// A named file or embedded text outranks a repository outcome because it is a document that
+    /// certainly answers the question; a URL ranks below one because it may lead anywhere. Several
+    /// sources can each declare a different kind for one component, so the strongest kind present
+    /// decides, not the first source that stated one.
+    /// </para>
     /// </remarks>
     private static bool TryGetUnresolvedReason(in ScanComponent component, out ReadOnlySpan<byte> reason)
     {
         var warnings = LicenseCandidateWarnings.None;
-        var hasDeclaredReference = false;
+        var declaredFile = false;
+        var declaredText = false;
+        var declaredLocation = false;
         for (var i = 0; i < component.CandidateCount; i++)
         {
             var candidate = component.GetCandidate(i);
             warnings |= candidate.Warnings;
-            hasDeclaredReference |= candidate.Evidence.DeclaredReference is not null;
+            switch (candidate.Evidence.DeclaredReference?.Kind)
+            {
+                case DeclaredLicenseReferenceKind.ArtifactPath: declaredFile = true; break;
+                case DeclaredLicenseReferenceKind.InlineText: declaredText = true; break;
+                case DeclaredLicenseReferenceKind.Location: declaredLocation = true; break;
+            }
         }
 
         reason =
             (warnings & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0 ? "external_evidence_not_collected"u8
             : (warnings & LicenseCandidateWarnings.PackageMetadataNotFound) != 0 ? "package_metadata_not_found"u8
-            : (warnings & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0 ? "nuget_license_file_unresolved"u8
+            : declaredFile ? "declared_license_file_not_collected"u8
+            : declaredText ? "declared_license_text_not_collected"u8
             : (warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0 ? "license_not_recognized"u8
             : (warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0 ? "license_not_detected"u8
-            : (warnings & LicenseCandidateWarnings.NuGetLicenseUrlUnsupported) != 0 ? "nuget_license_url_unsupported"u8
+            : declaredLocation ? "declared_license_location_not_collected"u8
             : (warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0 ? "unsupported_source_repository"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0 ? "source_repository_subdirectory"u8
-            : (warnings & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0 ? "nuget_license_metadata_missing"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0 ? "source_repository_unavailable"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0 ? "source_repository_fetch_failed"u8
             : (warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0 ? "unsupported_package_metadata"u8
             : (warnings & LicenseCandidateWarnings.PackageMetadataFetchFailed) != 0 ? "package_metadata_fetch_failed"u8
-            : hasDeclaredReference ? component.Status.ToUtf8()
             : default;
         return !reason.IsEmpty;
     }
@@ -1248,10 +1266,12 @@ internal static class ReportRenderer
     private static string GetUnresolvedReference(in ScanComponent component, ReadOnlySpan<byte> reason)
     {
         // A location the publisher declared outranks anything Ol inferred, because it is the place the
-        // publisher said the license is rather than a place Ol happened to look.
+        // publisher said the license is rather than a place Ol happened to look. Embedded text names no
+        // place at all and is retained with an empty value by design, so it is skipped rather than
+        // returned: reporting it would print a blank reference and hide the one a later source states.
         for (var i = 0; i < component.CandidateCount; i++)
         {
-            if (component.GetCandidate(i).Evidence.DeclaredReference is { } declared)
+            if (component.GetCandidate(i).Evidence.DeclaredReference is { Value.IsEmpty: false } declared)
             {
                 return declared.Value.ToString();
             }
@@ -1746,7 +1766,12 @@ internal static class ReportRenderer
         // written once here rather than inside each source's own shape.
         if (evidence.DeclaredReference is { } declaredReference)
         {
-            writer.WriteString("declaredLicenseReferenceKind", declaredReference.Kind == DeclaredLicenseReferenceKind.Location ? "location" : "artifact-path");
+            writer.WriteString("declaredLicenseReferenceKind", declaredReference.Kind switch
+            {
+                DeclaredLicenseReferenceKind.Location => "location",
+                DeclaredLicenseReferenceKind.InlineText => "inline-text",
+                _ => "artifact-path",
+            });
             writer.WriteString("declaredLicenseReference", declaredReference.Value.Span);
         }
 
@@ -1849,9 +1874,6 @@ internal static class ReportRenderer
         if ((warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0) writer.WriteStringValue("license_not_detected"u8);
         if ((warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) writer.WriteStringValue("license_not_recognized"u8);
         if ((warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0) writer.WriteStringValue("source_repository_subdirectory"u8);
-        if ((warnings & LicenseCandidateWarnings.NuGetLicenseUrlUnsupported) != 0) writer.WriteStringValue("nuget_license_url_unsupported"u8);
-        if ((warnings & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0) writer.WriteStringValue("nuget_license_metadata_missing"u8);
-        if ((warnings & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0) writer.WriteStringValue("nuget_license_file_unresolved"u8);
         writer.WriteEndArray();
     }
 

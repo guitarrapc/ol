@@ -2,6 +2,8 @@
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
 
 namespace Ol.Tests;
 
@@ -1714,11 +1716,105 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).Contains("Unresolved components");
-            await Assert.That(stdout).Contains("Example 1.0.0 ambiguous https://example.test/LICENSE.txt");
+            await Assert.That(stdout).Contains("Example 1.0.0 declared_license_location_not_collected https://example.test/LICENSE.txt");
         }
         finally
         {
             File.Delete(sbomPath);
+        }
+    }
+
+    // The reason a declared license went unread is the same fact in every ecosystem, and the kind of
+    // place the publisher named is what a reviewer acts on. Neither depends on which registry answered.
+    [Test]
+    [Arguments("pkg:cargo/example@1.0.0", DeclaredLicenseReferenceKind.ArtifactPath, "LICENSE-APACHE", "declared_license_file_not_collected LICENSE-APACHE")]
+    [Arguments("pkg:pypi/example@1.0.0", DeclaredLicenseReferenceKind.ArtifactPath, "LICENSE.rst", "declared_license_file_not_collected LICENSE.rst")]
+    [Arguments("pkg:cocoapods/Example@1.0.0", DeclaredLicenseReferenceKind.InlineText, "", "declared_license_text_not_collected")]
+    [Arguments("pkg:nuget/Example@1.0.0", DeclaredLicenseReferenceKind.Location, "https://example.test/eula", "declared_license_location_not_collected https://example.test/eula")]
+    public async Task Scan_WithDeclaredLicenseReference_NamesTheSameMechanismInEveryEcosystem(string purl, DeclaredLicenseReferenceKind kind, string reference, string expected)
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-declared-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "input.cdx.json");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, $$"""
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            { "type": "library", "name": "Example", "version": "1.0.0", "purl": "{{purl}}" }
+          ]
+        }
+        """, Encoding.UTF8);
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var cache = new PackageMetadataCache(packageCacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord(purl, "package-registry", string.Empty, string.Empty, [], [], DateTimeOffset.UtcNow, string.Empty, kind, reference));
+        try
+        {
+            var text = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", sbomPath, "--format", "text", "--quiet");
+
+            await Assert.That(text.ExitCode).IsEqualTo(0);
+            await Assert.That(text.Stdout).Contains($"Example 1.0.0 {expected}");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    // Embedded license text is a declaration with no place to name, and Ol deliberately never retains
+    // the text. Its empty value must not be presented as the reference, nor suppress one that exists.
+    [Test]
+    public async Task Scan_WithEmbeddedLicenseTextBesideALocation_ReportsTheLocationRatherThanAnEmptyReference()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-inline-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "input.cdx.json");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, """
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            {
+              "type": "library",
+              "name": "Example",
+              "version": "1.0.0",
+              "purl": "pkg:cocoapods/Example@1.0.0",
+              "licenses": [ { "license": { "name": "Facebook Platform License", "url": "https://example.test/platform-license" } } ]
+            }
+          ]
+        }
+        """, Encoding.UTF8);
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var cache = new PackageMetadataCache(packageCacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:cocoapods/Example@1.0.0", "package-registry", string.Empty, string.Empty, [], [], DateTimeOffset.UtcNow, string.Empty, DeclaredLicenseReferenceKind.InlineText, string.Empty));
+        try
+        {
+            var text = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", sbomPath, "--format", "text", "--quiet");
+            var json = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", sbomPath, "--format", "json", "--quiet");
+
+            await Assert.That(text.ExitCode).IsEqualTo(0);
+            await Assert.That(text.Stdout).Contains("Example 1.0.0 declared_license_text_not_collected https://example.test/platform-license");
+
+            using var report = JsonDocument.Parse(json.Stdout);
+            var kinds = report.RootElement.GetProperty("components")[0].GetProperty("licenseCandidates").EnumerateArray()
+                .Select(static candidate => candidate.TryGetProperty("evidence", out var evidence) && evidence.TryGetProperty("declaredLicenseReferenceKind", out var kind) ? kind.GetString() : null)
+                .Where(static value => value is not null)
+                .ToArray();
+
+            await Assert.That(kinds).Contains("inline-text");
+            await Assert.That(kinds).Contains("location");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
         }
     }
 

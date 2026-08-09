@@ -230,6 +230,8 @@ allocation は cache 経路で変化しなかった (`CacheReadBenchmark.Package
 
 他のエコシステムに同等の warning を追加することもしない。参照を持つ未解決コンポーネントは、warning が無くても未解決セクションに status と宣言先を伴って現れる。人間が次に取る行動はそこで決まり、機械可読な事実は typed evidence にある。エコシステムごとに warning 語彙を増やすのは、この文書が避けようとした「1 エコシステムにつき 1 語彙」そのものである。
 
+**後日の結果（追記）**: 改名しないという判断も、他エコシステムへ warning を増やさないという判断も維持された。誤っていたのは「warning が無くても status が現れるから十分」という前提のほうだった。status は機構を名指さないので、同じ事実が NuGet では `nuget_license_file_unresolved`、CocoaPods では `ambiguous` と表示され、`InlineText` は空の参照として出ていた。結論は改名でも追加でもなく、3 つの NuGet warning を**削除**して reason を `DeclaredLicenseReferenceKind` から導出することだった。詳細は [cli.md](../specs/cli.md#contract-unresolved-section) を参照。導出はこの節が守ろうとした性質をそのまま満たし、加えて 16 bit の warning 語彙から 3 bit を返した。
+
 したがって報告 `schemaVersion` は据え置く。追加した `declaredLicenseReferenceKind` と `declaredLicenseReference` は加算的なプロパティで、既存の consumer が読む値をどれも変えない。
 
 計画からの逸脱を 1 つ記録する。当初の項目に「`Unknown - See URL` 相当がライセンス名ではなく参照として扱われ、`ambiguous` にならないこと」があったが、これは実装しなかった。CycloneDX の `license.name` は「正規化できないライセンス名」と「ライセンス名の形をした非回答」を構造的に区別できず、区別する唯一の方法はジェネレータが書く文字列を条件に書くことである。それはこの文書自身が非目標として禁じている。`ambiguous` は「ライセンス表記はあるが推測なしには正規化できない」という定義どおりの状態であり、Ol は入力に書かれたことを忠実に報告している。人間が次に取る行動は、隣に並ぶ宣言された URL が与える。

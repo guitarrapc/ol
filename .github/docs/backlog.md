@@ -61,6 +61,14 @@ Ol resolves an SPDX License Identifier but not the SPDX full license name, altho
 - This deliberately does not resolve values that only resemble a license name. `Apache 2.0`, `Modified BSD License`, `PSFL`, and `Dual License` are not SPDX names, and PyPI Trove classifiers such as `License :: OSI Approved :: BSD License` and `License :: OSI Approved :: Apache Software License` name a family without a version, so all of them must stay ambiguous.
 - Cost is not only the lookup: names must be added to the generated license data and to the `spdx update` parsing path, and name collisions with deprecated identifiers need a rule before this can be accepted.
 
+## Warning Vocabulary Budget
+
+`LicenseCandidateWarnings` is one bit per warning in a `ushort`, so the vocabulary is a bounded resource. Retiring the three NuGet license warnings returned three bits and left thirteen in use.
+
+- Before adding a warning, check whether the report already carries the fact in typed form. The retired three each restated one `DeclaredLicenseReferenceKind` for one ecosystem, which is why they were derivable and why the same fact went unreported in Cargo, PyPI, and CocoaPods.
+- A warning earns a bit when it records an outcome nothing else states: a collection that failed, was refused, or was never attempted.
+- `WarningVocabulary_EveryFlag_RoundTripsAndFitsItsStorage` fails if the set outgrows its storage or two flags share an identifier. Widen the enum deliberately rather than in passing.
+
 ## Repository Detection Versus Declared Conjunctions
 
 `unicode-ident@1.0.24` declares `(MIT OR Apache-2.0) AND Unicode-3.0` on crates.io and its repository root reports `Apache-2.0`, so every Rust project that reaches it reports one conflict. Reconciliation already treats a repository detector's single answer as satisfying a declared disjunction, on the stated ground that a detector names one option out of several by construction. The same limitation applies to a conjunction — the GitHub License API cannot express `AND` at all — but a conjunction currently becomes a disagreement, which is [pinned behavior](specs/spdx.md#contract-expression-agreement) rather than an oversight — the measurement that produced the shallow relation recorded this exact case as the one conflict it left standing.

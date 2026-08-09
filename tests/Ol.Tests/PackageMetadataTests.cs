@@ -699,7 +699,9 @@ public sealed class PackageMetadataTests
 
         await Assert.That(record.RepositoryUrl).IsEmpty();
         await Assert.That(record.RepositoryRef).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.Location);
+        await Assert.That(record.DeclaredLicenseReference).IsEqualTo(licenseUrl);
     }
 
     [Test]
@@ -715,18 +717,37 @@ public sealed class PackageMetadataTests
 
         await Assert.That(record.RepositoryUrl).IsEmpty();
         await Assert.That(record.RepositoryRef).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.Location);
     }
 
+    /// <summary>
+    /// Guards the warning vocabulary as a whole: every flag survives the persisted round trip, no two
+    /// flags share an identifier, and the set still fits its storage. The set is stored as one bit per
+    /// warning in a <see langword="ushort"/>, so a vocabulary that grows past sixteen stops being
+    /// representable — which is what spending flags on facts other fields already carry costs.
+    /// </summary>
     [Test]
-    [Arguments(LicenseCandidateWarnings.NuGetLicenseUrlUnsupported, "nuget_license_url_unsupported")]
-    [Arguments(LicenseCandidateWarnings.NuGetLicenseMetadataMissing, "nuget_license_metadata_missing")]
-    [Arguments(LicenseCandidateWarnings.NuGetLicenseFileUnresolved, "nuget_license_file_unresolved")]
-    public async Task NuGetWarningIdentifier_RoundTripsThroughStringAndUtf8(LicenseCandidateWarnings warning, string identifier)
+    public async Task WarningVocabulary_EveryFlag_RoundTripsAndFitsItsStorage()
     {
-        await Assert.That(warning.ToStrings()).IsEquivalentTo([identifier]);
-        await Assert.That(LicenseCandidateIdentifiers.ParseWarning(identifier)).IsEqualTo(warning);
-        await Assert.That(LicenseCandidateIdentifiers.ParseWarning(System.Text.Encoding.UTF8.GetBytes(identifier))).IsEqualTo(warning);
+        var flags = Enum.GetValues<LicenseCandidateWarnings>().Where(static value => value != LicenseCandidateWarnings.None).ToArray();
+        var identifiers = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var flag in flags)
+        {
+            var identifier = flag.ToStrings().Single();
+
+            await Assert.That(identifiers.Add(identifier)).IsTrue();
+            await Assert.That(LicenseCandidateIdentifiers.ParseWarning(identifier)).IsEqualTo(flag);
+            await Assert.That(LicenseCandidateIdentifiers.ParseWarning(System.Text.Encoding.UTF8.GetBytes(identifier))).IsEqualTo(flag);
+            await Assert.That(identifier).DoesNotContain("nuget_");
+        }
+
+        var combined = flags.Aggregate(LicenseCandidateWarnings.None, static (accumulated, flag) => accumulated | flag);
+
+        await Assert.That(combined.ToStrings()).Count().IsEqualTo(flags.Length);
+        await Assert.That((uint)combined).IsLessThanOrEqualTo(ushort.MaxValue);
+        await Assert.That(flags.Length).IsLessThanOrEqualTo(16);
     }
 
     [Test]
@@ -789,7 +810,8 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://gitlab.com/real/project");
-        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.Location);
     }
 
     [Test]
@@ -823,7 +845,7 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
-    public async Task Fetch_NuGetRegistrationResponse_WithUnsafeProjectUrl_DiscardsRepositoryAndExplainsMissingMetadata()
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsafeProjectUrl_DiscardsRepositoryAndDeclaresNothing()
     {
         var handler = new SequenceJsonResponseHandler(
             NuGetServiceIndex(),
@@ -833,7 +855,9 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(record.RepositoryUrl).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_metadata_missing");
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.None);
     }
 
     [Test]
@@ -858,7 +882,9 @@ public sealed class PackageMetadataTests
 
         await Assert.That(record.RawLicense).IsEmpty();
         await Assert.That(record.RepositoryUrl).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_file_unresolved");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.ArtifactPath);
+        await Assert.That(record.DeclaredLicenseReference).IsEqualTo("LICENSE.txt");
     }
 
     [Test]
@@ -890,7 +916,8 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(record.RawLicense).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_file_unresolved");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReference).IsEqualTo("MIT-LICENSE.txt");
     }
 
     [Test]
@@ -909,7 +936,7 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
-    public async Task Fetch_NuGetCatalogEntry_WithoutAnyLicenseMetadata_ExplainsMissingMetadata()
+    public async Task Fetch_NuGetCatalogEntry_WithoutAnyLicenseMetadata_DeclaresNothingWithoutWarning()
     {
         var handler = new SequenceJsonResponseHandler(
             NuGetServiceIndex(),
@@ -920,7 +947,26 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(record.RepositoryUrl).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_metadata_missing");
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.None);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistration_WithoutTheRequestedVersion_AnswersNotFoundRatherThanMissingLicenseMetadata()
+    {
+        // The registration document is a completed answer that does not list this version, which is the
+        // same fact a 404 states. Describing it as "the publisher declared no license" would assert
+        // something about a package version the registry never described.
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata("1.0.0", licenseUrl: "https://example.test/license"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "9.9.9", "pkg:nuget/Example@9.9.9"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.Warnings).IsEquivalentTo(["package_metadata_not_found"]);
     }
 
     [Test]
@@ -961,7 +1007,7 @@ public sealed class PackageMetadataTests
 
         await Assert.That(handler.RequestUris[2]).IsEqualTo("https://api.nuget.org/v3/registration5-gz-semver2/example/page/1.0.0/2.0.0.json");
         await Assert.That(handler.RequestUris[3]).IsEqualTo(CatalogLeafUri);
-        await Assert.That(record.Warnings).Contains("nuget_license_file_unresolved");
+        await Assert.That(record.DeclaredLicenseReference).IsEqualTo("LICENSE.txt");
     }
 
     [Test]
@@ -993,7 +1039,8 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
-        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.Location);
     }
 
     [Test]
@@ -1820,8 +1867,13 @@ public sealed class PackageMetadataTests
         }
     }
 
+    /// <summary>
+    /// A cache written before the NuGet license warnings were retired still reads. An identifier a
+    /// reader no longer knows contributes nothing rather than rejecting the entry, so a retired
+    /// vocabulary costs one recollection at most and never a corrupt-cache error.
+    /// </summary>
     [Test]
-    public async Task Enrichment_LegacyNuGetCacheWithUnsupportedLicenseUrlWarning_RefreshesOnce()
+    public async Task Enrichment_LegacyNuGetCacheWithRetiredLicenseWarning_RefreshesOnceWithoutRejectingTheEntry()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
         const string purl = "pkg:nuget/Example@1.0.0";

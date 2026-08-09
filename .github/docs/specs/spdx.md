@@ -217,7 +217,15 @@ Audit evidence is a traceable observation, not an independent license conclusion
 
 <a id="contract-declared-license-reference"></a>
 
-A publisher that cannot state an SPDX expression often states where its license is instead. Ol retains that as a declared license reference: a kind and the value exactly as the publisher wrote it. The kind is a URL location or a path inside the published artifact, and the same two shapes occur across ecosystems — NuGet `licenseUrl` and `licenseFile`, CycloneDX `license.url`, npm's legacy license collection, Cargo `license_file`, CocoaPods `license.file`. One representation keeps them one concept rather than one vocabulary per ecosystem.
+A publisher that cannot state an SPDX expression often states where its license is instead. Ol retains that as a declared license reference: a kind and the value exactly as the publisher wrote it. The same shapes occur across ecosystems, and one representation keeps them one concept rather than one vocabulary per ecosystem.
+
+| Kind | JSON | Sources | Value |
+|---|---|---|---|
+| location | `location` | NuGet `licenseUrl`, CycloneDX `license.url`, npm's legacy license collection | The URL as written. |
+| artifact path | `artifact-path` | NuGet `licenseFile`, Cargo `license_file`, PyPI `license_files`, CocoaPods `license.file` | The path as written. |
+| inline text | `inline-text` | CocoaPods `license.text` | Always empty. Only that a document exists is recorded; a license document is never retained in a cache or a report. |
+
+Because the kind decides what a reviewer does next, an unresolved component's [reason](cli.md#contract-unresolved-section) is derived from it rather than recorded per ecosystem. Inline text is a declaration with no place to name, so it must reach a report as its own outcome and never as an empty location.
 
 A reference is not a license and is not license text. Ol has not read what it names, so a reference never contributes a license value and never changes what a component resolves to. It is resolved by reading the thing it names, or it stays an unresolved declaration. Measuring the declared locations in three .NET repositories found that most lead to a licensing overview page or a redirector rather than to a license document, which is why the retained fact is where the publisher pointed and not what is there.
 

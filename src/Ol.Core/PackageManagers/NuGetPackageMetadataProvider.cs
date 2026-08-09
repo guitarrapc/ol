@@ -94,9 +94,12 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
 
     public override PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request)
     {
+        // A registration document that does not list this version is a completed answer about a version
+        // the registry does not describe, which is the fact a 404 states. Reporting it as an absent
+        // license declaration would assert something about metadata that was never returned.
         if (!TryFindCatalogEntry(root, request.Version, out var catalog))
         {
-            return new("nuget-registry", "", "", "", LicenseCandidateWarnings.NuGetLicenseMetadataMissing);
+            return new("nuget-registry", "", "", "", LicenseCandidateWarnings.PackageMetadataNotFound);
         }
 
         var repository = PackageMetadataJson.ReadElement(catalog, "repository");
@@ -122,15 +125,16 @@ public sealed class NuGetPackageMetadataProvider : PackageMetadataProvider
             }
         }
 
-        var warnings = LicenseCandidateWarnings.None;
-        if (licenseExpression.Length == 0 && !SourceRepositoryTarget.TryCreate(repositoryUrl, repositoryRef, out _))
-        {
-            warnings = licenseFile.Length != 0 ? LicenseCandidateWarnings.NuGetLicenseFileUnresolved
-                : licenseUrl.Length != 0 ? LicenseCandidateWarnings.NuGetLicenseUrlUnsupported
-                : LicenseCandidateWarnings.NuGetLicenseMetadataMissing;
-        }
-
-        return new("nuget-registry", licenseExpression, repositoryUrl, repositoryRef, warnings);
+        // The file the package carries is the more specific place to look than a URL that may lead
+        // anywhere, so it is the reference when both are declared.
+        var (referenceKind, referenceValue) = licenseFile.Length != 0
+            ? (DeclaredLicenseReferenceKind.ArtifactPath, licenseFile)
+            : licenseUrl.Length != 0 ? (DeclaredLicenseReferenceKind.Location, licenseUrl)
+            : (DeclaredLicenseReferenceKind.None, string.Empty);
+        // Why the declaration went unread is not recorded here and is not a NuGet fact. The reference
+        // and the component's status say it in every ecosystem, so a report derives it once rather than
+        // each provider spending a warning identifier on its own spelling of the same outcome.
+        return new("nuget-registry", licenseExpression, repositoryUrl, repositoryRef, LicenseCandidateWarnings.None, referenceKind, referenceValue);
     }
 
     private static bool TryCreateRepositoryFromLicenseUrl(string value, out string repositoryUrl, out string repositoryRef)

@@ -9,6 +9,7 @@ using Ol.Core;
 using Ol.Core.Generated;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
+using Ol.Core.PackageManagers;
 using Ol.Core.Spdx;
 using Ol.Internals;
 
@@ -654,8 +655,13 @@ internal sealed class SpdxDataDigest
     public static SpdxDataDigest ForFiles(string licensesPath, string exceptionsPath) => new(licensesPath, exceptionsPath);
 
     /// <summary>Calculates the active licenses digest once per run.</summary>
+    /// <remarks>
+    /// Covers names as well as identifiers, because both decide what a value resolves to. Hashing only
+    /// the identifiers would give two snapshots that rename a license the same digest, while the file
+    /// digest used for user-managed data already distinguishes them.
+    /// </remarks>
     public string GetLicensesSha256()
-        => licenses ??= licensesPath is null ? ComputeGeneratedDataHash(SpdxGeneratedLicenseData.LicenseIds) : HashFile(licensesPath);
+        => licenses ??= licensesPath is null ? ComputeGeneratedDataHash(SpdxGeneratedLicenseData.LicenseIds, SpdxGeneratedLicenseData.LicenseNames) : HashFile(licensesPath);
 
     /// <summary>Calculates the active exceptions digest once per run.</summary>
     public string GetExceptionsSha256()
@@ -663,7 +669,7 @@ internal sealed class SpdxDataDigest
 
     private static string HashFile(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
 
-    private static string ComputeGeneratedDataHash(string[] identifiers) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', identifiers)))).ToLowerInvariant();
+    private static string ComputeGeneratedDataHash(params string[][] values) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', values.SelectMany(static value => value))))).ToLowerInvariant();
 }
 
 /// <remarks>
@@ -703,7 +709,7 @@ internal readonly record struct SpdxData(
     private static SpdxData CreateBundled()
     {
         return new SpdxData(
-            new SpdxLicenseIndex(SpdxGeneratedLicenseData.LicenseIds, SpdxGeneratedLicenseData.ExceptionIds, SpdxGeneratedLicenseData.DeprecatedLicenseIds),
+            new SpdxLicenseIndex(SpdxGeneratedLicenseData.LicenseIds, SpdxGeneratedLicenseData.ExceptionIds, SpdxGeneratedLicenseData.DeprecatedLicenseIds, SpdxGeneratedLicenseData.LicenseNames),
             "bundled",
             SpdxGeneratedLicenseData.LicenseListVersion,
             "bundled/spdx/builtin",
@@ -722,25 +728,33 @@ internal readonly record struct SpdxData(
         var licenses = ReadSpdxData(licensesPath, "licenses", "licenseId");
         var exceptions = ReadSpdxData(exceptionsPath, "exceptions", "licenseExceptionId");
         return new SpdxData(
-            new SpdxLicenseIndex(licenses.Ids, exceptions.Ids, licenses.DeprecatedIds),
+            new SpdxLicenseIndex(licenses.Ids, exceptions.Ids, licenses.DeprecatedIds, licenses.Names),
             source,
             licenses.Version,
             dataRef,
             SpdxDataDigest.ForFiles(licensesPath, exceptionsPath));
     }
 
-    private static (string Version, string[] Ids, string[] DeprecatedIds) ReadSpdxData(string path, string arrayName, string propertyName)
+    /// <summary>Reads identifiers, their SPDX names, and the deprecated set from one SPDX document.</summary>
+    /// <remarks>
+    /// <c>Names</c> shares its index with <c>Ids</c>, and an entry that states no name keeps an empty
+    /// string so the two stay aligned. The exceptions document carries names too, but Ol resolves an
+    /// exception only as an operand of <c>WITH</c>, where the operand is an identifier.
+    /// </remarks>
+    private static (string Version, string[] Ids, string[] Names, string[] DeprecatedIds) ReadSpdxData(string path, string arrayName, string propertyName)
     {
         var bytes = File.ReadAllBytes(path);
         using var document = JsonDocument.Parse(SkipUtf8Bom(bytes));
         var values = document.RootElement.GetProperty(arrayName);
         var ids = new string[values.GetArrayLength()];
+        var names = new string[ids.Length];
         var deprecatedIds = new List<string>();
         var index = 0;
         foreach (var item in values.EnumerateArray())
         {
             var id = item.GetProperty(propertyName).GetString() ?? string.Empty;
             ids[index] = id;
+            names[index] = item.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() ?? string.Empty : string.Empty;
             if (item.TryGetProperty("isDeprecatedLicenseId", out var deprecated) && deprecated.ValueKind == JsonValueKind.True)
             {
                 deprecatedIds.Add(id);
@@ -749,7 +763,7 @@ internal readonly record struct SpdxData(
             index++;
         }
 
-        return (document.RootElement.TryGetProperty("licenseListVersion", out var version) ? version.GetString() ?? "unknown" : "unknown", ids, deprecatedIds.ToArray());
+        return (document.RootElement.TryGetProperty("licenseListVersion", out var version) ? version.GetString() ?? "unknown" : "unknown", ids, names, deprecatedIds.ToArray());
     }
 
     private static ReadOnlyMemory<byte> SkipUtf8Bom(byte[] bytes)
@@ -1199,29 +1213,63 @@ internal static class ReportRenderer
 
     /// <summary>Selects the one mechanism that best explains an unresolved component.</summary>
     /// <remarks>
+    /// <para>
     /// A component can carry several warnings, and listing all of them restates plumbing rather than
     /// naming the next action. The order runs from the most specific and actionable mechanism to the
     /// most general, so a package whose license text is inside its own artifact is not described merely
-    /// as having an unusable repository. A component with no warning is not listed at all: repeating its
-    /// status would add a row per component without adding a fact the table does not already show.
+    /// as having an unusable repository. A component with neither a warning nor a declared reference is
+    /// not listed at all: repeating its status would add a row per component without adding a fact the
+    /// table does not already show.
+    /// </para>
+    /// <para>
+    /// An unread declaration is one of these mechanisms, derived here rather than recorded by each
+    /// provider. What the reviewer does next follows from the kind of place the publisher named and
+    /// from nothing else: open the file the package carries, read the text the registry holds, or
+    /// follow the URL. The registry that answered does not change any of those, which is why this is
+    /// one rule over <see cref="DeclaredLicenseReferenceKind"/> instead of a warning per ecosystem.
+    /// A named file or embedded text outranks a repository outcome because it is a document that
+    /// certainly answers the question; a URL ranks below one because it may lead anywhere. Several
+    /// sources can each declare a different kind for one component, so the strongest kind present
+    /// decides, not the first source that stated one.
+    /// </para>
+    /// <para>
+    /// A <see cref="PyPiLicenseClassifier">license family classifier</see> is derived the same way and
+    /// ranks below every one of those, because it names no document at all: it says the value can never
+    /// resolve, which is worth stating only when nothing points somewhere a reviewer could read.
+    /// </para>
     /// </remarks>
     private static bool TryGetUnresolvedReason(in ScanComponent component, out ReadOnlySpan<byte> reason)
     {
         var warnings = LicenseCandidateWarnings.None;
+        var declaredFile = false;
+        var declaredText = false;
+        var declaredLocation = false;
+        var familyClassifier = false;
         for (var i = 0; i < component.CandidateCount; i++)
         {
-            warnings |= component.GetCandidate(i).Warnings;
+            var candidate = component.GetCandidate(i);
+            warnings |= candidate.Warnings;
+            switch (candidate.Evidence.DeclaredReference?.Kind)
+            {
+                case DeclaredLicenseReferenceKind.ArtifactPath: declaredFile = true; break;
+                case DeclaredLicenseReferenceKind.InlineText: declaredText = true; break;
+                case DeclaredLicenseReferenceKind.Location: declaredLocation = true; break;
+            }
+
+            familyClassifier |= candidate.Status == LicenseStatus.Ambiguous && PyPiLicenseClassifier.IsNotSpecific(candidate.Raw.Span);
         }
 
         reason =
             (warnings & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0 ? "external_evidence_not_collected"u8
             : (warnings & LicenseCandidateWarnings.PackageMetadataNotFound) != 0 ? "package_metadata_not_found"u8
-            : (warnings & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0 ? "nuget_license_file_unresolved"u8
+            : declaredFile ? "declared_license_file_not_collected"u8
+            : declaredText ? "declared_license_text_not_collected"u8
             : (warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0 ? "license_not_recognized"u8
             : (warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0 ? "license_not_detected"u8
-            : (warnings & LicenseCandidateWarnings.NuGetLicenseUrlUnsupported) != 0 ? "nuget_license_url_unsupported"u8
+            : declaredLocation ? "declared_license_location_not_collected"u8
+            : familyClassifier ? "license_classifier_not_specific"u8
             : (warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0 ? "unsupported_source_repository"u8
-            : (warnings & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0 ? "nuget_license_metadata_missing"u8
+            : (warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0 ? "source_repository_subdirectory"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0 ? "source_repository_unavailable"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0 ? "source_repository_fetch_failed"u8
             : (warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0 ? "unsupported_package_metadata"u8
@@ -1240,6 +1288,18 @@ internal static class ReportRenderer
     /// </remarks>
     private static string GetUnresolvedReference(in ScanComponent component, ReadOnlySpan<byte> reason)
     {
+        // A location the publisher declared outranks anything Ol inferred, because it is the place the
+        // publisher said the license is rather than a place Ol happened to look. Embedded text names no
+        // place at all and is retained with an empty value by design, so it is skipped rather than
+        // returned: reporting it would print a blank reference and hide the one a later source states.
+        for (var i = 0; i < component.CandidateCount; i++)
+        {
+            if (component.GetCandidate(i).Evidence.DeclaredReference is { Value.IsEmpty: false } declared)
+            {
+                return declared.Value.ToString();
+            }
+        }
+
         var recognized = reason.SequenceEqual("license_not_recognized"u8);
         if (!recognized && !reason.SequenceEqual("unsupported_source_repository"u8))
         {
@@ -1725,6 +1785,19 @@ internal static class ReportRenderer
         }
 
         writer.WriteStartObject("evidence");
+        // The location a publisher declared is provenance for every source that can state one, so it is
+        // written once here rather than inside each source's own shape.
+        if (evidence.DeclaredReference is { } declaredReference)
+        {
+            writer.WriteString("declaredLicenseReferenceKind", declaredReference.Kind switch
+            {
+                DeclaredLicenseReferenceKind.Location => "location",
+                DeclaredLicenseReferenceKind.InlineText => "inline-text",
+                _ => "artifact-path",
+            });
+            writer.WriteString("declaredLicenseReference", declaredReference.Value.Span);
+        }
+
         switch (evidence.Kind)
         {
             case LicenseEvidenceKind.Sbom:
@@ -1732,6 +1805,7 @@ internal static class ReportRenderer
                 var field = evidence.SbomField switch
                 {
                     SbomLicenseField.CycloneDxLicenses => "licenses",
+                    SbomLicenseField.CycloneDxEvidenceLicenses => "evidence.licenses",
                     SbomLicenseField.SpdxLicenseDeclared => "licenseDeclared",
                     SbomLicenseField.SpdxLicenseConcluded => "licenseConcluded",
                     _ => null,
@@ -1822,6 +1896,7 @@ internal static class ReportRenderer
         if ((warnings & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) writer.WriteStringValue("package_metadata_not_found"u8);
         if ((warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0) writer.WriteStringValue("license_not_detected"u8);
         if ((warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) writer.WriteStringValue("license_not_recognized"u8);
+        if ((warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0) writer.WriteStringValue("source_repository_subdirectory"u8);
         writer.WriteEndArray();
     }
 

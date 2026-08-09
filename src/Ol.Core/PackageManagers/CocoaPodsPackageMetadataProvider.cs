@@ -1,4 +1,5 @@
-﻿using Ol.Core.PackageMetadata;
+﻿using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
 using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
@@ -74,7 +75,15 @@ public sealed class CocoaPodsPackageMetadataProvider : PackageMetadataProvider
         var repositoryRef = PackageMetadataJson.ReadString(source, "commit");
         if (repositoryRef.Length == 0) repositoryRef = PackageMetadataJson.ReadString(source, "tag");
         if (repositoryRef.Length == 0) repositoryRef = PackageMetadataJson.ReadString(source, "branch");
-        return new("cocoapods-cdn", rawLicense, repository, repositoryRef);
+        var licenseFile = license.ValueKind == JsonValueKind.Object ? PackageMetadataJson.ReadString(license, "file") : string.Empty;
+        var hasLicenseText = license.ValueKind == JsonValueKind.Object && PackageMetadataJson.ReadString(license, "text").Length != 0;
+        // Embedded text is recorded as existing and never retained: a cache is not a place to keep a
+        // license document, and the report contract keeps license text out of default output.
+        var (referenceKind, referenceValue) = licenseFile.Length != 0
+            ? (DeclaredLicenseReferenceKind.ArtifactPath, licenseFile)
+            : hasLicenseText ? (DeclaredLicenseReferenceKind.InlineText, string.Empty)
+            : (DeclaredLicenseReferenceKind.None, string.Empty);
+        return new("cocoapods-cdn", rawLicense, repository, repositoryRef, LicenseCandidateWarnings.None, referenceKind, referenceValue);
     }
 
     private static bool IsValidName(string name)

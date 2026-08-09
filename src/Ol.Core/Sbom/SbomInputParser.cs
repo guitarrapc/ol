@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 
@@ -196,6 +196,10 @@ internal static class SbomInputParser
         var status = LicenseStatus.Unknown;
         var primaryCandidate = default(LicenseCandidate);
         var additionalCandidates = Array.Empty<LicenseCandidate>();
+        var observedLicense = LicenseText.Unknown;
+        var observedStatus = LicenseStatus.Unknown;
+        var observedPrimary = default(LicenseCandidate);
+        var observedAdditional = Array.Empty<LicenseCandidate>();
 
         while (reader.Read())
         {
@@ -245,9 +249,25 @@ internal static class SbomInputParser
                 continue;
             }
 
+            if (reader.ValueTextEquals("evidence"u8))
+            {
+                (observedLicense, observedStatus, observedPrimary, observedAdditional) = ReadCycloneDxEvidenceLicenses(ref reader, source, offset, spdxLicenseIndex);
+                continue;
+            }
+
             reader.Read();
             reader.Skip();
         }
+
+        (license, status, primaryCandidate, additionalCandidates) = CombineObservedLicenses(
+            license,
+            status,
+            primaryCandidate,
+            additionalCandidates,
+            observedLicense,
+            observedStatus,
+            observedPrimary,
+            observedAdditional);
 
         return CreateScanComponent(name, version, license, OlDefaults.PackageMetadataProviders.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, primaryCandidate, additionalCandidates, repositoryUrl);
     }
@@ -599,6 +619,16 @@ internal static class SbomInputParser
 
             if (validCount > 1)
             {
+                // The collection resolves to no single expression, so no entry in it resolves one
+                // either. Leaving each entry as a resolved claim would let a later evidence source see
+                // them as separate sources disagreeing, and report a conflict this document never
+                // stated. The individual claims stay readable; only what they conclude changes.
+                Demote(ref primaryCandidate);
+                for (var i = 0; i < additionalCandidates.Length; i++)
+                {
+                    Demote(ref additionalCandidates[i]);
+                }
+
                 return (secondValue.IsEmpty ? firstValue : LicenseText.Conflict(firstValue, secondValue), LicenseStatus.Ambiguous, primaryCandidate, additionalCandidates);
             }
 
@@ -618,6 +648,122 @@ internal static class SbomInputParser
         {
             ArrayPool<LicenseCandidate>.Shared.Return(candidateBuffer, clearArray: true);
         }
+    }
+
+    /// <summary>Marks a resolved entry as unresolved because the collection it belongs to is.</summary>
+    private static void Demote(ref LicenseCandidate candidate)
+    {
+        if (candidate.Status == LicenseStatus.Matched)
+        {
+            candidate = candidate with { Status = LicenseStatus.Ambiguous };
+        }
+    }
+
+    /// <summary>Reads <c>component.evidence.licenses</c>, ignoring the other evidence collections.</summary>
+    /// <remarks>
+    /// <c>evidence</c> also carries identity, occurrence, and call-stack data that says nothing about a
+    /// license, so this walks the object and reads only the one collection rather than parsing it whole.
+    /// </remarks>
+    private static (Utf8Slice License, LicenseStatus Status, LicenseCandidate PrimaryCandidate, LicenseCandidate[] AdditionalCandidates) ReadCycloneDxEvidenceLicenses(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)
+    {
+        reader.Read();
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            reader.Skip();
+            return (LicenseText.Unknown, LicenseStatus.Unknown, default, []);
+        }
+
+        var depth = reader.CurrentDepth;
+        var result = (License: LicenseText.Unknown, Status: LicenseStatus.Unknown, PrimaryCandidate: default(LicenseCandidate), AdditionalCandidates: Array.Empty<LicenseCandidate>());
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == depth)
+            {
+                break;
+            }
+
+            if (reader.TokenType != JsonTokenType.PropertyName)
+            {
+                continue;
+            }
+
+            if (reader.ValueTextEquals("licenses"u8))
+            {
+                result = ReadCycloneDxLicenses(ref reader, source, offset, spdxLicenseIndex, SbomLicenseField.CycloneDxEvidenceLicenses);
+                continue;
+            }
+
+            reader.Read();
+            reader.Skip();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Combines a detected license collection with the component's declared one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A producer writes under <c>evidence</c> when it detected a license instead of being told one, so
+    /// the two are not interchangeable. A detection therefore never replaces a declared value: it
+    /// supplies a license only where nothing was declared, which is the only license fact some
+    /// generators emit at all.
+    /// </para>
+    /// <para>
+    /// It can still contradict a declaration, and that disagreement is the reason to read the field:
+    /// it is how a scan sees that an SBOM's stated license does not match what its producer found. A
+    /// collection of several identifiers states no relationship between them, so it stays one
+    /// unresolved observation and never becomes a disagreement; splitting it would make two detected
+    /// identifiers read as two sources contradicting each other.
+    /// </para>
+    /// </remarks>
+    private static (Utf8Slice License, LicenseStatus Status, LicenseCandidate PrimaryCandidate, LicenseCandidate[] AdditionalCandidates) CombineObservedLicenses(
+        Utf8Slice declaredLicense,
+        LicenseStatus declaredStatus,
+        LicenseCandidate declaredPrimary,
+        LicenseCandidate[] declaredAdditional,
+        Utf8Slice observedLicense,
+        LicenseStatus observedStatus,
+        LicenseCandidate observedPrimary,
+        LicenseCandidate[] observedAdditional)
+    {
+        if (observedPrimary.Source == LicenseCandidateSource.None)
+        {
+            return (declaredLicense, declaredStatus, declaredPrimary, declaredAdditional);
+        }
+
+        var candidates = Combine(declaredPrimary, declaredAdditional, observedPrimary, observedAdditional);
+        if (declaredPrimary.Source == LicenseCandidateSource.None)
+        {
+            return (observedLicense, observedStatus, candidates.Primary, candidates.Additional);
+        }
+
+        var (license, status) = declaredStatus == LicenseStatus.Matched && observedStatus == LicenseStatus.Matched
+            ? SpdxExpressionRelation.IsAccountedFor(observedLicense.Span, declaredLicense.Span)
+                ? (declaredLicense, LicenseStatus.Matched)
+                : (LicenseText.Conflict(declaredLicense, observedLicense), LicenseStatus.Conflict)
+            : (declaredLicense, declaredStatus);
+
+        return (license, status, candidates.Primary, candidates.Additional);
+    }
+
+    private static (LicenseCandidate Primary, LicenseCandidate[] Additional) Combine(
+        LicenseCandidate firstPrimary,
+        LicenseCandidate[] firstAdditional,
+        LicenseCandidate secondPrimary,
+        LicenseCandidate[] secondAdditional)
+    {
+        if (firstPrimary.Source == LicenseCandidateSource.None)
+        {
+            return (secondPrimary, secondAdditional);
+        }
+
+        var additional = new LicenseCandidate[firstAdditional.Length + 1 + secondAdditional.Length];
+        firstAdditional.CopyTo(additional, 0);
+        additional[firstAdditional.Length] = secondPrimary;
+        secondAdditional.CopyTo(additional, firstAdditional.Length + 1);
+        return (firstPrimary, additional);
     }
 
     private static (Utf8Slice License, LicenseStatus Status) ReconcileLicenses(LicenseCandidate firstCandidate, LicenseCandidate secondCandidate)
@@ -763,6 +909,7 @@ internal static class SbomInputParser
         var kind = LicenseCandidateKind.None;
         var candidate = LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, kind, default(Utf8Slice), spdxLicenseIndex);
         var acknowledgement = LicenseAcknowledgement.None;
+        var declaredUrl = default(Utf8Slice);
 
         while (reader.Read())
         {
@@ -795,10 +942,19 @@ internal static class SbomInputParser
                 continue;
             }
 
+            // `url` names where the license is, not what it is, so it is retained as a declared
+            // location and never read as a license value.
+            if (reader.ValueTextEquals("url"u8))
+            {
+                declaredUrl = ReadUtf8Slice(ref reader, source, offset);
+                continue;
+            }
+
             reader.Read();
         }
 
-        return candidate with { Evidence = new LicenseEvidence(LicenseEvidenceKind.Sbom, sbomField, acknowledgement) };
+        DeclaredLicenseReference? reference = declaredUrl.IsEmpty ? null : new(DeclaredLicenseReferenceKind.Location, declaredUrl);
+        return candidate with { Evidence = new LicenseEvidence(LicenseEvidenceKind.Sbom, sbomField, acknowledgement, DeclaredReference: reference) };
     }
 
     private static LicenseCandidate CreateLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, LicenseCandidateKind kind, SpdxLicenseIndex spdxLicenseIndex)

@@ -8,7 +8,8 @@ namespace Ol.Internals;
 /// <param name="CacheKey">The logical package identity that produced the metadata.</param>
 /// <param name="RepositoryUrl">The repository URL for source evidence planning, or an empty value.</param>
 /// <param name="RepositoryRef">The repository commit or ref mapped to this package version.</param>
-internal readonly record struct PackageMetadataResolution(string CacheKey, string RepositoryUrl, string RepositoryRef);
+/// <param name="RepositorySubdirectoryDeclared">Whether the publisher placed this package in one directory of a repository that holds several.</param>
+internal readonly record struct PackageMetadataResolution(string CacheKey, string RepositoryUrl, string RepositoryRef, bool RepositorySubdirectoryDeclared = false);
 
 /// <summary>
 /// Owns the pooled per-component package metadata records that the enrichment stages share.

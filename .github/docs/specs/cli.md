@@ -71,9 +71,21 @@ Verbose output additionally includes `PURL`.
 
 A status alone does not tell a reviewer what to do next, and the mechanism that left a license unresolved decides that: wait for Ol to gain a capability, open a document, or ask the publisher. So `text` and `markdown` component views follow the table with an `Unresolved components` section listing each non-`matched` component as `NAME VERSION REASON [REFERENCE]`.
 
-`REASON` is the one warning identifier that best explains the component, selected from the most specific mechanism to the most general so an unread license file is not described merely as an unusable repository. It uses the identifiers the JSON report already uses, so one vocabulary describes both. A component Ol cannot name a mechanism for is omitted rather than listed with its status again, and the whole section is omitted when it would be empty; a report where nothing is unresolved is unchanged.
+`REASON` is the one mechanism that best explains the component, selected from the most specific to the most general so an unread license file is not described merely as an unusable repository. A component with no mechanism is omitted rather than listed with its status again, and the whole section is omitted when it would be empty; a report where nothing is unresolved is unchanged.
 
-`REFERENCE` is present only for the two mechanisms whose subject is a document Ol did not read: `license_not_recognized` supplies the repository license file GitHub could not identify, and `unsupported_source_repository` supplies the repository URL Ol cannot collect from. It is tied to the selected reason, because a project homepage printed beside an unread license file would read as the place that file can be found. Ol never constructs a URL evidence did not supply, so a package whose license text is inside its own artifact shows no reference.
+Most reasons are the warning identifier the JSON report already uses, so one vocabulary describes both. Three are derived instead, one per [declared license reference](spdx.md#contract-declared-license-reference) kind, because an unread declaration is not a collection failure and no source records it as one:
+
+| Declared kind | `REASON` | What the reviewer does |
+|---|---|---|
+| artifact path | `declared_license_file_not_collected` | Open that path inside the published package. |
+| inline text | `declared_license_text_not_collected` | Read the license text the registry metadata itself carries. |
+| location | `declared_license_location_not_collected` | Follow the URL the publisher named. |
+
+These are ecosystem-neutral by construction: what a reviewer does next follows from the kind of place named and not from which registry answered. A named file or embedded text outranks a repository outcome because it is a document that certainly answers the question, while a URL ranks below one because it may lead anywhere. When several sources declare different kinds for one component, the strongest kind present decides.
+
+A fourth reason is derived the same way. `license_classifier_not_specific` says the value is a [PyPI license classifier that names a license family](spdx.md#contract-license-family-classifier) rather than a license, so it can never resolve however much evidence is collected. It ranks below every reason above because it names no document: it is worth stating only when nothing points somewhere a reviewer could read, which is why `sortedcontainers` reports it while `python-dateutil`, whose repository holds a license file GitHub could not classify, still reports `license_not_recognized`.
+
+`REFERENCE` is a location Ol observed but did not read. A declared license reference supplies it whenever one names a place, because the place a publisher named outranks any place Ol chose to look. Inline text names no place and is retained with an empty value, so it is skipped rather than printed as a blank reference or allowed to hide a location another source stated. Otherwise a reference is present only for the two mechanisms whose subject is a document Ol did not read: `license_not_recognized` supplies the repository license file GitHub could not identify, and `unsupported_source_repository` supplies the repository URL Ol cannot collect from. Those two are tied to the selected reason, because a project homepage printed beside an unread license file would read as the place that file can be found. Ol never constructs a URL evidence did not supply.
 
 The section is part of the primary result, so `--quiet` does not suppress it. Grouped views do not carry it, because they display groups rather than components. Canonical JSON is unchanged: it already retains every warning and its typed provenance.
 

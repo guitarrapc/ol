@@ -8,13 +8,16 @@ namespace Ol.Tests;
 public sealed class SpdxStoreTests
 {
     [Test]
-    public async Task Data_Bundled_ReportsDigestsOfTheGeneratedIdentifiers()
+    // The licenses digest covers names as well as identifiers, because both decide what a value
+    // resolves to and the file digest used for installed data already distinguishes them.
+    public async Task Data_Bundled_ReportsDigestsOfTheGeneratedData()
     {
         var data = SpdxData.Load(null);
 
         await Assert.That(data.Source).IsEqualTo("bundled");
-        await Assert.That(data.GetLicensesSha256()).IsEqualTo(ExpectedDigest(SpdxGeneratedLicenseData.LicenseIds));
+        await Assert.That(data.GetLicensesSha256()).IsEqualTo(ExpectedDigest([.. SpdxGeneratedLicenseData.LicenseIds, .. SpdxGeneratedLicenseData.LicenseNames]));
         await Assert.That(data.GetExceptionsSha256()).IsEqualTo(ExpectedDigest(SpdxGeneratedLicenseData.ExceptionIds));
+        await Assert.That(data.GetLicensesSha256()).IsNotEqualTo(ExpectedDigest(SpdxGeneratedLicenseData.LicenseIds));
         await Assert.That(data.GetLicensesSha256()).IsNotEqualTo(data.GetExceptionsSha256());
     }
 

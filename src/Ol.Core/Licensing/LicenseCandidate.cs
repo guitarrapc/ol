@@ -24,6 +24,15 @@ public readonly record struct LicenseCandidate(
     LicenseEvidence Evidence = default);
 
 /// <summary>Identifies warning codes retained by a license candidate without string storage.</summary>
+/// <remarks>
+/// One bit per warning in sixteen, so the vocabulary is a bounded resource and a warning has to earn
+/// its bit. A warning belongs here when it records an outcome no other field states — a collection that
+/// failed, was refused, or was never attempted. It does not belong here when the report already carries
+/// the fact in typed form. The three NuGet license warnings this set used to hold were the second kind:
+/// each restated one <see cref="DeclaredLicenseReferenceKind"/> for one ecosystem, and three of sixteen
+/// bits bought a vocabulary that stopped at the ecosystem boundary while Cargo, PyPI, and CocoaPods
+/// declared the same references and said nothing. That fact is now derived where a report needs it.
+/// </remarks>
 [Flags]
 public enum LicenseCandidateWarnings : ushort
 {
@@ -38,11 +47,9 @@ public enum LicenseCandidateWarnings : ushort
     UnsupportedSourceRepository = 1 << 7,
     ExternalEvidenceNotCollected = 1 << 8,
     PackageMetadataNotFound = 1 << 9,
-    NuGetLicenseUrlUnsupported = 1 << 10,
-    NuGetLicenseMetadataMissing = 1 << 11,
-    NuGetLicenseFileUnresolved = 1 << 12,
-    SourceLicenseNotDetected = 1 << 13,
-    SourceLicenseNotRecognized = 1 << 14,
+    SourceLicenseNotDetected = 1 << 10,
+    SourceLicenseNotRecognized = 1 << 11,
+    SourceRepositorySubdirectory = 1 << 12,
 }
 
 /// <summary>Identifies the evidence system that produced a license candidate.</summary>
@@ -90,11 +97,9 @@ public static class LicenseCandidateIdentifiers
         "unsupported_source_repository" => LicenseCandidateWarnings.UnsupportedSourceRepository,
         "external_evidence_not_collected" => LicenseCandidateWarnings.ExternalEvidenceNotCollected,
         "package_metadata_not_found" => LicenseCandidateWarnings.PackageMetadataNotFound,
-        "nuget_license_url_unsupported" => LicenseCandidateWarnings.NuGetLicenseUrlUnsupported,
-        "nuget_license_metadata_missing" => LicenseCandidateWarnings.NuGetLicenseMetadataMissing,
-        "nuget_license_file_unresolved" => LicenseCandidateWarnings.NuGetLicenseFileUnresolved,
         "license_not_detected" => LicenseCandidateWarnings.SourceLicenseNotDetected,
         "license_not_recognized" => LicenseCandidateWarnings.SourceLicenseNotRecognized,
+        "source_repository_subdirectory" => LicenseCandidateWarnings.SourceRepositorySubdirectory,
         _ => LicenseCandidateWarnings.None,
     };
 
@@ -118,11 +123,9 @@ public static class LicenseCandidateIdentifiers
         if (value.SequenceEqual("unsupported_source_repository"u8)) return LicenseCandidateWarnings.UnsupportedSourceRepository;
         if (value.SequenceEqual("external_evidence_not_collected"u8)) return LicenseCandidateWarnings.ExternalEvidenceNotCollected;
         if (value.SequenceEqual("package_metadata_not_found"u8)) return LicenseCandidateWarnings.PackageMetadataNotFound;
-        if (value.SequenceEqual("nuget_license_url_unsupported"u8)) return LicenseCandidateWarnings.NuGetLicenseUrlUnsupported;
-        if (value.SequenceEqual("nuget_license_metadata_missing"u8)) return LicenseCandidateWarnings.NuGetLicenseMetadataMissing;
-        if (value.SequenceEqual("nuget_license_file_unresolved"u8)) return LicenseCandidateWarnings.NuGetLicenseFileUnresolved;
         if (value.SequenceEqual("license_not_detected"u8)) return LicenseCandidateWarnings.SourceLicenseNotDetected;
         if (value.SequenceEqual("license_not_recognized"u8)) return LicenseCandidateWarnings.SourceLicenseNotRecognized;
+        if (value.SequenceEqual("source_repository_subdirectory"u8)) return LicenseCandidateWarnings.SourceRepositorySubdirectory;
         return LicenseCandidateWarnings.None;
     }
 
@@ -165,11 +168,9 @@ public static class LicenseCandidateIdentifiers
         if ((value & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0) result[index++] = "unsupported_source_repository";
         if ((value & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0) result[index++] = "external_evidence_not_collected";
         if ((value & LicenseCandidateWarnings.PackageMetadataNotFound) != 0) result[index++] = "package_metadata_not_found";
-        if ((value & LicenseCandidateWarnings.NuGetLicenseUrlUnsupported) != 0) result[index++] = "nuget_license_url_unsupported";
-        if ((value & LicenseCandidateWarnings.NuGetLicenseMetadataMissing) != 0) result[index++] = "nuget_license_metadata_missing";
-        if ((value & LicenseCandidateWarnings.NuGetLicenseFileUnresolved) != 0) result[index++] = "nuget_license_file_unresolved";
         if ((value & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0) result[index++] = "license_not_detected";
-        if ((value & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) result[index] = "license_not_recognized";
+        if ((value & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0) result[index++] = "license_not_recognized";
+        if ((value & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0) result[index] = "source_repository_subdirectory";
         return result;
     }
 
@@ -254,6 +255,8 @@ public enum SbomLicenseField : byte
     None,
     /// <summary>CycloneDX component <c>licenses</c>.</summary>
     CycloneDxLicenses,
+    /// <summary>CycloneDX component <c>evidence.licenses</c>, which a producer detected rather than was told.</summary>
+    CycloneDxEvidenceLicenses,
     /// <summary>SPDX package <c>licenseDeclared</c>.</summary>
     SpdxLicenseDeclared,
     /// <summary>SPDX package <c>licenseConcluded</c>.</summary>
@@ -284,7 +287,8 @@ public readonly record struct LicenseEvidence(
     LicenseAcknowledgement Acknowledgement = LicenseAcknowledgement.None,
     PackageRegistryEvidence? PackageRegistry = null,
     SourceRepositoryEvidence? SourceRepository = null,
-    DependencyInputEvidence? DependencyInput = null);
+    DependencyInputEvidence? DependencyInput = null,
+    DeclaredLicenseReference? DeclaredReference = null);
 
 /// <summary>Contains structured provenance for a non-SBOM dependency-input candidate.</summary>
 /// <param name="Format">The stable dependency input format.</param>

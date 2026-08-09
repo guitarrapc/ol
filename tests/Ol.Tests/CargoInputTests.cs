@@ -156,6 +156,39 @@ public sealed class CargoInputTests
         await Assert.That(usages[FindComponentIndex(inventory, $"{reg}#dev-child@1.0.0")]).IsEqualTo(DependencyUsage.Development);
     }
 
+    [Test]
+    public async Task Scan_CargoMetadata_LegacySlashSeparatedLicense_ResolvesAsChoiceAndKeepsRawSpelling()
+    {
+        const string reg = "registry+https://github.com/rust-lang/crates.io-index";
+        const string json = $$"""
+            {
+              "packages": [
+                { "name": "app", "version": "0.1.0", "id": "path+file:///repo#app@0.1.0", "license": "MIT", "source": null, "manifest_path": "/repo/Cargo.toml" },
+                { "name": "legacy", "version": "1.0.0", "id": "{{reg}}#legacy@1.0.0", "license": "MIT/Apache-2.0", "source": "{{reg}}", "manifest_path": "/c/legacy/Cargo.toml" }
+              ],
+              "workspace_members": [ "path+file:///repo#app@0.1.0" ],
+              "workspace_default_members": [ "path+file:///repo#app@0.1.0" ],
+              "resolve": {
+                "nodes": [
+                  { "id": "path+file:///repo#app@0.1.0", "dependencies": [ "{{reg}}#legacy@1.0.0" ],
+                    "deps": [ { "name": "legacy", "pkg": "{{reg}}#legacy@1.0.0", "dep_kinds": [ { "kind": null, "target": null } ] } ], "features": [] },
+                  { "id": "{{reg}}#legacy@1.0.0", "dependencies": [], "deps": [], "features": [] }
+                ],
+                "root": "path+file:///repo#app@0.1.0"
+              },
+              "target_directory": "/repo/target", "version": 1, "workspace_root": "/repo", "metadata": null
+            }
+            """;
+
+        var inventory = DependencyInputScanner.Scan(Encoding.UTF8.GetBytes(json), Spdx, expectedFormat: ScanInputFormat.CargoMetadata);
+        var legacy = FindComponent(inventory, $"{reg}#legacy@1.0.0");
+
+        await Assert.That(legacy.Status).IsEqualTo(LicenseStatus.Matched);
+        await Assert.That(legacy.License.ToString()).IsEqualTo("MIT OR Apache-2.0");
+        await Assert.That(legacy.PrimaryCandidate.Raw.ToString()).IsEqualTo("MIT/Apache-2.0");
+        await Assert.That(legacy.PrimaryCandidate.Normalized.ToString()).IsEqualTo("MIT OR Apache-2.0");
+    }
+
     private static int FindComponentIndex(DependencyInventory inventory, string sourceId)
         => Array.FindIndex(inventory.Components, component => component.SourceId.ToString() == sourceId);
 

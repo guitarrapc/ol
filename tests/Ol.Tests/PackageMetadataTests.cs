@@ -367,6 +367,30 @@ public sealed class PackageMetadataTests
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/example/package");
     }
 
+    // npm carried its license declaration in three shapes before the current string field, and packages
+    // published under the older ones are still installed today. Reading only the current shape drops a
+    // license the registry states plainly: `wrench@1.5.9` publishes `licenses: [{ "type": "MIT" }]` and
+    // no `license`, and Ol reported it unresolved. Equivalence classes: current shape, each legacy
+    // shape, both shapes present, a collection stating no relationship, and nothing at all.
+
+    [Test]
+    [Arguments("string", """{ "license": "MIT" }""", "MIT")]
+    [Arguments("object", """{ "license": { "type": "MIT", "url": "https://example.test/LICENSE" } }""", "MIT")]
+    [Arguments("collection-single", """{ "licenses": [ { "type": "MIT", "url": "https://example.test/LICENSE" } ] }""", "MIT")]
+    [Arguments("collection-object", """{ "licenses": { "type": "MIT" } }""", "MIT")]
+    [Arguments("both-shapes", """{ "license": "Apache-2.0", "licenses": [ { "type": "MIT" } ] }""", "Apache-2.0")]
+    [Arguments("collection-several", """{ "licenses": [ { "type": "MIT" }, { "type": "Apache-2.0" } ] }""", "")]
+    [Arguments("absent", """{ "name": "example" }""", "")]
+    public async Task Fetch_NpmVersionResponse_ReadsEveryDeclarationShape(string label, string body, string expected)
+    {
+        var client = CreateClient(body);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo(expected);
+        await Assert.That(label).IsNotEmpty();
+    }
+
     [Test]
     public async Task Fetch_NuGetRegistrationResponse_ProducesLicenseExpression()
     {
@@ -675,7 +699,9 @@ public sealed class PackageMetadataTests
 
         await Assert.That(record.RepositoryUrl).IsEmpty();
         await Assert.That(record.RepositoryRef).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.Location);
+        await Assert.That(record.DeclaredLicenseReference).IsEqualTo(licenseUrl);
     }
 
     [Test]
@@ -691,18 +717,37 @@ public sealed class PackageMetadataTests
 
         await Assert.That(record.RepositoryUrl).IsEmpty();
         await Assert.That(record.RepositoryRef).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.Location);
     }
 
+    /// <summary>
+    /// Guards the warning vocabulary as a whole: every flag survives the persisted round trip, no two
+    /// flags share an identifier, and the set still fits its storage. The set is stored as one bit per
+    /// warning in a <see langword="ushort"/>, so a vocabulary that grows past sixteen stops being
+    /// representable — which is what spending flags on facts other fields already carry costs.
+    /// </summary>
     [Test]
-    [Arguments(LicenseCandidateWarnings.NuGetLicenseUrlUnsupported, "nuget_license_url_unsupported")]
-    [Arguments(LicenseCandidateWarnings.NuGetLicenseMetadataMissing, "nuget_license_metadata_missing")]
-    [Arguments(LicenseCandidateWarnings.NuGetLicenseFileUnresolved, "nuget_license_file_unresolved")]
-    public async Task NuGetWarningIdentifier_RoundTripsThroughStringAndUtf8(LicenseCandidateWarnings warning, string identifier)
+    public async Task WarningVocabulary_EveryFlag_RoundTripsAndFitsItsStorage()
     {
-        await Assert.That(warning.ToStrings()).IsEquivalentTo([identifier]);
-        await Assert.That(LicenseCandidateIdentifiers.ParseWarning(identifier)).IsEqualTo(warning);
-        await Assert.That(LicenseCandidateIdentifiers.ParseWarning(System.Text.Encoding.UTF8.GetBytes(identifier))).IsEqualTo(warning);
+        var flags = Enum.GetValues<LicenseCandidateWarnings>().Where(static value => value != LicenseCandidateWarnings.None).ToArray();
+        var identifiers = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var flag in flags)
+        {
+            var identifier = flag.ToStrings().Single();
+
+            await Assert.That(identifiers.Add(identifier)).IsTrue();
+            await Assert.That(LicenseCandidateIdentifiers.ParseWarning(identifier)).IsEqualTo(flag);
+            await Assert.That(LicenseCandidateIdentifiers.ParseWarning(System.Text.Encoding.UTF8.GetBytes(identifier))).IsEqualTo(flag);
+            await Assert.That(identifier).DoesNotContain("nuget_");
+        }
+
+        var combined = flags.Aggregate(LicenseCandidateWarnings.None, static (accumulated, flag) => accumulated | flag);
+
+        await Assert.That(combined.ToStrings()).Count().IsEqualTo(flags.Length);
+        await Assert.That((uint)combined).IsLessThanOrEqualTo(ushort.MaxValue);
+        await Assert.That(flags.Length).IsLessThanOrEqualTo(16);
     }
 
     [Test]
@@ -765,7 +810,8 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://gitlab.com/real/project");
-        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.Location);
     }
 
     [Test]
@@ -799,7 +845,7 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
-    public async Task Fetch_NuGetRegistrationResponse_WithUnsafeProjectUrl_DiscardsRepositoryAndExplainsMissingMetadata()
+    public async Task Fetch_NuGetRegistrationResponse_WithUnsafeProjectUrl_DiscardsRepositoryAndDeclaresNothing()
     {
         var handler = new SequenceJsonResponseHandler(
             NuGetServiceIndex(),
@@ -809,7 +855,9 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(record.RepositoryUrl).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_metadata_missing");
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.None);
     }
 
     [Test]
@@ -834,7 +882,9 @@ public sealed class PackageMetadataTests
 
         await Assert.That(record.RawLicense).IsEmpty();
         await Assert.That(record.RepositoryUrl).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_file_unresolved");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.ArtifactPath);
+        await Assert.That(record.DeclaredLicenseReference).IsEqualTo("LICENSE.txt");
     }
 
     [Test]
@@ -866,7 +916,8 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(record.RawLicense).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_file_unresolved");
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReference).IsEqualTo("MIT-LICENSE.txt");
     }
 
     [Test]
@@ -885,7 +936,7 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
-    public async Task Fetch_NuGetCatalogEntry_WithoutAnyLicenseMetadata_ExplainsMissingMetadata()
+    public async Task Fetch_NuGetCatalogEntry_WithoutAnyLicenseMetadata_DeclaresNothingWithoutWarning()
     {
         var handler = new SequenceJsonResponseHandler(
             NuGetServiceIndex(),
@@ -896,7 +947,26 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(record.RepositoryUrl).IsEmpty();
-        await Assert.That(record.Warnings).Contains("nuget_license_metadata_missing");
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.Warnings).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.None);
+    }
+
+    [Test]
+    public async Task Fetch_NuGetRegistration_WithoutTheRequestedVersion_AnswersNotFoundRatherThanMissingLicenseMetadata()
+    {
+        // The registration document is a completed answer that does not list this version, which is the
+        // same fact a 404 states. Describing it as "the publisher declared no license" would assert
+        // something about a package version the registry never described.
+        var handler = new SequenceJsonResponseHandler(
+            NuGetServiceIndex(),
+            NuGetRegistrationMetadata("1.0.0", licenseUrl: "https://example.test/license"));
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(handler);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "9.9.9", "pkg:nuget/Example@9.9.9"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.Warnings).IsEquivalentTo(["package_metadata_not_found"]);
     }
 
     [Test]
@@ -937,7 +1007,7 @@ public sealed class PackageMetadataTests
 
         await Assert.That(handler.RequestUris[2]).IsEqualTo("https://api.nuget.org/v3/registration5-gz-semver2/example/page/1.0.0/2.0.0.json");
         await Assert.That(handler.RequestUris[3]).IsEqualTo(CatalogLeafUri);
-        await Assert.That(record.Warnings).Contains("nuget_license_file_unresolved");
+        await Assert.That(record.DeclaredLicenseReference).IsEqualTo("LICENSE.txt");
     }
 
     [Test]
@@ -969,7 +1039,8 @@ public sealed class PackageMetadataTests
         var record = await client.FetchAsync(new PackageMetadataRequest("nuget", "", "Example", "1.0.0", "pkg:nuget/Example@1.0.0"));
 
         await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
-        await Assert.That(record.Warnings).Contains("nuget_license_url_unsupported");
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+        await Assert.That(record.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.Location);
     }
 
     [Test]
@@ -1256,6 +1327,76 @@ public sealed class PackageMetadataTests
         await Assert.That(goRecord.Source).IsEqualTo("go-module-proxy");
         await Assert.That(goRecord.RawLicense).IsEmpty();
         await Assert.That(goRecord.RepositoryUrl).IsEqualTo("https://github.com/example/module");
+    }
+
+    [Test]
+    public async Task Fetch_GoResponseWithoutOrigin_DerivesRepositoryFromGitHubModulePath()
+    {
+        // proxy.golang.org omits Origin for module versions cached before it recorded one, and the
+        // module path is the repository for github.com by the Go module resolution rule itself.
+        var go = CreateClient("""{ "Version": "v1.1.1", "Time": "2018-02-21T23:26:28Z" }""");
+
+        var record = await go.FetchAsync(new PackageMetadataRequest("golang", "github.com/davecgh", "go-spew", "v1.1.1", "pkg:golang/github.com/davecgh/go-spew@v1.1.1"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/davecgh/go-spew");
+        await Assert.That(record.RepositoryRef).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_GoResponseWithoutOrigin_DerivesRepositoryRootFromMajorVersionSuffixedModulePath()
+    {
+        var go = CreateClient("""{ "Version": "v2.2.4" }""");
+
+        var record = await go.FetchAsync(new PackageMetadataRequest("golang", "github.com/pelletier/go-toml", "v2", "v2.2.4", "pkg:golang/github.com/pelletier/go-toml/v2@v2.2.4"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/pelletier/go-toml/v2");
+    }
+
+    [Test]
+    [Arguments("gopkg.in", "yaml.v3")]
+    [Arguments("rsc.io", "pdf")]
+    [Arguments("", "example.test")]
+    public async Task Fetch_GoResponseWithoutOrigin_LeavesNonGitHubModulePathUnresolved(string moduleNamespace, string moduleName)
+    {
+        // A vanity import path is not a repository URL, and Ol does not resolve one by following it.
+        var go = CreateClient("""{ "Version": "v1.0.0" }""");
+
+        var record = await go.FetchAsync(new PackageMetadataRequest("golang", moduleNamespace, moduleName, "v1.0.0", $"pkg:golang/{moduleName}@v1.0.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEmpty();
+    }
+
+    [Test]
+    public async Task Fetch_GoResponseWithOrigin_KeepsProxyRepositoryOverModulePath()
+    {
+        var go = CreateClient("""{ "Origin": { "URL": "https://go.googlesource.com/sys", "Ref": "refs/tags/v0.13.0" } }""");
+
+        var record = await go.FetchAsync(new PackageMetadataRequest("golang", "golang.org/x", "sys", "v0.13.0", "pkg:golang/golang.org/x/sys@v0.13.0"));
+
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://go.googlesource.com/sys");
+        await Assert.That(record.RepositoryRef).IsEqualTo("refs/tags/v0.13.0");
+    }
+
+    [Test]
+    public async Task Fetch_NpmResponseDeclaringRepositoryDirectory_RecordsThatTheRepositoryHoldsMoreThanThisPackage()
+    {
+        var npm = CreateClient("""{ "license": "Apache-2.0", "repository": { "url": "https://github.com/eslint/js.git", "directory": "packages/eslint-visitor-keys" } }""");
+
+        var record = await npm.FetchAsync(new PackageMetadataRequest("npm", "", "eslint-visitor-keys", "5.0.1", "pkg:npm/eslint-visitor-keys@5.0.1"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("Apache-2.0");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/eslint/js.git");
+        await Assert.That(record.Warnings).Contains("source_repository_subdirectory");
+    }
+
+    [Test]
+    public async Task Fetch_NpmResponseWithoutRepositoryDirectory_KeepsRepositoryAsThisPackagesSubject()
+    {
+        var npm = CreateClient("""{ "license": "MIT", "repository": { "url": "https://github.com/owner/repository.git" } }""");
+
+        var record = await npm.FetchAsync(new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0"));
+
+        await Assert.That(record.Warnings).IsEmpty();
     }
 
     [Test]
@@ -1726,8 +1867,13 @@ public sealed class PackageMetadataTests
         }
     }
 
+    /// <summary>
+    /// A cache written before the NuGet license warnings were retired still reads. An identifier a
+    /// reader no longer knows contributes nothing rather than rejecting the entry, so a retired
+    /// vocabulary costs one recollection at most and never a corrupt-cache error.
+    /// </summary>
     [Test]
-    public async Task Enrichment_LegacyNuGetCacheWithUnsupportedLicenseUrlWarning_RefreshesOnce()
+    public async Task Enrichment_LegacyNuGetCacheWithRetiredLicenseWarning_RefreshesOnceWithoutRejectingTheEntry()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
         const string purl = "pkg:nuget/Example@1.0.0";
@@ -1771,6 +1917,60 @@ public sealed class PackageMetadataTests
 
             await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(handler.RequestUris.Count).IsEqualTo(3);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task Enrichment_ResolvedNpmCacheWrittenBeforeRepositoryDirectoryWasRead_RefreshesOnce()
+    {
+        // A license does not make the subdirectory fact observable, so an npm entry that predates reading
+        // it is collected again once rather than keeping a monorepo package reported as conflicting.
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:npm/example@1.0.0";
+        using var handler = new SequenceJsonResponseHandler("""{ "license": "MIT", "repository": { "url": "https://github.com/owner/monorepo", "directory": "packages/example" } }""");
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(cache.GetPath(purl), $$"""
+                {
+                  "SchemaVersion": 1,
+                  "ResolverVersion": 4,
+                  "CacheKey": "{{purl}}",
+                  "CacheKeySha256": "{{PackageMetadataCache.GetCacheKeySha256(purl)}}",
+                  "Source": "npm-registry",
+                  "RawLicense": "MIT",
+                  "RepositoryUrl": "https://github.com/owner/monorepo",
+                  "Warnings": [],
+                  "Errors": [],
+                  "FetchedAt": "2026-07-08T00:00:00+00:00"
+                }
+                """);
+            var index = new SpdxLicenseIndex(["MIT"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(GetRecord(workspace, 0)!.Value.RepositorySubdirectoryDeclared).IsTrue();
+
+            var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
+            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
+            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+
+            await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(GetRecord(cachedWorkspace, 0)!.Value.RepositorySubdirectoryDeclared).IsTrue();
+            await Assert.That(handler.RequestUris.Count).IsEqualTo(1);
         }
         finally
         {

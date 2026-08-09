@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using Ol.Core.Licensing;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Ol.Core.PackageMetadata;
@@ -68,6 +69,8 @@ public sealed class PackageMetadataCache(string root)
         var repositoryRef = string.Empty;
         var fetchedAt = default(DateTimeOffset);
         var resolverVersion = 0;
+        var referenceKind = DeclaredLicenseReferenceKind.None;
+        Utf8Slice reference = default;
         try
         {
             if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
@@ -175,6 +178,20 @@ public sealed class PackageMetadataCache(string root)
                         return false;
                     }
                 }
+                else if (reader.ValueTextEquals("DeclaredLicenseReferenceKind"u8))
+                {
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.String || !TryParseReferenceKind(reader.ValueSpan, out referenceKind))
+                    {
+                        return false;
+                    }
+                }
+                else if (reader.ValueTextEquals("DeclaredLicenseReference"u8))
+                {
+                    if (!TryCapture(content, ref reader, out reference))
+                    {
+                        return false;
+                    }
+                }
                 else if (reader.ValueTextEquals("Warnings"u8))
                 {
                     if (!TryCaptureStringArray(content, ref reader, out warnings))
@@ -210,7 +227,7 @@ public sealed class PackageMetadataCache(string root)
             return false;
         }
 
-        entry = new PackageMetadataCacheEntry(content, cacheKeySha256, source, rawLicense, warnings, repositoryUrl, repositoryRef, fetchedAt, resolverVersion);
+        entry = new PackageMetadataCacheEntry(content, cacheKeySha256, source, rawLicense, warnings, repositoryUrl, repositoryRef, fetchedAt, resolverVersion, referenceKind, reference);
         return true;
     }
 
@@ -347,6 +364,17 @@ public sealed class PackageMetadataCache(string root)
     /// <returns>The lower-case SHA-256 cache key hash.</returns>
     public static string GetCacheKeySha256(string cacheKey) => CacheFile.GetCacheKeySha256(cacheKey);
 
+    /// <summary>Parses the persisted reference kind. An unknown value rejects the entry rather than losing it silently.</summary>
+    private static bool TryParseReferenceKind(ReadOnlySpan<byte> value, out DeclaredLicenseReferenceKind kind)
+    {
+        if (value.SequenceEqual("None"u8)) { kind = DeclaredLicenseReferenceKind.None; return true; }
+        if (value.SequenceEqual("Location"u8)) { kind = DeclaredLicenseReferenceKind.Location; return true; }
+        if (value.SequenceEqual("ArtifactPath"u8)) { kind = DeclaredLicenseReferenceKind.ArtifactPath; return true; }
+        if (value.SequenceEqual("InlineText"u8)) { kind = DeclaredLicenseReferenceKind.InlineText; return true; }
+        kind = DeclaredLicenseReferenceKind.None;
+        return false;
+    }
+
     private static bool HasExplicitUtcOffset(ReadOnlySpan<byte> value)
         => value.EndsWith("Z"u8) || value.EndsWith("+00:00"u8);
 
@@ -413,6 +441,8 @@ public sealed class PackageMetadataCache(string root)
 /// <param name="Errors">Metadata errors retained for audit.</param>
 /// <param name="FetchedAt">The metadata fetch timestamp.</param>
 /// <param name="RepositoryRef">The repository commit or ref mapped to this package version.</param>
+/// <param name="DeclaredLicenseReferenceKind">What sort of place the publisher declared, when it declared one.</param>
+/// <param name="DeclaredLicenseReference">The declared location, empty for embedded text whose content is not retained.</param>
 public readonly record struct PackageMetadataRecord(
     string CacheKey,
     string Source,
@@ -421,7 +451,9 @@ public readonly record struct PackageMetadataRecord(
     string[] Warnings,
     string[] Errors,
     DateTimeOffset FetchedAt = default,
-    string RepositoryRef = "")
+    string RepositoryRef = "",
+    DeclaredLicenseReferenceKind DeclaredLicenseReferenceKind = DeclaredLicenseReferenceKind.None,
+    string DeclaredLicenseReference = "")
 {
     /// <summary>
     /// Gets the package metadata cache schema version.
@@ -434,7 +466,15 @@ public readonly record struct PackageMetadataRecord(
     public int ResolverVersion => CurrentResolverVersion;
 
     /// <summary>The resolver capability version this build writes.</summary>
-    public const int CurrentResolverVersion = 3;
+    public const int CurrentResolverVersion = 5;
+
+    /// <summary>The first resolver version that reads npm's <c>repository.directory</c>.</summary>
+    /// <remarks>
+    /// An npm entry written before this version records no answer either way about whether the package
+    /// sits in one directory of a shared repository, and a resolved license does not make that fact
+    /// observable, so such an entry is recollected once even though it carries a license.
+    /// </remarks>
+    public const int NpmRepositoryDirectoryResolverVersion = 5;
 
     /// <summary>
     /// Gets the SHA-256 hash of <see cref="CacheKey"/>.

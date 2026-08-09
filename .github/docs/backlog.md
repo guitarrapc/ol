@@ -53,6 +53,24 @@ Remaining:
 - Evaluate other ecosystems based on purl support and registry metadata quality.
 - Consider whether lockfiles or manifests should be used as supplemental evidence for direct dependency classification or reproducibility checks.
 
+## Free-Text License Values
+
+Implemented: exact matching against the SPDX license list's own [`name`](specs/spdx.md#contract-spdx-license-name) field, which resolves `MIT License` and `Apache License 2.0`; and recognition of the PyPI [license family classifiers](specs/spdx.md#contract-license-family-classifier) PEP 639 excludes from inference, which resolve nothing but explain why.
+
+Remaining, all deliberately unresolved:
+
+- Mapping the PyPI classifiers PEP 639 says do correspond to one identifier. Deferred on measurement rather than principle: every classifier appearing in the 15-project evaluation corpus is on PEP 639's excluded list, so a table would have resolved nothing there. Reconsider if a corpus shows packages whose only license evidence is a specific classifier. It needs roughly 45 curated entries, because only 29 of PyPI's 89 license classifiers are derivable from the SPDX name they contain; the vocabulary is frozen, so such a table would not rot.
+- Near-miss spellings (`Apache 2.0`, `Modified BSD License`, `PSFL`) name no SPDX record, and PEP 639 forbids converting the free-text `License` field without affirmative user action. Resolving them needs a curated alias table, which is guessing with extra steps and belongs with license curation above.
+- Values that state a relationship without an operator (`Dual License`), and tool placeholders (`Unknown - See URL`), name no licenses at all. Together these are 68 of the 104 unresolved free-text occurrences measured, and no rule can resolve them because the fact is absent from the field.
+
+## Warning Vocabulary Budget
+
+`LicenseCandidateWarnings` is one bit per warning in a `ushort`, so the vocabulary is a bounded resource. Retiring the three NuGet license warnings returned three bits and left thirteen in use.
+
+- Before adding a warning, check whether the report already carries the fact in typed form. The retired three each restated one `DeclaredLicenseReferenceKind` for one ecosystem, which is why they were derivable and why the same fact went unreported in Cargo, PyPI, and CocoaPods.
+- A warning earns a bit when it records an outcome nothing else states: a collection that failed, was refused, or was never attempted.
+- `WarningVocabulary_EveryFlag_RoundTripsAndFitsItsStorage` fails if the set outgrows its storage or two flags share an identifier. Widen the enum deliberately rather than in passing.
+
 ## Source Repository Expansion
 
 - Add GitHub Contents API fallback for root `LICENSE`, `COPYING`, and `NOTICE` files if GitHub License API evidence is insufficient.

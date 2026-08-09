@@ -13,22 +13,28 @@ public sealed class SpdxLicenseIndex
     private readonly FrozenDictionary<string, Utf8Slice> licenseUtf8;
     private readonly FrozenDictionary<string, string> exceptions;
     private readonly FrozenSet<string> deprecatedLicenses;
+    private readonly FrozenDictionary<string, string> licenseNames;
     private readonly FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> licenseSpanLookup;
     private readonly FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> exceptionSpanLookup;
+    private readonly FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> licenseNameSpanLookup;
 
     /// <summary>
     /// Initializes a new SPDX lookup index.
     /// </summary>
     /// <param name="licenses">Known SPDX license identifiers.</param>
     /// <param name="exceptions">Known SPDX exception identifiers.</param>
-    public SpdxLicenseIndex(string[] licenses, string[] exceptions, string[]? deprecatedLicenses = null)
+    /// <param name="deprecatedLicenses">Identifiers SPDX marks deprecated.</param>
+    /// <param name="licenseNames">SPDX license names, one per entry of <paramref name="licenses"/> at the same index.</param>
+    public SpdxLicenseIndex(string[] licenses, string[] exceptions, string[]? deprecatedLicenses = null, string[]? licenseNames = null)
     {
         this.licenses = CreateLookup(licenses);
         licenseUtf8 = CreateUtf8Lookup(licenses);
         this.exceptions = CreateLookup(exceptions);
         this.deprecatedLicenses = (deprecatedLicenses ?? []).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        this.licenseNames = CreateNameLookup(licenses, licenseNames, this.deprecatedLicenses);
         licenseSpanLookup = this.licenses.GetAlternateLookup<ReadOnlySpan<char>>();
         exceptionSpanLookup = this.exceptions.GetAlternateLookup<ReadOnlySpan<char>>();
+        licenseNameSpanLookup = this.licenseNames.GetAlternateLookup<ReadOnlySpan<char>>();
     }
 
     /// <summary>
@@ -82,6 +88,33 @@ public sealed class SpdxLicenseIndex
     }
 
     /// <summary>
+    /// Attempts to resolve an SPDX license name to its identifier.
+    /// </summary>
+    /// <param name="licenseNameUtf8">The UTF-8 value to resolve.</param>
+    /// <param name="normalized">The identifier SPDX gives that name, when the lookup succeeds.</param>
+    /// <param name="deprecated">Whether the resolved identifier is deprecated.</param>
+    /// <returns><see langword="true" /> when the value is a name in the active SPDX data.</returns>
+    /// <remarks>
+    /// The comparison is exact apart from case, like the identifier lookup. A value that merely
+    /// resembles a name is not a name: <c>Apache 2.0</c> and <c>Modified BSD License</c> resolve
+    /// nothing, because resolving them would mean choosing the version or variant the publisher did
+    /// not write.
+    /// </remarks>
+    public bool TryNormalizeLicenseNameUtf8Slice(ReadOnlySpan<byte> licenseNameUtf8, out Utf8Slice normalized, out bool deprecated)
+    {
+        if (TryLookup(licenseNameSpanLookup, licenseNameUtf8, out var identifier))
+        {
+            normalized = licenseUtf8[identifier];
+            deprecated = deprecatedLicenses.Contains(identifier);
+            return true;
+        }
+
+        normalized = default;
+        deprecated = false;
+        return false;
+    }
+
+    /// <summary>
     /// Attempts to normalize an UTF-8 SPDX exception identifier without materializing an input string.
     /// </summary>
     /// <param name="exceptionIdUtf8">The UTF-8 exception identifier.</param>
@@ -114,6 +147,84 @@ public sealed class SpdxLicenseIndex
     /// <param name="licenseId">The SPDX license identifier.</param>
     /// <returns><see langword="true"/> when the identifier is deprecated.</returns>
     public bool IsDeprecatedLicenseId(string licenseId) => deprecatedLicenses.Contains(licenseId);
+
+    /// <summary>Decodes a UTF-8 value once and looks it up without materializing a string.</summary>
+    /// <remarks>
+    /// The stack buffer covers every identifier and every SPDX name, whose longest entry is well under
+    /// this length. Anything longer is not a known value, but it is still decoded rather than rejected
+    /// so the lookup answers on content rather than on a buffer size.
+    /// </remarks>
+    private static bool TryLookup(FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> lookup, ReadOnlySpan<byte> utf8, out string value)
+    {
+        if (utf8.Length <= 128)
+        {
+            Span<char> characters = stackalloc char[128];
+            var characterCount = Encoding.UTF8.GetChars(utf8, characters);
+            return lookup.TryGetValue(characters[..characterCount], out value!);
+        }
+
+        var rented = ArrayPool<char>.Shared.Rent(utf8.Length);
+        try
+        {
+            var characterCount = Encoding.UTF8.GetChars(utf8, rented);
+            return lookup.TryGetValue(rented.AsSpan(0, characterCount), out value!);
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(rented);
+        }
+    }
+
+    /// <summary>Builds the name lookup, resolving the names SPDX gives to more than one identifier.</summary>
+    /// <remarks>
+    /// SPDX shares a name only between a deprecated identifier and the replacement that supersedes it —
+    /// <c>GPL-2.0</c> and <c>GPL-2.0-only</c> carry the same name because they are the same license. The
+    /// replacement is therefore the answer, and preferring it is not a choice between two licenses.
+    /// A name Ol cannot attribute to exactly one current identifier this way is dropped rather than
+    /// resolved arbitrarily, so an unexpected upstream duplicate leaves a value unresolved instead of
+    /// resolving it to whichever entry was read first.
+    /// </remarks>
+    private static FrozenDictionary<string, string> CreateNameLookup(string[] identifiers, string[]? names, FrozenSet<string> deprecated)
+    {
+        if (names is null || names.Length == 0)
+        {
+            return FrozenDictionary<string, string>.Empty;
+        }
+
+        var count = Math.Min(identifiers.Length, names.Length);
+        var dictionary = new Dictionary<string, string>(count, StringComparer.OrdinalIgnoreCase);
+        var ambiguous = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < count; i++)
+        {
+            var name = names[i];
+            if (name.Length == 0)
+            {
+                continue;
+            }
+
+            var identifier = identifiers[i];
+            if (!dictionary.TryGetValue(name, out var existing))
+            {
+                dictionary[name] = identifier;
+                continue;
+            }
+
+            if (deprecated.Contains(existing) != deprecated.Contains(identifier))
+            {
+                dictionary[name] = deprecated.Contains(existing) ? identifier : existing;
+                continue;
+            }
+
+            ambiguous.Add(name);
+        }
+
+        foreach (var name in ambiguous)
+        {
+            dictionary.Remove(name);
+        }
+
+        return dictionary.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+    }
 
     private static FrozenDictionary<string, string> CreateLookup(string[] identifiers)
     {

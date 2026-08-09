@@ -2,6 +2,8 @@
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Ol.Core.Licensing;
+using Ol.Core.PackageMetadata;
 
 namespace Ol.Tests;
 
@@ -1675,6 +1677,175 @@ public sealed class CliScanTests
             await Assert.That(markdown.ExitCode).IsEqualTo(0);
             await Assert.That(markdown.Stdout).Contains("## Unresolved components");
             await Assert.That(markdown.Stdout).Contains("| Direct.Package | 1.0.0 | external_evidence_not_collected |");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    // A publisher that could not state an SPDX expression often states where the license is instead.
+    // That pointer is the one actionable fact about such a component, so it has to reach the report
+    // even though no collection mechanism failed and therefore no warning names one.
+    [Test]
+    public async Task Scan_WithDeclaredLicenseLocation_ListsItInTheUnresolvedSection()
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(sbomPath, """
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            {
+              "type": "library",
+              "name": "Example",
+              "version": "1.0.0",
+              "purl": "pkg:nuget/Example@1.0.0",
+              "licenses": [ { "license": { "name": "Unknown - See URL", "url": "https://example.test/LICENSE.txt" } } ]
+            }
+          ]
+        }
+        """, Encoding.UTF8);
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--format", "text", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).Contains("Unresolved components");
+            await Assert.That(stdout).Contains("Example 1.0.0 declared_license_location_not_collected https://example.test/LICENSE.txt");
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+        }
+    }
+
+    // The reason a declared license went unread is the same fact in every ecosystem, and the kind of
+    // place the publisher named is what a reviewer acts on. Neither depends on which registry answered.
+    [Test]
+    [Arguments("pkg:cargo/example@1.0.0", DeclaredLicenseReferenceKind.ArtifactPath, "LICENSE-APACHE", "declared_license_file_not_collected LICENSE-APACHE")]
+    [Arguments("pkg:pypi/example@1.0.0", DeclaredLicenseReferenceKind.ArtifactPath, "LICENSE.rst", "declared_license_file_not_collected LICENSE.rst")]
+    [Arguments("pkg:cocoapods/Example@1.0.0", DeclaredLicenseReferenceKind.InlineText, "", "declared_license_text_not_collected")]
+    [Arguments("pkg:nuget/Example@1.0.0", DeclaredLicenseReferenceKind.Location, "https://example.test/eula", "declared_license_location_not_collected https://example.test/eula")]
+    public async Task Scan_WithDeclaredLicenseReference_NamesTheSameMechanismInEveryEcosystem(string purl, DeclaredLicenseReferenceKind kind, string reference, string expected)
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-declared-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "input.cdx.json");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, $$"""
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            { "type": "library", "name": "Example", "version": "1.0.0", "purl": "{{purl}}" }
+          ]
+        }
+        """, Encoding.UTF8);
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var cache = new PackageMetadataCache(packageCacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord(purl, "package-registry", string.Empty, string.Empty, [], [], DateTimeOffset.UtcNow, string.Empty, kind, reference));
+        try
+        {
+            var text = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", sbomPath, "--format", "text", "--quiet");
+
+            await Assert.That(text.ExitCode).IsEqualTo(0);
+            await Assert.That(text.Stdout).Contains($"Example 1.0.0 {expected}");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    // A classifier that names a license family is unresolvable by construction, and saying so is the
+    // only thing a report can add: the reviewer's next step is to ask the publisher or read the
+    // artifact, not to wait for Ol to gain a capability.
+    [Test]
+    [Arguments("License :: OSI Approved :: BSD License", "license_classifier_not_specific")]
+    [Arguments("License :: OSI Approved :: Apache Software License", "license_classifier_not_specific")]
+    public async Task Scan_WithLicenseFamilyClassifier_ExplainsWhyItCannotResolve(string declared, string expectedReason)
+    {
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-classifier-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(sbomPath, $$"""
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            {
+              "type": "library",
+              "name": "example",
+              "version": "1.0.0",
+              "purl": "pkg:pypi/example@1.0.0",
+              "licenses": [ { "license": { "name": "{{declared}}" } } ]
+            }
+          ]
+        }
+        """, Encoding.UTF8);
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--format", "text", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).Contains($"example 1.0.0 {expectedReason}");
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+        }
+    }
+
+    // Embedded license text is a declaration with no place to name, and Ol deliberately never retains
+    // the text. Its empty value must not be presented as the reference, nor suppress one that exists.
+    [Test]
+    public async Task Scan_WithEmbeddedLicenseTextBesideALocation_ReportsTheLocationRatherThanAnEmptyReference()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-inline-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "input.cdx.json");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(sbomPath, """
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            {
+              "type": "library",
+              "name": "Example",
+              "version": "1.0.0",
+              "purl": "pkg:cocoapods/Example@1.0.0",
+              "licenses": [ { "license": { "name": "Facebook Platform License", "url": "https://example.test/platform-license" } } ]
+            }
+          ]
+        }
+        """, Encoding.UTF8);
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var cache = new PackageMetadataCache(packageCacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:cocoapods/Example@1.0.0", "package-registry", string.Empty, string.Empty, [], [], DateTimeOffset.UtcNow, string.Empty, DeclaredLicenseReferenceKind.InlineText, string.Empty));
+        try
+        {
+            var text = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", sbomPath, "--format", "text", "--quiet");
+            var json = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", sbomPath, "--format", "json", "--quiet");
+
+            await Assert.That(text.ExitCode).IsEqualTo(0);
+            await Assert.That(text.Stdout).Contains("Example 1.0.0 declared_license_text_not_collected https://example.test/platform-license");
+
+            using var report = JsonDocument.Parse(json.Stdout);
+            var kinds = report.RootElement.GetProperty("components")[0].GetProperty("licenseCandidates").EnumerateArray()
+                .Select(static candidate => candidate.TryGetProperty("evidence", out var evidence) && evidence.TryGetProperty("declaredLicenseReferenceKind", out var kind) ? kind.GetString() : null)
+                .Where(static value => value is not null)
+                .ToArray();
+
+            await Assert.That(kinds).Contains("inline-text");
+            await Assert.That(kinds).Contains("location");
         }
         finally
         {

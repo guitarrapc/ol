@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using Ol.Core.Spdx;
 
 namespace Ol.Core.Licensing;
 
@@ -48,17 +49,20 @@ public static class LicenseReconciler
                 switch (candidate.Status)
                 {
                     case LicenseStatus.Matched:
-                        var duplicate = false;
+                        var combined = false;
                         for (var matchedIndex = 0; matchedIndex < matchedCount; matchedIndex++)
                         {
-                            if (matched[matchedIndex].Equals(candidate.Normalized))
+                            if (!TryCombine(matched[matchedIndex], candidate.Normalized, out var kept))
                             {
-                                duplicate = true;
-                                break;
+                                continue;
                             }
+
+                            matched[matchedIndex] = kept;
+                            combined = true;
+                            break;
                         }
 
-                        if (!duplicate)
+                        if (!combined)
                         {
                             matched[matchedCount] = candidate.Normalized;
                             matchedCount++;
@@ -94,5 +98,43 @@ public static class LicenseReconciler
             Array.Clear(matched, 0, matchedCount);
             ArrayPool<Utf8Slice>.Shared.Return(matched);
         }
+    }
+
+    /// <summary>
+    /// Combines two valid expressions when neither withdraws what the other states.
+    /// </summary>
+    /// <param name="kept">The expression that drops no option and no obligation either source stated.</param>
+    /// <returns><see langword="true"/> when the two do not disagree.</returns>
+    /// <remarks>
+    /// The relation is defined by <see cref="SpdxExpressionRelation.IsAccountedFor"/>; this decides only
+    /// which of the two survives. The one that accounts for the other is kept, because narrowing to the
+    /// observation would drop a choice nothing withdrew, and widening past the statement would drop a
+    /// term the publisher required. Equal expressions keep the one already recorded, so the reported
+    /// spelling depends on candidate order alone, which is deterministic.
+    /// </remarks>
+    private static bool TryCombine(Utf8Slice existing, Utf8Slice candidate, out Utf8Slice kept)
+    {
+        var existingSpan = existing.Span;
+        var candidateSpan = candidate.Span;
+        if (existingSpan.SequenceEqual(candidateSpan))
+        {
+            kept = existing;
+            return true;
+        }
+
+        if (SpdxExpressionRelation.IsAccountedFor(candidateSpan, existingSpan))
+        {
+            kept = existing;
+            return true;
+        }
+
+        if (SpdxExpressionRelation.IsAccountedFor(existingSpan, candidateSpan))
+        {
+            kept = candidate;
+            return true;
+        }
+
+        kept = default;
+        return false;
     }
 }

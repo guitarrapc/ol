@@ -19,10 +19,12 @@ public static class SpdxCodeGenerator
         using var licenses = JsonDocument.Parse(SkipUtf8Bom(licensesJson).ToArray());
         using var exceptions = JsonDocument.Parse(SkipUtf8Bom(exceptionsJson).ToArray());
         var version = ReadString(licenses.RootElement, "licenseListVersion");
-        var licenseIds = ReadIdentifiers(licenses.RootElement, "licenses", "licenseId");
+        var (licenseIds, licenseNames) = ReadLicenses(licenses.RootElement);
         var exceptionIds = ReadIdentifiers(exceptions.RootElement, "exceptions", "licenseExceptionId");
         var deprecatedIds = ReadDeprecatedIdentifiers(licenses.RootElement);
-        Array.Sort(licenseIds, StringComparer.Ordinal);
+        // Sorted as pairs: the name array is read by the identifier's index, so sorting them apart
+        // would silently give every license its neighbour's name.
+        Array.Sort(licenseIds, licenseNames, StringComparer.Ordinal);
         Array.Sort(exceptionIds, StringComparer.Ordinal);
         Array.Sort(deprecatedIds, StringComparer.Ordinal);
 
@@ -41,6 +43,8 @@ public static class SpdxCodeGenerator
         builder.Append("    public const string LicenseListVersion = \"").Append(Escape(version)).AppendLine("\";");
         AppendArray(builder, "LicenseIds", licenseIds);
         builder.AppendLine();
+        AppendArray(builder, "LicenseNames", licenseNames);
+        builder.AppendLine();
         AppendArray(builder, "ExceptionIds", exceptionIds);
         builder.AppendLine();
         AppendArray(builder, "DeprecatedLicenseIds", deprecatedIds);
@@ -58,6 +62,27 @@ public static class SpdxCodeGenerator
         }
 
         builder.AppendLine("    ];");
+    }
+
+    /// <summary>Reads license identifiers and their SPDX names as two arrays sharing one index.</summary>
+    /// <remarks>
+    /// A license that states no name keeps an empty entry so the arrays stay the same length. The
+    /// consumer treats an empty name as "this license contributes no name lookup".
+    /// </remarks>
+    private static (string[] Ids, string[] Names) ReadLicenses(JsonElement root)
+    {
+        var values = root.GetProperty("licenses");
+        var ids = new string[values.GetArrayLength()];
+        var names = new string[ids.Length];
+        var index = 0;
+        foreach (var item in values.EnumerateArray())
+        {
+            ids[index] = ReadString(item, "licenseId");
+            names[index] = ReadString(item, "name");
+            index++;
+        }
+
+        return (ids, names);
     }
 
     private static string[] ReadIdentifiers(JsonElement root, string arrayProperty, string identifierProperty)

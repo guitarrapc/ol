@@ -86,7 +86,8 @@ public sealed class PackageMetadataTests
 
                 var buffer = new System.Buffers.ArrayBufferWriter<byte>(4 * 1024);
                 var descriptor = new ScanInputDescriptor(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, "test", string.Empty, default);
-                ReportRenderer.WriteText(buffer, descriptor, new[] { withRepositoryOutcome }, verbose: false);
+                var inventory = new DependencyInventory(descriptor, [], [withRepositoryOutcome], [], []);
+                ReportRenderer.WriteText(buffer, inventory, new[] { withRepositoryOutcome }, verbose: false);
                 var rendered = System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
 
                 await Assert.That(rendered).Contains(expected);

@@ -150,6 +150,7 @@ internal sealed class CheckCommands
         }
 
         var text = CheckRenderer.Render(
+            inventory,
             components,
             violations,
             policyComponentCount,
@@ -282,6 +283,7 @@ internal static class CheckRenderer
     }
 
     public static string Render(
+        in DependencyInventory inventory,
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<LicensePolicyViolation> violations,
         int policyComponentCount,
@@ -324,7 +326,10 @@ internal static class CheckRenderer
             builder.AppendLine(".");
         }
         builder.AppendLine();
-        builder.AppendLine("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason");
+        // The path names the direct dependency a reviewer can actually change, which the row identifying
+        // only the offending package never does when the violation is transitive.
+        builder.AppendLine("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tPath");
+        var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
         for (var i = 0; i < violations.Length; i++)
         {
             var violation = violations[i];
@@ -340,7 +345,10 @@ internal static class CheckRenderer
             if (component.Status == LicenseStatus.Matched) Append(builder, component.License);
             else builder.Append(Status(violation.Kind));
             builder.Append('\t');
-            builder.AppendLine(Reason(violation.Kind));
+            builder.Append(Reason(violation.Kind));
+            builder.Append('\t');
+            var path = DependencyPathText.Introducer(inventory, rootPaths, component, violation.ComponentIndex);
+            builder.AppendLine(path.Length == 0 ? "-" : path);
         }
 
         return builder.ToString();

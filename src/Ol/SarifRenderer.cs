@@ -52,9 +52,10 @@ internal static class SarifRenderer
             writer.WriteEndObject();
 
             writer.WriteStartArray("results"u8);
+            var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
             for (var i = 0; i < violations.Length; i++)
             {
-                WriteResult(writer, inventory, components, violations[i]);
+                WriteResult(writer, inventory, rootPaths, components, violations[i]);
             }
 
             writer.WriteEndArray();
@@ -120,13 +121,14 @@ internal static class SarifRenderer
     private static void WriteResult(
         Utf8JsonWriter writer,
         in DependencyInventory inventory,
+        in DependencyRootPaths rootPaths,
         ReadOnlySpan<ScanComponent> components,
         in LicensePolicyViolation violation)
     {
         var component = components[violation.ComponentIndex];
         var identity = Identity(component);
-        var inventoryComponentIndex = FindInventoryComponentIndex(inventory.Components, component, violation.ComponentIndex);
-        var path = DependencyPathResolver.FindShortestRootPath(inventory, inventoryComponentIndex);
+        var inventoryComponentIndex = DependencyPathText.FindComponentIndex(inventory.Components, component, violation.ComponentIndex);
+        var path = rootPaths.GetPath(inventoryComponentIndex);
 
         writer.WriteStartObject();
         writer.WriteString("ruleId"u8, RuleId(violation.Kind));
@@ -169,32 +171,6 @@ internal static class SarifRenderer
         writer.WriteEndObject();
     }
 
-    private static int FindInventoryComponentIndex(
-        ReadOnlySpan<ScanComponent> inventoryComponents,
-        in ScanComponent component,
-        int preferredIndex)
-    {
-        if ((uint)preferredIndex < (uint)inventoryComponents.Length
-            && HasSameIdentity(inventoryComponents[preferredIndex], component))
-        {
-            return preferredIndex;
-        }
-
-        for (var i = 0; i < inventoryComponents.Length; i++)
-        {
-            if (HasSameIdentity(inventoryComponents[i], component)) return i;
-        }
-
-        return -1;
-    }
-
-    private static bool HasSameIdentity(in ScanComponent left, in ScanComponent right)
-        => left.Name.Equals(right.Name)
-            && left.Version.Equals(right.Version)
-            && left.Purl.Equals(right.Purl)
-            && left.SourceId.Equals(right.SourceId)
-            && string.Equals(left.Ecosystem, right.Ecosystem, StringComparison.Ordinal);
-
     private static string BuildMessage(
         in ScanComponent component,
         LicensePolicyViolationKind kind,
@@ -216,22 +192,13 @@ internal static class SarifRenderer
         if (path.Length > 1)
         {
             builder.Append(". Introduced through ");
-            for (var i = 0; i < path.Length; i++)
-            {
-                if (i != 0) builder.Append(" > ");
-                builder.Append(Identity(inventory.Components[path[i]]));
-            }
+            builder.Append(DependencyPathText.Format(inventory, path));
         }
 
         return builder.ToString();
     }
 
-    private static string Identity(in ScanComponent component)
-    {
-        if (!component.Purl.IsEmpty) return component.Purl.ToString();
-        var name = component.Name.ToString();
-        return component.Version.IsEmpty ? name : $"{name}@{component.Version}";
-    }
+    private static string Identity(in ScanComponent component) => DependencyPathText.Identity(component);
 
     private static string DependencyToken(DependencyType value) => value switch
     {

@@ -9,12 +9,12 @@ public class TextReportRendererBenchmark
     private readonly ArrayBufferWriter<byte> buffer = new(4 * 1024);
     private readonly ScanComponent[] components;
     private readonly GroupRow[] groups;
-    private readonly ScanInputDescriptor input;
+    private readonly DependencyInventory inventory;
 
     public TextReportRendererBenchmark()
     {
         var spdx = SpdxData.Load(null);
-        var inventory = DependencyInputScanner.Scan(
+        inventory = DependencyInputScanner.Scan(
             Encoding.UTF8.GetBytes(
                 """
                 {
@@ -28,14 +28,13 @@ public class TextReportRendererBenchmark
             spdx.Index);
         components = inventory.Components;
         groups = ScanView.Group(components, "license");
-        input = inventory.Input;
     }
 
     [Benchmark]
     public int WriteText()
     {
         buffer.Clear();
-        ReportRenderer.WriteText(buffer, input, components, verbose: false);
+        ReportRenderer.WriteText(buffer, inventory, components, verbose: false);
         return buffer.WrittenCount;
     }
 
@@ -43,7 +42,7 @@ public class TextReportRendererBenchmark
     public int WriteVerboseText()
     {
         buffer.Clear();
-        ReportRenderer.WriteText(buffer, input, components, verbose: true);
+        ReportRenderer.WriteText(buffer, inventory, components, verbose: true);
         return buffer.WrittenCount;
     }
 
@@ -51,7 +50,7 @@ public class TextReportRendererBenchmark
     public int WriteGroupedText()
     {
         buffer.Clear();
-        ReportRenderer.WriteText(buffer, input, groups, "license");
+        ReportRenderer.WriteText(buffer, inventory.Input, groups, "license");
         return buffer.WrittenCount;
     }
 }

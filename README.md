@@ -361,8 +361,8 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```text
 License check failed: 1 violation.
 
-Package                  Version  Ecosystem  Purl                                     License/Status  Reason
-@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved
+Package                  Version  Ecosystem  Purl                                     License/Status  Reason                 Path
+@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved  -
 ```
 
 Record what you reviewed and accepted with `--update-baseline`:
@@ -411,8 +411,8 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-b
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package                Version  Ecosystem  Purl                                   License/Status  Reason
-@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved
+Package                Version  Ecosystem  Purl                                   License/Status  Reason                 Path
+@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved  -
 ```
 
 **A forbidden license is never absorbed**, even when you regenerate the file. Only `unknown`, `ambiguous`, `conflict`, and `invalid` can be acknowledged, and only when no recognizable candidate is rejected by the allow-list. A resolved license belongs in `--allow-licenses`, and an `error` is a collection failure to repair. An `ambiguous` listing the allow-list already admits on every reading is not acknowledged either, because it is not a violation to review.
@@ -426,8 +426,8 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package       Version  Ecosystem  Purl                          License/Status  Reason
-copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed
+Package       Version  Ecosystem  Purl                          License/Status  Reason                  Path
+copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed  pkg:npm/report-builder@1.4.0 > pkg:npm/copyleft-lib@3.0.0
 ```
 
 An acknowledged component keeps its unresolved status and evidence in the report; only its violation is removed. When the version changes, or a registry corrects its metadata, the fingerprint stops matching and the component fails again until it is reviewed anew.

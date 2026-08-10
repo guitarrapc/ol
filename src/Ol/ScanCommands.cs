@@ -10,6 +10,7 @@ using Ol.Core.Generated;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
 using Ol.Core.PackageManagers;
+using Ol.Core.Reporting;
 using Ol.Core.Spdx;
 using Ol.Internals;
 
@@ -154,7 +155,7 @@ internal sealed class ScanCommands
         {
             try
             {
-                WriteText(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory.Input, components, groups, groupBy, verbose, scanResult.Inventory.Components.Length == 0);
+                WriteText(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, groups, groupBy, verbose, scanResult.Inventory.Components.Length == 0);
             }
             catch (IOException exception)
             {
@@ -166,7 +167,7 @@ internal sealed class ScanCommands
         {
             var emptyInventory = scanResult.Inventory.Components.Length == 0;
             var text = groups is null
-                ? ReportRenderer.RenderMarkdown(components, verbose, emptyInventory)
+                ? ReportRenderer.RenderMarkdown(scanResult.Inventory, components, verbose, emptyInventory)
                 : ReportRenderer.RenderMarkdown(groups, groupBy!, emptyInventory);
             text = ReportRenderer.RenderInputHeader(format, scanResult.Inventory.Input) + text;
             if (!text.EndsWith('\n'))
@@ -220,7 +221,7 @@ internal sealed class ScanCommands
 
     private static void WriteText(
         Stream output,
-        ScanInputDescriptor input,
+        in DependencyInventory inventory,
         ReadOnlySpan<ScanComponent> components,
         GroupRow[]? groups,
         string? groupBy,
@@ -230,11 +231,11 @@ internal sealed class ScanCommands
         using var buffer = new PooledStreamBufferWriter(output);
         if (groups is null)
         {
-            ReportRenderer.WriteText(buffer, input, components, verbose, emptyInventory);
+            ReportRenderer.WriteText(buffer, inventory, components, verbose, emptyInventory);
         }
         else
         {
-            ReportRenderer.WriteText(buffer, input, groups, groupBy!, emptyInventory);
+            ReportRenderer.WriteText(buffer, inventory.Input, groups, groupBy!, emptyInventory);
         }
     }
 
@@ -1217,12 +1218,12 @@ internal static class ReportRenderer
 
     public static void WriteText(
         IBufferWriter<byte> writer,
-        ScanInputDescriptor input,
+        in DependencyInventory inventory,
         ReadOnlySpan<ScanComponent> components,
         bool verbose,
         bool emptyInventory = false)
     {
-        WriteInputHeader(writer, input);
+        WriteInputHeader(writer, inventory.Input);
         WriteUtf8(writer, verbose
             ? "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS SUPPLIED PURL"u8
             : "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS SUPPLIED"u8);
@@ -1253,7 +1254,7 @@ internal static class ReportRenderer
         }
 
         WriteEmptyInventoryText(writer, emptyInventory);
-        WriteUnresolvedText(writer, components);
+        WriteUnresolvedText(writer, inventory, components);
     }
 
     private static void WriteEmptyInventoryText(IBufferWriter<byte> writer, bool emptyInventory)
@@ -1280,9 +1281,10 @@ internal static class ReportRenderer
     /// report so one vocabulary describes both, and the reference is a location Ol actually observed
     /// rather than one it constructed. The section is omitted when there is nothing to explain.
     /// </remarks>
-    private static void WriteUnresolvedText(IBufferWriter<byte> writer, ReadOnlySpan<ScanComponent> components)
+    private static void WriteUnresolvedText(IBufferWriter<byte> writer, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components)
     {
         var first = true;
+        var rootPaths = default(DependencyRootPaths);
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
@@ -1296,6 +1298,7 @@ internal static class ReportRenderer
                 WriteNewLine(writer);
                 WriteUtf8(writer, "Unresolved components"u8);
                 WriteNewLine(writer);
+                rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
                 first = false;
             }
 
@@ -1310,6 +1313,15 @@ internal static class ReportRenderer
             {
                 WriteUtf8(writer, " "u8);
                 WriteUtf8(writer, System.Text.Encoding.UTF8.GetBytes(reference));
+            }
+
+            // The section says what to do next, and for a transitive component that is to change the
+            // direct dependency that pulled it in rather than the component the row names.
+            var path = DependencyPathText.Introducer(inventory, rootPaths, component, i);
+            if (path.Length != 0)
+            {
+                WriteUtf8(writer, " via "u8);
+                WriteUtf8(writer, System.Text.Encoding.UTF8.GetBytes(path));
             }
 
             WriteNewLine(writer);
@@ -1465,7 +1477,7 @@ internal static class ReportRenderer
         return string.Empty;
     }
 
-    public static string RenderMarkdown(ReadOnlySpan<ScanComponent> components, bool verbose, bool emptyInventory = false)
+    public static string RenderMarkdown(in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, bool verbose, bool emptyInventory = false)
     {
         var builder = new StringBuilder();
         builder.AppendLine(verbose ? "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED | PURL |" : "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED |");
@@ -1497,7 +1509,7 @@ internal static class ReportRenderer
         }
 
         AppendEmptyInventoryMarkdown(builder, emptyInventory);
-        AppendUnresolvedMarkdown(builder, components);
+        AppendUnresolvedMarkdown(builder, inventory, components);
         return builder.ToString();
     }
 
@@ -1516,9 +1528,10 @@ internal static class ReportRenderer
     }
 
     /// <summary>Renders the same explanation as the text report. See <see cref="WriteUnresolvedText"/>.</summary>
-    private static void AppendUnresolvedMarkdown(StringBuilder builder, ReadOnlySpan<ScanComponent> components)
+    private static void AppendUnresolvedMarkdown(StringBuilder builder, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components)
     {
         var first = true;
+        var rootPaths = default(DependencyRootPaths);
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
@@ -1532,8 +1545,9 @@ internal static class ReportRenderer
                 builder.AppendLine();
                 builder.AppendLine("## Unresolved components");
                 builder.AppendLine();
-                builder.AppendLine("| NAME | VERSION | REASON | REFERENCE |");
-                builder.AppendLine("|---|---|---|---|");
+                builder.AppendLine("| NAME | VERSION | REASON | REFERENCE | PATH |");
+                builder.AppendLine("|---|---|---|---|---|");
+                rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
                 first = false;
             }
 
@@ -1545,6 +1559,8 @@ internal static class ReportRenderer
             builder.Append(System.Text.Encoding.UTF8.GetString(reason));
             builder.Append(" | ");
             AppendMarkdownValue(builder, GetUnresolvedReference(component, reason));
+            builder.Append(" | ");
+            AppendMarkdownValue(builder, DependencyPathText.Introducer(inventory, rootPaths, component, i));
             builder.AppendLine(" |");
         }
     }

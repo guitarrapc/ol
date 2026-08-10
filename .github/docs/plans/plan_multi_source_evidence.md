@@ -6,7 +6,7 @@ Ol の出発点は「SBOM と package manager と source repository を組み合
 
 測定は入力経路の優劣を決めるためのものではない。どの経路が何を落とすかを知り、補い合わせるために行った。この文書は、その測定結果と、組み合わせを機能させるための実装順序を定める。実装済み仕様ではない。
 
-Phase 1 から Phase 3 は 2026-08-09 に、Phase 4 は 2026-08-10 に実装済み。結果は各節に記録した。残るのは Phase 5 (再測定) である。
+Phase 1 から Phase 3 は 2026-08-09 に、Phase 4 と Phase 5 は 2026-08-10 に実施済み。結果は各節に記録した。**全 Phase 完了。**
 
 ## 背景: 測定
 
@@ -79,7 +79,7 @@ github-license-api = Apache-2.0
 
 Ol はこれを SBOM のライセンス名として取り込み、`license: "Unknown - See URL (?)"`、`status: ambiguous` と表示する。NuGet の SBOM 経路で 48 件がこの状態になった。ジェネレータの「わかりません」を、あたかもライセンス名であるかのように印字している。
 
-`name` と `url` の組は、[plan_nuget_license_file.md](plan_nuget_license_file.md) が扱う NuGet の `licenseUrl`／`licenseFile` と同じもの、すなわち publisher が示したライセンスの所在であって、ライセンスそのものではない。同じ形は npm の legacy `licenses[{type,url}]`、Cargo の `license_file`、CocoaPods の `license.file`／`text`、PyPI の `license_files` にも存在する。
+`name` と `url` の組は、[declared license reference](../specs/spdx.md#contract-declared-license-reference) が扱う NuGet の `licenseUrl`／`licenseFile` と同じもの、すなわち publisher が示したライセンスの所在であって、ライセンスそのものではない。同じ形は npm の legacy `licenses[{type,url}]`、Cargo の `license_file`、CocoaPods の `license.file`／`text`、PyPI の `license_files` にも存在する。
 
 npm の legacy 形式については、Ol が値を読まないことによる解決漏れも確認した。`wrench@1.5.9` は registry が `licenses: [{ "type": "MIT", ... }]` を返すが、Ol は `license` (単数) しか読まないため `unknown` になる。機械的に決まる SPDX ID を落としている。
 
@@ -162,7 +162,7 @@ publisher が示したライセンスの所在を、ライセンス値とは別�
 | 名前 | npm `licenses[].type`、CocoaPods `license.type`、SBOM `license.name` |
 | 埋め込み本文 | CocoaPods `license.text`、PyPI `license` 長文 |
 
-名前は、版固定の SPDX データに対する完全一致でのみ解決する。`MIT` は解決し、`BSD` は多義なので解決しない。場所と artifact 内 path の解決は本文照合を要するため [plan_nuget_license_file.md](plan_nuget_license_file.md) の範囲であり、この文書では参照として保持することまでを扱う。埋め込み本文は存在の記録のみとし、本文を既定報告に含めない。
+名前は、版固定の SPDX データに対する完全一致でのみ解決する。`MIT` は解決し、`BSD` は多義なので解決しない。場所と artifact 内 path の解決は本文照合を要するため 宣言された参照を実際に読む能力の範囲であり、この文書では参照として保持することまでを扱う。埋め込み本文は存在の記録のみとし、本文を既定報告に含めない。
 
 ### 入力の組み合わせ
 
@@ -200,19 +200,21 @@ SBOM と package manager 入力を一つの収集として扱えるようにす�
 - **母集団差の表現は component の supply とした。** context に入力の情報を持たせる案は、SBOM が context を持たないため合成 context の追加を要し、SBOM 単独 scan の出力まで変えてしまう。候補の source から逆算する案は、宣言を持たない component が候補を持たないため機能しない。母集団差で問題になるのはまさにその種の component である。
 - **`schemaVersion` は 1 のまま据え置いた。** reader が完全一致で判定するため、追加フィールドのために上げると利用者の保存済み report が読めなくなる。
 
-### Phase 5: 再測定
+### Phase 5: 再測定 (実施済み)
 
-5 エコシステムを測り直し、上の表を更新する。条件は 4 つから 5 つに増やす。
+2026-08-10 に、6 エコシステム 18 プロジェクトを条件 A・B・E で計測した。当初計画の 5 エコシステムに Maven を加え、各エコシステム 3 プロジェクトに広げている。
 
 | 条件 | 入力 | 外部証拠収集 |
 |---|---|---|
 | A | package manager の解決済み入力 | あり |
-| B | CycloneDX SBOM | あり |
-| C | CycloneDX SBOM | `--no-external-evidence` |
-| D | package manager の解決済み入力 | `--no-external-evidence` |
+| B | SBOM | あり |
 | E | SBOM + package manager の同時入力 | あり |
 
-条件 E を直接測れるようになったので、完了条件は「A と B の和」という抽象的な言い方をやめ、**E が A も B も下回らない**という形にする。あわせて、E の母集団が A と B のいずれの母集団も包含することを確認する。
+完了条件は満たした。**E が A または B を下回ったケースは 18 件中 0 件**、**E の母集団が A と B のいずれかを包含しなかったケースも 0 件**である。合計はパッケージ identity で A が 2,842 中 2,689 解決、B が 1,769 中 1,249 解決、E が 3,589 中 2,957 解決だった。
+
+冒頭の表は 2026-08-09 に 5 エコシステム 4 条件を各エコシステム純正のジェネレータで測った履歴であり、更新していない。今回の計測は syft を使っており、生成器が違うため同じ表の続きとして並べられない。**判定に必要だったのは「組み合わせが単独を下回らない」という性質であって、生成器を固定した解決率の推移ではない。** 生成器ごとの解決率の差そのものは [packagemanager.md](../specs/packagemanager.md#lessons-learned) に教訓として残した。
+
+この計測から出た欠陥の修正と、そこで得た知見は spec に反映済みである。
 
 ## Test matrix
 
@@ -229,8 +231,10 @@ Phase 1-4 の等価クラスは回帰テストとして存在する。Phase 4 �
 ## 完了条件
 
 - SBOM と package manager 入力を一度に scan でき、母集団の差が報告から分かる。**達成済み。**
-- 5 エコシステムの再測定で、条件 E が条件 A も B も下回らない。**Phase 5 で確認する。**
-- 全テスト、ecosystem smoke、関連ベンチマークが合格する。**Phase 4 時点で合格。**
+- 再測定で、条件 E が条件 A も B も下回らない。**達成済み** (6 エコシステム 18 プロジェクトで違反 0 件)。
+- 全テスト、ecosystem smoke、関連ベンチマークが合格する。**達成済み。**
+
+三条件とも満たしたため、この計画は完了である。
 
 ## この計画の値打ちについて
 

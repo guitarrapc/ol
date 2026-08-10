@@ -10,7 +10,7 @@ Remaining:
 
 - Consider richer policy categories such as `deny`, `review`, `notice_required`, `source_disclosure_required`, and `copyleft_review`. Deliberately deferred: a deny-list reduces noise rather than adding detection, and a baseline removes noise more precisely. Deny becomes meaningful only if acknowledgement is ever widened beyond unresolved components, where it would act as a floor that acknowledgement cannot cross.
 - License curation, that is recording that an upstream claim is factually wrong and what the correct license is. Not needed for a pass/fail verdict, which a baseline already covers, so it is justified only by verdict accuracy: a baseline can record that a reviewer accepted unresolved evidence, but not that the evidence itself is wrong.
-- Per-package policy exceptions with owner and expiry, distinct from factual correction. Designed but unimplemented in [plan_package_license_exceptions.md](plans/plan_package_license_exceptions.md).
+- Per-package policy exceptions with owner and expiry, distinct from factual correction. Currently [outside the `check` contract](specs/cli.md#contract-policy-checks); the earlier design document was removed and would need rewriting.
 
 ## Non-Public Registry Handling
 
@@ -49,6 +49,7 @@ Remaining:
 
 ## Package and Ecosystem Expansion
 
+- Decide whether a GitHub Action is a dependency Ol resolves. A general-purpose scanner catalogues the actions a repository's workflows use, so `pkg:github/<owner>/<repo>` reaches almost any SBOM of a repository: measuring eighteen projects, it appeared in fifteen of them, 235 components in all, none resolvable. Resolution itself would be mechanical, because the namespace and name are the repository, and Ol already collects licenses from GitHub. The open question is scope, not feasibility — third-party code a pipeline executes is a compliance subject under one reading and not a library dependency under another. Until it is decided, Ol reports them as `unsupported_package_metadata`, which is accurate, and `--exclude-packages pkg:github/` drops them in one entry.
 - Add Maven package metadata support after the initial v2 ecosystems.
 - Survey Dart Pub. `pubspec.lock` is the only resolved-input ecosystem identified during the adapter work that was never evaluated, so its determinism, context model, and allocation floor are unknown. Adoption criteria are the ones every adopted adapter met: a machine-readable resolved graph the tool itself emits, contexts expressible without inferring anything from the scanning host, and no Native AOT dependency.
 - Evaluate other ecosystems based on purl support and registry metadata quality.

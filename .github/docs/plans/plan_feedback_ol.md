@@ -4,7 +4,7 @@
 
 2026-08-10 に、6 つのパッケージマネージャーそれぞれで実在の OSS リポジトリ 3 件を選び、ol を SBOM 経路・package manager 経路・混在経路の 3 通りで実行した記録である。目的は 2 つあった。**SBOM 単独あるいは PM 単独で検知するツールではなく ol を使う理由が実データで立つか**を確かめること、そして**確定できるべきなのにできないケースを見つけて直す**ことである。
 
-評価の過程で 4 件の欠陥を修正し、2 件の機能追加（エコシステム単位の除外、Go のライセンス取得元）を入れた。修正はこの文書に記録した順で実施済みで、仕様は [input combination](../specs/cli.md#contract-input-combination) と [unqueryable purl](../specs/packagemanager.md#contract-unqueryable-purl) に反映してある。未実施の提案と、ol が決めるべきでないスコープ判断は「優先度順の対応事項」に残した。
+評価の過程で 4 件の欠陥を修正し、3 件の仕様変更（エコシステム単位の除外、Go のライセンス取得元、root の報告範囲）を入れた。修正はこの文書に記録した順で実施済みで、仕様は [input combination](../specs/cli.md#contract-input-combination) と [unqueryable purl](../specs/packagemanager.md#contract-unqueryable-purl) に反映してある。未実施の提案と、ol が決めるべきでないスコープ判断は「優先度順の対応事項」に残した。
 
 計測環境: syft 1.22.0、go 1.26.4、cargo 1.97.1、maven 3.9.16、Node v24.18.0、Python 3.14.5、Temurin JDK 21.0.12。評価スクリプトと全レポートは `.references/_eval/`（gitignore 対象）にある。
 
@@ -106,7 +106,7 @@ bcpkix-jdk15to18      UNKNOWN package_metadata_unversioned_purl
 | 生成器が作った幻のコンポーネント | `pkg:nuget/Dia2Lib.dll@2.0.0.0` | `package_metadata_not_found` |
 | バージョンを持たない purl | `pkg:maven/com.tencent.polaris/certificate-tsf` | `package_metadata_unversioned_purl` |
 | レジストリが存在しないエコシステム | `pkg:github/actions/setup-go@v6` | `unsupported_package_metadata` |
-| GitHub 以外のリポジトリホスト | `pkg:golang/golang.org/x/crypto@v0.52.0` | `unsupported_source_repository` |
+| 機械可読でない場所を publisher が宣言 | `pkg:nuget/System.Runtime@4.3.0` | `declared_license_location_not_collected` |
 | リポジトリのライセンスを分類できない | `pkg:golang/github.com/pmezard/go-difflib@v1.0.0` | `license_not_recognized` |
 
 幻のコンポーネントについて補足する。syft を .NET のビルド出力に向けるとアセンブリをカタログ化し、`pkg:nuget/CommandLine@2.9.1.0` を出す。実体は `CommandLineParser@2.9.1` で、アセンブリ名とアセンブリバージョンであってパッケージの名前とバージョンではない。nuget.org に存在しないので確定しようがなく、ol の `package_metadata_not_found` は正しい。**利用者への助言は「.NET では syft をビルド出力に向けず、`project.assets.json` を ol に直接渡す」である。** 実際 Dapper では SBOM 単独 92 件に対し混在で 147 件が確定した。
@@ -116,6 +116,54 @@ bcpkix-jdk15to18      UNKNOWN package_metadata_unversioned_purl
 ```text
 go.yaml.in/yaml/v3 v3.0.4 license_not_recognized https://github.com/yaml/go-yaml/blob/refs/tags/v3.0.4/LICENSE
 ```
+
+## NuGet の未解決は何なのか
+
+Go を解決した流れで NuGet も同じ手が効くか確かめた。**効かない。** そして理由が Go とは根本的に違う。
+
+まず母数を分ける。NuGet の未解決 804 行のうち **651 行は syft の幻アセンブリ**で、SBOM のみが供給している。実在するパッケージは 130 件で、そのうち **108 件（83%）が Microsoft / System / runtime.\* 系**である。旧 .NET Core 期の細粒度パッケージ群がそのまま残っている。
+
+deps.dev を 15 件で試した結果は一様だった。
+
+```text
+System.Runtime                              4.3.0   non-standard
+System.IO                                   4.3.0   non-standard
+NETStandard.Library                         1.6.1   non-standard
+System.Memory                               4.5.3   non-standard
+System.Security.Cryptography.ProtectedData  4.5.0   non-standard
+Microsoft.DotNet.PlatformAbstractions       3.1.6   non-standard
+```
+
+`non-standard` は SPDX 識別子ではなく「標準ライセンスではない何かがある」という意味なので、この用途には使えない。Go で 65/65 に答えた同じ API が、ここでは 1 件も答えない。
+
+原因は registry のメタデータにある。
+
+```text
+licenseExpression : ''
+licenseUrl        : http://go.microsoft.com/fwlink/?LinkId=329770
+projectUrl        : https://dot.net/
+repository        : null
+```
+
+`licenseExpression` が無く、`licenseUrl` は fwlink のリダイレクトである。deps.dev はこれを標準ライセンスとして分類できず、ol も SPDX 式を得られない。`projectUrl` が `https://dot.net/` なのが、この一群に `unsupported_source_repository` が混ざる理由でもある。
+
+ol はこれを正しく扱っている。`licenseUrl` を [declared license reference](../specs/spdx.md#contract-declared-license-reference) の `location` として保持し、報告では宣言先の URL とともに提示する。
+
+```text
+runtime.any.System.Runtime 4.3.0 declared_license_location_not_collected http://go.microsoft.com/fwlink/?LinkId=329770
+```
+
+**では宣言先を読めば解決するのか。読んでも解決しない。** fwlink は `https://github.com/dotnet/core/blob/main/license-information.md` に着き、その冒頭にこう書いてある。
+
+```text
+This document is provided for informative purposes only and is not itself a license.
+```
+
+本文は「.NET のソースは MIT を使う」と散文で述べ、各リポジトリの LICENSE へ誘導する。つまりこのパッケージ自身の宣言から SPDX 識別子には到達できない。到達するには散文を読解するか、別リポジトリの LICENSE へ渡り歩くことになり、どちらも「参照から SPDX ID を推測しない」という非目標に触れる。
+
+したがって**この 108 件は原理的に確定できない部類**であり、deps.dev の `non-standard` も ol の `declared_license_location_not_collected` も同じ結論を別の言い方で述べている。ol の答えは「publisher が示した場所はここだ、読むのは人間だ」であり、これが正しい。
+
+含意として、[P3](#p3-golangorgx-系のライセンス確定実施済み) と同じ形の解決策を NuGet に期待すべきではない。Go で効いたのは、ライセンス事実がパッケージ内容に存在していて情報源がそれを読んでいたからである。ここでは事実そのものがパッケージの外にあり、しかも機械可読な形で存在しない。
 
 ## 優先度順の対応事項
 
@@ -245,7 +293,7 @@ ol にはこのための機構が既にある。`ResolverVersion` は「書き�
 
 **能力を足したのにキャッシュのバージョンを上げないと、改善は利用者に届かない。** エントリの形式は何も変わっていないので見落としやすい。
 
-### P4: 空 purl の合成コンポーネントを報告から除く判断
+### P4: 空 purl の合成コンポーネント（実施済み）
 
 syft はスキャン対象ディレクトリ自体を purl の無い root コンポーネントとして出す。
 
@@ -253,7 +301,23 @@ syft はスキャン対象ディレクトリ自体を purl の無い root コン
 D:\github\guitarrapc\ol\.references\cobra - - - root unknown sbom
 ```
 
-絶対パスが report に出ている点は [report privacy](../specs/cli.md#contract-report-privacy) の「絶対ローカルパスを含めない」と衝突しうる。ol が作った値ではなく入力が持っていた値だが、report に載る以上は判断が要る。件数は各ケース 1 件と小さい。
+**policy 側は既存の規則で既に片付いていた。** [cli.md](../specs/cli.md#contract-policy-checks) が「Policy evaluates all non-root, non-excluded components」と定めており、この合成コンポーネントは `dependency: root` なので `check` は評価しない。当初この節を立てたとき、私はその規則を確認していなかった。
+
+残っていたのは 2 点で、どちらも対応した。
+
+**Unresolved セクションから root を外した。** このセクションの目的は「読み手が次に何をするか」であり、policy が評価しない root について読み手にできることはない。policy のスコープと表示のスコープがずれていた。表には残るので、その SBOM が何を記述しているかは失われない。
+
+```text
+Unresolved components
+  actions/cache v4 unsupported_package_metadata
+  ...
+```
+
+以前はこの先頭に絶対パスの行が 1 本入っていた。
+
+**report privacy 契約の文言を狭めた。** canonical JSON に絶対パスが 2 箇所あったが、内訳を見ると ol が構築した値（`metadata.input.sourceRef`）は `"2 inputs"` と無害化済みで、残るのは入力が述べた component 名だけだった。
+
+契約は「Reports ... must not contain ... absolute local paths」と無条件に書かれており、文字通りには違反している。しかし component の名前・バージョン・識別子は入力自身の主張であり、書き換えれば report が記述対象の文書と食い違い、`sourceId` による突合も壊れる。**契約が縛るのは ol が自分について書く値であって、入力が述べたことではない**と明記する形にした。ローカルツリーから生成した report を公開する利用者は、生成器が書いた identity がそのまま載ることを前提にすべきである、という注意も併記した。
 
 ### P5: 削除済み plan への参照が残っている
 
@@ -434,21 +498,26 @@ License check failed: 3 violations.
 
 ### 未解決理由の分布（18 件合計、混在経路）
 
+ol が実際に選ぶ理由（[unresolved section](../specs/cli.md#contract-unresolved-section) のランキングに従って 1 つに絞ったもの）で数える。
+
 ```text
-package_metadata_not_found+source_repository_unavailable         658
-source_repository_unavailable+unsupported_package_metadata       235
-package_metadata_unversioned_purl+source_repository_unavailable  189
-unsupported_source_repository                                    111
-license_not_recognized                                            32
-source_repository_unavailable                                     27
-license_not_detected                                              20
+package_metadata_not_found                658
+unsupported_package_metadata              235
+package_metadata_unversioned_purl         189
+declared_license_location_not_collected   103
+license_not_recognized                     32
+source_repository_unavailable              24
+license_not_detected                       20
+unsupported_source_repository              11
 ```
 
-評価開始時は 2 行目が 424 件（3 行目は存在せず）、4 行目が 122 件、未解決の総数は 652 件だった。現在は 632 件で、減った 20 件はすべて Go である。
+評価開始時は 2 行目と 3 行目が `unsupported_package_metadata` の 424 件に混ざっており、未解決の総数は 652 件だった。現在は 632 件で、減った 20 件はすべて Go である。
+
+> **この集計は一度誤っていた。** 当初は component の `warnings` 配列だけを見ており、宣言された参照から**導出される**理由を落としていた。そのため `unsupported_source_repository` が 111 件に見えていたが、実際は 11 件で、100 件は「publisher がライセンスの所在を宣言しており、ol はまだそこを読んでいない」だった。ol の報告は最初から正しく、誤っていたのは評価側である。JSON から理由を再構成するときは、警告だけでなく `evidence.declaredLicenseReferenceKind` も見る必要がある。
 
 ## 検証状況
 
-全 820 テスト合格。`DependencyInventoryCombinerBenchmark`（warmup 3 / iteration 10）は 1024 → 4096 コンポーネントで 4.32 倍、線形を保っている。アロケーションは欠陥 1 の修正前後で不変（546.35 KB / 2140.32 KB）。二片構成のパスを通らない一般ケースのために fast path を入れてある。self-scan golden は無変化、`seiton` は 0 issues。
+全 821 テスト合格。`DependencyInventoryCombinerBenchmark`（warmup 3 / iteration 10）は 1024 → 4096 コンポーネントで 4.32 倍、線形を保っている。アロケーションは欠陥 1 の修正前後で不変（546.35 KB / 2140.32 KB）。二片構成のパスを通らない一般ケースのために fast path を入れてある。self-scan golden は無変化、`seiton` は 0 issues。
 
 ## Lessons learned
 
@@ -458,6 +527,9 @@ license_not_detected                                              20
 
 - **合成した fixture では見つからない欠陥がある。** 欠陥 1 は「生成器が purl のどこでモジュールパスを切るか」の食い違いで、自分で書いた fixture には自分の想定しか入らない。実在の生成器を実在のリポジトリに当てるまで存在に気づけなかった。Phase 4 の 15 個の等価クラステストは全て通っていた。
 - **理由の名前は解決率と同じくらい重要である。** 欠陥 2 と 4 は 1 件も解決を増やしていない。それでも直す価値があったのは、180 件が「ol は Maven に非対応」と読める文言で、235 行が「リポジトリが見つからない」という文言で報告されていたからで、どちらも利用者を誤った調査に送り出す。確定できないことより、確定できない理由を取り違えることの方が害が大きい場合がある。
+- **同じ手が隣のエコシステムで効くとは限らない。** deps.dev は Go の 65/65 に答え、NuGet の Microsoft 系には 1 件も答えない。違いは情報源の優劣ではなく、ライセンス事実がどこにあるかである。Go はパッケージ内容にあり、旧 .NET パッケージは fwlink の先の散文にある。[入力経路の優劣がエコシステムごとに逆転する](../specs/packagemanager.md#lessons-learned)のと同じ構造が、外部情報源にも当てはまる。
+- **既にある規則を確認せずに課題を立てた。** root コンポーネントを「報告から除くべきか」という項目を立てたが、policy 側は最初から `non-root` で除外していた。実際に残っていたのは表示スコープと policy スコープのずれという別の話で、正しく切り分けるまで課題の粒度が合っていなかった。仕様に既存の答えがないか先に読むべきだった。
+- **報告の質を、報告を読まずに評価しかけた。** 未解決の分類を JSON の `warnings` 配列だけから作ったため、宣言された参照から導出される理由を 100 件取りこぼし、`unsupported_source_repository` が実際の 10 倍に見えていた。ol は最初から正しく報告していた。ツールの出力品質を測るなら、ツールが実際に出力するものを見る。
 - **「無い」ものを作る前に、「答えを持っている情報源」を探す。** `golang.org/x/*` の未解決に対して、最初は module proxy の zip から LICENSE を読む実装を想定していた。実際には ol が既に Maven で使っている deps.dev が Go にも同じ形で答え、実測 65 件すべてを埋めた。失敗の形が「このホストは GitHub ではない」であって「このパッケージにライセンスが見つからない」ではないとき、足りないのは収集能力ではなく問いに答える情報源である。
 - **能力を足したらキャッシュのバージョンを上げる。** Go の変更は、最初の全体再計測でまったく効かなかった。エントリ形式は何も変わっていないので見落としやすいが、空のライセンスは古いリゾルバの性質であって事実ではない。`ResolverVersion` を上げるまで、改善は利用者に届かない。
 - **ノイズの出処を確かめずに優先度を決めかけた。** 当初 `pkg:github/*` の解決を最優先に置いたが、それは件数だけを見た判断だった。SBOM のプロパティを読めば `github-actions-usage-cataloger` が入れたものだと即座に分かり、生成器のオプションで止められることも分かる。**ol の欠陥と、生成器の既定の選択と、製品スコープの未決定は別のものである。** 混ぜると、決めるべき人が決めていない事柄を実装で既成事実にしてしまう。

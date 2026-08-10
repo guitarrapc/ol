@@ -1691,6 +1691,43 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithUnresolvedRootComponent_OmitsItFromTheUnresolvedSection()
+    {
+        // The section answers "what does a reviewer do next", and policy never evaluates a root component, so
+        // listing one asks for work that no check will ever require. A generator scanning a directory names its
+        // root after that directory, which is also how an absolute local path reaches the section.
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-root-unresolved-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(sbomPath, """
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "metadata": { "component": { "bom-ref": "root-app", "type": "application", "name": "/private/build/workspace", "version": "0.0.0", "licenses": [ { "license": { "name": "See URL", "url": "https://example.test/root-LICENSE.txt" } } ] } },
+          "components": [
+            { "bom-ref": "dep", "type": "library", "name": "Example", "version": "1.0.0", "purl": "pkg:nuget/Example@1.0.0", "licenses": [ { "license": { "name": "See URL", "url": "https://example.test/LICENSE.txt" } } ] }
+          ],
+          "dependencies": [ { "ref": "root-app", "dependsOn": ["dep"] } ]
+        }
+        """, Encoding.UTF8);
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--format", "text", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            // The root still appears in the table: the report must not stop saying what the input described.
+            await Assert.That(stdout).Contains("/private/build/workspace 0.0.0");
+            await Assert.That(stdout).Contains("Unresolved components");
+            await Assert.That(stdout).Contains("Example 1.0.0 declared_license_location_not_collected https://example.test/LICENSE.txt");
+            var unresolved = stdout[stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
+            await Assert.That(unresolved).DoesNotContain("/private/build/workspace");
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithSbomAndPackageManagerInput_ScansThemAsOneCollection()
     {
         var root = FindRepositoryRoot();

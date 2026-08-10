@@ -87,6 +87,8 @@ A status alone does not tell a reviewer what to do next, and the mechanism that 
 
 `REASON` is the one mechanism that best explains the component, selected from the most specific to the most general so an unread license file is not described merely as an unusable repository. A component with no mechanism is omitted rather than listed with its status again, and the whole section is omitted when it would be empty; a report where nothing is unresolved is unchanged.
 
+A root component is omitted too. It is the subject of the scan rather than a dependency of it, and [policy evaluates all non-root components](#contract-policy-checks), so listing one asks a reviewer for work no check will ever require. It stays in the table, because the report must not stop saying what the input described. This also keeps the section free of the directory path a generator uses to name the root of a directory scan.
+
 Most reasons are the warning identifier the JSON report already uses, so one vocabulary describes both. Three are derived instead, one per [declared license reference](spdx.md#contract-declared-license-reference) kind, because an unread declaration is not a collection failure and no source records it as one:
 
 | Declared kind | `REASON` | What the reviewer does |
@@ -112,7 +114,9 @@ The complete inventory is independent of sorted, filtered, or grouped views. Occ
 
 <a id="contract-report-privacy"></a>
 
-Reports, baselines, SARIF, and diagnostics must not contain token values, absolute local paths, or hidden cache paths. Use logical identifiers, basenames, relative paths, and hashes. Authentication may be reported only as a mode, never as a credential value.
+No value Ol constructs for a report, baseline, SARIF document, or diagnostic may contain a token value, an absolute local path, or a hidden cache path. Use logical identifiers, basenames, relative paths, and hashes. Authentication may be reported only as a mode, never as a credential value.
+
+The rule binds what Ol writes about itself, not what an input said. A component's name, version, and identifiers are the input's own statement, and rewriting them would make the report disagree with the document it describes and break correlation with the source identifier a reader uses to find the component again. A generator that scans a directory names its root component after that directory, so an absolute path can reach a report that way; the path is then a fact about the input rather than something Ol disclosed about the machine it ran on. Anyone publishing a report generated from a local tree should expect it to carry whatever identity the generator wrote.
 
 <a id="contract-purl-prefix"></a>
 

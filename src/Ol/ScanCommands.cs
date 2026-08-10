@@ -1230,7 +1230,7 @@ internal static class ReportRenderer
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
-            if (component.Status == LicenseStatus.Matched || !TryGetUnresolvedReason(component, out var reason))
+            if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
             {
                 continue;
             }
@@ -1349,6 +1349,18 @@ internal static class ReportRenderer
         public readonly bool Has(LicenseCandidateWarnings warning) => (Warnings & warning) != 0;
     }
 
+    /// <summary>
+    /// Reports whether a component needs no entry in the unresolved section.
+    /// </summary>
+    /// <remarks>
+    /// A resolved component has nothing to explain. Neither does a root: it is the subject of the scan rather than a
+    /// dependency of it, and <see href="cli.md#contract-policy-checks">policy evaluates all non-root components</see>,
+    /// so an entry would ask a reviewer for work that no check will ever require. It stays in the table, because the
+    /// report must not stop saying what the input described.
+    /// </remarks>
+    private static bool IsExplainedElsewhere(in ScanComponent component)
+        => component.Status == LicenseStatus.Matched || component.DependencyType == DependencyType.Root;
+
     /// <summary>Returns the location Ol observed for this reason, or an empty value.</summary>
     /// <remarks>
     /// Only the two mechanisms whose whole point is an unread document supply one: a repository license
@@ -1454,7 +1466,7 @@ internal static class ReportRenderer
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
-            if (component.Status == LicenseStatus.Matched || !TryGetUnresolvedReason(component, out var reason))
+            if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
             {
                 continue;
             }

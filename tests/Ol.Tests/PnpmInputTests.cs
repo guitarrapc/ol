@@ -72,6 +72,200 @@ public sealed class PnpmInputTests
     }
 
     [Test]
+    public async Task Scan_PnpmLockV9_TransitivePeerDependenciesSequence_IsIgnoredAndGraphResolves()
+    {
+        var input = Encoding.UTF8.GetBytes(
+            """
+            lockfileVersion: '9.0'
+
+            importers:
+
+              .:
+                dependencies:
+                  direct-package:
+                    specifier: ^1.0.0
+                    version: 1.0.0
+
+            packages:
+
+              direct-package@1.0.0:
+                resolution: {integrity: sha512-direct}
+
+              child-package@2.0.0:
+                resolution: {integrity: sha512-child}
+
+            snapshots:
+
+              direct-package@1.0.0:
+                dependencies:
+                  child-package: 2.0.0
+                transitivePeerDependencies:
+                  - '@algolia/client-search'
+                  - supports-color
+
+              child-package@2.0.0: {}
+            """);
+
+        var inventory = DependencyInputScanner.Scan(input, Spdx, expectedFormat: ScanInputFormat.PnpmLock);
+
+        await Assert.That(inventory.Components).Count().IsEqualTo(2);
+        await Assert.That(FindComponent(inventory, "direct-package@1.0.0").DependencyType).IsEqualTo(DependencyType.Direct);
+        await Assert.That(FindComponent(inventory, "child-package@2.0.0").DependencyType).IsEqualTo(DependencyType.Transitive);
+        await Assert.That(inventory.Edges).Count().IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Scan_PnpmLockV9_BlockSequenceRestrictions_ProduceOsAndCpuVariant()
+    {
+        var input = Encoding.UTF8.GetBytes(
+            """
+            lockfileVersion: '9.0'
+
+            importers:
+
+              .:
+                dependencies:
+                  native-package:
+                    specifier: 1.0.0
+                    version: 1.0.0
+
+            packages:
+
+              native-package@1.0.0:
+                resolution: {integrity: sha512-native}
+                cpu:
+                  - x64
+                  - arm64
+                os:
+                  - linux
+                  - darwin
+
+            snapshots:
+
+              native-package@1.0.0: {}
+            """);
+
+        var inventory = DependencyInputScanner.Scan(input, Spdx, expectedFormat: ScanInputFormat.PnpmLock);
+
+        await Assert.That(FindVariant(inventory, 0, "native-package@1.0.0").ToString()).IsEqualTo("os=linux,darwin;cpu=x64,arm64");
+    }
+
+    [Test]
+    public async Task Scan_PnpmLockV9_SequencesUnderUnreadKeys_AreIgnored()
+    {
+        var input = Encoding.UTF8.GetBytes(
+            """
+            lockfileVersion: '9.0'
+
+            onlyBuiltDependencies:
+              - esbuild
+
+            ignoredOptionalDependencies:
+              - fsevents
+
+            importers:
+
+              .:
+                dependencies:
+                  direct-package:
+                    specifier: 1.0.0
+                    version: 1.0.0
+                unknownFutureKey:
+                  - something
+
+            packages:
+
+              direct-package@1.0.0:
+                resolution: {integrity: sha512-direct}
+                libc:
+                  - glibc
+                bundledDependencies:
+                  - inner-thing
+
+            snapshots:
+
+              direct-package@1.0.0: {}
+            """);
+
+        var inventory = DependencyInputScanner.Scan(input, Spdx, expectedFormat: ScanInputFormat.PnpmLock);
+
+        await Assert.That(inventory.Components).Count().IsEqualTo(1);
+        await Assert.That(FindComponent(inventory, "direct-package@1.0.0").DependencyType).IsEqualTo(DependencyType.Direct);
+
+        // libc and bundledDependencies are sequences the parser skips, not os and cpu restrictions.
+        await Assert.That(inventory.OccurrenceVariants).IsEmpty();
+    }
+
+    [Test]
+    public async Task Scan_PnpmLockV9_SequenceWhereMappingRequired_IsRejected()
+    {
+        var sectionEntry = Encoding.UTF8.GetBytes(
+            """
+            lockfileVersion: '9.0'
+
+            importers:
+              - direct-package
+
+            packages:
+
+              direct-package@1.0.0:
+                resolution: {integrity: sha512-direct}
+
+            snapshots:
+
+              direct-package@1.0.0: {}
+            """);
+
+        var importerDependencies = Encoding.UTF8.GetBytes(
+            """
+            lockfileVersion: '9.0'
+
+            importers:
+
+              .:
+                dependencies:
+                  - direct-package
+
+            packages:
+
+              direct-package@1.0.0:
+                resolution: {integrity: sha512-direct}
+
+            snapshots:
+
+              direct-package@1.0.0: {}
+            """);
+
+        var snapshotDependencies = Encoding.UTF8.GetBytes(
+            """
+            lockfileVersion: '9.0'
+
+            importers:
+
+              .:
+                dependencies:
+                  direct-package:
+                    specifier: 1.0.0
+                    version: 1.0.0
+
+            packages:
+
+              direct-package@1.0.0:
+                resolution: {integrity: sha512-direct}
+
+            snapshots:
+
+              direct-package@1.0.0:
+                dependencies:
+                  - child-package
+            """);
+
+        await Assert.That(() => DependencyInputScanner.Scan(sectionEntry, Spdx, expectedFormat: ScanInputFormat.PnpmLock)).Throws<JsonException>();
+        await Assert.That(() => DependencyInputScanner.Scan(importerDependencies, Spdx, expectedFormat: ScanInputFormat.PnpmLock)).Throws<JsonException>();
+        await Assert.That(() => DependencyInputScanner.Scan(snapshotDependencies, Spdx, expectedFormat: ScanInputFormat.PnpmLock)).Throws<JsonException>();
+    }
+
+    [Test]
     public async Task Registry_Default_PnpmHandlerOwnsDetectorAndDirectoryDiscovery()
     {
         var found = DependencyInputRegistry.Default.TryGetInputFormat("PNPM-LOCK", out var handler);

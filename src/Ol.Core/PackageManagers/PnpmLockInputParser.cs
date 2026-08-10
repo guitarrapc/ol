@@ -260,7 +260,21 @@ internal static class PnpmLockInputParser
                     continue;
                 }
 
-                throw new JsonException("pnpm lockfile contains an unexpected YAML sequence.");
+                if (section != PnpmSection.None && line.Indent <= 4)
+                {
+                    throw new JsonException("pnpm lockfile section entries must be YAML mappings.");
+                }
+
+                if (section is PnpmSection.Importers or PnpmSection.Snapshots && line.Indent == 6 && dependencyKind != DependencyKind.None)
+                {
+                    throw new JsonException("pnpm resolved dependencies must be a YAML mapping.");
+                }
+
+                // Every remaining sequence belongs to a key this parser does not read, such as
+                // transitivePeerDependencies, libc, or bundledDependencies. pnpm writes those for
+                // real dependency graphs, so rejecting them would fail the whole lockfile over
+                // values that carry no license evidence.
+                continue;
             }
 
             if (line.Indent == 0)

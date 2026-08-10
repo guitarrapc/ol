@@ -22,7 +22,7 @@
       "source": "bundled",
       "licenseListVersion": "e4c1f27",
       "dataRef": "bundled/spdx/builtin",
-      "licensesSha256": "10b3c5841fe7d2c65008ac58cad5c5f88b63b3fc0bcd1c37a6f837ead16b872b",
+      "licensesSha256": "d987343e83283921d04e95161e6d27cdb69ca4019e0e93a021d769986772ee3f",
       "exceptionsSha256": "345ed515e4b5ca426ef04c96805b9aa5b3cc4ad35b5fb471e9488a5359e5e21b"
     },
     "packageMetadata": {
@@ -46,6 +46,14 @@
     },
     "network": {
       "githubAuth": "none"
+    },
+    "collection": {
+      "externalEvidence": "not-collected"
+    },
+    "view": {
+      "dependencyFilter": null,
+      "excludedCount": 0,
+      "excludedUnknownCount": 0
     }
   },
   "inventory": {

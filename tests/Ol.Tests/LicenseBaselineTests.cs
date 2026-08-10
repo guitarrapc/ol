@@ -37,19 +37,29 @@ public sealed class LicenseBaselineTests
     }
 
     [Test]
-    public async Task CanAcknowledge_AmbiguousListingTheAllowListAdmits_IsNotAcknowledgeable()
+    public async Task CanAcknowledge_ResolvedListingTheAllowListAdmits_IsNotAcknowledgeable()
     {
         var policy = CreatePolicy("MIT", "Apache-2.0");
-        var component = CreateComponent(LicenseStatus.Ambiguous, Candidate(LicenseCandidateSource.PackageRegistry, "MIT; Apache-2.0", "MIT; Apache-2.0"));
+        var component = CreateComponent(LicenseStatus.Ambiguous, ListingCandidate("MIT; Apache-2.0"));
 
         await Assert.That(policy.CanAcknowledge(component)).IsFalse();
     }
 
     [Test]
-    public async Task CanAcknowledge_AmbiguousListingNamingAForbiddenLicense_StaysAcknowledgeable()
+    public async Task CanAcknowledge_ResolvedListingNamingAForbiddenLicense_StaysAcknowledgeable()
     {
         var policy = CreatePolicy("MIT");
-        var component = CreateComponent(LicenseStatus.Ambiguous, Candidate(LicenseCandidateSource.PackageRegistry, "MIT; Apache-2.0", "MIT; Apache-2.0"));
+        var component = CreateComponent(LicenseStatus.Ambiguous, ListingCandidate("MIT; Apache-2.0"));
+
+        await Assert.That(policy.CanAcknowledge(component)).IsTrue();
+    }
+
+    // Publisher punctuation is not a listing, so it stays a violation and therefore stays acknowledgeable.
+    [Test]
+    public async Task CanAcknowledge_PublisherTextContainingASemicolon_StaysAcknowledgeable()
+    {
+        var policy = CreatePolicy("MIT", "Apache-2.0");
+        var component = CreateComponent(LicenseStatus.Ambiguous, Candidate(LicenseCandidateSource.NpmRegistry, "MIT; Apache-2.0", "MIT; Apache-2.0"));
 
         await Assert.That(policy.CanAcknowledge(component)).IsTrue();
     }
@@ -412,6 +422,9 @@ public sealed class LicenseBaselineTests
 
     private static LicenseCandidate Candidate(LicenseCandidateSource source, string raw, string normalized)
         => new(source, LicenseCandidateKind.License, raw, normalized, LicenseStatus.Unknown, false, LicenseCandidateWarnings.None);
+
+    private static LicenseCandidate ListingCandidate(string raw)
+        => LicenseCandidateFactory.CreateLicenseSet(LicenseCandidateSource.DepsDev, Utf8Slice.FromString(raw), Spdx);
 
     private static ScanComponent CreateComponent(
         LicenseStatus status,

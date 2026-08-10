@@ -525,16 +525,22 @@ internal sealed class PackageMetadataService(
         return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(record.Warnings) };
     }
 
-    /// <summary>Classifies a registry license, reading Cargo's pre-SPDX spelling as the expression it denotes.</summary>
+    /// <summary>Classifies a registry license, reading each registry's own spelling of one.</summary>
     /// <remarks>
-    /// Applied here rather than at the crates.io boundary so the cache keeps the license crates.io
-    /// published. A cached entry is therefore still classified with the active SPDX data, and the
-    /// rewrite cannot become a conclusion frozen into the cache by an older SPDX snapshot.
+    /// Applied here rather than at each registry boundary so the cache keeps the license the registry
+    /// published. A cached entry is therefore still classified with the active SPDX data, and neither
+    /// Cargo's pre-SPDX choice spelling nor a deps.dev listing can become a conclusion frozen into the
+    /// cache by an older SPDX snapshot.
     /// </remarks>
     private LicenseCandidate CreateRegistryLicenseCandidate(LicenseCandidateSource source, Utf8Slice raw, LicenseEvidence evidence)
-        => source == LicenseCandidateSource.CargoRegistry && CargoLicenseExpression.TryRewriteLegacyChoice(raw.Span, out var choice)
-            ? LicenseCandidateFactory.CreateRewritten(source, LicenseCandidateKind.License, raw, choice, spdxLicenseIndex, evidence)
-            : LicenseCandidateFactory.Create(source, LicenseCandidateKind.License, raw, spdxLicenseIndex, evidence);
+        => source switch
+        {
+            LicenseCandidateSource.CargoRegistry when CargoLicenseExpression.TryRewriteLegacyChoice(raw.Span, out var choice)
+                => LicenseCandidateFactory.CreateRewritten(source, LicenseCandidateKind.License, raw, choice, spdxLicenseIndex, evidence),
+            LicenseCandidateSource.DepsDev
+                => LicenseCandidateFactory.CreateLicenseSet(source, raw, spdxLicenseIndex, evidence),
+            _ => LicenseCandidateFactory.Create(source, LicenseCandidateKind.License, raw, spdxLicenseIndex, evidence),
+        };
 
     private static LicenseCandidateSource GetCandidateSource(string source) => source switch
     {
@@ -542,6 +548,7 @@ internal sealed class PackageMetadataService(
         "nuget-registry" => LicenseCandidateSource.NuGetRegistry,
         "cargo-registry" => LicenseCandidateSource.CargoRegistry,
         "go-module-proxy" => LicenseCandidateSource.GoModuleProxy,
+        "deps.dev" => LicenseCandidateSource.DepsDev,
         _ => LicenseCandidateSource.PackageRegistry,
     };
 
@@ -551,6 +558,7 @@ internal sealed class PackageMetadataService(
         if (source.SequenceEqual("nuget-registry"u8)) return LicenseCandidateSource.NuGetRegistry;
         if (source.SequenceEqual("cargo-registry"u8)) return LicenseCandidateSource.CargoRegistry;
         if (source.SequenceEqual("go-module-proxy"u8)) return LicenseCandidateSource.GoModuleProxy;
+        if (source.SequenceEqual("deps.dev"u8)) return LicenseCandidateSource.DepsDev;
         return LicenseCandidateSource.PackageRegistry;
     }
 

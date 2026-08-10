@@ -1,4 +1,5 @@
-﻿using Ol.Core.Spdx;
+﻿using System.Buffers;
+using Ol.Core.Spdx;
 
 namespace Ol.Core.Licensing;
 
@@ -57,6 +58,91 @@ public static class LicenseCandidateFactory
     {
         var status = Classify(classified, spdxLicenseIndex, out var normalized, out var deprecated);
         return new LicenseCandidate(source, kind, raw, normalized, status, deprecated, deprecated ? LicenseCandidateWarnings.DeprecatedSpdxIdentifier : LicenseCandidateWarnings.None, evidence);
+    }
+
+    /// <summary>The separator Ol joins an unordered license listing with. Never an SPDX operator.</summary>
+    private const byte LicenseSetSeparator = (byte)';';
+
+    /// <summary>
+    /// Creates one candidate from a listing of licenses whose relation the source did not state.
+    /// </summary>
+    /// <param name="source">The evidence source that produced the listing.</param>
+    /// <param name="raw">The listing exactly as Ol joined it from the source's values.</param>
+    /// <param name="spdxLicenseIndex">The active SPDX data index.</param>
+    /// <param name="evidence">Typed provenance that substantiates the candidate.</param>
+    /// <returns>The listing candidate, or ordinary classification when the value is not a resolvable listing.</returns>
+    /// <remarks>
+    /// The kind is what marks a value as a listing, so no later reader has to recognize the separator and
+    /// mistake a publisher's free-text semicolon for one. The status stays ambiguous — the members are
+    /// known, the relation is not — but resolving them here reports a deprecated member, which classifying
+    /// the joined value could not: it parses as neither identifier nor expression, and read as
+    /// <c>ambiguous</c> or <c>invalid</c> by whether a member happened to contain an operator word.
+    /// A member that resolves nothing, such as deps.dev's <c>non-standard</c>, leaves the whole value to
+    /// ordinary classification.
+    /// </remarks>
+    public static LicenseCandidate CreateLicenseSet(LicenseCandidateSource source, Utf8Slice raw, SpdxLicenseIndex spdxLicenseIndex, LicenseEvidence evidence = default)
+    {
+        if (raw.Span.IndexOf(LicenseSetSeparator) < 0 || !TryResolveMembers(raw.Span, spdxLicenseIndex, out var members, out var deprecated))
+        {
+            return Create(source, LicenseCandidateKind.License, raw, spdxLicenseIndex, evidence);
+        }
+
+        return new LicenseCandidate(
+            source,
+            LicenseCandidateKind.LicenseSet,
+            raw,
+            members,
+            LicenseStatus.Ambiguous,
+            deprecated,
+            deprecated ? LicenseCandidateWarnings.DeprecatedSpdxIdentifier : LicenseCandidateWarnings.None,
+            evidence);
+    }
+
+    /// <summary>Normalizes every member of a listing, or reports that at least one does not resolve.</summary>
+    /// <remarks>
+    /// Re-joined into one value rather than kept as an array: a candidate is a flat record on every scanned
+    /// component, and listings are rare enough that carrying an array everywhere costs more than splitting
+    /// a value Ol itself normalized.
+    /// </remarks>
+    private static bool TryResolveMembers(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, out Utf8Slice members, out bool deprecated)
+    {
+        members = default;
+        deprecated = false;
+        var builder = new ArrayBufferWriter<byte>(value.Length);
+        var remaining = value;
+        while (true)
+        {
+            var separator = remaining.IndexOf(LicenseSetSeparator);
+            var member = separator < 0 ? remaining : remaining[..separator];
+            if (!SpdxExpression.TryNormalize(TrimAsciiWhitespace(member), spdxLicenseIndex, out var normalized, out var memberDeprecated))
+            {
+                return false;
+            }
+
+            deprecated |= memberDeprecated;
+            if (builder.WrittenCount != 0)
+            {
+                builder.Write("; "u8);
+            }
+
+            builder.Write(normalized.Span);
+            if (separator < 0)
+            {
+                members = Utf8Slice.FromOwnedBytes(builder.WrittenSpan.ToArray());
+                return true;
+            }
+
+            remaining = remaining[(separator + 1)..];
+        }
+    }
+
+    private static ReadOnlySpan<byte> TrimAsciiWhitespace(ReadOnlySpan<byte> value)
+    {
+        var start = 0;
+        while (start < value.Length && value[start] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n') start++;
+        var end = value.Length;
+        while (end > start && value[end - 1] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n') end--;
+        return value[start..end];
     }
 
     /// <summary>

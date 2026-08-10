@@ -67,6 +67,7 @@ public enum LicenseCandidateSource : byte
     SourceRepository,
     GitHubLicenseApi,
     DependencyInput,
+    DepsDev,
 }
 
 /// <summary>Identifies the field type that produced a license candidate.</summary>
@@ -83,6 +84,7 @@ public enum LicenseCandidateKind : byte
     Unavailable,
     Unsupported,
     Location,
+    LicenseSet,
 }
 
 /// <summary>Provides stable UTF-8 candidate identifiers without string allocation.</summary>
@@ -195,6 +197,7 @@ public static class LicenseCandidateIdentifiers
         var v when v.SequenceEqual("source-repository"u8) => LicenseCandidateSource.SourceRepository,
         var v when v.SequenceEqual("github-license-api"u8) => LicenseCandidateSource.GitHubLicenseApi,
         var v when v.SequenceEqual("dependency-input"u8) => LicenseCandidateSource.DependencyInput,
+        var v when v.SequenceEqual("deps.dev"u8) => LicenseCandidateSource.DepsDev,
         _ => LicenseCandidateSource.None,
     };
 
@@ -211,6 +214,7 @@ public static class LicenseCandidateIdentifiers
         var v when v.SequenceEqual("unavailable"u8) => LicenseCandidateKind.Unavailable,
         var v when v.SequenceEqual("unsupported"u8) => LicenseCandidateKind.Unsupported,
         var v when v.SequenceEqual("location"u8) => LicenseCandidateKind.Location,
+        var v when v.SequenceEqual("license-set"u8) => LicenseCandidateKind.LicenseSet,
         _ => LicenseCandidateKind.None,
     };
 
@@ -225,6 +229,7 @@ public static class LicenseCandidateIdentifiers
         LicenseCandidateSource.SourceRepository => "source-repository"u8,
         LicenseCandidateSource.GitHubLicenseApi => "github-license-api"u8,
         LicenseCandidateSource.DependencyInput => "dependency-input"u8,
+        LicenseCandidateSource.DepsDev => "deps.dev"u8,
         _ => default,
     };
 
@@ -240,6 +245,7 @@ public static class LicenseCandidateIdentifiers
         LicenseCandidateKind.Unavailable => "unavailable"u8,
         LicenseCandidateKind.Unsupported => "unsupported"u8,
         LicenseCandidateKind.Location => "location"u8,
+        LicenseCandidateKind.LicenseSet => "license-set"u8,
         _ => default,
     };
 }

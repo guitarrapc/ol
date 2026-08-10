@@ -161,6 +161,21 @@ Where SPDX gives one name to two identifiers, it is always a deprecated identifi
 
 License exception names are not matched. An exception is only ever an operand of `WITH`, where the operand is an identifier.
 
+<a id="contract-license-set"></a>
+
+A source that enumerates the licenses it found without saying whether they are alternatives or cumulative states a license listing. deps.dev answers that way for Go modules and Maven artifacts. Each member is resolved against the active SPDX data where the listing is built, and the candidate records the result as kind `license-set`, written with `;` between members because `;` is not an SPDX operator and no expression will ever contain it.
+
+```text
+["MIT", "Apache-2.0"]  -> license-set  MIT; Apache-2.0        (ambiguous)
+["non-standard", ...]  -> license                             (ambiguous, unresolved)
+```
+
+The status stays `ambiguous`. The members are known; the relation is not, and no member count makes it known. What resolution adds is that every member is a valid SPDX expression, that a deprecated member is reported as [deprecated](#contract-deprecated-identifiers), and that the value carries one kind whatever the members spell. That last point is the lesson: classifying the joined value instead read it as `ambiguous` or `invalid` depending on whether a member happened to contain an operator word, because the joined value parses as neither an identifier nor an expression and the heuristic that decides between them was written for publisher free text.
+
+A member that resolves nothing leaves the whole value to ordinary classification. deps.dev answers `non-standard` for a license it could not identify, and a listing Ol cannot enumerate is not one a later reader may treat as enumerated.
+
+The kind is what states that a value is a listing, not the separator. A publisher who writes a semicolon in a license field has not stated a listing, so their value is classified and evaluated whole like any other. Deciding this by punctuation instead would let a policy read free text as an enumeration Ol never built and never validated.
+
 <a id="contract-spdx-license-see-also"></a>
 
 A [declared license location](#contract-declared-license-reference) is matched against the SPDX license list's `seeAlso` URLs, and resolves to the identifier that publishes it.
@@ -247,7 +262,7 @@ stderr summary should include deprecated identifier warning counts.
 Each component JSON record retains every license claim once in `licenseCandidates`. Each candidate includes:
 
 - `source`
-- `kind`, such as `declared`, `concluded`, `expression`, `id`, `name`, or `location`
+- `kind`, such as `declared`, `concluded`, `expression`, `id`, `name`, `location`, or `license-set`
 - `raw` and normalized SPDX expression when valid
 - classification `status`
 - `deprecated` and candidate `warnings`

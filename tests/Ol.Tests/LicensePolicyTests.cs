@@ -7,8 +7,9 @@ namespace Ol.Tests;
 public sealed class LicensePolicyTests
 {
     private static readonly SpdxLicenseIndex Spdx = new(
-        ["MIT", "Apache-2.0", "BSD-3-Clause", "GPL-2.0-only", "GPL-3.0-only"],
-        ["Classpath-exception-2.0"]);
+        ["MIT", "Apache-2.0", "BSD-3-Clause", "GPL-2.0", "GPL-2.0-only", "GPL-3.0-only"],
+        ["Classpath-exception-2.0"],
+        ["GPL-2.0"]);
 
     [Test]
     [Arguments("MIT", "MIT", true)]
@@ -55,35 +56,41 @@ public sealed class LicensePolicyTests
         await Assert.That(violations[0].Kind).IsEqualTo(expectedKind);
     }
 
-    // A registry that lists licenses without stating how they relate leaves only the operator unknown, so a
-    // listing the allow-list admits element by element is admitted as AND and as OR alike.
+    // A source that lists licenses without stating how they relate leaves only the operator unknown, so a
+    // listing the allow-list admits member by member is admitted as AND and as OR alike.
     [Test]
     [Arguments("MIT; Apache-2.0", "MIT,Apache-2.0", true)]
     [Arguments("MIT; Apache-2.0; BSD-3-Clause", "MIT,Apache-2.0,BSD-3-Clause", true)]
-    [Arguments("MIT;Apache-2.0", "MIT,Apache-2.0", true)]
+    [Arguments("MIT OR Apache-2.0; BSD-3-Clause", "MIT,Apache-2.0,BSD-3-Clause", true)]
     [Arguments("MIT; GPL-3.0-only", "MIT,Apache-2.0", false)]
     [Arguments("GPL-3.0-only; MIT", "MIT,Apache-2.0", false)]
     [Arguments("MIT; Apache-2.0", "MIT", false)]
     [Arguments("Unknown - See URL", "MIT,Apache-2.0", false)]
     [Arguments("License :: OSI Approved :: BSD License", "MIT,BSD-3-Clause", false)]
     [Arguments("MIT; NOASSERTION", "MIT,Apache-2.0", false)]
+    [Arguments("MIT; non-standard", "MIT,Apache-2.0", false)]
     [Arguments("MIT;", "MIT,Apache-2.0", false)]
-    public async Task Evaluate_AmbiguousListing_IsAllowedOnlyWhenEveryElementIs(string value, string allowed, bool expectedAllowed)
+    public async Task Evaluate_ResolvedListing_IsAllowedOnlyWhenEveryMemberIs(string value, string allowed, bool expectedAllowed)
     {
         LicenseAllowPolicy.TryCreate(allowed.Split(','), Spdx, out var policy, out _);
 
-        var violations = policy.Evaluate([CreateAmbiguousComponent(value)], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
+        var violations = policy.Evaluate([CreateListingComponent(value)], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
 
         await Assert.That(violations.Length == 0).IsEqualTo(expectedAllowed);
         await Assert.That(ambiguityAllowedCount).IsEqualTo(expectedAllowed ? 1 : 0);
     }
 
+    // A semicolon a publisher wrote is punctuation, not a listing Ol built and validated, so the value is
+    // evaluated whole and stays a violation however its parts read.
     [Test]
-    public async Task Evaluate_AmbiguousListing_WithASecondCandidateNamingAForbiddenLicense_StaysAViolation()
+    [Arguments("MIT; Apache-2.0")]
+    [Arguments("MIT;Apache-2.0")]
+    [Arguments("Apache-2.0; MIT for the bundled parser")]
+    public async Task Evaluate_PublisherTextContainingASemicolon_IsNotReadAsAListing(string value)
     {
         LicenseAllowPolicy.TryCreate(["MIT", "Apache-2.0"], Spdx, out var policy, out _);
 
-        var violations = policy.Evaluate([CreateAmbiguousComponent("MIT; Apache-2.0", "GPL-3.0-only; MIT")], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
+        var violations = policy.Evaluate([CreateFreeTextComponent(value)], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
 
         await Assert.That(violations).Count().IsEqualTo(1);
         await Assert.That(violations[0].Kind).IsEqualTo(LicensePolicyViolationKind.Ambiguous);
@@ -91,15 +98,88 @@ public sealed class LicensePolicyTests
     }
 
     [Test]
-    public async Task Evaluate_AmbiguousListing_WithACandidateStatingNothing_IgnoresThatCandidate()
+    public async Task Evaluate_ResolvedListing_WithASecondCandidateNamingAForbiddenLicense_StaysAViolation()
     {
         LicenseAllowPolicy.TryCreate(["MIT", "Apache-2.0"], Spdx, out var policy, out _);
-        var component = CreateAmbiguousComponent("MIT; Apache-2.0", string.Empty);
+
+        var violations = policy.Evaluate([CreateListingComponent("MIT; Apache-2.0", "GPL-3.0-only; MIT")], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(violations[0].Kind).IsEqualTo(LicensePolicyViolationKind.Ambiguous);
+        await Assert.That(ambiguityAllowedCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Evaluate_ResolvedListing_WithACandidateStatingNothing_IgnoresThatCandidate()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT", "Apache-2.0"], Spdx, out var policy, out _);
+        var component = CreateListingComponent("MIT; Apache-2.0", string.Empty);
 
         var violations = policy.Evaluate([component], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
 
         await Assert.That(violations).IsEmpty();
         await Assert.That(ambiguityAllowedCount).IsEqualTo(1);
+    }
+
+    // Resolving the members is what makes a deprecated one reportable; classifying the joined value could
+    // not see inside it.
+    [Test]
+    public async Task ResolvedListing_WithADeprecatedMember_ReportsTheDeprecation()
+    {
+        var candidate = LicenseCandidateFactory.CreateLicenseSet(LicenseCandidateSource.DepsDev, Utf8Slice.FromString("MIT; GPL-2.0"), Spdx);
+
+        await Assert.That(candidate.Kind).IsEqualTo(LicenseCandidateKind.LicenseSet);
+        await Assert.That(candidate.Status).IsEqualTo(LicenseStatus.Ambiguous);
+        await Assert.That(candidate.Deprecated).IsTrue();
+        await Assert.That(candidate.Warnings.HasFlag(LicenseCandidateWarnings.DeprecatedSpdxIdentifier)).IsTrue();
+    }
+
+    // The joined value parses as neither an identifier nor an expression, so whether it read as ambiguous
+    // or invalid used to depend on whether a member happened to contain an operator word.
+    [Test]
+    [Arguments("MIT; Apache-2.0")]
+    [Arguments("MIT OR Apache-2.0; BSD-3-Clause")]
+    [Arguments("MIT; GPL-2.0-only WITH Classpath-exception-2.0")]
+    public async Task ResolvedListing_WhateverItsMembersSpell_IsOneKindAndOneStatus(string value)
+    {
+        var candidate = LicenseCandidateFactory.CreateLicenseSet(LicenseCandidateSource.DepsDev, Utf8Slice.FromString(value), Spdx);
+
+        await Assert.That(candidate.Kind).IsEqualTo(LicenseCandidateKind.LicenseSet);
+        await Assert.That(candidate.Status).IsEqualTo(LicenseStatus.Ambiguous);
+        await Assert.That(candidate.Raw.ToString()).IsEqualTo(value);
+    }
+
+    // deps.dev answers `non-standard` for a license it could not identify, which is a listing Ol cannot
+    // enumerate and therefore must not hand on as enumerated.
+    [Test]
+    [Arguments("non-standard; Apache-2.0")]
+    [Arguments("non-standard")]
+    public async Task ResolvedListing_WithAnUnidentifiableMember_FallsBackToOrdinaryClassification(string value)
+    {
+        var candidate = LicenseCandidateFactory.CreateLicenseSet(LicenseCandidateSource.DepsDev, Utf8Slice.FromString(value), Spdx);
+
+        await Assert.That(candidate.Kind).IsEqualTo(LicenseCandidateKind.License);
+        await Assert.That(candidate.Status).IsEqualTo(LicenseStatus.Ambiguous);
+    }
+
+    // A single value is not a listing, so it resolves like any other license.
+    [Test]
+    public async Task ResolvedListing_WithOneMember_IsClassifiedAsThatLicense()
+    {
+        var candidate = LicenseCandidateFactory.CreateLicenseSet(LicenseCandidateSource.DepsDev, Utf8Slice.FromString("MIT"), Spdx);
+
+        await Assert.That(candidate.Kind).IsEqualTo(LicenseCandidateKind.License);
+        await Assert.That(candidate.Status).IsEqualTo(LicenseStatus.Matched);
+        await Assert.That(candidate.Normalized.ToString()).IsEqualTo("MIT");
+    }
+
+    [Test]
+    public async Task Kind_LicenseSet_RoundTripsThroughItsPersistedToken()
+    {
+        await Assert.That(System.Text.Encoding.UTF8.GetString(LicenseCandidateKind.LicenseSet.ToUtf8())).IsEqualTo("license-set");
+        await Assert.That(LicenseCandidateIdentifiers.ParseKind("license-set"u8)).IsEqualTo(LicenseCandidateKind.LicenseSet);
+        await Assert.That(System.Text.Encoding.UTF8.GetString(LicenseCandidateSource.DepsDev.ToUtf8())).IsEqualTo("deps.dev");
+        await Assert.That(LicenseCandidateIdentifiers.ParseSource("deps.dev"u8)).IsEqualTo(LicenseCandidateSource.DepsDev);
     }
 
     // A conflict is evidence that disagrees rather than a relation left unstated, so the allow-list admitting
@@ -108,7 +188,7 @@ public sealed class LicensePolicyTests
     public async Task Evaluate_ConflictBetweenAllowedLicenses_StaysAViolation()
     {
         LicenseAllowPolicy.TryCreate(["MIT", "Apache-2.0"], Spdx, out var policy, out _);
-        var component = CreateAmbiguousComponent("MIT; Apache-2.0") with { Status = LicenseStatus.Conflict };
+        var component = CreateListingComponent("MIT; Apache-2.0") with { Status = LicenseStatus.Conflict };
 
         var violations = policy.Evaluate([component], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
 
@@ -471,24 +551,31 @@ public sealed class LicensePolicyTests
     private static ScanComponent CreateComponentWithPurl(Utf8Slice purl, LicenseStatus status, Utf8Slice license = default)
         => new("example", "1.0.0", license, "npm", DependencyType.Direct, status, purl, "example", default, [], []);
 
-    /// <summary>Builds an ambiguous component whose candidates carry the given declared values verbatim.</summary>
+    /// <summary>Builds an ambiguous component whose candidates were resolved as listings by the factory.</summary>
     /// <remarks>
-    /// An ambiguous candidate keeps the declared value as its normalized form, which is what
-    /// <see cref="LicenseCandidateFactory"/> does for a value it will not guess at.
+    /// Built through <see cref="LicenseCandidateFactory.CreateLicenseSet"/> rather than by hand, so a value
+    /// the factory declines to resolve reaches the policy exactly as it would in a scan.
     /// </remarks>
-    private static ScanComponent CreateAmbiguousComponent(params string[] candidateValues)
+    private static ScanComponent CreateListingComponent(params string[] candidateValues)
     {
         var candidates = new LicenseCandidate[candidateValues.Length];
         for (var i = 0; i < candidateValues.Length; i++)
         {
-            var status = candidateValues[i].Length == 0 ? LicenseStatus.Unknown : LicenseStatus.Ambiguous;
-            candidates[i] = new(LicenseCandidateSource.PackageRegistry, LicenseCandidateKind.License, candidateValues[i], candidateValues[i], status, false, LicenseCandidateWarnings.None);
+            candidates[i] = LicenseCandidateFactory.CreateLicenseSet(LicenseCandidateSource.DepsDev, Utf8Slice.FromString(candidateValues[i]), Spdx);
         }
 
-        return new(
+        return CreateComponentWithCandidates(candidateValues[0], candidates);
+    }
+
+    /// <summary>Builds an ambiguous component from a value a publisher wrote, whatever punctuation it holds.</summary>
+    private static ScanComponent CreateFreeTextComponent(string value)
+        => CreateComponentWithCandidates(value, [LicenseCandidateFactory.Create(LicenseCandidateSource.NpmRegistry, LicenseCandidateKind.License, Utf8Slice.FromString(value), Spdx)]);
+
+    private static ScanComponent CreateComponentWithCandidates(string displayValue, LicenseCandidate[] candidates)
+        => new(
             "example",
             "1.0.0",
-            $"{candidateValues[0]} (?)",
+            $"{displayValue} (?)",
             "npm",
             DependencyType.Direct,
             LicenseStatus.Ambiguous,
@@ -497,5 +584,4 @@ public sealed class LicensePolicyTests
             candidates[0],
             candidates[1..],
             []);
-    }
 }

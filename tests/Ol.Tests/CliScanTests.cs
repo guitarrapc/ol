@@ -1860,6 +1860,63 @@ public sealed class CliScanTests
         }
     }
 
+    // deps.dev enumerates the licenses it found without stating how they relate. Ol resolves the members
+    // where that listing is built, so a scan reports one kind whatever the members spell, names a
+    // deprecated member as one, and a check can admit the listing without recognizing punctuation.
+    [Test]
+    [Arguments("MIT; Apache-2.0", "license-set", false, 0)]
+    [Arguments("MIT OR Apache-2.0; BSD-3-Clause", "license-set", false, 0)]
+    [Arguments("MIT; GPL-2.0", "license-set", true, 0)]
+    [Arguments("non-standard; Apache-2.0", "license", false, 2)]
+    public async Task Scan_DepsDevListing_ResolvesItsMembersAndCheckReadsTheResolvedSet(string license, string expectedKind, bool expectedDeprecated, int expectedCheckExit)
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-depsdev-{Guid.NewGuid():N}");
+        var sbomPath = Path.Combine(temporaryDirectory, "input.cdx.json");
+        var reportPath = Path.Combine(temporaryDirectory, "report.json");
+        Directory.CreateDirectory(temporaryDirectory);
+        const string purl = "pkg:golang/example.test/module@v1.0.0";
+        await File.WriteAllTextAsync(sbomPath, $$"""
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            { "type": "library", "name": "module", "version": "v1.0.0", "purl": "{{purl}}" }
+          ]
+        }
+        """, Encoding.UTF8);
+        var packageCacheRoot = Path.Combine(temporaryDirectory, "package-metadata");
+        var cache = new PackageMetadataCache(packageCacheRoot);
+        await cache.WriteAsync(new PackageMetadataRecord(purl, "deps.dev", license, string.Empty, [], [], DateTimeOffset.UtcNow, string.Empty, DeclaredLicenseReferenceKind.None, string.Empty));
+        try
+        {
+            var scan = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", sbomPath, "--format", "json");
+            await File.WriteAllTextAsync(reportPath, scan.Stdout, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            var check = await RunOlWithCachesAsync(root, packageCacheRoot, null, "check", "--report", reportPath, "--allow-licenses", "MIT,Apache-2.0,BSD-3-Clause,GPL-2.0");
+
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            var candidate = JsonDocument.Parse(scan.Stdout).RootElement
+                .GetProperty("components").EnumerateArray()
+                .First(component => component.GetProperty("purl").GetString() == purl)
+                .GetProperty("licenseCandidates").EnumerateArray()
+                .First(value => value.GetProperty("source").GetString() == "deps.dev");
+
+            await Assert.That(candidate.GetProperty("kind").GetString()).IsEqualTo(expectedKind);
+            await Assert.That(candidate.GetProperty("status").GetString()).IsEqualTo("ambiguous");
+            await Assert.That(candidate.GetProperty("raw").GetString()).IsEqualTo(license);
+            // The scan summary's deprecated count is this flag, so asserting it covers both.
+            await Assert.That(candidate.GetProperty("deprecated").GetBoolean()).IsEqualTo(expectedDeprecated);
+            await Assert.That(check.ExitCode).IsEqualTo(expectedCheckExit).Because(check.Stdout + check.Stderr);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
     // The reason a declared license went unread is the same fact in every ecosystem, and the kind of
     // place the publisher named is what a reviewer acts on. Neither depends on which registry answered.
     [Test]

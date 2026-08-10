@@ -378,17 +378,21 @@ public sealed class LicenseAllowPolicy
     /// Determines whether an ambiguous component is allowed whichever way its evidence is read.
     /// </summary>
     /// <remarks>
-    /// A registry that lists the licenses it found without stating how they relate leaves exactly one thing
-    /// unknown: the operator between them. Ol keeps that visible by joining the values with <c>;</c> instead of
-    /// an SPDX operator — see <c>DepsDevMetadata.ReadLicenses</c> — which is why the value does not normalize and
-    /// the component stays ambiguous. The missing operator is also the only thing the policy question needs: a
-    /// listing whose every element the allow-list admits is admitted as a conjunction and as a disjunction alike,
-    /// so no reading of that evidence violates the policy and there is nothing left to decide. Anything that is
-    /// not such a listing — a license name, a URL, a classifier — names possibilities Ol cannot enumerate, and
-    /// stays a violation.
-    /// Every candidate that carries a value must clear the same bar, so a second source naming a forbidden license
-    /// still fails the component. This answers the policy question only: status, license text, and evidence are
-    /// left as collected, exactly as a baseline acknowledgement leaves them.
+    /// A source that lists the licenses it found without stating how they relate leaves exactly one thing
+    /// unknown: the operator between them. That is also the only thing this policy question needs, because a
+    /// listing whose every member the allow-list admits is admitted as a conjunction and as a disjunction
+    /// alike, so no reading of that evidence violates the policy and there is nothing left to decide.
+    /// <para>
+    /// Only a candidate Ol itself resolved as <see cref="LicenseCandidateKind.LicenseSet"/> is read this way.
+    /// The members were validated against SPDX where the listing was built, so this asks about a set Ol
+    /// constructed rather than about punctuation it found in a value: a publisher who writes a semicolon in
+    /// free text has not stated a listing, and their value is evaluated whole like any other.
+    /// </para>
+    /// <para>
+    /// Every candidate that carries a value must clear the same bar, so a second source naming a forbidden
+    /// license still fails the component. This answers the policy question only: status, license text, and
+    /// evidence are left as collected, exactly as a baseline acknowledgement leaves them.
+    /// </para>
     /// </remarks>
     private bool IsAllowedOnEveryReading(in ScanComponent component)
     {
@@ -396,10 +400,13 @@ public sealed class LicenseAllowPolicy
         var candidateCount = component.CandidateCount;
         for (var i = 0; i < candidateCount; i++)
         {
-            var normalized = component.GetCandidate(i).Normalized;
-            if (normalized.IsEmpty) continue;
+            var candidate = component.GetCandidate(i);
+            if (candidate.Normalized.IsEmpty) continue;
 
-            if (!IsAllowedListing(normalized.Span)) return false;
+            var allowed = candidate.Kind == LicenseCandidateKind.LicenseSet
+                ? IsAllowedSet(candidate.Normalized.Span)
+                : SpdxExpression.TryEvaluatePolicy(candidate.Normalized.Span, spdxLicenseIndex, allowedLicenses, out var single) && single;
+            if (!allowed) return false;
 
             stated = true;
         }
@@ -407,19 +414,19 @@ public sealed class LicenseAllowPolicy
         return stated;
     }
 
-    /// <summary>Reports whether every <c>;</c>-separated element is an SPDX expression the allow-list admits.</summary>
+    /// <summary>Reports whether the allow-list admits every member of a resolved listing.</summary>
     /// <remarks>
-    /// <c>;</c> is not an SPDX operator, so a value carrying one is never a single expression and the split is
-    /// unambiguous. A value without one is evaluated whole, which an ambiguous candidate always fails — had it
-    /// parsed, the candidate would have been matched instead.
+    /// The value was written by <c>LicenseCandidateFactory.CreateLicenseSet</c> from members it had already
+    /// normalized, so splitting it here reads Ol's own spelling rather than a source's. <c>;</c> is not an
+    /// SPDX operator, which is why it can separate members no expression will ever contain.
     /// </remarks>
-    private bool IsAllowedListing(ReadOnlySpan<byte> value)
+    private bool IsAllowedSet(ReadOnlySpan<byte> value)
     {
         while (true)
         {
             var separator = value.IndexOf((byte)';');
-            var element = separator < 0 ? value : value[..separator];
-            if (!SpdxExpression.TryEvaluatePolicy(element, spdxLicenseIndex, allowedLicenses, out var allowed) || !allowed)
+            var member = separator < 0 ? value : value[..separator];
+            if (!SpdxExpression.TryEvaluatePolicy(member, spdxLicenseIndex, allowedLicenses, out var allowed) || !allowed)
             {
                 return false;
             }

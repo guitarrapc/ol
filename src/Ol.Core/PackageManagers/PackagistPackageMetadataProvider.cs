@@ -9,6 +9,7 @@ public sealed class PackagistPackageMetadataProvider : PackageMetadataProvider
     private static readonly Uri BaseUri = new("https://packagist.org/packages/");
 
     public override string Ecosystem => "composer";
+    public override bool PackageNameIncludesNamespace => true;
 
     public override bool TryCreate(string purl, out PackageMetadataRequest request)
     {

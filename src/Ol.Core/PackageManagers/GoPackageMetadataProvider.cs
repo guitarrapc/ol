@@ -8,6 +8,7 @@ public sealed class GoPackageMetadataProvider : PackageMetadataProvider
 {
     private static readonly Uri BaseUri = new("https://proxy.golang.org/");
     public override string Ecosystem => "golang";
+    public override bool PackageNameIncludesNamespace => true;
 
     /// <summary>
     /// The license source is an addition to what the proxy already states, so it does not gate the lookup.

@@ -189,6 +189,7 @@ internal static class SbomInputParser
         var depth = reader.CurrentDepth;
         var sourceId = default(Utf8Slice);
         var name = default(Utf8Slice);
+        var group = default(Utf8Slice);
         var version = default(Utf8Slice);
         var purl = default(Utf8Slice);
         var repositoryUrl = default(Utf8Slice);
@@ -222,6 +223,12 @@ internal static class SbomInputParser
             if (reader.ValueTextEquals("name"u8))
             {
                 name = ReadUtf8Slice(ref reader, source, offset);
+                continue;
+            }
+
+            if (reader.ValueTextEquals("group"u8))
+            {
+                group = ReadUtf8Slice(ref reader, source, offset);
                 continue;
             }
 
@@ -269,7 +276,37 @@ internal static class SbomInputParser
             observedPrimary,
             observedAdditional);
 
-        return CreateScanComponent(name, version, license, OlDefaults.PackageMetadataProviders.GetEcosystem(purl), DependencyType.Unknown, status, purl, sourceId, primaryCandidate, additionalCandidates, repositoryUrl);
+        var ecosystem = OlDefaults.PackageMetadataProviders.GetEcosystem(purl, out var packageNameIncludesNamespace);
+        return CreateScanComponent(QualifyName(group, name, packageNameIncludesNamespace), version, license, ecosystem, DependencyType.Unknown, status, purl, sourceId, primaryCandidate, additionalCandidates, repositoryUrl);
+    }
+
+    /// <summary>
+    /// Rejoins a CycloneDX <c>group</c> and <c>name</c> into the package name the ecosystem itself uses.
+    /// </summary>
+    /// <remarks>
+    /// A generator that splits <c>@scope/pkg</c> into two fields leaves a name that is neither unique nor
+    /// installable: three different scopes all arrive as <c>node</c>, and one of them collides with the real
+    /// <c>node</c> package. Rejoining restores the identity the lockfile adapters already produce for the
+    /// same dependency. Generators disagree about whether <c>name</c> repeats the group, so a name that is
+    /// already qualified is kept as it is rather than qualified twice.
+    /// </remarks>
+    private static Utf8Slice QualifyName(Utf8Slice group, Utf8Slice name, bool packageNameIncludesNamespace)
+    {
+        if (!packageNameIncludesNamespace || group.IsEmpty || name.IsEmpty) return name;
+        var groupSpan = group.Span;
+        var nameSpan = name.Span;
+        if (nameSpan.Length > groupSpan.Length
+            && nameSpan[groupSpan.Length] == (byte)'/'
+            && nameSpan[..groupSpan.Length].SequenceEqual(groupSpan))
+        {
+            return name;
+        }
+
+        var bytes = new byte[checked(groupSpan.Length + 1 + nameSpan.Length)];
+        groupSpan.CopyTo(bytes);
+        bytes[groupSpan.Length] = (byte)'/';
+        nameSpan.CopyTo(bytes.AsSpan(groupSpan.Length + 1));
+        return Utf8Slice.FromOwnedBytes(bytes);
     }
 
     private static ScanComponent ReadCycloneDxMetadataComponent(ref Utf8JsonReader reader, byte[] source, int offset, SpdxLicenseIndex spdxLicenseIndex)

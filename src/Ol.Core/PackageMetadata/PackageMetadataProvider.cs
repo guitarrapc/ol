@@ -38,6 +38,20 @@ public abstract class PackageMetadataProvider
     public virtual Uri? ServiceIndexEndpoint => null;
 
     /// <summary>
+    /// Gets whether this ecosystem's package name includes its purl namespace, joined by <c>/</c>.
+    /// </summary>
+    /// <remarks>
+    /// True where the namespace is part of what the ecosystem calls the package: npm installs
+    /// <c>@scope/pkg</c>, Go requires <c>github.com/owner/repo</c>, Composer requires <c>vendor/package</c>.
+    /// False where the namespace is a separate coordinate, as Maven's group is to its artifact, so the
+    /// package name stays the artifact name and the group remains visible in the purl and source id.
+    /// An SBOM that splits the two into <c>group</c> and <c>name</c> is reassembled by this rule, which
+    /// is why it belongs to the provider that already composes the same two parts into a registry
+    /// endpoint rather than to a switch in a parser.
+    /// </remarks>
+    public virtual bool PackageNameIncludesNamespace => false;
+
+    /// <summary>
     /// Parses a versioned purl handled by this provider.
     /// </summary>
     /// <param name="purl">The purl without qualifiers or subpaths.</param>
@@ -159,7 +173,21 @@ public sealed class PackageMetadataProviders
     /// <param name="purl">The source-backed purl.</param>
     /// <returns>The registered ecosystem name, or <c>-</c>.</returns>
     public string GetEcosystem(Utf8Slice purl)
+        => GetEcosystem(purl, out _);
+
+    /// <summary>
+    /// Resolves the display ecosystem for an unescaped purl without decoding it, and reports whether the
+    /// ecosystem names a package with its namespace.
+    /// </summary>
+    /// <param name="purl">The source-backed purl.</param>
+    /// <param name="packageNameIncludesNamespace">
+    /// <see langword="true"/> when the resolved provider's ecosystem includes the namespace in the package
+    /// name. Always <see langword="false"/> for an unregistered ecosystem, which has no known convention.
+    /// </param>
+    /// <returns>The registered ecosystem name, or <c>-</c>.</returns>
+    public string GetEcosystem(Utf8Slice purl, out bool packageNameIncludesNamespace)
     {
+        packageNameIncludesNamespace = false;
         var value = purl.Span;
         if (!value.StartsWith("pkg:"u8))
         {
@@ -178,6 +206,7 @@ public sealed class PackageMetadataProviders
         {
             if (AsciiEqualsIgnoreCase(type, providers[i].Ecosystem))
             {
+                packageNameIncludesNamespace = providers[i].PackageNameIncludesNamespace;
                 return providers[i].Ecosystem;
             }
         }

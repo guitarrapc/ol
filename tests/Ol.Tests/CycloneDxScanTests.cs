@@ -42,6 +42,106 @@ public sealed class CycloneDxScanTests
     }
 
     [Test]
+    public async Task Scan_CycloneDxGroup_QualifiesTheNameOnlyWhereTheEcosystemNamesPackagesThatWay()
+    {
+        // Every row carries a group. Whether it belongs in the package name is an ecosystem fact:
+        // npm, Go, and Composer name a package with its namespace, Maven does not, and an unknown
+        // ecosystem has no convention to apply.
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "group": "@tailwindcss", "name": "cli", "version": "4.1.11", "purl": "pkg:npm/%40tailwindcss/cli@4.1.11" },
+                { "type": "library", "group": "github.com/gorilla", "name": "mux", "version": "1.8.1", "purl": "pkg:golang/github.com%2Fgorilla/mux@1.8.1" },
+                { "type": "library", "group": "symfony", "name": "console", "version": "6.4.0", "purl": "pkg:composer/symfony/console@6.4.0" },
+                { "type": "library", "group": "org.apache.commons", "name": "commons-lang3", "version": "3.12.0", "purl": "pkg:maven/org.apache.commons/commons-lang3@3.12.0" },
+                { "type": "library", "group": "Some.Group", "name": "Newtonsoft.Json", "version": "13.0.3", "purl": "pkg:nuget/Newtonsoft.Json@13.0.3" },
+                { "type": "library", "group": "unknown-group", "name": "mystery", "version": "1.0.0", "purl": "pkg:conan/mystery@1.0.0" }
+              ]
+            }
+            """);
+
+        var inventory = DependencyInputScanner.Scan(sbom, Spdx);
+
+        await Assert.That(Names(inventory)).IsEquivalentTo([
+            "@tailwindcss/cli",
+            "github.com/gorilla/mux",
+            "symfony/console",
+            "commons-lang3",
+            "Newtonsoft.Json",
+            "mystery",
+        ]);
+    }
+
+    [Test]
+    public async Task Scan_CycloneDxScopedNpmPackage_NamesItAsTheNpmLockfileAdapterDoes()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "group": "@scope", "name": "pkg", "version": "1.2.3", "purl": "pkg:npm/%40scope/pkg@1.2.3" }
+              ]
+            }
+            """);
+        var packageLock = Encoding.UTF8.GetBytes(
+            """
+            {
+              "lockfileVersion": 3,
+              "name": "app",
+              "version": "1.0.0",
+              "packages": {
+                "": { "name": "app", "version": "1.0.0", "dependencies": { "@scope/pkg": "^1.2.3" } },
+                "node_modules/@scope/pkg": { "version": "1.2.3" }
+              }
+            }
+            """);
+
+        var fromSbom = DependencyInputScanner.Scan(sbom, Spdx);
+        var fromLockfile = DependencyInputScanner.Scan(packageLock, Spdx);
+
+        var sbomComponent = fromSbom.Components.Single();
+        var lockfileComponent = fromLockfile.Components.Single(static component => component.Name.ToString() != "app");
+        await Assert.That(sbomComponent.Name.ToString()).IsEqualTo("@scope/pkg");
+        await Assert.That(sbomComponent.Name.ToString()).IsEqualTo(lockfileComponent.Name.ToString());
+        await Assert.That(sbomComponent.Purl.ToString()).IsEqualTo(lockfileComponent.Purl.ToString());
+    }
+
+    [Test]
+    public async Task Scan_CycloneDxGroupEdgeCases_LeaveTheNameUnchanged()
+    {
+        var sbom = Encoding.UTF8.GetBytes(
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "name": "plain", "version": "1.0.0", "purl": "pkg:npm/plain@1.0.0" },
+                { "type": "library", "group": "", "name": "empty-group", "version": "1.0.0", "purl": "pkg:npm/empty-group@1.0.0" },
+                { "type": "library", "group": "@scope", "name": "@scope/already-qualified", "version": "1.0.0", "purl": "pkg:npm/%40scope/already-qualified@1.0.0" },
+                { "type": "library", "group": "@scope", "name": "no-purl", "version": "1.0.0" }
+              ]
+            }
+            """);
+
+        var inventory = DependencyInputScanner.Scan(sbom, Spdx);
+
+        await Assert.That(Names(inventory)).IsEquivalentTo([
+            "plain",
+            "empty-group",
+            "@scope/already-qualified",
+            "no-purl",
+        ]);
+    }
+
+    private static string[] Names(DependencyInventory inventory)
+        => [.. inventory.Components.Select(static component => component.Name.ToString())];
+
+    [Test]
     public async Task ScanCycloneDxComponentWithSpdxLicenseIdReturnsMatchedComponent()
     {
         var sbom = Encoding.UTF8.GetBytes(

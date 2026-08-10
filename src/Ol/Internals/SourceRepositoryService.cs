@@ -18,7 +18,10 @@ internal static class SourceRepositoryPaths
 internal sealed class SourceRepositoryService
 {
     private const int LinearPlanningComponentLimit = 8;
-    private static readonly HttpClient SharedHttpClient = new();
+    // GitHub answers a renamed repository with a redirect, and HttpClient's own redirect handling drops
+    // the Authorization header when it retries. The License API client follows redirects itself so the
+    // token survives, which only works while the handler leaves them alone.
+    private static readonly HttpClient SharedHttpClient = new(new SocketsHttpHandler { AllowAutoRedirect = false });
     private readonly SpdxLicenseIndex spdxLicenseIndex;
     private readonly SourceRepositoryCache sourceCache;
     private readonly bool refresh;

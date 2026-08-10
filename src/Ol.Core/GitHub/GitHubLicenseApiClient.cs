@@ -23,6 +23,13 @@ public sealed class GitHubLicenseApiClient
     private static readonly long MinimumUnixTimeSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();
     private static readonly long MaximumUnixTimeSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
     private const int MaximumErrorBodyBytes = 16 * 1024;
+
+    /// <summary>The number of GitHub redirects one License API request follows.</summary>
+    /// <remarks>
+    /// A renamed or transferred repository answers with one redirect to its current location. More than
+    /// that is a loop or a chain Ol has no reason to walk, so the redirect is reported as the answer.
+    /// </remarks>
+    private const int MaximumRedirects = 3;
     private readonly Uri apiBaseUri;
     private readonly GitHubAuthentication authentication;
     private readonly HttpClient httpClient;
@@ -89,19 +96,12 @@ public sealed class GitHubLicenseApiClient
         var endpoint = pinnedRef is null
             ? new Uri(apiBaseUri, string.Concat("repos/", Uri.EscapeDataString(target.Owner), "/", Uri.EscapeDataString(target.Name), "/license"))
             : new Uri(apiBaseUri, string.Concat("repos/", Uri.EscapeDataString(target.Owner), "/", Uri.EscapeDataString(target.Name), "/license?ref=", Uri.EscapeDataString(pinnedRef)));
-        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("ol", "1.0"));
-        request.Headers.Accept.ParseAdd("application/vnd.github+json");
-        if (authentication.Token.Length != 0 && string.Equals(endpoint.Host, "api.github.com", StringComparison.OrdinalIgnoreCase))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authentication.Token);
-        }
 
         HttpResponseMessage? response = null;
         RateLimitDecision rateLimitDecision;
         try
         {
-            response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            response = await SendFollowingRedirectsAsync(endpoint, cancellationToken).ConfigureAwait(false);
             rateLimitDecision = await ClassifyRateLimitAsync(response, cancellationToken).ConfigureAwait(false);
         }
         catch
@@ -150,10 +150,56 @@ public sealed class GitHubLicenseApiClient
         }
     }
 
+    /// <summary>Sends one request, following GitHub's redirects with the token still attached.</summary>
+    /// <remarks>
+    /// A renamed or transferred repository answers <c>301</c> with its current location, and GitHub keeps
+    /// serving the license there. HttpClient's own redirect handling drops the Authorization header when
+    /// it retries, so the follow-up reaches GitHub unauthenticated, is counted against the sixty-request
+    /// anonymous allowance, and comes back <c>403</c> once that allowance is spent — a limit the token
+    /// never touched, which then stops collection for every remaining component. Following the redirect
+    /// here keeps the header, under the same rule the first request uses: it is sent to
+    /// <c>api.github.com</c> over HTTPS and nowhere else.
+    /// </remarks>
+    private async Task<HttpResponseMessage> SendFollowingRedirectsAsync(Uri endpoint, CancellationToken cancellationToken)
+    {
+        var uri = endpoint;
+        for (var redirect = 0; ; redirect++)
+        {
+            var response = await SendOnceAsync(uri, cancellationToken).ConfigureAwait(false);
+            if (redirect == MaximumRedirects
+                || response.StatusCode is not (HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)
+                || response.Headers.Location is not { } location)
+            {
+                return response;
+            }
+
+            uri = new Uri(uri, location);
+            response.Dispose();
+        }
+    }
+
+    /// <summary>Sends one License API request to the given URI.</summary>
+    private async Task<HttpResponseMessage> SendOnceAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("ol", "1.0"));
+        request.Headers.Accept.ParseAdd("application/vnd.github+json");
+        if (authentication.Token.Length != 0 && IsGitHubApi(uri))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authentication.Token);
+        }
+
+        return await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static bool IsGitHubApi(Uri uri)
+        => string.Equals(uri.Host, "api.github.com", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal);
+
     /// <summary>Records the first rate limit reached, which every later request reports without sending.</summary>
     private GitHubRateLimitStatus Reach(HttpStatusCode statusCode, in RateLimitDecision decision)
     {
-        var reached = new GitHubRateLimitStatus(decision.Kind, statusCode, decision.RetryAfter, decision.ResetsAt, authentication.Mode);
+        var reached = new GitHubRateLimitStatus(decision.Kind, statusCode, decision.RetryAfter, decision.ResetsAt, authentication.Mode, decision.Limit);
         return Interlocked.CompareExchange(ref rateLimit, reached, null) ?? reached;
     }
 
@@ -171,7 +217,8 @@ public sealed class GitHubLicenseApiClient
         if (HasNoRemainingRequests(response))
         {
             var resetsAt = TryGetRateLimitReset(response, out var reset) ? DateTimeOffset.FromUnixTimeSeconds(reset) : (DateTimeOffset?)null;
-            return ValueTask.FromResult(new RateLimitDecision(GitHubRateLimitKind.Primary, GetRetryDelay(response), resetsAt));
+            var limit = TryGetRateLimit(response, out var value) ? value : (int?)null;
+            return ValueTask.FromResult(new RateLimitDecision(GitHubRateLimitKind.Primary, GetRetryDelay(response), resetsAt, limit));
         }
 
         var retryAfter = GetRetryDelay(response);
@@ -292,6 +339,23 @@ public sealed class GitHubLicenseApiClient
         return delay;
     }
 
+    /// <summary>Reads the allowance GitHub applied to the request, which names which credential it saw.</summary>
+    private static bool TryGetRateLimit(HttpResponseMessage response, out int limit)
+    {
+        limit = 0;
+        if (!response.Headers.TryGetValues("X-RateLimit-Limit", out var values))
+        {
+            return false;
+        }
+
+        foreach (var value in values)
+        {
+            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out limit);
+        }
+
+        return false;
+    }
+
     private static bool TryGetRateLimitReset(HttpResponseMessage response, out long reset)
     {
         reset = 0;
@@ -318,7 +382,7 @@ public sealed class GitHubLicenseApiClient
     private static string? ReadNullableString(JsonElement element, string name)
         => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    private readonly record struct RateLimitDecision(GitHubRateLimitKind Kind, TimeSpan? RetryAfter, DateTimeOffset? ResetsAt);
+    private readonly record struct RateLimitDecision(GitHubRateLimitKind Kind, TimeSpan? RetryAfter, DateTimeOffset? ResetsAt, int? Limit = null);
     private readonly record struct LicenseResponse(HttpStatusCode StatusCode, GitHubLicenseResult? License);
 }
 
@@ -339,15 +403,28 @@ public enum GitHubRateLimitKind : byte
 /// <param name="RetryAfter">The delay GitHub asked for, when supplied.</param>
 /// <param name="ResetsAt">The allowance reset instant, when a primary limit supplied one.</param>
 /// <param name="AuthMode">The authentication mode in use, which decides the allowance.</param>
+/// <param name="Limit">The allowance GitHub reported applying, when supplied.</param>
 public sealed record GitHubRateLimitStatus(
     GitHubRateLimitKind Kind,
     HttpStatusCode StatusCode,
     TimeSpan? RetryAfter,
     DateTimeOffset? ResetsAt,
-    string AuthMode)
+    string AuthMode,
+    int? Limit = null)
 {
+    /// <summary>The hourly allowance GitHub grants a request carrying no credential.</summary>
+    private const int AnonymousRequestAllowance = 60;
+
     /// <summary>Gets whether the run was unauthenticated, which carries the smallest allowance.</summary>
     public bool IsUnauthenticated => AuthMode == "none";
+
+    /// <summary>Gets whether GitHub applied the anonymous allowance although a token was configured.</summary>
+    /// <remarks>
+    /// The allowance GitHub names in the response is the one it actually applied, so a token that raises
+    /// it to thousands cannot produce a limit of sixty. That combination says the credential did not
+    /// reach GitHub, which is a different failure from a spent allowance and one no reset clears.
+    /// </remarks>
+    public bool IsTokenNotApplied => !IsUnauthenticated && Limit is > 0 and <= AnonymousRequestAllowance;
 }
 
 /// <summary>Represents a GitHub License API failure.</summary>

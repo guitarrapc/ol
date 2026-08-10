@@ -109,6 +109,76 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task Client_Fetch_RenamedRepository_FollowsTheRedirectWithTheTokenStillAttached()
+    {
+        var handler = new RedirectHandler("https://api.github.com/repositories/670894947/license");
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create("secret-token"));
+
+        var record = await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default"));
+
+        await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
+        await Assert.That(record.HttpStatus).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(handler.Requests.Select(request => request.Uri)).IsEquivalentTo(new[]
+        {
+            "https://api.github.com/repos/owner/repository/license",
+            "https://api.github.com/repositories/670894947/license",
+        });
+        await Assert.That(handler.Requests[1].Authorization).IsEqualTo("Bearer secret-token");
+    }
+
+    [Test]
+    public async Task Client_Fetch_RedirectToAnotherHost_FollowsItWithoutTheToken()
+    {
+        var handler = new RedirectHandler("https://example.com/repositories/1/license");
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create("secret-token"));
+
+        var record = await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default"));
+
+        await Assert.That(record.License!.Value.SpdxId).IsEqualTo("MIT");
+        await Assert.That(handler.Requests[0].Authorization).IsEqualTo("Bearer secret-token");
+        await Assert.That(handler.Requests[1].Authorization).IsEmpty();
+    }
+
+    [Test]
+    public async Task Client_Fetch_EndlessRedirects_ReportsTheRedirectInsteadOfFollowingForever()
+    {
+        var handler = new RedirectHandler("https://api.github.com/repositories/1/license", alwaysRedirect: true);
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create());
+
+        await Assert.That(async () => await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default")))
+            .Throws<SourceRepositoryFetchException>();
+
+        await Assert.That(handler.Requests).Count().IsEqualTo(4);
+    }
+
+    [Test]
+    public async Task Client_Fetch_AnonymousAllowanceWhileATokenIsSet_ReportsThatTheTokenDidNotReachGitHub()
+    {
+        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.Forbidden, retryAfterSeconds: null, remaining: 0, limit: 60);
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create("secret-token"));
+
+        await Assert.That(async () => await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default")))
+            .Throws<SourceRepositoryFetchException>();
+
+        await Assert.That(client.RateLimit!.Kind).IsEqualTo(GitHubRateLimitKind.Primary);
+        await Assert.That(client.RateLimit!.Limit).IsEqualTo(60);
+        await Assert.That(client.RateLimit!.IsTokenNotApplied).IsTrue();
+    }
+
+    [Test]
+    public async Task Client_Fetch_TokenAllowanceSpent_IsNotReportedAsAMissingToken()
+    {
+        var handler = new RateLimitThenSuccessHandler(HttpStatusCode.Forbidden, retryAfterSeconds: null, remaining: 0, limit: 5000);
+        var client = new GitHubLicenseApiClient(handler, GitHubAuthentication.Create("secret-token"));
+
+        await Assert.That(async () => await client.FetchAsync(new SourceRepositoryTarget("owner", "repository", "default")))
+            .Throws<SourceRepositoryFetchException>();
+
+        await Assert.That(client.RateLimit!.Limit).IsEqualTo(5000);
+        await Assert.That(client.RateLimit!.IsTokenNotApplied).IsFalse();
+    }
+
+    [Test]
     public async Task Client_Fetch_NoAssertionAndNotFound_ProducesUnknownRecords()
     {
         var target = new SourceRepositoryTarget("owner", "repository", "default");
@@ -795,6 +865,19 @@ public sealed class SourceRepositoryTests
     }
 
     [Test]
+    public async Task RateLimitDiagnostic_AnonymousAllowanceWithAToken_SaysTheTokenDidNotReachGitHub()
+    {
+        var status = new GitHubRateLimitStatus(GitHubRateLimitKind.Primary, HttpStatusCode.Forbidden, null, DateTimeOffset.UtcNow + TimeSpan.FromMinutes(30), "ol_github_token", 60);
+        var writer = new StringWriter();
+
+        global::ScanCommands.WriteGitHubRateLimitDiagnostic(status, writer);
+        var output = writer.ToString();
+
+        await Assert.That(output).Contains("did not reach GitHub");
+        await Assert.That(output).DoesNotContain("allowance for this token is spent");
+    }
+
+    [Test]
     public async Task RateLimitDiagnostic_SecondaryLimit_AsksForLowerConcurrencyNotAToken()
     {
         var status = new GitHubRateLimitStatus(GitHubRateLimitKind.Secondary, HttpStatusCode.TooManyRequests, TimeSpan.FromSeconds(60), null, "none");
@@ -1239,7 +1322,25 @@ public sealed class SourceRepositoryTests
         }
     }
 
-    private sealed class RateLimitThenSuccessHandler(HttpStatusCode firstStatus, int? retryAfterSeconds, int? remaining) : HttpMessageHandler
+    private sealed class RedirectHandler(string location, bool alwaysRedirect = false) : HttpMessageHandler
+    {
+        public List<(string Uri, string Authorization)> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add((request.RequestUri!.ToString(), request.Headers.Authorization?.ToString() ?? string.Empty));
+            if (!alwaysRedirect && Requests.Count > 1)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ReadGitHubLicenseFixture()) });
+            }
+
+            var response = new HttpResponseMessage(HttpStatusCode.MovedPermanently) { Content = new StringContent(string.Empty) };
+            response.Headers.Location = new Uri(location);
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class RateLimitThenSuccessHandler(HttpStatusCode firstStatus, int? retryAfterSeconds, int? remaining, int? limit = null) : HttpMessageHandler
     {
         public int CallCount { get; private set; }
 
@@ -1262,6 +1363,10 @@ public sealed class SourceRepositoryTests
                     {
                         response.Headers.TryAddWithoutValidation("X-RateLimit-Reset", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
                     }
+                }
+                if (limit is { } allowance)
+                {
+                    response.Headers.TryAddWithoutValidation("X-RateLimit-Limit", allowance.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 }
             }
 

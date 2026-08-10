@@ -252,6 +252,8 @@ internal sealed class ScanCommands
         {
             GitHubRateLimitKind.Primary when rateLimit.IsUnauthenticated
                 => "Unauthenticated requests share a small hourly allowance. Set OL_GITHUB_TOKEN to raise it, then run again.",
+            GitHubRateLimitKind.Primary when rateLimit.IsTokenNotApplied
+                => "GitHub applied the anonymous allowance although OL_GITHUB_TOKEN is set, so the token did not reach GitHub. Waiting will not help; check for a proxy or handler that drops the Authorization header.",
             GitHubRateLimitKind.Primary
                 => "The hourly allowance for this token is spent. Run again after it resets, or narrow the scan with --skip-evidence-packages.",
             _ => "GitHub accepted requests more slowly than Ol issued them. Run again with a lower --concurrency.",

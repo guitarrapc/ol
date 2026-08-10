@@ -138,7 +138,8 @@ internal sealed class ScanCommands
         {
             try
             {
-                WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, componentUsages, groups, groupBy, spdx, packageMetadataSummary, sourceRepositorySummary);
+                var scope = new ScanReportScope(!noExternalEvidence, dependency is null or "" ? null : dependency, dependencyFilteredCount, excludedUnknownCount);
+                WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, componentUsages, groups, groupBy, spdx, packageMetadataSummary, sourceRepositorySummary, scope);
             }
             catch (IOException exception)
             {
@@ -274,18 +275,19 @@ internal sealed class ScanCommands
         string? groupBy,
         SpdxData spdx,
         PackageMetadataSummary metadataSummary,
-        SourceRepositorySummary sourceSummary)
+        SourceRepositorySummary sourceSummary,
+        ScanReportScope scope)
     {
         using var buffer = new PooledStreamBufferWriter(output);
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
         {
             if (groups is null)
             {
-                ReportRenderer.WriteJson(writer, inventory, components, componentUsages, spdx, metadataSummary, sourceSummary);
+                ReportRenderer.WriteJson(writer, inventory, components, componentUsages, spdx, metadataSummary, sourceSummary, scope);
             }
             else
             {
-                ReportRenderer.WriteJson(writer, inventory, groups, groupBy!, spdx, metadataSummary, sourceSummary);
+                ReportRenderer.WriteJson(writer, inventory, groups, groupBy!, spdx, metadataSummary, sourceSummary, scope);
             }
 
             writer.Flush();
@@ -1166,6 +1168,24 @@ internal sealed class GroupRowBuilder(string[] values)
 
 internal readonly record struct GroupRow(string[] Values, int Count, ScanComponent[] Components);
 
+/// <summary>What the run did and what the rendered view left out, as the canonical JSON report states it.</summary>
+/// <remarks>
+/// The text and Markdown views state both facts in the stderr summary, and the JSON view emits no stderr
+/// summary because the document is supposed to carry them instead. Neither is derivable from the counters:
+/// a run that never collected external evidence and a run that collected and found nothing to do produce
+/// the same zeroed metadata, and a filtered report is indistinguishable from a complete one once the
+/// excluded components are gone. Read as a complete report, a filtered one is a false pass.
+/// </remarks>
+/// <param name="ExternalEvidenceCollected">Whether package registries and source repositories were read at all.</param>
+/// <param name="DependencyFilter">The <c>--dependency</c> filter applied to the view, or null when unfiltered.</param>
+/// <param name="ExcludedCount">Components the filter removed from the view.</param>
+/// <param name="ExcludedUnknownCount">Removed components whose dependency relationship is unknown.</param>
+internal readonly record struct ScanReportScope(
+    bool ExternalEvidenceCollected,
+    string? DependencyFilter,
+    int ExcludedCount,
+    int ExcludedUnknownCount);
+
 internal static class ReportRenderer
 {
     private const int JsonSchemaVersion = 1;
@@ -1607,10 +1627,10 @@ internal static class ReportRenderer
         return builder.ToString();
     }
 
-    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
-        => WriteJson(writer, inventory, components, default, spdx, metadataSummary, sourceSummary);
+    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
+        => WriteJson(writer, inventory, components, default, spdx, metadataSummary, sourceSummary, scope);
 
-    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, ReadOnlySpan<DependencyUsage> componentUsages, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, ReadOnlySpan<DependencyUsage> componentUsages, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
     {
         writer.WriteStartObject();
         writer.WriteNumber("schemaVersion", JsonSchemaVersion);
@@ -1620,6 +1640,7 @@ internal static class ReportRenderer
         WriteSpdxMetadata(writer, spdx);
         WritePackageMetadata(writer, metadataSummary);
         WriteSourceRepositoryMetadata(writer, sourceSummary);
+        WriteScopeMetadata(writer, scope);
         writer.WriteEndObject();
 
         WriteInventory(writer, inventory);
@@ -1655,7 +1676,7 @@ internal static class ReportRenderer
         writer.WriteEndObject();
     }
 
-    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, GroupRow[] groups, string groupBy, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary)
+    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, GroupRow[] groups, string groupBy, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
     {
         writer.WriteStartObject();
         writer.WriteNumber("schemaVersion", JsonSchemaVersion);
@@ -1665,6 +1686,7 @@ internal static class ReportRenderer
         WriteSpdxMetadata(writer, spdx);
         WritePackageMetadata(writer, metadataSummary);
         WriteSourceRepositoryMetadata(writer, sourceSummary);
+        WriteScopeMetadata(writer, scope);
         writer.WriteEndObject();
 
         WriteInventory(writer, inventory);
@@ -1903,6 +1925,22 @@ internal static class ReportRenderer
         writer.WriteEndObject();
         writer.WriteStartObject("network");
         writer.WriteString("githubAuth", summary.AuthMode);
+        writer.WriteEndObject();
+    }
+
+    // Stated rather than implied, because the counters above are zero both when collection was disabled and
+    // when it was enabled with nothing to do, and because a filtered view is otherwise indistinguishable
+    // from a complete report once the excluded components are gone.
+    private static void WriteScopeMetadata(Utf8JsonWriter writer, ScanReportScope scope)
+    {
+        writer.WriteStartObject("collection");
+        writer.WriteString("externalEvidence", scope.ExternalEvidenceCollected ? "collected" : "not-collected");
+        writer.WriteEndObject();
+        writer.WriteStartObject("view");
+        if (scope.DependencyFilter is { } dependencyFilter) writer.WriteString("dependencyFilter", dependencyFilter);
+        else writer.WriteNull("dependencyFilter");
+        writer.WriteNumber("excludedCount", scope.ExcludedCount);
+        writer.WriteNumber("excludedUnknownCount", scope.ExcludedUnknownCount);
         writer.WriteEndObject();
     }
 

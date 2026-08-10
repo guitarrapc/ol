@@ -14,6 +14,7 @@ public class JsonReportRendererBenchmark
     private readonly DependencyInventory inventory;
     private readonly PackageMetadataSummary packageMetadataSummary = new(0, 0, 0, 0, 0, 0, 1, 0);
     private readonly SourceRepositorySummary sourceRepositorySummary = new(0, 0, 0, 0, 0, 0, "none", 1, 0);
+    private readonly ScanReportScope scope = new(ExternalEvidenceCollected: true, DependencyFilter: null, ExcludedCount: 0, ExcludedUnknownCount: 0);
     private readonly SpdxData spdx;
     private readonly Utf8JsonWriter writer;
 
@@ -42,7 +43,7 @@ public class JsonReportRendererBenchmark
     {
         buffer.Clear();
         writer.Reset(buffer);
-        ReportRenderer.WriteJson(writer, inventory, components, spdx, packageMetadataSummary, sourceRepositorySummary);
+        ReportRenderer.WriteJson(writer, inventory, components, spdx, packageMetadataSummary, sourceRepositorySummary, scope);
         writer.Flush();
         return buffer.WrittenCount;
     }
@@ -52,7 +53,7 @@ public class JsonReportRendererBenchmark
     {
         buffer.Clear();
         writer.Reset(buffer);
-        ReportRenderer.WriteJson(writer, inventory, groups, "license", spdx, packageMetadataSummary, sourceRepositorySummary);
+        ReportRenderer.WriteJson(writer, inventory, groups, "license", spdx, packageMetadataSummary, sourceRepositorySummary, scope);
         writer.Flush();
         return buffer.WrittenCount;
     }

@@ -32,7 +32,7 @@ Exit codes `2` and `3` belong only to policy results. `scan` and `diff` do not u
 
 Primary command output is written to stdout and ends with a line feed. Successful help is also stdout. Diagnostics and human-readable scan summaries are written to stderr. An expected failure writes one concise cause to stderr, leaves stdout empty, and does not print a stack trace or partial primary result.
 
-Successful `scan --format text|markdown` writes its report to stdout and a labeled summary to stderr. Successful JSON output contains its summary and diagnostics in the document and therefore emits no duplicate stderr summary. `--quiet` suppresses the human-readable stderr summary, never the stdout result. `--verbose` may add diagnostics to stderr and additional report fields, but does not change the result.
+Successful `scan --format text|markdown` writes its report to stdout and a labeled summary to stderr. Successful JSON output contains its summary and diagnostics in the document and therefore emits no duplicate stderr summary. That exemption holds only while the document states everything the stderr summary states, including facts no counter implies: whether external evidence was collected at all, and what the rendered view excluded. `--quiet` suppresses the human-readable stderr summary, never the stdout result. `--verbose` may add diagnostics to stderr and additional report fields, but does not change the result.
 
 Unknown commands, command groups without a subcommand, and missing required command arguments exit `1`. `ol` with no arguments shows root help; explicit `--help` and `-h` show help and exit `0`. Group help lists only that group's subcommands.
 
@@ -108,7 +108,7 @@ The section is part of the primary result, so `--quiet` does not suppress it. Gr
 <a id="contract-output-formats"></a>
 <a id="contract-json-report"></a>
 
-`scan` supports `text`, `markdown`, and canonical `json`; the default is `text`. Canonical JSON has a top-level `schemaVersion` and contains producer, input, SPDX, cache/network metadata, the complete inventory and graph, component results or grouped results, summary, and warnings. Consumers must reject or explicitly migrate unsupported schema versions.
+`scan` supports `text`, `markdown`, and canonical `json`; the default is `text`. Canonical JSON has a top-level `schemaVersion` and contains producer, input, SPDX, cache/network metadata, collection mode, view scope, the complete inventory and graph, component results or grouped results, summary, and warnings. `metadata.collection.externalEvidence` is `collected` or `not-collected`; a run with `--no-external-evidence` and a run that collected and had nothing to fetch are otherwise indistinguishable, because both leave every collection counter at zero. `metadata.view` records the applied `dependencyFilter` and the `excludedCount` and `excludedUnknownCount` it removed, so a filtered report cannot be read as a complete one. Both are present in component and grouped reports. Consumers must reject or explicitly migrate unsupported schema versions.
 
 The complete inventory is independent of sorted, filtered, or grouped views. Occurrence indexes address `inventory.components`, never displayed component or group indexes. The report identifies inputs with logical references and content hashes. It accepts input and SPDX JSON with an optional UTF-8 BOM.
 
@@ -184,7 +184,7 @@ When a GitHub rate limit stops source collection, `scan` writes a stderr notice 
 
 <a id="contract-dependency-filtering"></a>
 
-`--dependency root,direct,transitive,unknown` filters only the rendered view; analysis always uses the complete inventory. When filtering to `direct`, the stderr summary identifies excluded `unknown` relationships. `--sort` accepts `name`, `version`, `license`, `ecosystem`, `dependency`, `status`, and `purl`; default order is `ecosystem,name,version`, ascending. `--group-by` accepts all of those except `purl`, adds `COUNT`, and produces a grouped view. Empty filter, sort, or group lists are invalid.
+`--dependency root,direct,transitive,unknown` filters only the rendered view; analysis always uses the complete inventory. When filtering to `direct`, the stderr summary identifies excluded `unknown` relationships, and canonical JSON records the same counts in `metadata.view`. `--sort` accepts `name`, `version`, `license`, `ecosystem`, `dependency`, `status`, and `purl`; default order is `ecosystem,name,version`, ascending. `--group-by` accepts all of those except `purl`, adds `COUNT`, and produces a grouped view. Empty filter, sort, or group lists are invalid.
 
 The cache root is selected by `--cache-dir`, then `OL_CACHE_DIR`, then legacy category-specific roots, then the platform user-cache location. A supplied root is an isolation directory: Ol manages only its `package-metadata` and `source-repository` children. Cache paths never appear in reports. Cache schemas are specified in [cache_format.md](cache_format.md).
 
@@ -251,6 +251,7 @@ The SPDX commands inspect and manage user-installed SPDX License List data. `upd
 
 ## Lessons Learned
 
+- "This output is self-describing, so it needs no summary" is a contract to be checked, not a property to be asserted. JSON was exempted from the stderr summary on that basis and then drifted from it in the two places where nothing else could recover the fact: a `--no-external-evidence` run and a run that collected and found nothing to fetch emitted byte-identical metadata, and a `--dependency`-filtered report looked exactly like a complete one. Both are the same failure — the absence of work and the absence of a subject read alike once only counters survive — and both are recoverable only if the producer states what it did rather than what it counted. Whenever one view is excused from repeating another, the excuse is a claim about content that a test has to hold in place.
 - Detection must validate the complete document. Optional UTF-8 BOMs are common, and selecting the first recognizable marker can misclassify a document that contains conflicting format markers.
 - The documented command shape is part of the contract. A positional cache category implemented as both an option and an argument made help ambiguous and left conflicting forms without a principled winner.
 - Canonical artifacts must be stable under irrelevant ordering. Baseline fingerprints sort evidence claims before hashing, and report views never reuse their sorted indexes as inventory indexes.

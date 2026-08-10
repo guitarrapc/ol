@@ -862,7 +862,8 @@ public sealed class PackageMetadataTests
                 new[] { component },
                 SpdxData.Load(null),
                 new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 1, 0),
-                new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", 1, 0));
+                new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", 1, 0),
+                new ScanReportScope(ExternalEvidenceCollected: true, DependencyFilter: null, ExcludedCount: 0, ExcludedUnknownCount: 0));
         }
 
         var rendered = System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);

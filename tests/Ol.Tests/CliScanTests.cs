@@ -2122,6 +2122,124 @@ public sealed class CliScanTests
         }
     }
 
+    [Test]
+    public async Task Scan_JsonReport_SeparatesUncollectedExternalEvidenceFromNothingToCollect()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{ "type": "library", "name": "internal", "version": "1.0.0", "purl": "pkg:nuget/MyCompany.Internal@1.0.0" }] }""",
+            Encoding.UTF8);
+
+        try
+        {
+            var skipped = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
+            var collected = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--skip-evidence-packages", "pkg:nuget/");
+
+            await Assert.That(skipped.ExitCode).IsEqualTo(0).Because(skipped.Stderr);
+            await Assert.That(collected.ExitCode).IsEqualTo(0).Because(collected.Stderr);
+            using var skippedReport = JsonDocument.Parse(skipped.Stdout);
+            using var collectedReport = JsonDocument.Parse(collected.Stdout);
+            var skippedMetadata = skippedReport.RootElement.GetProperty("metadata");
+            var collectedMetadata = collectedReport.RootElement.GetProperty("metadata");
+
+            // Both runs report zero collection work. Only the stated mode distinguishes "never attempted"
+            // from "attempted and nothing was needed", and stderr carries no summary for JSON.
+            await Assert.That(skippedMetadata.GetProperty("packageMetadata").GetProperty("targetCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(collectedMetadata.GetProperty("packageMetadata").GetProperty("targetCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(skippedMetadata.GetProperty("collection").GetProperty("externalEvidence").GetString()).IsEqualTo("not-collected");
+            await Assert.That(collectedMetadata.GetProperty("collection").GetProperty("externalEvidence").GetString()).IsEqualTo("collected");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_JsonReport_StatesDependencyFilterExclusions()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "metadata": { "component": { "type": "application", "name": "app", "version": "0.0.0", "bom-ref": "app" } },
+              "components": [
+                { "type": "library", "name": "a", "version": "1.0.0", "bom-ref": "a", "purl": "pkg:nuget/a@1.0.0", "licenses": [{ "license": { "id": "MIT" } }] },
+                { "type": "library", "name": "b", "version": "2.0.0", "bom-ref": "b", "purl": "pkg:nuget/b@2.0.0", "licenses": [{ "license": { "id": "MIT" } }] },
+                { "type": "library", "name": "c", "version": "3.0.0", "bom-ref": "c", "purl": "pkg:nuget/c@3.0.0", "licenses": [{ "license": { "id": "MIT" } }] }
+              ],
+              "dependencies": [
+                { "ref": "app", "dependsOn": ["a"] },
+                { "ref": "a", "dependsOn": ["b"] },
+                { "ref": "b", "dependsOn": [] }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var unfiltered = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
+            var filtered = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence", "--dependency", "direct");
+            var text = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--dependency", "direct");
+
+            await Assert.That(filtered.ExitCode).IsEqualTo(0).Because(filtered.Stderr);
+            using var unfilteredReport = JsonDocument.Parse(unfiltered.Stdout);
+            using var filteredReport = JsonDocument.Parse(filtered.Stdout);
+            var unfilteredView = unfilteredReport.RootElement.GetProperty("metadata").GetProperty("view");
+            var filteredView = filteredReport.RootElement.GetProperty("metadata").GetProperty("view");
+
+            await Assert.That(unfilteredView.GetProperty("dependencyFilter").ValueKind).IsEqualTo(JsonValueKind.Null);
+            await Assert.That(unfilteredView.GetProperty("excludedCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(unfilteredView.GetProperty("excludedUnknownCount").GetInt32()).IsEqualTo(0);
+
+            await Assert.That(filteredView.GetProperty("dependencyFilter").GetString()).IsEqualTo("direct");
+
+            // The filtered JSON must state the same exclusion facts the text view puts on stderr,
+            // which is what lets a consumer tell a filtered view from a complete one.
+            var excluded = filteredView.GetProperty("excludedCount").GetInt32();
+            var excludedUnknown = filteredView.GetProperty("excludedUnknownCount").GetInt32();
+            await Assert.That(excluded).IsGreaterThan(0);
+            await Assert.That(text.Stderr).Contains($"Filter: {excluded} components excluded; {excludedUnknown} with unknown dependency type");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_GroupedJsonReport_CarriesCollectionAndViewMetadata()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{ "type": "library", "name": "a", "version": "1.0.0", "purl": "pkg:nuget/a@1.0.0", "licenses": [{ "license": { "id": "MIT" } }] }] }""",
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence", "--group-by", "license");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            var metadata = report.RootElement.GetProperty("metadata");
+            await Assert.That(metadata.GetProperty("collection").GetProperty("externalEvidence").GetString()).IsEqualTo("not-collected");
+            await Assert.That(metadata.GetProperty("view").GetProperty("excludedCount").GetInt32()).IsEqualTo(0);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
 

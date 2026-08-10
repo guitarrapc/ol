@@ -444,12 +444,9 @@ internal static class DependencyInventoryCombiner
         /// and the version. Qualifiers are dropped because generators disagree about which to emit for one artifact.
         /// </summary>
         /// <remarks>
-        /// The subpath is dropped for the same reason, with one exception. A Go module path is not always written in
-        /// the purl name: generators split it, putting the trailing segments in the subpath, so
-        /// <c>github.com/ugorji/go/codec</c> is written as <c>pkg:golang/github.com/ugorji/go@v1.3.1#codec</c> and
-        /// <c>github.com/cpuguy83/go-md2man/v2</c> as <c>pkg:golang/github.com/cpuguy83/go-md2man@v2.0.6#v2</c>. For
-        /// Go the subpath therefore belongs to the path rather than beside it. Dropping it instead would be worse
-        /// than a missed match: it would leave a submodule looking like its parent.
+        /// The subpath is dropped too, except for Go, where generators put trailing module-path segments there:
+        /// <c>github.com/ugorji/go/codec</c> also arrives as <c>pkg:golang/github.com/ugorji/go@v1.3.1#codec</c>.
+        /// Dropping it there would be worse than a missed match — it leaves a submodule looking like its parent.
         /// </remarks>
         public static void Split(ReadOnlySpan<byte> purl, out PackagePath path, out ReadOnlySpan<byte> version)
         {

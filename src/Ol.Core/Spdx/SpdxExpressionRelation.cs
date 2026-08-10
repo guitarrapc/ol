@@ -11,10 +11,8 @@ namespace Ol.Core.Spdx;
 /// none, so the comparison is a relation rather than an equality.
 /// </para>
 /// <para>
-/// Deliberately shallow. Nothing is distributed, simplified, or interpreted beyond what the normalizer
-/// already established, and a <c>WITH</c> exception is one license rather than a license plus a
-/// modifier. Every relation that cannot be decided this way stays a disagreement rather than becoming
-/// a guess.
+/// Deliberately shallow: nothing is distributed or simplified beyond what the normalizer established, a
+/// <c>WITH</c> exception is one license, and anything undecidable this way stays a disagreement.
 /// </para>
 /// </remarks>
 internal static class SpdxExpressionRelation
@@ -29,26 +27,9 @@ internal static class SpdxExpressionRelation
     /// <param name="stated">The expression that may already cover it.</param>
     /// <returns><see langword="true"/> when the two do not disagree.</returns>
     /// <remarks>
-    /// <para>
-    /// Two ways to be accounted for, matching the two ways a source can say less than another without
-    /// contradicting it. A choice is covered when every option it offers is an option the other offers:
-    /// a disjunction is an offer, not a claim that every option applies at once, so naming one of them
-    /// agrees with the offer. A single license is covered when the other expression requires it under
-    /// at least one of the ways it can be satisfied, which for an expression built from <c>AND</c> and
-    /// <c>OR</c> is exactly the licenses it names.
-    /// </para>
-    /// <para>
-    /// The second rule exists because a repository-level detector cannot express a conjunction at all.
-    /// Reading <c>Apache-2.0</c> as contradicting <c>(MIT OR Apache-2.0) AND Unicode-3.0</c> reported a
-    /// conflict on every Rust project that reaches <c>unicode-ident</c>, from an observation that named
-    /// one of the licenses the expression itself lists. It is restricted to a single license on one
-    /// side: two compound expressions can share a license and still require different terms, so
-    /// <c>MIT AND Unicode-3.0</c> and <c>MIT AND BSL-1.0</c> remain a disagreement.
-    /// </para>
-    /// <para>
-    /// Nothing is weakened by keeping the expression that accounts for the other. It is the one that
-    /// drops no option and no obligation, so a policy still evaluates every term the publisher stated.
-    /// </para>
+    /// The two rules of expression agreement in spdx.md: a choice covered by a wider choice, and a single license
+    /// named among the licenses another expression requires. Keep the second restricted to one license on one side —
+    /// two compound expressions can share a license and still require different terms.
     /// </remarks>
     public static bool IsAccountedFor(ReadOnlySpan<byte> observed, ReadOnlySpan<byte> stated)
         => IsSubsetOf(observed, stated)

@@ -4,18 +4,9 @@ namespace Ol.Core.PackageManagers;
 /// Rewrites Cargo's pre-SPDX license spelling into the SPDX expression it stands for.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Cargo accepted <c>MIT/Apache-2.0</c> before its <c>license</c> field was defined as an SPDX
-/// expression, and crates published under that spelling are still resolved today. The separator is not
-/// an unknown license name to be guessed at: Cargo documents <c>/</c> as the deprecated form of
-/// <c>OR</c>, so the expression it denotes is stated rather than inferred.
-/// </para>
-/// <para>
-/// Deliberately narrow. Only the separator is rewritten, and only when the value carries one, so a
-/// value that is already an SPDX expression is classified from the bytes the source supplied. The
-/// rewrite is a classification input, not a replacement of the evidence: the candidate keeps the raw
-/// spelling the crate published so a report still shows what Cargo actually said.
-/// </para>
+/// Cargo documents <c>/</c> as the deprecated form of <c>OR</c>, so <c>MIT/Apache-2.0</c> denotes an expression
+/// rather than an unknown license to guess at. Only the separator is rewritten, and only when the value carries one.
+/// The rewrite is a classification input, not a replacement: the candidate keeps the spelling the crate published.
 /// </remarks>
 public static class CargoLicenseExpression
 {

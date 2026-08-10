@@ -82,9 +82,9 @@ public sealed class SourceRepositoryCache(string root)
     /// sixteen-parameter record shape. Only the values that reach report evidence are decoded here.
     /// </para>
     /// <para>
-    /// This pass also validates the persisted <c>SchemaVersion</c> and <c>CacheKeySha256</c>, which
-    /// specs/cache_format.md requires. The previous reader compared the deserialized record's calculated
-    /// properties instead, and those are never populated from the file, so neither value was checked.
+    /// It also validates the persisted <c>SchemaVersion</c> and <c>CacheKeySha256</c> as cache_format.md requires.
+    /// Read them from the file: a record's calculated properties are never populated from it, so comparing those
+    /// checks nothing.
     /// </para>
     /// </remarks>
     private static SourceRepositoryCacheReadResult Parse(ReadOnlySpan<byte> utf8, string cacheKey, string cacheKeySha256)

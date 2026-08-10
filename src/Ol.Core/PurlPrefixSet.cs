@@ -129,15 +129,10 @@ public sealed class PurlPrefixSet
     /// Requires a prefix to name an ecosystem. It may stop there, selecting that whole ecosystem.
     /// </summary>
     /// <remarks>
-    /// An earlier rule also demanded a package or namespace character, so that one entry could not select an entire
-    /// ecosystem by mistake. Practice showed the cost of that: an SBOM generator can catalogue a whole ecosystem the
-    /// project never depended on — GitHub Actions read out of workflow files is the case that prompted this — and the
-    /// only way to drop them was to enumerate every namespace the generator happened to emit, which changes with the
-    /// generator and the repository. Prohibiting the intent did not make it wrong, only unreachable.
-    ///
-    /// Breadth is now answered by visibility rather than refusal: the number of selected components is reported, and
-    /// verbose output attributes it per prefix, so an over-broad entry states its own effect. What stays rejected is a
-    /// prefix naming no ecosystem at all, which selects everything and cannot be a considered choice.
+    /// Selecting a whole ecosystem was once rejected as too broad, but a generator can catalogue an ecosystem the
+    /// project never depended on, and enumerating every namespace it emits is not a stable answer. Breadth is
+    /// answered by visibility instead: the selected count is always reported, per prefix under verbose. A prefix
+    /// naming no ecosystem stays rejected because it selects everything.
     /// </remarks>
     private static bool IsPackageUrlPrefix(ReadOnlySpan<char> value)
     {

@@ -704,19 +704,10 @@ internal static class SbomInputParser
     /// Combines a detected license collection with the component's declared one.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// A producer writes under <c>evidence</c> when it detected a license instead of being told one, so
-    /// the two are not interchangeable. A detection therefore never replaces a declared value: it
-    /// supplies a license only where nothing was declared, which is the only license fact some
-    /// generators emit at all.
-    /// </para>
-    /// <para>
-    /// It can still contradict a declaration, and that disagreement is the reason to read the field:
-    /// it is how a scan sees that an SBOM's stated license does not match what its producer found. A
-    /// collection of several identifiers states no relationship between them, so it stays one
-    /// unresolved observation and never becomes a disagreement; splitting it would make two detected
-    /// identifiers read as two sources contradicting each other.
-    /// </para>
+    /// The observed licenses contract in spdx.md. A producer writes under <c>evidence</c> when it detected a license
+    /// rather than being told one, so a detection supplies a license only where nothing was declared and never
+    /// replaces one. Keep a multi-entry collection as one unresolved observation: splitting it would make two
+    /// detected identifiers read as two sources contradicting each other.
     /// </remarks>
     private static (Utf8Slice License, LicenseStatus Status, LicenseCandidate PrimaryCandidate, LicenseCandidate[] AdditionalCandidates) CombineObservedLicenses(
         Utf8Slice declaredLicense,

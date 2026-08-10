@@ -21,21 +21,10 @@ public sealed class GoPackageMetadataProvider : PackageMetadataProvider
 
     /// <summary>Derives the repository from the module path when the proxy states no origin.</summary>
     /// <remarks>
-    /// <para>
-    /// The proxy omits <c>Origin</c> for module versions it cached before it began recording one, which
-    /// covers a large share of the widely used modules published before that field existed. Without it a
-    /// module has no repository at all, so source evidence is never even attempted for a package whose
-    /// location is fully determined.
-    /// </para>
-    /// <para>
-    /// This is the Go module resolution rule rather than a guess about layout: for <c>github.com</c> the
-    /// Go command itself treats the first two path elements as the repository root, and a module path is
-    /// by definition where the module is fetched from. It is deliberately limited to that host. A vanity
-    /// import path such as <c>gopkg.in/yaml.v3</c> or <c>rsc.io/pdf</c> names a redirect that only a
-    /// <c>go-get</c> request resolves, and its module path is not a repository URL, so it stays
-    /// unresolved rather than becoming an invented one. No ref is derived either, because the proxy that
-    /// omitted the origin also stated no tag or commit for the version.
-    /// </para>
+    /// Specified in packagemanager.md. Go module resolution rather than a guess about layout: the Go command treats
+    /// the first two <c>github.com</c> path elements as the repository root. Keep it to that host — a vanity import
+    /// path such as <c>gopkg.in/yaml.v3</c> is a redirect only a <c>go-get</c> request resolves, so deriving a URL
+    /// from it would invent one. No ref is derived: a proxy that omitted the origin stated no tag or commit either.
     /// </remarks>
     private static string CreateGitHubRepositoryUrl(PackageMetadataRequest request)
     {

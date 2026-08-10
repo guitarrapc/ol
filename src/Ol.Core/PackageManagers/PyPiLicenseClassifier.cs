@@ -5,26 +5,9 @@ namespace Ol.Core.PackageManagers;
 /// it applies.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The list is PEP 639's, quoted rather than derived. Its appendix enumerates the classifiers that
-/// "intend to specify a particular license, but do not specify the particular version or variant",
-/// and states that tools "MUST NOT attempt to automatically infer a <c>License-Expression</c>" from
-/// them. Ol treats them as it treats any value it cannot resolve; recognizing them adds no mapping and
-/// resolves nothing. It only lets a report name the reason, because what a reviewer does next follows
-/// from knowing the value can never resolve rather than from the status alone.
-/// </para>
-/// <para>
-/// Deliberately only the excluded list. PEP 639 says the remaining classifiers each map to one SPDX
-/// identifier, but publishes no machine-readable table for them, and reproducing one would make Ol the
-/// author of a license mapping rather than a reader of published data. The "or later" forms of AGPLv3,
-/// GPLv2, GPLv3 and LGPLv3 are absent on purpose: the appendix calls those unambiguous, and only
-/// LGPLv2 among them ambiguous, because v2 could mean v2.0 or v2.1.
-/// </para>
-/// <para>
-/// The comparison is exact. A classifier is a value from a closed vocabulary that PyPI validates on
-/// upload, and the vocabulary is frozen — PEP 639 states new license classifiers must not be added — so
-/// a value that differs at all is not one of these classifiers and must not be described as one.
-/// </para>
+/// The license family classifier contract in spdx.md. The set is PEP 639's appendix quoted rather than derived, so
+/// nothing here maps a classifier to an identifier; the "or later" forms of AGPLv3, GPLv2, GPLv3 and LGPLv3 are
+/// absent because the appendix calls those unambiguous. Matching is exact: the vocabulary is closed and frozen.
 /// </remarks>
 public static class PyPiLicenseClassifier
 {

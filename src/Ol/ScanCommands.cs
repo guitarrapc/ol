@@ -1262,73 +1262,91 @@ internal static class ReportRenderer
 
     /// <summary>Selects the one mechanism that best explains an unresolved component.</summary>
     /// <remarks>
-    /// <para>
-    /// A component can carry several warnings, and listing all of them restates plumbing rather than
-    /// naming the next action. The order runs from the most specific and actionable mechanism to the
-    /// most general, so a package whose license text is inside its own artifact is not described merely
-    /// as having an unusable repository. A component with neither a warning nor a declared reference is
-    /// not listed at all: repeating its status would add a row per component without adding a fact the
-    /// table does not already show.
-    /// </para>
-    /// <para>
-    /// An unread declaration is one of these mechanisms, derived here rather than recorded by each
-    /// provider. What the reviewer does next follows from the kind of place the publisher named and
-    /// from nothing else: open the file the package carries, read the text the registry holds, or
-    /// follow the URL. The registry that answered does not change any of those, which is why this is
-    /// one rule over <see cref="DeclaredLicenseReferenceKind"/> instead of a warning per ecosystem.
-    /// A named file or embedded text outranks a repository outcome because it is a document that
-    /// certainly answers the question; a URL ranks below one because it may lead anywhere. Several
-    /// sources can each declare a different kind for one component, so the strongest kind present
-    /// decides, not the first source that stated one.
-    /// </para>
-    /// <para>
-    /// A <see cref="PyPiLicenseClassifier">license family classifier</see> is derived the same way and
-    /// ranks below every one of those, because it names no document at all: it says the value can never
-    /// resolve, which is worth stating only when nothing points somewhere a reviewer could read.
-    /// </para>
+    /// A component can carry several warnings at once, and listing all of them restates plumbing instead of naming
+    /// the next action. A component with no mechanism at all is not listed: repeating its status would add a row
+    /// without adding a fact the table does not already show. <see cref="SelectUnresolvedReason"/> holds the order,
+    /// which is a reported contract rather than an implementation detail.
     /// </remarks>
     private static bool TryGetUnresolvedReason(in ScanComponent component, out ReadOnlySpan<byte> reason)
     {
-        var warnings = LicenseCandidateWarnings.None;
-        var declaredFile = false;
-        var declaredText = false;
-        var declaredLocation = false;
-        var familyClassifier = false;
+        reason = SelectUnresolvedReason(CollectUnresolvedEvidence(component));
+        return !reason.IsEmpty;
+    }
+
+    /// <summary>
+    /// Reduces a component's candidates to the facts the ranking asks about.
+    /// </summary>
+    /// <remarks>
+    /// Declared references and the family classifier are derived here rather than recorded by each provider, because
+    /// what a reviewer does next follows from the kind of place a publisher named and from nothing else. Several
+    /// sources can each declare a different kind for one component, so the flags accumulate and the ranking picks the
+    /// strongest present rather than whichever source spoke first.
+    /// </remarks>
+    private static UnresolvedEvidence CollectUnresolvedEvidence(in ScanComponent component)
+    {
+        var evidence = default(UnresolvedEvidence);
         for (var i = 0; i < component.CandidateCount; i++)
         {
             var candidate = component.GetCandidate(i);
-            warnings |= candidate.Warnings;
+            evidence.Warnings |= candidate.Warnings;
             switch (candidate.Evidence.DeclaredReference?.Kind)
             {
-                case DeclaredLicenseReferenceKind.ArtifactPath: declaredFile = true; break;
-                case DeclaredLicenseReferenceKind.InlineText: declaredText = true; break;
-                case DeclaredLicenseReferenceKind.Location: declaredLocation = true; break;
+                case DeclaredLicenseReferenceKind.ArtifactPath: evidence.DeclaredFile = true; break;
+                case DeclaredLicenseReferenceKind.InlineText: evidence.DeclaredText = true; break;
+                case DeclaredLicenseReferenceKind.Location: evidence.DeclaredLocation = true; break;
             }
 
-            familyClassifier |= candidate.Status == LicenseStatus.Ambiguous && PyPiLicenseClassifier.IsNotSpecific(candidate.Raw.Span);
+            evidence.FamilyClassifier |= candidate.Status == LicenseStatus.Ambiguous && PyPiLicenseClassifier.IsNotSpecific(candidate.Raw.Span);
         }
 
-        reason =
-            (warnings & LicenseCandidateWarnings.ExternalEvidenceNotCollected) != 0 ? "external_evidence_not_collected"u8
-            : (warnings & LicenseCandidateWarnings.PackageMetadataNotFound) != 0 ? "package_metadata_not_found"u8
-            : declaredFile ? "declared_license_file_not_collected"u8
-            : declaredText ? "declared_license_text_not_collected"u8
-            : (warnings & LicenseCandidateWarnings.SourceLicenseNotRecognized) != 0 ? "license_not_recognized"u8
-            : (warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0 ? "license_not_detected"u8
-            : declaredLocation ? "declared_license_location_not_collected"u8
-            : familyClassifier ? "license_classifier_not_specific"u8
-            // Both reasons for never reaching a registry rank above every repository reason. A component no registry
-            // could be asked about also has no repository, because nothing produced one; naming the repository would
-            // report the consequence and send the reader hunting for something that was never sought.
-            : (warnings & LicenseCandidateWarnings.PackageMetadataUnversionedPurl) != 0 ? "package_metadata_unversioned_purl"u8
-            : (warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0 ? "unsupported_package_metadata"u8
-            : (warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0 ? "unsupported_source_repository"u8
-            : (warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0 ? "source_repository_subdirectory"u8
-            : (warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0 ? "source_repository_unavailable"u8
-            : (warnings & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0 ? "source_repository_fetch_failed"u8
-            : (warnings & LicenseCandidateWarnings.PackageMetadataFetchFailed) != 0 ? "package_metadata_fetch_failed"u8
-            : default;
-        return !reason.IsEmpty;
+        return evidence;
+    }
+
+    /// <summary>Ranks the mechanisms from the most specific and actionable to the most general.</summary>
+    private static ReadOnlySpan<byte> SelectUnresolvedReason(UnresolvedEvidence evidence)
+    {
+        // Collection that never ran, or a registry that answered "no such package", settles the component: no later
+        // mechanism can explain more than the fact that there was nothing to explain.
+        if (evidence.Has(LicenseCandidateWarnings.ExternalEvidenceNotCollected)) return "external_evidence_not_collected"u8;
+        if (evidence.Has(LicenseCandidateWarnings.PackageMetadataNotFound)) return "package_metadata_not_found"u8;
+
+        // A document that certainly answers the question outranks any outcome about where Ol looked.
+        if (evidence.DeclaredFile) return "declared_license_file_not_collected"u8;
+        if (evidence.DeclaredText) return "declared_license_text_not_collected"u8;
+
+        // A document Ol did read but could not classify still points at something to open.
+        if (evidence.Has(LicenseCandidateWarnings.SourceLicenseNotRecognized)) return "license_not_recognized"u8;
+        if (evidence.Has(LicenseCandidateWarnings.SourceLicenseNotDetected)) return "license_not_detected"u8;
+
+        // A URL may lead anywhere, so it ranks below a named document; a family classifier names no place at all.
+        if (evidence.DeclaredLocation) return "declared_license_location_not_collected"u8;
+        if (evidence.FamilyClassifier) return "license_classifier_not_specific"u8;
+
+        // A component no registry could be asked about also has no repository, because nothing produced one. Naming
+        // the repository would report the consequence and send the reader hunting for something never sought.
+        if (evidence.Has(LicenseCandidateWarnings.PackageMetadataUnversionedPurl)) return "package_metadata_unversioned_purl"u8;
+        if (evidence.Has(LicenseCandidateWarnings.UnsupportedPackageMetadata)) return "unsupported_package_metadata"u8;
+
+        // Last come the outcomes that describe only where Ol looked, ending with the two that a later run may change.
+        if (evidence.Has(LicenseCandidateWarnings.UnsupportedSourceRepository)) return "unsupported_source_repository"u8;
+        if (evidence.Has(LicenseCandidateWarnings.SourceRepositorySubdirectory)) return "source_repository_subdirectory"u8;
+        if (evidence.Has(LicenseCandidateWarnings.SourceRepositoryUnavailable)) return "source_repository_unavailable"u8;
+        if (evidence.Has(LicenseCandidateWarnings.SourceRepositoryFetchFailed)) return "source_repository_fetch_failed"u8;
+        if (evidence.Has(LicenseCandidateWarnings.PackageMetadataFetchFailed)) return "package_metadata_fetch_failed"u8;
+
+        return default;
+    }
+
+    /// <summary>The facts about one component that decide which unresolved mechanism is reported.</summary>
+    private struct UnresolvedEvidence
+    {
+        public LicenseCandidateWarnings Warnings;
+        public bool DeclaredFile;
+        public bool DeclaredText;
+        public bool DeclaredLocation;
+        public bool FamilyClassifier;
+
+        public readonly bool Has(LicenseCandidateWarnings warning) => (Warnings & warning) != 0;
     }
 
     /// <summary>Returns the location Ol observed for this reason, or an empty value.</summary>

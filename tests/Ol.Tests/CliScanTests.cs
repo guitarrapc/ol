@@ -124,6 +124,105 @@ public sealed class CliScanTests
         }
     }
 
+    /// <summary>
+    /// Keeps the four "no registry request" outcomes distinct when they occur in one input.
+    /// </summary>
+    /// <remarks>
+    /// A skipped component, an ecosystem with no provider, a purl without a version, and a component
+    /// with no purl all end the plan without a request, and each asks the reader for something
+    /// different. They share one negative index space, so a collision is silent: a skipped component was
+    /// reported as an unsupported ecosystem and counted as one. Only a multi-component input reaches the
+    /// planner at all, which is why the single-component tests above never showed it.
+    /// </remarks>
+    [Test]
+    public async Task Scan_WithSeveralUnqueryableComponents_KeepsEachOutcomeDistinct()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "name": "Skipped", "version": "1.0.0", "purl": "pkg:nuget/MyCompany.Internal@1.0.0" },
+                { "type": "library", "name": "Unsupported", "version": "1.0.0", "purl": "pkg:generic/thing@1.0.0" },
+                { "type": "library", "name": "Versionless", "version": "1.0.0", "purl": "pkg:nuget/NoVersion" },
+                { "type": "library", "name": "NoPurl", "version": "1.0.0" }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--skip-evidence-packages", "pkg:nuget/MyCompany.");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+
+            // A component Ol was told not to collect for says exactly that, and nothing about its ecosystem.
+            await Assert.That(SelectWarnings(report, "Skipped")).IsEquivalentTo(new[] { "external_evidence_not_collected" });
+            await Assert.That(SelectWarnings(report, "Unsupported")).Contains("unsupported_package_metadata");
+            await Assert.That(SelectWarnings(report, "Versionless")).Contains("package_metadata_unversioned_purl");
+            await Assert.That(SelectWarnings(report, "NoPurl")).DoesNotContain("unsupported_package_metadata");
+            await Assert.That(SelectWarnings(report, "Unsupported")).DoesNotContain("external_evidence_not_collected");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>The counter that reports the same collision as the warning above.</summary>
+    [Test]
+    public async Task Scan_WithSkippedAndUnsupportedComponents_CountsOnlyTheUnsupportedEcosystem()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "name": "SkippedOne", "version": "1.0.0", "purl": "pkg:nuget/MyCompany.One@1.0.0" },
+                { "type": "library", "name": "SkippedTwo", "version": "1.0.0", "purl": "pkg:nuget/MyCompany.Two@1.0.0" },
+                { "type": "library", "name": "Unsupported", "version": "1.0.0", "purl": "pkg:generic/thing@1.0.0" }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-evidence-packages", "pkg:nuget/MyCompany.");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stderr).Contains("0 fetch errors; 1 unsupported ecosystems");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    private static string[] SelectWarnings(JsonDocument report, string name)
+    {
+        foreach (var component in report.RootElement.GetProperty("components").EnumerateArray())
+        {
+            if (component.GetProperty("name").GetString() != name) continue;
+            var warnings = component.GetProperty("warnings");
+            var values = new string[warnings.GetArrayLength()];
+            for (var i = 0; i < values.Length; i++) values[i] = warnings[i].GetString()!;
+            return values;
+        }
+
+        throw new InvalidOperationException($"Component '{name}' was not present in the report.");
+    }
+
     [Test]
     public async Task Scan_VerboseWithNoExternalEvidenceFor_ReportsMatchesPerPrefix()
     {
@@ -356,7 +455,11 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
+            // The asserted auth mode is a property of the run, not of the machine running it, and
+            // OL_GITHUB_TOKEN is what the README tells users to export. Clearing it keeps the test from
+            // depending on whether the developer follows that advice.
+            var environment = new Dictionary<string, string?> { ["OL_GITHUB_TOKEN"] = null };
+            var (exitCode, stdout, stderr) = await RunOlWithEnvironmentAsync(root, packageCacheRoot, sourceCacheRoot, environment, "scan", "--input", sbomPath, "--format", "json", "--concurrency", "1", "--retry", "0");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);

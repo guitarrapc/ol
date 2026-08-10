@@ -42,6 +42,17 @@ internal sealed class PackageMetadataService(
     /// <summary>Plan index for a purl whose ecosystem is supported but which names no single package version.</summary>
     private const int UnversionedPurlIndex = -2;
 
+    /// <summary>
+    /// Plan index for a component the user excluded from collection, and for a component with no purl.
+    /// </summary>
+    /// <remarks>
+    /// Neither issues a request and neither says anything about an ecosystem, so the projection must add
+    /// no candidate and count nothing. This is a distinct index because the plan's negative space carries
+    /// meaning: reusing <see cref="UnsupportedEcosystemIndex"/> made an excluded component report an
+    /// ecosystem Ol supports as unsupported, and count toward the unsupported total.
+    /// </remarks>
+    private const int NoLookupIndex = -3;
+
     private static readonly HttpClient HttpClient = new();
 
     /// <summary>
@@ -177,14 +188,14 @@ internal sealed class PackageMetadataService(
                 var purl = component.Purl;
                 if (purl.IsEmpty)
                 {
-                    componentLookupIndexes[i] = -1;
+                    componentLookupIndexes[i] = NoLookupIndex;
                     continue;
                 }
 
                 if (uncollectedPackages is not null && uncollectedPackages.Contains(purl))
                 {
                     components[i] = LicenseReconciler.AddCandidate(component, NotCollectedCandidate);
-                    componentLookupIndexes[i] = -1;
+                    componentLookupIndexes[i] = NoLookupIndex;
                     continue;
                 }
 
@@ -307,7 +318,7 @@ internal sealed class PackageMetadataService(
             var lookupIndex = componentLookupIndexes[i];
             var result = lookupIndex >= 0
                 ? lookupResults[lookupIndex]
-                : components[i].Purl.IsEmpty ? default : CreateUnqueryablePurlResult(components[i].Purl, lookupIndex == UnversionedPurlIndex);
+                : lookupIndex == NoLookupIndex ? default : CreateUnqueryablePurlResult(components[i].Purl, lookupIndex == UnversionedPurlIndex);
             records[i] = result.Resolution;
             components[i] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];
             supported += result.Supported ? 1 : 0;

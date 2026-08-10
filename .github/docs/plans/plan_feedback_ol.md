@@ -4,7 +4,7 @@
 
 2026-08-10 に、6 つのパッケージマネージャーそれぞれで実在の OSS リポジトリ 3 件を選び、ol を SBOM 経路・package manager 経路・混在経路の 3 通りで実行した記録である。目的は 2 つあった。**SBOM 単独あるいは PM 単独で検知するツールではなく ol を使う理由が実データで立つか**を確かめること、そして**確定できるべきなのにできないケースを見つけて直す**ことである。
 
-評価の過程で 4 件の欠陥を修正し、1 件の仕様変更（エコシステム単位の除外）を入れた。修正はこの文書に記録した順で実施済みで、仕様は [input combination](../specs/cli.md#contract-input-combination) と [unqueryable purl](../specs/packagemanager.md#contract-unqueryable-purl) に反映してある。未実施の提案と、ol が決めるべきでないスコープ判断は「優先度順の対応事項」に残した。
+評価の過程で 4 件の欠陥を修正し、2 件の機能追加（エコシステム単位の除外、Go のライセンス取得元）を入れた。修正はこの文書に記録した順で実施済みで、仕様は [input combination](../specs/cli.md#contract-input-combination) と [unqueryable purl](../specs/packagemanager.md#contract-unqueryable-purl) に反映してある。未実施の提案と、ol が決めるべきでないスコープ判断は「優先度順の対応事項」に残した。
 
 計測環境: syft 1.22.0、go 1.26.4、cargo 1.97.1、maven 3.9.16、Node v24.18.0、Python 3.14.5、Temurin JDK 21.0.12。評価スクリプトと全レポートは `.references/_eval/`（gitignore 対象）にある。
 
@@ -30,7 +30,7 @@ SBOM はすべて syft で生成した。ol 自身の ecosystem smoke が syft �
 | | SBOM が知る | PM が知る | 両方あわせて |
 |---|---:|---:|---:|
 | パッケージ数（18 件合計） | 1,769 | 2,842 | **3,589** |
-| ライセンス確定 | 1,239 | 2,669 | **2,937** |
+| ライセンス確定 | 1,249 | 2,689 | **2,957** |
 
 包含性は 18 件すべてで成立した。混在が identity を落としたケースはゼロで、最良単独を下回ったケースもゼロである。
 
@@ -197,11 +197,53 @@ License check failed: 3 violations.
 
 判断材料としては、`check` に効くことを挙げておく。cobra の 9 件の違反のうち 6 件が Actions で、CI に third-party のコードを実行している以上コンプライアンス上の対象だという立場も、ライブラリ依存ではないので対象外だという立場も、どちらも筋は通る。
 
-### P3: `golang.org/x/*` 系のライセンス確定
+### P3: `golang.org/x/*` 系のライセンス確定（実施済み）
 
-122 件が `unsupported_source_repository`。`golang.org/x/crypto` などは Go プロジェクトのほぼすべてが依存する。Gerrit ホストであり GitHub ではないため収集できない。
+122 件が `unsupported_source_repository` だった。`golang.org/x/crypto` などは Go プロジェクトのほぼすべてが依存する。Gerrit ホストであり GitHub ではないため収集できなかった。
 
-`github.com/golang/<x>` へ読み替えるマッピングは、ol が証拠にない知識を持ち込むことになるので取れない。筋の良い解は **module proxy が配る zip 内の LICENSE を読む**ことで、これは [declared license reference](../specs/spdx.md#contract-declared-license-reference) が保持している「publisher が示したライセンスの所在」を実際に読みにいく能力と同じものである。両者を一つの能力として設計するべきで、P3 に置いたのは規模の理由による。
+当初は「module proxy が配る zip 内の LICENSE を読む」を想定していたが、調べ直すと**もっと確実な道があった**。ol は Maven で既に deps.dev を使っており、deps.dev は Go にも同じ形で答える。実測した Go モジュール **65 件すべてにライセンスを返し**、ol が既に解決していた 45 件のうち 44 件と一致した（残り 1 件は ol が未解決だったものを deps.dev が埋めた）。
+
+```text
+$ curl https://api.deps.dev/v3/systems/go/packages/golang.org%2Fx%2Fcrypto/versions/v0.52.0
+licenses: BSD-3-Clause
+link SOURCE_REPO = https://go.googlesource.com/crypto
+```
+
+**proxy を置き換えるのではなく併用した。** proxy の `Origin.Ref` はリリースタグを指しており、これを失うと既定ブランチのライセンスで代用することになる。タグ以降に再ライセンスされたプロジェクトを誤って報告する経路を作ってしまう。また Go 全体を単一の第三者集約サービスに依存させると、それが落ちたとき今日得られている証拠まで失う。deps.dev への追随は**任意**とし、届かなければ proxy が述べたところまでで縮退する。
+
+行レベルの結果:
+
+| | matched | unknown |
+|---|---|---|
+| cobra | 3 → **5** | 10 → **7** |
+| gin | 40 → **55** | 31 → **15** |
+| logrus | 3 → **6** | 8 → **4** |
+
+`golang.org/x/*` 全 9 件、`google.golang.org/protobuf`、`rsc.io/pdf`、`gopkg.in/check.v1`、`pmezard/go-difflib`、`pelletier/go-toml/v2`、`blackfriday/v2` がすべて解決した。
+
+```text
+pkg:golang/golang.org/x/crypto@v0.52.0
+  status=matched license=BSD-3-Clause
+    package-registry   matched    raw='BSD-3-Clause'
+    source-repository  unknown    raw='https://go.googlesource.com/crypto'
+```
+
+リポジトリ側の証拠は unknown のまま保持されている。片方が答えたからといって他方を捨てない。
+
+残る Go の未解決は 4 件で、うち 3 件は deps.dev が**関係を述べずに複数ライセンスを返す**ものである。ambiguous として報告し、勝手に `OR` で繋がない。これは Maven で既に確立していた扱いを Go が継承した形である。
+
+```text
+pkg:golang/gopkg.in/yaml.v3@v3.0.1
+  status=ambiguous license=MIT; Apache-2.0 (?)
+```
+
+#### この修正で危うく取り逃がしかけたこと
+
+最初の全体再計測で結果がまったく動かなかった。原因は**キャッシュ**で、変更前に書かれた Go エントリは「ライセンス無し」として保存済みであり、`cacheHits=57 misses=0` で全件がそこから読まれていた。
+
+ol にはこのための機構が既にある。`ResolverVersion` は「書き込んだビルドがどの観測をできたか」を記録し、新しいリゾルバは改善できるエントリだけを再収集する。5 → 6 に上げることで、既存の一般規則（ライセンス空のエントリは再収集）がそのまま効く。Go 専用の規則は要らなかった。
+
+**能力を足したのにキャッシュのバージョンを上げないと、改善は利用者に届かない。** エントリの形式は何も変わっていないので見落としやすい。
 
 ### P4: 空 purl の合成コンポーネントを報告から除く判断
 
@@ -396,18 +438,17 @@ License check failed: 3 violations.
 package_metadata_not_found+source_repository_unavailable         658
 source_repository_unavailable+unsupported_package_metadata       235
 package_metadata_unversioned_purl+source_repository_unavailable  189
-unsupported_source_repository                                    122
-license_not_recognized                                            36
-source_repository_unavailable                                     31
-license_not_detected                                              19
-source_repository_fetch_failed                                     2
+unsupported_source_repository                                    111
+license_not_recognized                                            32
+source_repository_unavailable                                     27
+license_not_detected                                              20
 ```
 
-修正前は 2 行目が 424 件で、3 行目が存在しなかった。
+評価開始時は 2 行目が 424 件（3 行目は存在せず）、4 行目が 122 件、未解決の総数は 652 件だった。現在は 632 件で、減った 20 件はすべて Go である。
 
 ## 検証状況
 
-全 816 テスト合格。`DependencyInventoryCombinerBenchmark`（warmup 3 / iteration 10）は 1024 → 4096 コンポーネントで 4.32 倍、線形を保っている。アロケーションは欠陥 1 の修正前後で不変（546.35 KB / 2140.32 KB）。二片構成のパスを通らない一般ケースのために fast path を入れてある。self-scan golden は無変化、`seiton` は 0 issues。
+全 820 テスト合格。`DependencyInventoryCombinerBenchmark`（warmup 3 / iteration 10）は 1024 → 4096 コンポーネントで 4.32 倍、線形を保っている。アロケーションは欠陥 1 の修正前後で不変（546.35 KB / 2140.32 KB）。二片構成のパスを通らない一般ケースのために fast path を入れてある。self-scan golden は無変化、`seiton` は 0 issues。
 
 ## Lessons learned
 
@@ -417,4 +458,6 @@ source_repository_fetch_failed                                     2
 
 - **合成した fixture では見つからない欠陥がある。** 欠陥 1 は「生成器が purl のどこでモジュールパスを切るか」の食い違いで、自分で書いた fixture には自分の想定しか入らない。実在の生成器を実在のリポジトリに当てるまで存在に気づけなかった。Phase 4 の 15 個の等価クラステストは全て通っていた。
 - **理由の名前は解決率と同じくらい重要である。** 欠陥 2 と 4 は 1 件も解決を増やしていない。それでも直す価値があったのは、180 件が「ol は Maven に非対応」と読める文言で、235 行が「リポジトリが見つからない」という文言で報告されていたからで、どちらも利用者を誤った調査に送り出す。確定できないことより、確定できない理由を取り違えることの方が害が大きい場合がある。
+- **「無い」ものを作る前に、「答えを持っている情報源」を探す。** `golang.org/x/*` の未解決に対して、最初は module proxy の zip から LICENSE を読む実装を想定していた。実際には ol が既に Maven で使っている deps.dev が Go にも同じ形で答え、実測 65 件すべてを埋めた。失敗の形が「このホストは GitHub ではない」であって「このパッケージにライセンスが見つからない」ではないとき、足りないのは収集能力ではなく問いに答える情報源である。
+- **能力を足したらキャッシュのバージョンを上げる。** Go の変更は、最初の全体再計測でまったく効かなかった。エントリ形式は何も変わっていないので見落としやすいが、空のライセンスは古いリゾルバの性質であって事実ではない。`ResolverVersion` を上げるまで、改善は利用者に届かない。
 - **ノイズの出処を確かめずに優先度を決めかけた。** 当初 `pkg:github/*` の解決を最優先に置いたが、それは件数だけを見た判断だった。SBOM のプロパティを読めば `github-actions-usage-cataloger` が入れたものだと即座に分かり、生成器のオプションで止められることも分かる。**ol の欠陥と、生成器の既定の選択と、製品スコープの未決定は別のものである。** 混ぜると、決めるべき人が決めていない事柄を実装で既成事実にしてしまう。

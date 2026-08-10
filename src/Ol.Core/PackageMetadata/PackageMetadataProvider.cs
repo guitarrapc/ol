@@ -91,12 +91,35 @@ public abstract class PackageMetadataProvider
         => CreateFollowUpEndpoint(root);
 
     /// <summary>
+    /// Gets whether a follow-up this provider named must succeed for the lookup to succeed.
+    /// </summary>
+    /// <remarks>
+    /// It must when the first response is only a pointer and carries no metadata of its own, as a NuGet registration
+    /// does. It must not when the first response already stands on its own and the follow-up only adds to it: failing
+    /// the whole component would then lose evidence Ol had already obtained.
+    /// </remarks>
+    public virtual bool FollowUpIsRequired => true;
+
+    /// <summary>
     /// Projects a registry response into normalized metadata evidence.
     /// </summary>
     /// <param name="root">The root JSON response element.</param>
     /// <param name="request">The package request associated with the response.</param>
     /// <returns>Normalized provider metadata.</returns>
     public abstract PackageMetadataResponse ParseResponse(JsonElement root, PackageMetadataRequest request);
+
+    /// <summary>
+    /// Projects a registry response that a follow-up replaced, together with the response that named it.
+    /// </summary>
+    /// <param name="root">The last document reached, or the only one when no follow-up was made.</param>
+    /// <param name="initial">The first document, which equals <paramref name="root"/> when no follow-up was made.</param>
+    /// <param name="request">The package request associated with the response.</param>
+    /// <remarks>
+    /// A provider needs both only when each document states something the other does not. Go is the case: the module
+    /// proxy states where a version came from and at which ref, and deps.dev states the license.
+    /// </remarks>
+    public virtual PackageMetadataResponse ParseResponse(JsonElement root, JsonElement initial, PackageMetadataRequest request)
+        => ParseResponse(root, request);
 }
 
 /// <summary>

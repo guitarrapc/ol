@@ -100,7 +100,8 @@ public sealed class PackageMetadataRegistryClient
         JsonDocument? current = null;
         try
         {
-            var root = document.RootElement;
+            var initial = document.RootElement;
+            var root = initial;
             for (var hop = 0; hop < MaximumFollowUpHops; hop++)
             {
                 if (provider.CreateFollowUpEndpoint(root, request) is not { } followUpEndpoint)
@@ -111,6 +112,9 @@ public sealed class PackageMetadataRegistryClient
                 using var followUpResponse = await GetAsync(followUpEndpoint, cancellationToken).ConfigureAwait(false);
                 if (!followUpResponse.IsSuccessStatusCode)
                 {
+                    // An optional follow-up only adds to a first response that already stands on its own, so a
+                    // failure leaves the lookup with less evidence rather than with none.
+                    if (!provider.FollowUpIsRequired) break;
                     throw CreateFetchException(followUpResponse);
                 }
 
@@ -120,7 +124,7 @@ public sealed class PackageMetadataRegistryClient
                 root = followUpDocument.RootElement;
             }
 
-            return provider.ParseResponse(root, request);
+            return provider.ParseResponse(root, initial, request);
         }
         finally
         {

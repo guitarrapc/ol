@@ -466,7 +466,12 @@ public readonly record struct PackageMetadataRecord(
     public int ResolverVersion => CurrentResolverVersion;
 
     /// <summary>The resolver capability version this build writes.</summary>
-    public const int CurrentResolverVersion = 5;
+    /// <remarks>
+    /// Version 6 reads Go licenses from package contents. Every Go entry written before it carries an empty license,
+    /// because the module proxy has none to give, so without the bump an upgraded Ol would keep reporting the whole
+    /// ecosystem unresolved until those entries aged out on their own.
+    /// </remarks>
+    public const int CurrentResolverVersion = 6;
 
     /// <summary>The first resolver version that reads npm's <c>repository.directory</c>.</summary>
     /// <remarks>

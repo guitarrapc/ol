@@ -88,7 +88,7 @@ Example:
   "RawLicense": "MIT",
   "RepositoryUrl": "https://github.com/facebook/react",
   "RepositoryRef": "0123456789abcdef",
-  "ResolverVersion": 5,
+  "ResolverVersion": 6,
   "Warnings": [],
   "Errors": [],
   "FetchedAt": "2026-07-08T00:00:00+00:00",
@@ -99,7 +99,9 @@ Example:
 
 The cache stores the raw source license rather than a final reconciled status. On use, Ol validates the raw value with the active SPDX data and passes the resulting candidate through common reconciliation. This prevents a cached conclusion produced with one SPDX snapshot from silently becoming authoritative under another snapshot. An ecosystem spelling that a registry defines as standing for an SPDX expression, such as Cargo's pre-SPDX `MIT/Apache-2.0`, is likewise resolved on use rather than at write time, so the entry keeps what the registry said.
 
-`ResolverVersion` records which observations the writing build could make, and a newer resolver revisits only the entries whose observation it can improve. An entry with no license is revisited in every ecosystem, because every provider can now state where a publisher said its license is. Resolver version `5` additionally revisits npm entries written earlier even when they carry a license: whether a package occupies one directory of a shared repository decides whether that repository's license describes it, and a resolved license does not make that fact observable. Recollection writes the current version, so each affected entry is refetched once rather than on every scan.
+`ResolverVersion` records which observations the writing build could make, and a newer resolver revisits only the entries whose observation it can improve. An entry with no license is revisited in every ecosystem, because every provider can now state where a publisher said its license is. Resolver version `5` additionally revisits npm entries written earlier even when they carry a license: whether a package occupies one directory of a shared repository decides whether that repository's license describes it, and a resolved license does not make that fact observable. Resolver version `6` reads [Go licenses from package contents](packagemanager.md#contract-go-license); every Go entry written earlier carries an empty license because the module proxy has none to give, so the general no-license rule covers them and no ecosystem-specific rule is needed. Recollection writes the current version, so each affected entry is refetched once rather than on every scan.
+
+A capability that changes what a source can answer needs this bump even though the entry format is unchanged. Without it an upgraded Ol keeps serving entries whose emptiness was a property of the old resolver, and the improvement stays invisible until the entries age out — which is how the Go change first appeared to do nothing at all when measured against a warm cache.
 
 <a id="contract-source-cache-v1"></a>
 ## Source Repository Entry — Schema Version 1

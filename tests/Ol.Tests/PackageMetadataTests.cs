@@ -1459,6 +1459,107 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Enrichment_GoEntryCachedBeforeLicensesWereReadable_RecollectsOnce()
+    {
+        // Every Go entry written before the license source existed carries an empty license, so without a resolver
+        // version bump an upgraded Ol would keep reporting the whole ecosystem unresolved until the cache aged out.
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-enrich-{Guid.NewGuid():N}");
+        const string purl = "pkg:golang/golang.org/x/crypto@v0.52.0";
+        using var handler = new SequenceJsonResponseHandler(
+            """{ "Version": "v0.52.0", "Origin": { "URL": "https://go.googlesource.com/crypto", "Ref": "refs/tags/v0.52.0" } }""",
+            """{ "licenses": ["BSD-3-Clause"] }""");
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            Directory.CreateDirectory(root);
+            var keyHash = PackageMetadataCache.GetCacheKeySha256(purl);
+            await File.WriteAllTextAsync(cache.GetPath(purl), $$"""
+                {
+                  "SchemaVersion": 1,
+                  "ResolverVersion": 5,
+                  "CacheKey": "{{purl}}",
+                  "CacheKeySha256": "{{keyHash}}",
+                  "Source": "go-module-proxy",
+                  "RawLicense": "",
+                  "RepositoryUrl": "https://go.googlesource.com/crypto",
+                  "Warnings": [],
+                  "Errors": [],
+                  "FetchedAt": "2026-08-09T00:00:00+00:00"
+                }
+                """);
+            var index = new SpdxLicenseIndex(["BSD-3-Clause"], []);
+            var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var components = new[] { CreateEnrichmentComponent(index, purl) };
+            using var workspace = new PackageMetadataWorkspace(components.Length);
+
+            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+
+            await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("BSD-3-Clause");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Fetch_GoModule_AddsDepsDevLicenseWithoutLosingTheProxyOrigin()
+    {
+        // The proxy states where a module version came from but never its license, so a Go module could only be
+        // resolved by whatever its repository host happened to expose. deps.dev states the license for the module
+        // contents, including modules hosted where Ol cannot collect. Both are kept: the tag-pinned origin is what
+        // makes the repository evidence about the released version rather than about the default branch.
+        var handler = new SequenceJsonResponseHandler(
+            """{ "Version": "v0.52.0", "Origin": { "VCS": "git", "URL": "https://go.googlesource.com/crypto", "Ref": "refs/tags/v0.52.0" } }""",
+            """{ "licenses": ["BSD-3-Clause"], "links": [ { "label": "SOURCE_REPO", "url": "https://go.googlesource.com/crypto" } ] }""");
+        using var httpClient = new HttpClient(handler);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(httpClient);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("golang", "golang.org/x", "crypto", "v0.52.0", "pkg:golang/golang.org/x/crypto@v0.52.0"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("BSD-3-Clause");
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://go.googlesource.com/crypto");
+        await Assert.That(record.RepositoryRef).IsEqualTo("refs/tags/v0.52.0");
+        await Assert.That(handler.RequestUris[1]).Contains("api.deps.dev");
+    }
+
+    [Test]
+    public async Task Fetch_GoModule_WhenDepsDevIsUnavailable_KeepsWhatTheProxyStated()
+    {
+        // The license source is an addition, not a new dependency for the whole ecosystem. If it cannot be reached,
+        // Go resolution has to degrade to what it produced before rather than fail the component outright.
+        var handler = new FollowUpFailureHandler(
+            """{ "Version": "v1.0.9", "Origin": { "VCS": "git", "URL": "https://github.com/spf13/pflag", "Ref": "refs/tags/v1.0.9" } }""",
+            HttpStatusCode.ServiceUnavailable);
+        using var httpClient = new HttpClient(handler);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(httpClient);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("golang", "github.com/spf13", "pflag", "v1.0.9", "pkg:golang/github.com/spf13/pflag@v1.0.9"));
+
+        await Assert.That(record.RawLicense).IsEmpty();
+        await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/spf13/pflag");
+        await Assert.That(record.RepositoryRef).IsEqualTo("refs/tags/v1.0.9");
+    }
+
+    [Test]
+    public async Task Fetch_GoModule_WithSeveralUnrelatedLicenses_StaysAmbiguous()
+    {
+        // deps.dev lists values without stating a relationship between them, exactly as it does for Maven. Joining
+        // them with OR would assert a choice the source never made.
+        var handler = new SequenceJsonResponseHandler(
+            """{ "Version": "v3.0.1", "Origin": { "URL": "https://github.com/go-yaml/yaml", "Ref": "refs/tags/v3.0.1" } }""",
+            """{ "licenses": ["MIT", "Apache-2.0"] }""");
+        using var httpClient = new HttpClient(handler);
+        var client = OlDefaults.CreatePackageMetadataRegistryClient(httpClient);
+
+        var record = await client.FetchAsync(new PackageMetadataRequest("golang", "gopkg.in", "yaml.v3", "v3.0.1", "pkg:golang/gopkg.in/yaml.v3@v3.0.1"));
+
+        await Assert.That(record.RawLicense).IsEqualTo("MIT; Apache-2.0");
+    }
+
+    [Test]
     public async Task Fetch_GoResponseWithoutOrigin_DerivesRepositoryFromGitHubModulePath()
     {
         // proxy.golang.org omits Origin for module versions cached before it recorded one, and the
@@ -2439,6 +2540,17 @@ public sealed class PackageMetadataTests
             var body = bodies[Math.Min(RequestUris.Count - 1, bodies.Length - 1)];
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
         }
+    }
+
+    /// <summary>Answers the first request and fails every follow-up.</summary>
+    private sealed class FollowUpFailureHandler(string firstBody, HttpStatusCode followUpStatus) : HttpMessageHandler
+    {
+        private int requestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(Interlocked.Increment(ref requestCount) == 1
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(firstBody) }
+                : new HttpResponseMessage(followUpStatus));
     }
 
     private sealed class RateLimitedOriginHandler : HttpMessageHandler

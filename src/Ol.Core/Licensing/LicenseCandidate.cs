@@ -82,6 +82,7 @@ public enum LicenseCandidateKind : byte
     Fetch,
     Unavailable,
     Unsupported,
+    Location,
 }
 
 /// <summary>Provides stable UTF-8 candidate identifiers without string allocation.</summary>
@@ -209,6 +210,7 @@ public static class LicenseCandidateIdentifiers
         var v when v.SequenceEqual("fetch"u8) => LicenseCandidateKind.Fetch,
         var v when v.SequenceEqual("unavailable"u8) => LicenseCandidateKind.Unavailable,
         var v when v.SequenceEqual("unsupported"u8) => LicenseCandidateKind.Unsupported,
+        var v when v.SequenceEqual("location"u8) => LicenseCandidateKind.Location,
         _ => LicenseCandidateKind.None,
     };
 
@@ -237,6 +239,7 @@ public static class LicenseCandidateIdentifiers
         LicenseCandidateKind.Fetch => "fetch"u8,
         LicenseCandidateKind.Unavailable => "unavailable"u8,
         LicenseCandidateKind.Unsupported => "unsupported"u8,
+        LicenseCandidateKind.Location => "location"u8,
         _ => default,
     };
 }

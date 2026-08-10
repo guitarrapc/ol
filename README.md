@@ -297,6 +297,8 @@ ol scan --input bom.cdx.json --no-external-evidence
 
 Without external evidence, more components may remain unresolved and therefore fail `check`.
 
+A publisher that states no SPDX expression often states a license URL instead, such as NuGet's legacy `licenseUrl` or CycloneDX's `license.url`. ol does not fetch those pages. It does recognize a URL the SPDX license list itself publishes as one license's `seeAlso` — `https://www.apache.org/licenses/LICENSE-2.0` is Apache-2.0 in the same record that defines the identifier — matching apart from scheme, case, a leading `www.`, and a trailing slash. A URL SPDX does not publish, or one it publishes for several licenses, stays an unresolved declaration, and a stated license is never overridden by one.
+
 > [!TIP]
 > ol does not crawl arbitrary repository contents or guess a license from repository layout or license files.
 

@@ -298,6 +298,8 @@ ol scan --input bom.cdx.json --no-external-evidence
 
 外部証拠がないコンポーネントは未解決のまま残るため、通常のスキャンより`check`の違反が増える場合があります。
 
+SPDX式を書かない代わりに、NuGetの旧`licenseUrl`やCycloneDXの`license.url`のようにライセンスのURLだけを書くパッケージがあります。olはそのページを取得しません。ただしSPDXライセンスリスト自身が`seeAlso`として公開しているURLは識別子のURL表記として解決します（`https://www.apache.org/licenses/LICENSE-2.0`は識別子を定義しているレコードそのものがApache-2.0として公開しています）。照合はscheme、大文字小文字、先頭の`www.`、末尾のスラッシュだけを無視します。SPDXが公開していないURL、複数ライセンスで共有されているURLは未解決の宣言のまま残り、パッケージが明示したライセンスがURLで上書きされることもありません。
+
 > [!TIP]
 > olは任意のリポジトリ内容をクロールしたり、ディレクトリ構成やライセンスファイルからライセンスを推測したりしません。
 

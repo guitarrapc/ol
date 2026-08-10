@@ -60,6 +60,45 @@ public static class LicenseCandidateFactory
     }
 
     /// <summary>
+    /// Resolves a candidate that states no license but declares a location SPDX publishes for one license.
+    /// </summary>
+    /// <param name="candidate">The candidate, with its evidence already attached.</param>
+    /// <param name="spdxLicenseIndex">The active SPDX data index.</param>
+    /// <returns>The resolved candidate, or <paramref name="candidate"/> unchanged.</returns>
+    /// <remarks>
+    /// A declared location is a place, not a license, and Ol does not read what one names. This resolves
+    /// nothing by reading: it recognizes that the place the publisher named is the one the SPDX License
+    /// List itself publishes as that license's <c>seeAlso</c>, which makes the value a URL spelling of an
+    /// identifier rather than a pointer to unread text. It is the same operation the name lookup performs
+    /// for a value spelled as an SPDX name, and it carries the same guards — the whole declared value
+    /// only, and only when the URL names exactly one license.
+    /// <para>
+    /// Applied only to a candidate whose own value resolved nothing, so a declaration never overrides a
+    /// license the publisher stated. The raw value stays as published and the location stays in the
+    /// evidence, so a report shows what the resolution was read from; <see cref="LicenseCandidateKind.Location"/>
+    /// records that the license came from there rather than from a license field.
+    /// </para>
+    /// </remarks>
+    public static LicenseCandidate ResolveDeclaredLocation(LicenseCandidate candidate, SpdxLicenseIndex spdxLicenseIndex)
+    {
+        if (candidate.Status != LicenseStatus.Unknown
+            || candidate.Evidence.DeclaredReference is not { Kind: DeclaredLicenseReferenceKind.Location } reference
+            || !spdxLicenseIndex.TryResolveLicenseUrl(reference.Value.Span, out var normalized, out var deprecated))
+        {
+            return candidate;
+        }
+
+        return candidate with
+        {
+            Kind = LicenseCandidateKind.Location,
+            Normalized = normalized,
+            Status = LicenseStatus.Matched,
+            Deprecated = deprecated,
+            Warnings = deprecated ? candidate.Warnings | LicenseCandidateWarnings.DeprecatedSpdxIdentifier : candidate.Warnings,
+        };
+    }
+
+    /// <summary>
     /// Creates an error candidate for failed external evidence collection.
     /// </summary>
     /// <param name="source">The attempted evidence source.</param>

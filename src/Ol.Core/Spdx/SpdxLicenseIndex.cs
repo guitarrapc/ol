@@ -14,9 +14,11 @@ public sealed class SpdxLicenseIndex
     private readonly FrozenDictionary<string, string> exceptions;
     private readonly FrozenSet<string> deprecatedLicenses;
     private readonly FrozenDictionary<string, string> licenseNames;
+    private readonly FrozenDictionary<string, string> licenseUrls;
     private readonly FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> licenseSpanLookup;
     private readonly FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> exceptionSpanLookup;
     private readonly FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> licenseNameSpanLookup;
+    private readonly FrozenDictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> licenseUrlSpanLookup;
 
     /// <summary>
     /// Initializes a new SPDX lookup index.
@@ -25,16 +27,26 @@ public sealed class SpdxLicenseIndex
     /// <param name="exceptions">Known SPDX exception identifiers.</param>
     /// <param name="deprecatedLicenses">Identifiers SPDX marks deprecated.</param>
     /// <param name="licenseNames">SPDX license names, one per entry of <paramref name="licenses"/> at the same index.</param>
-    public SpdxLicenseIndex(string[] licenses, string[] exceptions, string[]? deprecatedLicenses = null, string[]? licenseNames = null)
+    /// <param name="seeAlsoUrls">SPDX <c>seeAlso</c> URLs, as published.</param>
+    /// <param name="seeAlsoLicenseIds">The license each entry of <paramref name="seeAlsoUrls"/> belongs to, at the same index.</param>
+    public SpdxLicenseIndex(
+        string[] licenses,
+        string[] exceptions,
+        string[]? deprecatedLicenses = null,
+        string[]? licenseNames = null,
+        string[]? seeAlsoUrls = null,
+        string[]? seeAlsoLicenseIds = null)
     {
         this.licenses = CreateLookup(licenses);
         licenseUtf8 = CreateUtf8Lookup(licenses);
         this.exceptions = CreateLookup(exceptions);
         this.deprecatedLicenses = (deprecatedLicenses ?? []).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         this.licenseNames = CreateNameLookup(licenses, licenseNames, this.deprecatedLicenses);
+        licenseUrls = CreateUrlLookup(seeAlsoUrls, seeAlsoLicenseIds);
         licenseSpanLookup = this.licenses.GetAlternateLookup<ReadOnlySpan<char>>();
         exceptionSpanLookup = this.exceptions.GetAlternateLookup<ReadOnlySpan<char>>();
         licenseNameSpanLookup = this.licenseNames.GetAlternateLookup<ReadOnlySpan<char>>();
+        licenseUrlSpanLookup = licenseUrls.GetAlternateLookup<ReadOnlySpan<char>>();
     }
 
     /// <summary>
@@ -115,6 +127,33 @@ public sealed class SpdxLicenseIndex
     }
 
     /// <summary>
+    /// Attempts to resolve a URL that SPDX publishes as one license's <c>seeAlso</c>.
+    /// </summary>
+    /// <param name="urlUtf8">The UTF-8 URL to resolve.</param>
+    /// <param name="normalized">The identifier SPDX gives that URL, when the lookup succeeds.</param>
+    /// <param name="deprecated">Whether the resolved identifier is deprecated.</param>
+    /// <returns><see langword="true" /> when the URL names exactly one license in the active SPDX data.</returns>
+    /// <remarks>
+    /// The comparison is exact apart from the spellings that cannot change which document a URL names:
+    /// its scheme, its case, a leading <c>www.</c>, and a trailing slash. Nothing else is rewritten, so a
+    /// URL that merely resembles a published one — a redirector, a site's own renamed path, a repository
+    /// blob — resolves nothing and stays a declared location.
+    /// </remarks>
+    public bool TryResolveLicenseUrl(ReadOnlySpan<byte> urlUtf8, out Utf8Slice normalized, out bool deprecated)
+    {
+        if (licenseUrls.Count != 0 && TryLookupUrl(urlUtf8, out var identifier))
+        {
+            normalized = licenseUtf8[identifier];
+            deprecated = deprecatedLicenses.Contains(identifier);
+            return true;
+        }
+
+        normalized = default;
+        deprecated = false;
+        return false;
+    }
+
+    /// <summary>
     /// Attempts to normalize an UTF-8 SPDX exception identifier without materializing an input string.
     /// </summary>
     /// <param name="exceptionIdUtf8">The UTF-8 exception identifier.</param>
@@ -173,6 +212,76 @@ public sealed class SpdxLicenseIndex
         {
             ArrayPool<char>.Shared.Return(rented);
         }
+    }
+
+    /// <summary>Decodes a URL, trims the spellings that do not change what it names, and looks it up.</summary>
+    private bool TryLookupUrl(ReadOnlySpan<byte> utf8, out string value)
+    {
+        const int MaximumUrlChars = 512;
+        if (utf8.Length is 0 or > MaximumUrlChars)
+        {
+            value = null!;
+            return false;
+        }
+
+        Span<char> characters = stackalloc char[MaximumUrlChars];
+        var characterCount = Encoding.UTF8.GetChars(utf8, characters);
+        return licenseUrlSpanLookup.TryGetValue(TrimUrl(characters[..characterCount]), out value!);
+    }
+
+    /// <summary>Removes the scheme, a leading <c>www.</c>, and trailing slashes from a URL.</summary>
+    /// <remarks>
+    /// Case is left to the ordinal-ignore-case lookup rather than folded here, so no buffer is rewritten.
+    /// </remarks>
+    private static ReadOnlySpan<char> TrimUrl(ReadOnlySpan<char> value)
+    {
+        if (value.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) value = value[8..];
+        else if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) value = value[7..];
+        if (value.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) value = value[4..];
+        return value.TrimEnd('/');
+    }
+
+    /// <summary>Builds the URL lookup, dropping every URL SPDX publishes for more than one license.</summary>
+    /// <remarks>
+    /// Sharing here is not the deprecated-and-replacement pair the name lookup resolves: SPDX gives one
+    /// GNU page to four LGPL identifiers, and one OSI page to both <c>LGPL-2.1</c> and
+    /// <c>LGPL-2.1-or-later</c>, which are different licenses rather than two spellings of one. A shared
+    /// URL therefore names no single license and is dropped, leaving the value an unresolved declaration
+    /// instead of resolving it to whichever entry was read first.
+    /// </remarks>
+    private static FrozenDictionary<string, string> CreateUrlLookup(string[]? urls, string[]? identifiers)
+    {
+        if (urls is null || identifiers is null || urls.Length == 0)
+        {
+            return FrozenDictionary<string, string>.Empty;
+        }
+
+        var count = Math.Min(urls.Length, identifiers.Length);
+        var dictionary = new Dictionary<string, string>(count, StringComparer.OrdinalIgnoreCase);
+        var ambiguous = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < count; i++)
+        {
+            var url = TrimUrl(urls[i]).ToString();
+            if (url.Length == 0)
+            {
+                continue;
+            }
+
+            if (dictionary.TryGetValue(url, out var existing))
+            {
+                if (!string.Equals(existing, identifiers[i], StringComparison.OrdinalIgnoreCase)) ambiguous.Add(url);
+                continue;
+            }
+
+            dictionary[url] = identifiers[i];
+        }
+
+        foreach (var url in ambiguous)
+        {
+            dictionary.Remove(url);
+        }
+
+        return dictionary.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Builds the name lookup, resolving the names SPDX gives to more than one identifier.</summary>

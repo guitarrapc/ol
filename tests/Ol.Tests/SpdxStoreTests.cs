@@ -15,9 +15,11 @@ public sealed class SpdxStoreTests
         var data = SpdxData.Load(null);
 
         await Assert.That(data.Source).IsEqualTo("bundled");
-        await Assert.That(data.GetLicensesSha256()).IsEqualTo(ExpectedDigest([.. SpdxGeneratedLicenseData.LicenseIds, .. SpdxGeneratedLicenseData.LicenseNames]));
+        await Assert.That(data.GetLicensesSha256()).IsEqualTo(ExpectedDigest([.. SpdxGeneratedLicenseData.LicenseIds, .. SpdxGeneratedLicenseData.LicenseNames, .. SpdxGeneratedLicenseData.SeeAlsoUrls, .. SpdxGeneratedLicenseData.SeeAlsoLicenseIds]));
         await Assert.That(data.GetExceptionsSha256()).IsEqualTo(ExpectedDigest(SpdxGeneratedLicenseData.ExceptionIds));
         await Assert.That(data.GetLicensesSha256()).IsNotEqualTo(ExpectedDigest(SpdxGeneratedLicenseData.LicenseIds));
+        // A snapshot that moves a URL to another license must not keep the digest of the one it left.
+        await Assert.That(data.GetLicensesSha256()).IsNotEqualTo(ExpectedDigest([.. SpdxGeneratedLicenseData.LicenseIds, .. SpdxGeneratedLicenseData.LicenseNames]));
         await Assert.That(data.GetLicensesSha256()).IsNotEqualTo(data.GetExceptionsSha256());
     }
 

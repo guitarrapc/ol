@@ -22,11 +22,13 @@ public static class SpdxCodeGenerator
         var (licenseIds, licenseNames) = ReadLicenses(licenses.RootElement);
         var exceptionIds = ReadIdentifiers(exceptions.RootElement, "exceptions", "licenseExceptionId");
         var deprecatedIds = ReadDeprecatedIdentifiers(licenses.RootElement);
+        var (seeAlsoUrls, seeAlsoIds) = ReadSeeAlso(licenses.RootElement);
         // Sorted as pairs: the name array is read by the identifier's index, so sorting them apart
         // would silently give every license its neighbour's name.
         Array.Sort(licenseIds, licenseNames, StringComparer.Ordinal);
         Array.Sort(exceptionIds, StringComparer.Ordinal);
         Array.Sort(deprecatedIds, StringComparer.Ordinal);
+        Array.Sort(seeAlsoUrls, seeAlsoIds, StringComparer.Ordinal);
 
         var builder = new StringBuilder();
 #nullable enable
@@ -48,6 +50,10 @@ public static class SpdxCodeGenerator
         AppendArray(builder, "ExceptionIds", exceptionIds);
         builder.AppendLine();
         AppendArray(builder, "DeprecatedLicenseIds", deprecatedIds);
+        builder.AppendLine();
+        AppendArray(builder, "SeeAlsoUrls", seeAlsoUrls);
+        builder.AppendLine();
+        AppendArray(builder, "SeeAlsoLicenseIds", seeAlsoIds);
         builder.AppendLine("}");
         return builder.ToString();
     }
@@ -83,6 +89,45 @@ public static class SpdxCodeGenerator
         }
 
         return (ids, names);
+    }
+
+    /// <summary>Reads every <c>seeAlso</c> URL paired with the license that publishes it.</summary>
+    /// <remarks>
+    /// One license publishes several URLs and one URL is published by several licenses, so the pairs
+    /// cannot share the identifier array's index and are emitted as their own two arrays. They are
+    /// emitted exactly as SPDX writes them: which spellings a lookup treats as the same URL, and which
+    /// URLs are too shared to name one license, is one rule the consumer applies to the bundled data and
+    /// to user-installed data alike.
+    /// </remarks>
+    private static (string[] Urls, string[] Ids) ReadSeeAlso(JsonElement root)
+    {
+        var urls = new List<string>();
+        var ids = new List<string>();
+        foreach (var item in root.GetProperty("licenses").EnumerateArray())
+        {
+            if (!item.TryGetProperty("seeAlso", out var seeAlso) || seeAlso.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            var id = ReadString(item, "licenseId");
+            foreach (var url in seeAlso.EnumerateArray())
+            {
+                if (url.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var value = url.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    urls.Add(value);
+                    ids.Add(id);
+                }
+            }
+        }
+
+        return ([.. urls], [.. ids]);
     }
 
     private static string[] ReadIdentifiers(JsonElement root, string arrayProperty, string identifierProperty)

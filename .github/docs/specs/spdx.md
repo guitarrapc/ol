@@ -161,6 +161,23 @@ Where SPDX gives one name to two identifiers, it is always a deprecated identifi
 
 License exception names are not matched. An exception is only ever an operand of `WITH`, where the operand is an identifier.
 
+<a id="contract-spdx-license-see-also"></a>
+
+A [declared license location](#contract-declared-license-reference) is matched against the SPDX license list's `seeAlso` URLs, and resolves to the identifier that publishes it.
+
+```text
+https://www.apache.org/licenses/LICENSE-2.0  -> Apache-2.0
+https://opensource.org/license/MIT           -> MIT
+```
+
+This is the same reading as a name, applied to a value spelled as a URL: SPDX publishes the URL in the record that defines the identifier, so recognizing it is not reading the page and is not following a redirect. It is attempted only for a candidate whose own license value resolved nothing, so a declaration never overrides a license the publisher stated, and the resolved candidate keeps the URL in its evidence with kind `location` so a report shows what the value was read from.
+
+Matching ignores only the spellings that cannot change which document a URL names: its scheme, its case, a leading `www.`, and a trailing slash. Nothing else is rewritten. A URL a site has since renamed is therefore not resolved — `http://opensource.org/licenses/MIT` is not `https://opensource.org/license/MIT` — because the equivalence lives in that site's redirects rather than in SPDX, and encoding it would make Ol assert third-party routing as a fact.
+
+Where SPDX gives one URL to several identifiers it is not the deprecated-and-replacement pair the name rule resolves: one GNU page serves four LGPL identifiers, and one OSI page serves both `LGPL-2.1` and `LGPL-2.1-or-later`, which are different licenses. A shared URL therefore names no single license and resolves nothing.
+
+Measured against the declared locations of 15 widely used libraries across five package managers, this resolves very little: 1 of 308 distinct URLs, on a component that already stated its license. Legacy NuGet `licenseUrl` values overwhelmingly name a redirector (`go.microsoft.com/fwlink`), a nuget.org rendering of the license page, a repository blob, or a vendor EULA — none of which SPDX publishes, and the first two of which are not licenses at all. The rule earns its place by resolving canonical URLs such as `apache.org/licenses/LICENSE-2.0` for packages that carry nothing else, not by rescuing the legacy NuGet corpus.
+
 <a id="contract-license-family-classifier"></a>
 
 A PyPI license classifier that names a license family resolves nothing and is [reported as that](cli.md#contract-unresolved-section) rather than only as `ambiguous`. The set is the one PEP 639's appendix enumerates as classifiers that "intend to specify a particular license, but do not specify the particular version or variant", and from which tools "MUST NOT attempt to automatically infer a `License-Expression`" — `License :: OSI Approved :: BSD License`, `... :: Apache Software License`, and twelve others. Recognizing them adds no mapping: the value stays unresolved, and `check` still fails closed on it. What changes is that a report can say the value can never resolve, so a reviewer asks the publisher or reads the artifact instead of waiting for Ol to gain a capability.
@@ -230,7 +247,7 @@ stderr summary should include deprecated identifier warning counts.
 Each component JSON record retains every license claim once in `licenseCandidates`. Each candidate includes:
 
 - `source`
-- `kind`, such as `declared`, `concluded`, `expression`, `id`, or `name`
+- `kind`, such as `declared`, `concluded`, `expression`, `id`, `name`, or `location`
 - `raw` and normalized SPDX expression when valid
 - classification `status`
 - `deprecated` and candidate `warnings`
@@ -256,7 +273,9 @@ A publisher that cannot state an SPDX expression often states where its license 
 
 Because the kind decides what a reviewer does next, an unresolved component's [reason](cli.md#contract-unresolved-section) is derived from it rather than recorded per ecosystem. Inline text is a declaration with no place to name, so it must reach a report as its own outcome and never as an empty location.
 
-A reference is not a license and is not license text. Ol has not read what it names, so a reference never contributes a license value and never changes what a component resolves to. It is resolved by reading the thing it names, or it stays an unresolved declaration. Measuring the declared locations in three .NET repositories found that most lead to a licensing overview page or a redirector rather than to a license document, which is why the retained fact is where the publisher pointed and not what is there.
+A reference is not a license and is not license text. Ol has not read what it names, so a reference is resolved by reading the thing it names, or it stays an unresolved declaration. Measuring the declared locations in three .NET repositories found that most lead to a licensing overview page or a redirector rather than to a license document, which is why the retained fact is where the publisher pointed and not what is there.
+
+The single exception reads no page: a `location` whose URL the SPDX license list itself publishes as one license's [`seeAlso`](#contract-spdx-license-see-also). That value is a URL spelling of an identifier rather than a pointer to unread text, so it resolves like a [name](#contract-spdx-license-name). Every other kind of reference, and every URL SPDX does not publish, still contributes no license value.
 
 `acknowledgement: declared|concluded` records the producer's assertion semantics. It is not a verified attestation. CycloneDX `declarations.attestations`, BOM signatures, SPDX annotations, and package verification codes have broader document, conformance, or identity semantics and must not be projected onto a license candidate without an explicit relationship and a recorded verification result. Ol does not emit an inferred `attested` boolean.
 

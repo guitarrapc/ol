@@ -493,6 +493,15 @@ internal sealed class PackageMetadataService(
         return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span) };
     }
 
+    /// <summary>Classifies a registry license and, failing that, the location the registry declared.</summary>
+    /// <remarks>
+    /// Applied here rather than at the registry boundary for the same reason as Cargo's rewrite: the cache
+    /// keeps what the registry published, so a resolution is always made with the active SPDX data instead
+    /// of being frozen into the cache by the snapshot that happened to be installed when it was written.
+    /// </remarks>
+    private LicenseCandidate CreateRegistryCandidate(LicenseCandidateSource source, Utf8Slice raw, LicenseEvidence evidence)
+        => LicenseCandidateFactory.ResolveDeclaredLocation(CreateRegistryLicenseCandidate(source, raw, evidence), spdxLicenseIndex);
+
     /// <summary>Copies a declared location out of storage that the caller is about to release.</summary>
     /// <remarks>
     /// A cache entry's UTF-8 values point into a pooled buffer returned when the entry is disposed, and
@@ -522,7 +531,7 @@ internal sealed class PackageMetadataService(
     /// published. A cached entry is therefore still classified with the active SPDX data, and the
     /// rewrite cannot become a conclusion frozen into the cache by an older SPDX snapshot.
     /// </remarks>
-    private LicenseCandidate CreateRegistryCandidate(LicenseCandidateSource source, Utf8Slice raw, LicenseEvidence evidence)
+    private LicenseCandidate CreateRegistryLicenseCandidate(LicenseCandidateSource source, Utf8Slice raw, LicenseEvidence evidence)
         => source == LicenseCandidateSource.CargoRegistry && CargoLicenseExpression.TryRewriteLegacyChoice(raw.Span, out var choice)
             ? LicenseCandidateFactory.CreateRewritten(source, LicenseCandidateKind.License, raw, choice, spdxLicenseIndex, evidence)
             : LicenseCandidateFactory.Create(source, LicenseCandidateKind.License, raw, spdxLicenseIndex, evidence);

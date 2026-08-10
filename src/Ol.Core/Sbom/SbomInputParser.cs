@@ -945,7 +945,9 @@ internal static class SbomInputParser
         }
 
         DeclaredLicenseReference? reference = declaredUrl.IsEmpty ? null : new(DeclaredLicenseReferenceKind.Location, declaredUrl);
-        return candidate with { Evidence = new LicenseEvidence(LicenseEvidenceKind.Sbom, sbomField, acknowledgement, DeclaredReference: reference) };
+        return LicenseCandidateFactory.ResolveDeclaredLocation(
+            candidate with { Evidence = new LicenseEvidence(LicenseEvidenceKind.Sbom, sbomField, acknowledgement, DeclaredReference: reference) },
+            spdxLicenseIndex);
     }
 
     private static LicenseCandidate CreateLicenseCandidate(ref Utf8JsonReader reader, byte[] source, int offset, LicenseCandidateKind kind, SpdxLicenseIndex spdxLicenseIndex)

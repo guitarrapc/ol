@@ -93,11 +93,9 @@ public static class SpdxCodeGenerator
 
     /// <summary>Reads every <c>seeAlso</c> URL paired with the license that publishes it.</summary>
     /// <remarks>
-    /// One license publishes several URLs and one URL is published by several licenses, so the pairs
-    /// cannot share the identifier array's index and are emitted as their own two arrays. They are
-    /// emitted exactly as SPDX writes them: which spellings a lookup treats as the same URL, and which
-    /// URLs are too shared to name one license, is one rule the consumer applies to the bundled data and
-    /// to user-installed data alike.
+    /// One license publishes several URLs and one URL several licenses, so the pairs cannot share the
+    /// identifier array's index. Emitted as SPDX writes them, leaving normalization and shared-URL removal
+    /// to the consumer, which applies one rule to bundled and user-installed data alike.
     /// </remarks>
     private static (string[] Urls, string[] Ids) ReadSeeAlso(JsonElement root)
     {

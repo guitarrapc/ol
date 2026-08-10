@@ -24,11 +24,7 @@ public sealed class GitHubLicenseApiClient
     private static readonly long MaximumUnixTimeSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
     private const int MaximumErrorBodyBytes = 16 * 1024;
 
-    /// <summary>The number of GitHub redirects one License API request follows.</summary>
-    /// <remarks>
-    /// A renamed or transferred repository answers with one redirect to its current location. More than
-    /// that is a loop or a chain Ol has no reason to walk, so the redirect is reported as the answer.
-    /// </remarks>
+    /// <summary>Redirects one request follows. A renamed repository needs one; more is a loop.</summary>
     private const int MaximumRedirects = 3;
     private readonly Uri apiBaseUri;
     private readonly GitHubAuthentication authentication;
@@ -152,13 +148,11 @@ public sealed class GitHubLicenseApiClient
 
     /// <summary>Sends one request, following GitHub's redirects with the token still attached.</summary>
     /// <remarks>
-    /// A renamed or transferred repository answers <c>301</c> with its current location, and GitHub keeps
-    /// serving the license there. HttpClient's own redirect handling drops the Authorization header when
-    /// it retries, so the follow-up reaches GitHub unauthenticated, is counted against the sixty-request
-    /// anonymous allowance, and comes back <c>403</c> once that allowance is spent — a limit the token
-    /// never touched, which then stops collection for every remaining component. Following the redirect
-    /// here keeps the header, under the same rule the first request uses: it is sent to
-    /// <c>api.github.com</c> over HTTPS and nowhere else.
+    /// A renamed repository answers <c>301</c>, and HttpClient's own redirect handling drops the
+    /// Authorization header when it retries. The follow-up then spends the sixty-request anonymous
+    /// allowance and returns <c>403</c> — a limit the token never touched, which stops collection for
+    /// every remaining component. Following it here keeps the header, under the rule the first request
+    /// uses: <c>api.github.com</c> over HTTPS and nowhere else.
     /// </remarks>
     private async Task<HttpResponseMessage> SendFollowingRedirectsAsync(Uri endpoint, CancellationToken cancellationToken)
     {
@@ -420,9 +414,8 @@ public sealed record GitHubRateLimitStatus(
 
     /// <summary>Gets whether GitHub applied the anonymous allowance although a token was configured.</summary>
     /// <remarks>
-    /// The allowance GitHub names in the response is the one it actually applied, so a token that raises
-    /// it to thousands cannot produce a limit of sixty. That combination says the credential did not
-    /// reach GitHub, which is a different failure from a spent allowance and one no reset clears.
+    /// A token raises the allowance to thousands, so a limit of sixty says the credential never reached
+    /// GitHub — a different failure from a spent allowance, and one no reset clears.
     /// </remarks>
     public bool IsTokenNotApplied => !IsUnauthenticated && Limit is > 0 and <= AnonymousRequestAllowance;
 }

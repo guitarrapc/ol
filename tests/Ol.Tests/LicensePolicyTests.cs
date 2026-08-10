@@ -56,8 +56,8 @@ public sealed class LicensePolicyTests
         await Assert.That(violations[0].Kind).IsEqualTo(expectedKind);
     }
 
-    // A source that lists licenses without stating how they relate leaves only the operator unknown, so a
-    // listing the allow-list admits member by member is admitted as AND and as OR alike.
+    // A listing leaves only the operator unknown, so one the allow-list admits member by member is
+    // admitted as AND and as OR alike.
     [Test]
     [Arguments("MIT; Apache-2.0", "MIT,Apache-2.0", true)]
     [Arguments("MIT; Apache-2.0; BSD-3-Clause", "MIT,Apache-2.0,BSD-3-Clause", true)]
@@ -80,8 +80,7 @@ public sealed class LicensePolicyTests
         await Assert.That(ambiguityAllowedCount).IsEqualTo(expectedAllowed ? 1 : 0);
     }
 
-    // A semicolon a publisher wrote is punctuation, not a listing Ol built and validated, so the value is
-    // evaluated whole and stays a violation however its parts read.
+    // A publisher's semicolon is punctuation, not a listing Ol built and validated.
     [Test]
     [Arguments("MIT; Apache-2.0")]
     [Arguments("MIT;Apache-2.0")]
@@ -121,8 +120,7 @@ public sealed class LicensePolicyTests
         await Assert.That(ambiguityAllowedCount).IsEqualTo(1);
     }
 
-    // Resolving the members is what makes a deprecated one reportable; classifying the joined value could
-    // not see inside it.
+    // Resolving the members is what makes a deprecated one reportable.
     [Test]
     public async Task ResolvedListing_WithADeprecatedMember_ReportsTheDeprecation()
     {
@@ -134,8 +132,7 @@ public sealed class LicensePolicyTests
         await Assert.That(candidate.Warnings.HasFlag(LicenseCandidateWarnings.DeprecatedSpdxIdentifier)).IsTrue();
     }
 
-    // The joined value parses as neither an identifier nor an expression, so whether it read as ambiguous
-    // or invalid used to depend on whether a member happened to contain an operator word.
+    // Classifying the joined value read it as ambiguous or invalid by whether a member held an operator word.
     [Test]
     [Arguments("MIT; Apache-2.0")]
     [Arguments("MIT OR Apache-2.0; BSD-3-Clause")]
@@ -149,8 +146,7 @@ public sealed class LicensePolicyTests
         await Assert.That(candidate.Raw.ToString()).IsEqualTo(value);
     }
 
-    // deps.dev answers `non-standard` for a license it could not identify, which is a listing Ol cannot
-    // enumerate and therefore must not hand on as enumerated.
+    // deps.dev answers `non-standard` when it could not identify a license, which Ol cannot enumerate.
     [Test]
     [Arguments("non-standard; Apache-2.0")]
     [Arguments("non-standard")]
@@ -551,11 +547,8 @@ public sealed class LicensePolicyTests
     private static ScanComponent CreateComponentWithPurl(Utf8Slice purl, LicenseStatus status, Utf8Slice license = default)
         => new("example", "1.0.0", license, "npm", DependencyType.Direct, status, purl, "example", default, [], []);
 
-    /// <summary>Builds an ambiguous component whose candidates were resolved as listings by the factory.</summary>
-    /// <remarks>
-    /// Built through <see cref="LicenseCandidateFactory.CreateLicenseSet"/> rather than by hand, so a value
-    /// the factory declines to resolve reaches the policy exactly as it would in a scan.
-    /// </remarks>
+    /// <summary>Builds an ambiguous component through the factory, so a value it declines to resolve
+    /// reaches the policy exactly as it would in a scan.</summary>
     private static ScanComponent CreateListingComponent(params string[] candidateValues)
     {
         var candidates = new LicenseCandidate[candidateValues.Length];

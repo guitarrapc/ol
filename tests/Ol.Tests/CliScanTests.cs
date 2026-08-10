@@ -1860,9 +1860,8 @@ public sealed class CliScanTests
         }
     }
 
-    // deps.dev enumerates the licenses it found without stating how they relate. Ol resolves the members
-    // where that listing is built, so a scan reports one kind whatever the members spell, names a
-    // deprecated member as one, and a check can admit the listing without recognizing punctuation.
+    // Resolving the members where the listing is built gives one kind whatever they spell, names a
+    // deprecated member as one, and lets check admit the listing without recognizing punctuation.
     [Test]
     [Arguments("MIT; Apache-2.0", "license-set", false, 0)]
     [Arguments("MIT OR Apache-2.0; BSD-3-Clause", "license-set", false, 0)]

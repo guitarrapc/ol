@@ -362,8 +362,8 @@ internal static class CheckRenderer
     /// Reports how many ambiguous components the allow-list admitted on every reading of their evidence.
     /// </summary>
     /// <remarks>
-    /// No option turns this on, so it is shown only when it happened. Those components stay ambiguous in the scan
-    /// report, and a reader who sees the count there and no violation here would otherwise have to work out why.
+    /// No option turns this on, so it is shown only when it happened. Those components stay ambiguous in
+    /// the scan report, and the count is what connects that to the absence of a violation here.
     /// </remarks>
     private static string AmbiguityAllowance(int ambiguityAllowedCount)
         => ambiguityAllowedCount <= 0

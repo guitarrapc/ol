@@ -193,8 +193,7 @@ public sealed class LicenseAllowPolicy
             return false;
         }
 
-        // A component the allow-list already admits on every reading is not a violation, so a baseline has
-        // nothing to acknowledge and a snapshot must not carry an entry that reviews a decided question.
+        // Not a violation, so a baseline has nothing to acknowledge.
         if (component.Status == LicenseStatus.Ambiguous && IsAllowedOnEveryReading(component))
         {
             return false;
@@ -378,21 +377,12 @@ public sealed class LicenseAllowPolicy
     /// Determines whether an ambiguous component is allowed whichever way its evidence is read.
     /// </summary>
     /// <remarks>
-    /// A source that lists the licenses it found without stating how they relate leaves exactly one thing
-    /// unknown: the operator between them. That is also the only thing this policy question needs, because a
-    /// listing whose every member the allow-list admits is admitted as a conjunction and as a disjunction
-    /// alike, so no reading of that evidence violates the policy and there is nothing left to decide.
-    /// <para>
-    /// Only a candidate Ol itself resolved as <see cref="LicenseCandidateKind.LicenseSet"/> is read this way.
-    /// The members were validated against SPDX where the listing was built, so this asks about a set Ol
-    /// constructed rather than about punctuation it found in a value: a publisher who writes a semicolon in
-    /// free text has not stated a listing, and their value is evaluated whole like any other.
-    /// </para>
-    /// <para>
-    /// Every candidate that carries a value must clear the same bar, so a second source naming a forbidden
-    /// license still fails the component. This answers the policy question only: status, license text, and
-    /// evidence are left as collected, exactly as a baseline acknowledgement leaves them.
-    /// </para>
+    /// A listing leaves only the operator between its members unknown, and a listing whose every member the
+    /// allow-list admits is admitted as a conjunction and as a disjunction alike, so no reading of it
+    /// violates the policy. Only a candidate Ol resolved as <see cref="LicenseCandidateKind.LicenseSet"/>
+    /// is read this way; a publisher's free-text semicolon is not a listing. Every candidate carrying a
+    /// value must clear the same bar, so a second source naming a forbidden license still fails the
+    /// component. Status and evidence are left as collected, as a baseline acknowledgement leaves them.
     /// </remarks>
     private bool IsAllowedOnEveryReading(in ScanComponent component)
     {
@@ -416,9 +406,8 @@ public sealed class LicenseAllowPolicy
 
     /// <summary>Reports whether the allow-list admits every member of a resolved listing.</summary>
     /// <remarks>
-    /// The value was written by <c>LicenseCandidateFactory.CreateLicenseSet</c> from members it had already
-    /// normalized, so splitting it here reads Ol's own spelling rather than a source's. <c>;</c> is not an
-    /// SPDX operator, which is why it can separate members no expression will ever contain.
+    /// Splits Ol's own spelling, written by <c>LicenseCandidateFactory.CreateLicenseSet</c> from members it
+    /// already normalized. <c>;</c> is not an SPDX operator, so no member can contain one.
     /// </remarks>
     private bool IsAllowedSet(ReadOnlySpan<byte> value)
     {

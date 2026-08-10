@@ -678,8 +678,7 @@ internal sealed class SpdxDataDigest
     /// <remarks>
     /// Covers names and <c>seeAlso</c> URLs as well as identifiers, because all of them decide what a
     /// value resolves to. Hashing only the identifiers would give two snapshots that rename a license, or
-    /// move a URL between licenses, the same digest, while the file digest used for user-managed data
-    /// already distinguishes them.
+    /// move a URL between licenses, the same digest.
     /// </remarks>
     public string GetLicensesSha256()
         => licenses ??= licensesPath is null
@@ -779,7 +778,7 @@ internal readonly record struct SpdxData(
         var names = new string[ids.Length];
         var deprecatedIds = new List<string>();
         // One license publishes several URLs and one URL several licenses, so these cannot share the
-        // identifier index and are collected as their own pair of arrays.
+        // identifier index.
         var seeAlsoUrls = new List<string>();
         var seeAlsoIds = new List<string>();
         var index = 0;

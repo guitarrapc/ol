@@ -134,10 +134,9 @@ public sealed class SpdxLicenseIndex
     /// <param name="deprecated">Whether the resolved identifier is deprecated.</param>
     /// <returns><see langword="true" /> when the URL names exactly one license in the active SPDX data.</returns>
     /// <remarks>
-    /// The comparison is exact apart from the spellings that cannot change which document a URL names:
-    /// its scheme, its case, a leading <c>www.</c>, and a trailing slash. Nothing else is rewritten, so a
-    /// URL that merely resembles a published one — a redirector, a site's own renamed path, a repository
-    /// blob — resolves nothing and stays a declared location.
+    /// Exact apart from the spellings that cannot change which document a URL names: scheme, case, a
+    /// leading <c>www.</c>, and a trailing slash. Nothing else is rewritten, so a redirector, a site's own
+    /// renamed path, or a repository blob resolves nothing and stays a declared location.
     /// </remarks>
     public bool TryResolveLicenseUrl(ReadOnlySpan<byte> urlUtf8, out Utf8Slice normalized, out bool deprecated)
     {
@@ -229,10 +228,7 @@ public sealed class SpdxLicenseIndex
         return licenseUrlSpanLookup.TryGetValue(TrimUrl(characters[..characterCount]), out value!);
     }
 
-    /// <summary>Removes the scheme, a leading <c>www.</c>, and trailing slashes from a URL.</summary>
-    /// <remarks>
-    /// Case is left to the ordinal-ignore-case lookup rather than folded here, so no buffer is rewritten.
-    /// </remarks>
+    /// <summary>Removes the scheme, a leading <c>www.</c>, and trailing slashes. Case is left to the lookup.</summary>
     private static ReadOnlySpan<char> TrimUrl(ReadOnlySpan<char> value)
     {
         if (value.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) value = value[8..];
@@ -243,11 +239,9 @@ public sealed class SpdxLicenseIndex
 
     /// <summary>Builds the URL lookup, dropping every URL SPDX publishes for more than one license.</summary>
     /// <remarks>
-    /// Sharing here is not the deprecated-and-replacement pair the name lookup resolves: SPDX gives one
-    /// GNU page to four LGPL identifiers, and one OSI page to both <c>LGPL-2.1</c> and
-    /// <c>LGPL-2.1-or-later</c>, which are different licenses rather than two spellings of one. A shared
-    /// URL therefore names no single license and is dropped, leaving the value an unresolved declaration
-    /// instead of resolving it to whichever entry was read first.
+    /// Not the deprecated-and-replacement pair the name lookup resolves: one OSI page serves both
+    /// <c>LGPL-2.1</c> and <c>LGPL-2.1-or-later</c>, which are different licenses. A shared URL names no
+    /// single license, so it is dropped rather than resolved to whichever entry was read first.
     /// </remarks>
     private static FrozenDictionary<string, string> CreateUrlLookup(string[]? urls, string[]? identifiers)
     {

@@ -10,10 +10,9 @@ namespace Ol.Tests;
 /// Guards resolving a declared license location against the SPDX license list's own <c>seeAlso</c> field.
 /// </summary>
 /// <remarks>
-/// A publisher that writes <c>https://www.apache.org/licenses/LICENSE-2.0</c> has written the URL SPDX
-/// publishes for <c>Apache-2.0</c>, in the same document that defines the identifier, so recognizing it
-/// reads published data rather than reading the page. That is what separates it from a redirector, a
-/// vendor's terms page, or a repository blob: those name a place whose contents Ol has not seen.
+/// <c>https://www.apache.org/licenses/LICENSE-2.0</c> is the URL SPDX publishes for <c>Apache-2.0</c> in
+/// the record that defines the identifier, so recognizing it reads published data rather than the page.
+/// A redirector, a vendor's terms page, or a repository blob names a place Ol has not seen.
 /// </remarks>
 public sealed class SpdxLicenseUrlTests
 {

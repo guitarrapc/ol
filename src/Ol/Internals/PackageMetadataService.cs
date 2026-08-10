@@ -494,11 +494,6 @@ internal sealed class PackageMetadataService(
     }
 
     /// <summary>Classifies a registry license and, failing that, the location the registry declared.</summary>
-    /// <remarks>
-    /// Applied here rather than at the registry boundary for the same reason as Cargo's rewrite: the cache
-    /// keeps what the registry published, so a resolution is always made with the active SPDX data instead
-    /// of being frozen into the cache by the snapshot that happened to be installed when it was written.
-    /// </remarks>
     private LicenseCandidate CreateRegistryCandidate(LicenseCandidateSource source, Utf8Slice raw, LicenseEvidence evidence)
         => LicenseCandidateFactory.ResolveDeclaredLocation(CreateRegistryLicenseCandidate(source, raw, evidence), spdxLicenseIndex);
 
@@ -527,10 +522,9 @@ internal sealed class PackageMetadataService(
 
     /// <summary>Classifies a registry license, reading each registry's own spelling of one.</summary>
     /// <remarks>
-    /// Applied here rather than at each registry boundary so the cache keeps the license the registry
-    /// published. A cached entry is therefore still classified with the active SPDX data, and neither
-    /// Cargo's pre-SPDX choice spelling nor a deps.dev listing can become a conclusion frozen into the
-    /// cache by an older SPDX snapshot.
+    /// Applied here rather than at each registry boundary so the cache keeps what the registry published.
+    /// A cached entry is then still classified with the active SPDX data, so neither Cargo's pre-SPDX
+    /// choice spelling nor a deps.dev listing freezes a conclusion into the cache.
     /// </remarks>
     private LicenseCandidate CreateRegistryLicenseCandidate(LicenseCandidateSource source, Utf8Slice raw, LicenseEvidence evidence)
         => source switch

@@ -600,8 +600,7 @@ public sealed class CliCheckTests
         }
     }
 
-    // A semicolon in a publisher's own license value is punctuation. Only a listing Ol built from a source
-    // that enumerates licenses is read as one, so this value stays a violation however its parts read.
+    // Only a listing Ol built from a source that enumerates licenses is read as one.
     [Test]
     public async Task Check_PublisherLicenseTextContainingASemicolon_IsNotReadAsAListing()
     {

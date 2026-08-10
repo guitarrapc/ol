@@ -152,18 +152,10 @@ public static class LicenseCandidateFactory
     /// <param name="spdxLicenseIndex">The active SPDX data index.</param>
     /// <returns>The resolved candidate, or <paramref name="candidate"/> unchanged.</returns>
     /// <remarks>
-    /// A declared location is a place, not a license, and Ol does not read what one names. This resolves
-    /// nothing by reading: it recognizes that the place the publisher named is the one the SPDX License
-    /// List itself publishes as that license's <c>seeAlso</c>, which makes the value a URL spelling of an
-    /// identifier rather than a pointer to unread text. It is the same operation the name lookup performs
-    /// for a value spelled as an SPDX name, and it carries the same guards — the whole declared value
-    /// only, and only when the URL names exactly one license.
-    /// <para>
-    /// Applied only to a candidate whose own value resolved nothing, so a declaration never overrides a
-    /// license the publisher stated. The raw value stays as published and the location stays in the
-    /// evidence, so a report shows what the resolution was read from; <see cref="LicenseCandidateKind.Location"/>
-    /// records that the license came from there rather than from a license field.
-    /// </para>
+    /// Reads nothing at the URL. It recognizes that the place the publisher named is the one SPDX itself
+    /// publishes as that license's <c>seeAlso</c>, which makes the value a URL spelling of an identifier —
+    /// the same reading the name lookup gives a value spelled as an SPDX name. Applied only where the
+    /// candidate's own value resolved nothing, so a declaration never overrides a stated license.
     /// </remarks>
     public static LicenseCandidate ResolveDeclaredLocation(LicenseCandidate candidate, SpdxLicenseIndex spdxLicenseIndex)
     {

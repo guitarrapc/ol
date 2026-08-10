@@ -55,6 +55,68 @@ public sealed class LicensePolicyTests
         await Assert.That(violations[0].Kind).IsEqualTo(expectedKind);
     }
 
+    // A registry that lists licenses without stating how they relate leaves only the operator unknown, so a
+    // listing the allow-list admits element by element is admitted as AND and as OR alike.
+    [Test]
+    [Arguments("MIT; Apache-2.0", "MIT,Apache-2.0", true)]
+    [Arguments("MIT; Apache-2.0; BSD-3-Clause", "MIT,Apache-2.0,BSD-3-Clause", true)]
+    [Arguments("MIT;Apache-2.0", "MIT,Apache-2.0", true)]
+    [Arguments("MIT; GPL-3.0-only", "MIT,Apache-2.0", false)]
+    [Arguments("GPL-3.0-only; MIT", "MIT,Apache-2.0", false)]
+    [Arguments("MIT; Apache-2.0", "MIT", false)]
+    [Arguments("Unknown - See URL", "MIT,Apache-2.0", false)]
+    [Arguments("License :: OSI Approved :: BSD License", "MIT,BSD-3-Clause", false)]
+    [Arguments("MIT; NOASSERTION", "MIT,Apache-2.0", false)]
+    [Arguments("MIT;", "MIT,Apache-2.0", false)]
+    public async Task Evaluate_AmbiguousListing_IsAllowedOnlyWhenEveryElementIs(string value, string allowed, bool expectedAllowed)
+    {
+        LicenseAllowPolicy.TryCreate(allowed.Split(','), Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate([CreateAmbiguousComponent(value)], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
+
+        await Assert.That(violations.Length == 0).IsEqualTo(expectedAllowed);
+        await Assert.That(ambiguityAllowedCount).IsEqualTo(expectedAllowed ? 1 : 0);
+    }
+
+    [Test]
+    public async Task Evaluate_AmbiguousListing_WithASecondCandidateNamingAForbiddenLicense_StaysAViolation()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT", "Apache-2.0"], Spdx, out var policy, out _);
+
+        var violations = policy.Evaluate([CreateAmbiguousComponent("MIT; Apache-2.0", "GPL-3.0-only; MIT")], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(violations[0].Kind).IsEqualTo(LicensePolicyViolationKind.Ambiguous);
+        await Assert.That(ambiguityAllowedCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Evaluate_AmbiguousListing_WithACandidateStatingNothing_IgnoresThatCandidate()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT", "Apache-2.0"], Spdx, out var policy, out _);
+        var component = CreateAmbiguousComponent("MIT; Apache-2.0", string.Empty);
+
+        var violations = policy.Evaluate([component], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
+
+        await Assert.That(violations).IsEmpty();
+        await Assert.That(ambiguityAllowedCount).IsEqualTo(1);
+    }
+
+    // A conflict is evidence that disagrees rather than a relation left unstated, so the allow-list admitting
+    // both sides does not settle which one is true.
+    [Test]
+    public async Task Evaluate_ConflictBetweenAllowedLicenses_StaysAViolation()
+    {
+        LicenseAllowPolicy.TryCreate(["MIT", "Apache-2.0"], Spdx, out var policy, out _);
+        var component = CreateAmbiguousComponent("MIT; Apache-2.0") with { Status = LicenseStatus.Conflict };
+
+        var violations = policy.Evaluate([component], default, null, out _, out _, out _, out _, out var ambiguityAllowedCount);
+
+        await Assert.That(violations).Count().IsEqualTo(1);
+        await Assert.That(violations[0].Kind).IsEqualTo(LicensePolicyViolationKind.Conflict);
+        await Assert.That(ambiguityAllowedCount).IsEqualTo(0);
+    }
+
     [Test]
     public async Task Evaluate_WithRootAndUnknownDependency_IgnoresOnlyRootAndPreservesComponentIndex()
     {
@@ -408,4 +470,32 @@ public sealed class LicensePolicyTests
 
     private static ScanComponent CreateComponentWithPurl(Utf8Slice purl, LicenseStatus status, Utf8Slice license = default)
         => new("example", "1.0.0", license, "npm", DependencyType.Direct, status, purl, "example", default, [], []);
+
+    /// <summary>Builds an ambiguous component whose candidates carry the given declared values verbatim.</summary>
+    /// <remarks>
+    /// An ambiguous candidate keeps the declared value as its normalized form, which is what
+    /// <see cref="LicenseCandidateFactory"/> does for a value it will not guess at.
+    /// </remarks>
+    private static ScanComponent CreateAmbiguousComponent(params string[] candidateValues)
+    {
+        var candidates = new LicenseCandidate[candidateValues.Length];
+        for (var i = 0; i < candidateValues.Length; i++)
+        {
+            var status = candidateValues[i].Length == 0 ? LicenseStatus.Unknown : LicenseStatus.Ambiguous;
+            candidates[i] = new(LicenseCandidateSource.PackageRegistry, LicenseCandidateKind.License, candidateValues[i], candidateValues[i], status, false, LicenseCandidateWarnings.None);
+        }
+
+        return new(
+            "example",
+            "1.0.0",
+            $"{candidateValues[0]} (?)",
+            "npm",
+            DependencyType.Direct,
+            LicenseStatus.Ambiguous,
+            "pkg:npm/example@1.0.0",
+            "example",
+            candidates[0],
+            candidates[1..],
+            []);
+    }
 }

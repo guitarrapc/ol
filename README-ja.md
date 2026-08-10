@@ -277,6 +277,8 @@ Commands:
 
 `matched`は「解決できた」という事実であり、「組織として許可する」という意味ではありません。許可・不許可は`check`の許可リストで判断します。`unknown`、`conflict`、`ambiguous`、`invalid`、`error`は、`check`では安全側に倒して違反として扱います。
 
+`ambiguous`のうち1つだけは例外で、判断すべきことが残っていません。deps.devのようなレジストリは見つけたライセンスを列挙するだけで相互の関係を述べないため、olはSPDX演算子ではなく`;`で連結して`MIT; Apache-2.0`のように可視化します。不明なのは演算子だけなので、**列挙されたすべての要素が許可リストに含まれていれば、ANDと読んでもORと読んでも許可**になり、`check`は`Allowed on every reading of ambiguous evidence`として報告します。1つでも許可外の要素があれば、あるいはライセンス名・URL・classifierのように列挙ではない`ambiguous`値であれば、従来どおり違反です。どちらの場合もスキャンレポート上のstatusは`ambiguous`のままで、これが決めるのはポリシーの可否だけであり、ライセンスそのものではありません。
+
 レジストリが`404`を返した場合はレジストリが応答しているため、`error`ではなく`unknown`（warningは`package_metadata_not_found`）になります。private feedにのみ公開されたパッケージがこの形になり、ベースラインで承認できます。`error`は応答自体が得られなかった場合、つまりタイムアウト、`429`、`5xx`に限られます。これが終了コード`3`の意味を成り立たせています。
 
 ## ライセンスの確度を高める
@@ -414,7 +416,7 @@ Package                Version  Ecosystem  Purl                                 
 @mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved
 ```
 
-**禁止ライセンスは、再生成しても吸収されません。** 承認できるのは`unknown`、`ambiguous`、`conflict`、`invalid`だけで、しかも認識可能な候補が許可リストに拒否されない場合に限られます。解決済みのライセンスは`--allow-licenses`で扱う対象であり、`error`は修復すべき収集失敗です。
+**禁止ライセンスは、再生成しても吸収されません。** 承認できるのは`unknown`、`ambiguous`、`conflict`、`invalid`だけで、しかも認識可能な候補が許可リストに拒否されない場合に限られます。解決済みのライセンスは`--allow-licenses`で扱う対象であり、`error`は修復すべき収集失敗です。許可リストがどう読んでも許可する`ambiguous`の列挙も、レビューすべき違反ではないため承認対象になりません。
 
 ```bash
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \

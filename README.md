@@ -276,6 +276,8 @@ Every component has one status:
 
 `matched` means resolved, not allowed. `check` applies the organization's allow-list. `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed.
 
+One `ambiguous` case does not, because nothing is left to decide. A registry such as deps.dev lists the licenses it found without stating how they relate, and ol keeps that visible by joining them with `;` instead of an SPDX operator, as in `MIT; Apache-2.0`. Only the operator is unknown, so a listing whose every element the allow-list admits is admitted as a conjunction and as a disjunction alike, and `check` reports it as `Allowed on every reading of ambiguous evidence`. One element outside the allow-list, or an ambiguous value that is not such a listing — a license name, a URL, a classifier — remains a violation. The component stays `ambiguous` in the scan report either way; this decides the policy question, not the license.
+
 A registry that answers `404` has answered, so the component becomes `unknown` with the warning `package_metadata_not_found` rather than `error`. This is what a package published only to a private feed looks like, and a baseline can acknowledge it. `error` is reserved for questions that were never answered — timeouts, `429`, and `5xx` — which is also what makes exit code `3` meaningful.
 
 ## Improving license confidence
@@ -411,7 +413,7 @@ Package                Version  Ecosystem  Purl                                 
 @mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved
 ```
 
-**A forbidden license is never absorbed**, even when you regenerate the file. Only `unknown`, `ambiguous`, `conflict`, and `invalid` can be acknowledged, and only when no recognizable candidate is rejected by the allow-list. A resolved license belongs in `--allow-licenses`, and an `error` is a collection failure to repair.
+**A forbidden license is never absorbed**, even when you regenerate the file. Only `unknown`, `ambiguous`, `conflict`, and `invalid` can be acknowledged, and only when no recognizable candidate is rejected by the allow-list. A resolved license belongs in `--allow-licenses`, and an `error` is a collection failure to repair. An `ambiguous` listing the allow-list already admits on every reading is not acknowledged either, because it is not a violation to review.
 
 ```bash
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \

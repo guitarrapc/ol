@@ -193,6 +193,13 @@ public sealed class LicenseAllowPolicy
             return false;
         }
 
+        // A component the allow-list already admits on every reading is not a violation, so a baseline has
+        // nothing to acknowledge and a snapshot must not carry an entry that reviews a decided question.
+        if (component.Status == LicenseStatus.Ambiguous && IsAllowedOnEveryReading(component))
+        {
+            return false;
+        }
+
         var candidateCount = component.CandidateCount;
         for (var i = 0; i < candidateCount; i++)
         {
@@ -255,7 +262,24 @@ public sealed class LicenseAllowPolicy
         out int evaluatedCount,
         out int[] developmentAllowedComponents,
         out int excludedCount)
+        => Evaluate(components, componentUsages, baseline, out acknowledgedCount, out evaluatedCount, out developmentAllowedComponents, out excludedCount, out _);
+
+    /// <summary>
+    /// Evaluates every non-root completed component, additionally reporting through
+    /// <paramref name="ambiguityAllowedCount"/> how many ambiguous components the allow-list admits on every reading
+    /// of their evidence. See <see cref="IsAllowedOnEveryReading"/> for what that decides and what it leaves alone.
+    /// </summary>
+    public LicensePolicyViolation[] Evaluate(
+        ReadOnlySpan<ScanComponent> components,
+        ReadOnlySpan<DependencyUsage> componentUsages,
+        LicenseBaseline? baseline,
+        out int acknowledgedCount,
+        out int evaluatedCount,
+        out int[] developmentAllowedComponents,
+        out int excludedCount,
+        out int ambiguityAllowedCount)
     {
+        ambiguityAllowedCount = 0;
         acknowledgedCount = 0;
         evaluatedCount = 0;
         excludedCount = 0;
@@ -310,6 +334,12 @@ public sealed class LicenseAllowPolicy
                 }
                 else
                 {
+                    if (component.Status == LicenseStatus.Ambiguous && IsAllowedOnEveryReading(component))
+                    {
+                        ambiguityAllowedCount++;
+                        continue;
+                    }
+
                     kind = component.Status switch
                     {
                         LicenseStatus.Conflict => LicensePolicyViolationKind.Conflict,
@@ -341,6 +371,61 @@ public sealed class LicenseAllowPolicy
         {
             ArrayPool<LicensePolicyViolation>.Shared.Return(violations);
             if (developmentAllowed is not null) ArrayPool<int>.Shared.Return(developmentAllowed);
+        }
+    }
+
+    /// <summary>
+    /// Determines whether an ambiguous component is allowed whichever way its evidence is read.
+    /// </summary>
+    /// <remarks>
+    /// A registry that lists the licenses it found without stating how they relate leaves exactly one thing
+    /// unknown: the operator between them. Ol keeps that visible by joining the values with <c>;</c> instead of
+    /// an SPDX operator — see <c>DepsDevMetadata.ReadLicenses</c> — which is why the value does not normalize and
+    /// the component stays ambiguous. The missing operator is also the only thing the policy question needs: a
+    /// listing whose every element the allow-list admits is admitted as a conjunction and as a disjunction alike,
+    /// so no reading of that evidence violates the policy and there is nothing left to decide. Anything that is
+    /// not such a listing — a license name, a URL, a classifier — names possibilities Ol cannot enumerate, and
+    /// stays a violation.
+    /// Every candidate that carries a value must clear the same bar, so a second source naming a forbidden license
+    /// still fails the component. This answers the policy question only: status, license text, and evidence are
+    /// left as collected, exactly as a baseline acknowledgement leaves them.
+    /// </remarks>
+    private bool IsAllowedOnEveryReading(in ScanComponent component)
+    {
+        var stated = false;
+        var candidateCount = component.CandidateCount;
+        for (var i = 0; i < candidateCount; i++)
+        {
+            var normalized = component.GetCandidate(i).Normalized;
+            if (normalized.IsEmpty) continue;
+
+            if (!IsAllowedListing(normalized.Span)) return false;
+
+            stated = true;
+        }
+
+        return stated;
+    }
+
+    /// <summary>Reports whether every <c>;</c>-separated element is an SPDX expression the allow-list admits.</summary>
+    /// <remarks>
+    /// <c>;</c> is not an SPDX operator, so a value carrying one is never a single expression and the split is
+    /// unambiguous. A value without one is evaluated whole, which an ambiguous candidate always fails — had it
+    /// parsed, the candidate would have been matched instead.
+    /// </remarks>
+    private bool IsAllowedListing(ReadOnlySpan<byte> value)
+    {
+        while (true)
+        {
+            var separator = value.IndexOf((byte)';');
+            var element = separator < 0 ? value : value[..separator];
+            if (!SpdxExpression.TryEvaluatePolicy(element, spdxLicenseIndex, allowedLicenses, out var allowed) || !allowed)
+            {
+                return false;
+            }
+
+            if (separator < 0) return true;
+            value = value[(separator + 1)..];
         }
     }
 

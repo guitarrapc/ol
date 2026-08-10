@@ -29,9 +29,29 @@ public sealed class LicenseBaselineTests
     public async Task CanAcknowledge_ByStatus_AllowsOnlyUnresolvedExceptError(LicenseStatus status, bool expected)
     {
         var policy = CreatePolicy("MIT");
-        var component = CreateComponent(status, Candidate(LicenseCandidateSource.Sbom, "MIT", "MIT"));
+        // A value the allow-list can neither admit nor reject, so status alone decides every row. A candidate
+        // the allow-list admits would settle the ambiguous row on its own merits instead.
+        var component = CreateComponent(status, Candidate(LicenseCandidateSource.Sbom, "Custom License", "Custom License"));
 
         await Assert.That(policy.CanAcknowledge(component)).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task CanAcknowledge_AmbiguousListingTheAllowListAdmits_IsNotAcknowledgeable()
+    {
+        var policy = CreatePolicy("MIT", "Apache-2.0");
+        var component = CreateComponent(LicenseStatus.Ambiguous, Candidate(LicenseCandidateSource.PackageRegistry, "MIT; Apache-2.0", "MIT; Apache-2.0"));
+
+        await Assert.That(policy.CanAcknowledge(component)).IsFalse();
+    }
+
+    [Test]
+    public async Task CanAcknowledge_AmbiguousListingNamingAForbiddenLicense_StaysAcknowledgeable()
+    {
+        var policy = CreatePolicy("MIT");
+        var component = CreateComponent(LicenseStatus.Ambiguous, Candidate(LicenseCandidateSource.PackageRegistry, "MIT; Apache-2.0", "MIT; Apache-2.0"));
+
+        await Assert.That(policy.CanAcknowledge(component)).IsTrue();
     }
 
     [Test]

@@ -601,6 +601,28 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    public async Task Check_AmbiguousListing_PassesWhenTheAllowListAdmitsEveryElement()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteNpmLockAsync(devLicense: "MIT", runtimeLicense: "MIT; Apache-2.0");
+        try
+        {
+            var withBoth = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT,Apache-2.0", "--no-external-evidence");
+            var withoutApache = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(withBoth.ExitCode).IsEqualTo(0).Because(withBoth.Stderr);
+            await Assert.That(withBoth.Stdout).Contains("Allowed on every reading of ambiguous evidence: 1 component.");
+            await Assert.That(withoutApache.ExitCode).IsEqualTo(2).Because(withoutApache.Stderr);
+            await Assert.That(withoutApache.Stdout).Contains("ambiguous");
+            await Assert.That(withoutApache.Stdout).DoesNotContain("Allowed on every reading");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithAllowDevLicenses_DoesNotAllowRuntimeComponent()
     {
         var root = FindRepositoryRoot();

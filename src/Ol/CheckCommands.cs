@@ -107,24 +107,25 @@ internal sealed class CheckCommands
         int acknowledgedCount;
         int policyComponentCount;
         int excludedCount;
+        int ambiguityAllowedCount;
         int developmentAllowedCount;
         var developmentAllowedComponents = Array.Empty<int>();
         LicensePolicyViolation[] violations;
         if (developmentLicenseIds.Length == 0)
         {
-            violations = policy.Evaluate(components, default, acknowledgements, out acknowledgedCount, out policyComponentCount, out _, out excludedCount);
+            violations = policy.Evaluate(components, default, acknowledgements, out acknowledgedCount, out policyComponentCount, out _, out excludedCount, out ambiguityAllowedCount);
             developmentAllowedCount = -1;
         }
         else if (reportComponentUsages is not null)
         {
             // A persisted report already carries per-component usage aligned with its components.
-            violations = policy.Evaluate(components, reportComponentUsages, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents, out excludedCount);
+            violations = policy.Evaluate(components, reportComponentUsages, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents, out excludedCount, out ambiguityAllowedCount);
             developmentAllowedCount = developmentAllowedComponents.Length;
         }
         else
         {
             // A report without persisted usage cannot prove development-only reachability and therefore fails closed.
-            violations = policy.Evaluate(components, default, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents, out excludedCount);
+            violations = policy.Evaluate(components, default, acknowledgements, out acknowledgedCount, out policyComponentCount, out developmentAllowedComponents, out excludedCount, out ambiguityAllowedCount);
             developmentAllowedCount = developmentAllowedComponents.Length;
         }
 
@@ -154,7 +155,8 @@ internal sealed class CheckCommands
             policyComponentCount,
             baselinePath is null ? -1 : acknowledgedCount,
             developmentAllowedCount,
-            excludePackages is null ? -1 : excludedCount);
+            excludePackages is null ? -1 : excludedCount,
+            ambiguityAllowedCount);
         try
         {
             Console.Write(text);
@@ -285,7 +287,8 @@ internal static class CheckRenderer
         int policyComponentCount,
         int acknowledgedCount = -1,
         int developmentAllowedCount = -1,
-        int excludedCount = -1)
+        int excludedCount = -1,
+        int ambiguityAllowedCount = 0)
     {
         if (violations.IsEmpty)
         {
@@ -293,6 +296,7 @@ internal static class CheckRenderer
                 Exclusion(excludedCount),
                 Acknowledgement(acknowledgedCount),
                 DevelopmentAllowance(developmentAllowedCount),
+                AmbiguityAllowance(ambiguityAllowedCount),
                 $"License check passed: {policyComponentCount} component{(policyComponentCount == 1 ? string.Empty : "s")} satisf{(policyComponentCount == 1 ? "ies" : "y")} the allow-list.{Environment.NewLine}");
         }
 
@@ -300,6 +304,7 @@ internal static class CheckRenderer
         builder.Append(Exclusion(excludedCount));
         builder.Append(Acknowledgement(acknowledgedCount));
         builder.Append(DevelopmentAllowance(developmentAllowedCount));
+        builder.Append(AmbiguityAllowance(ambiguityAllowedCount));
         // An incomplete run is stated as such: nothing was proven about those components, which is not the same
         // claim as a policy violation, and the exit code makes the same distinction.
         if (IsIncomplete(violations))
@@ -352,6 +357,18 @@ internal static class CheckRenderer
         => acknowledgedCount < 0
             ? string.Empty
             : $"Acknowledged by baseline: {acknowledgedCount} component{(acknowledgedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
+
+    /// <summary>
+    /// Reports how many ambiguous components the allow-list admitted on every reading of their evidence.
+    /// </summary>
+    /// <remarks>
+    /// No option turns this on, so it is shown only when it happened. Those components stay ambiguous in the scan
+    /// report, and a reader who sees the count there and no violation here would otherwise have to work out why.
+    /// </remarks>
+    private static string AmbiguityAllowance(int ambiguityAllowedCount)
+        => ambiguityAllowedCount <= 0
+            ? string.Empty
+            : $"Allowed on every reading of ambiguous evidence: {ambiguityAllowedCount} component{(ambiguityAllowedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
 
     /// <summary>Reports how many components the development allow-list admitted, shown whenever the option is supplied.</summary>
     private static string DevelopmentAllowance(int developmentAllowedCount)

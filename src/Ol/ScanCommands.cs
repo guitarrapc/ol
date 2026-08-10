@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Buffers;
 using System.Buffers.Text;
 using System.Reflection;
@@ -404,9 +404,11 @@ internal sealed class ScanCommands
                 GetInputSourceReference(selection.Paths),
                 sourceHash is null ? string.Empty : Convert.ToHexString(sourceHash.GetHashAndReset()).ToLowerInvariant(),
                 specificationVersion);
-            return inventoryCount == 1
-                ? inventories[0] with { Input = descriptor }
-                : DependencyInventoryCombiner.Combine(inventories.AsSpan(0, inventoryCount), handlers.AsSpan(0, inventoryCount), descriptor);
+            // One input goes through the same combiner as several. A registered format declares what makes two
+            // observations the same package, and skipping the combiner made a single input the only path that did not
+            // apply its own declaration: one CycloneDX document reported a component per bom-ref alone and per purl
+            // when a lockfile was scanned beside it. The occurrences still record every entry the document listed.
+            return DependencyInventoryCombiner.Combine(inventories.AsSpan(0, inventoryCount), handlers.AsSpan(0, inventoryCount), descriptor);
         }
         finally
         {

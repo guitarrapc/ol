@@ -941,11 +941,14 @@ public sealed class CliScanTests
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
             var components = report.RootElement.GetProperty("components");
+            // "zebra" and "zebra-copy" state one purl, which is what CycloneDX declares identity to be, so they are
+            // one component named by the first entry. Both entries remain as occurrences of it.
+            await Assert.That(components.GetArrayLength()).IsEqualTo(2);
             await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("alpha");
             await Assert.That(components[1].GetProperty("name").GetString()).IsEqualTo("zebra");
-            await Assert.That(components[2].GetProperty("name").GetString()).IsEqualTo("zebra-copy");
+            await Assert.That(components[0].GetProperty("license").GetString()).IsEqualTo("Apache-2.0");
             await Assert.That(components[1].GetProperty("license").GetString()).IsEqualTo("MIT");
-            await Assert.That(components[2].GetProperty("license").GetString()).IsEqualTo("MIT");
+            await Assert.That(report.RootElement.GetProperty("inventory").GetProperty("occurrences").GetArrayLength()).IsEqualTo(3);
         }
         finally
         {

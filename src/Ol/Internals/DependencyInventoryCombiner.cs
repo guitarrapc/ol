@@ -13,6 +13,11 @@ internal static class DependencyInventoryCombiner
             throw new ArgumentException("Each dependency inventory requires its registered input handler.", nameof(inventories));
         }
 
+        if (inventories.Length == 1)
+        {
+            return CombineSingle(inventories[0], handlers[0], input);
+        }
+
         var contextCount = 0;
         var componentCapacity = 0;
         var occurrenceCount = 0;
@@ -168,6 +173,77 @@ internal static class DependencyInventoryCombiner
 
     /// <summary>Marks a combined component that no identity chain has claimed yet.</summary>
     private const int NotIndexed = -2;
+
+    /// <summary>
+    /// Applies one input's own identity rule without rebuilding the parts that only several inputs can change.
+    /// </summary>
+    /// <remarks>
+    /// A single inventory needs no context, occurrence, or edge offsets, and most inputs state each package once, so
+    /// the ordinary outcome is that nothing folds and the parsed arrays are already the answer. Copying them anyway
+    /// made every scan pay for a merge it did not need.
+    /// </remarks>
+    private static DependencyInventory CombineSingle(DependencyInventory inventory, DependencyInputHandler handler, ScanInputDescriptor input)
+    {
+        var components = inventory.Components;
+        var componentIndexes = new Dictionary<ComponentKey, int>(components.Length, ComponentKeyComparer.Instance);
+        var folded = 0;
+        for (var i = 0; i < components.Length; i++)
+        {
+            var key = new ComponentKey(
+                handler.Format.Name,
+                components[i].Purl,
+                components[i].SourceId,
+                handler.ComponentIdentityComparison,
+                components[i].Purl.IsEmpty ? i + 1 : 0);
+            if (!componentIndexes.TryAdd(key, i - folded)) folded++;
+        }
+
+        if (folded == 0)
+        {
+            return inventory with { Input = input };
+        }
+
+        var combined = new ScanComponent[components.Length - folded];
+        var componentRemap = ArrayPool<int>.Shared.Rent(components.Length);
+        try
+        {
+            var combinedCount = 0;
+            for (var i = 0; i < components.Length; i++)
+            {
+                var key = new ComponentKey(
+                    handler.Format.Name,
+                    components[i].Purl,
+                    components[i].SourceId,
+                    handler.ComponentIdentityComparison,
+                    components[i].Purl.IsEmpty ? i + 1 : 0);
+                var target = componentIndexes[key];
+                if (target == combinedCount)
+                {
+                    combined[combinedCount++] = components[i];
+                }
+                else
+                {
+                    combined[target] = combined[target] with { DependencyType = MergeDependencyType(combined[target].DependencyType, components[i].DependencyType) };
+                }
+
+                componentRemap[i] = target;
+            }
+
+            // Only the component each occurrence points at moves. Edges address occurrences, which keep their places.
+            var occurrences = new DependencyOccurrence[inventory.Occurrences.Length];
+            for (var i = 0; i < occurrences.Length; i++)
+            {
+                var occurrence = inventory.Occurrences[i];
+                occurrences[i] = occurrence with { ComponentIndex = componentRemap[occurrence.ComponentIndex] };
+            }
+
+            return inventory with { Input = input, Components = combined, Occurrences = occurrences };
+        }
+        finally
+        {
+            ArrayPool<int>.Shared.Return(componentRemap);
+        }
+    }
 
     private static int AssignPackageManagerComponents(
         ReadOnlySpan<DependencyInventory> inventories,

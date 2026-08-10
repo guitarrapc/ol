@@ -4,7 +4,7 @@
 
 2026-08-10 に、6 つのパッケージマネージャーそれぞれで実在の OSS リポジトリ 3 件を選び、ol を SBOM 経路・package manager 経路・混在経路の 3 通りで実行した記録である。目的は 2 つあった。**SBOM 単独あるいは PM 単独で検知するツールではなく ol を使う理由が実データで立つか**を確かめること、そして**確定できるべきなのにできないケースを見つけて直す**ことである。
 
-評価の過程で 4 件の欠陥を修正し、3 件の仕様変更（エコシステム単位の除外、Go のライセンス取得元、root の報告範囲）を入れた。修正はこの文書に記録した順で実施済みで、仕様は [input combination](../specs/cli.md#contract-input-combination) と [unqueryable purl](../specs/packagemanager.md#contract-unqueryable-purl) に反映してある。未実施の提案と、ol が決めるべきでないスコープ判断は「優先度順の対応事項」に残した。
+評価の過程で 4 件の欠陥を修正し、4 件の仕様変更（エコシステム単位の除外、Go のライセンス取得元、root の報告範囲、単独入力への同一性規則の適用）を入れた。修正はこの文書に記録した順で実施済みで、仕様は [input combination](../specs/cli.md#contract-input-combination) と [unqueryable purl](../specs/packagemanager.md#contract-unqueryable-purl) に反映してある。未実施の提案と、ol が決めるべきでないスコープ判断は「優先度順の対応事項」に残した。
 
 計測環境: syft 1.22.0、go 1.26.4、cargo 1.97.1、maven 3.9.16、Node v24.18.0、Python 3.14.5、Temurin JDK 21.0.12。評価スクリプトと全レポートは `.references/_eval/`（gitignore 対象）にある。
 
@@ -323,11 +323,88 @@ Unresolved components
 
 [plan_multi_source_evidence.md](plan_multi_source_evidence.md) の 2 箇所が、既に削除された `plan_nuget_license_file.md` を参照している。内容は [declared license reference](../specs/spdx.md#contract-declared-license-reference) に移っているので、リンクを付け替えれば済む。この評価の対象外だったため手を付けていない。
 
-### P6: SBOM 単独の行数を identity で畳むか判断する
+### P6: SBOM 単独の行数を identity で畳む（実施済み）
 
-serilog の SBOM は 506 行で 72 パッケージ、Dapper は 270 行で 192 パッケージだった。syft がファイル位置ごとに 1 行出すためで、混在 scan では PM 行に畳まれる。単独 scan の行数だけが実態より大きく見える。
+#### 重複の実態
 
-畳むと SBOM 単独の出力が変わり、ファイル位置という情報も失われる。現状維持でも実害は小さいが、「SBOM 単独 506 件、混在 458 件」という一見退行に見える数字を利用者が目にする。
+18 ケースの SBOM 単独 report で、purl を持つ 2,518 行が **1,769 パッケージ**だった。**749 行（30%）が重複**である。出処は 2 つある。
+
+| 出処 | 例 | 最悪 |
+|---|---|---|
+| .NET のアセンブリが複数の出力先に置かれる | serilog、Dapper、ImageSharp | `Microsoft.TestPlatform.CommunicationUtilities` が **42 行** |
+| GitHub Actions が複数のワークフローで使われる | axios、attrs、gson ほか | `actions/checkout` が **8 行** |
+
+#### ol が保持している区別は何か
+
+serilog の 42 行を並べると、**`sourceId` 以外はすべて同一**だった。
+
+```text
+sourceId : pkg:nuget/Microsoft.TestPlatform.CommunicationUtilities@17.1100.124.45402?package-id=ece062cad76e353c
+sourceId : pkg:nuget/Microsoft.TestPlatform.CommunicationUtilities@17.1100.124.45402?package-id=ec42d6e4d5f2bc77
+sourceId : pkg:nuget/Microsoft.TestPlatform.CommunicationUtilities@17.1100.124.45402?package-id=01fdb6f365147021
+```
+
+この `?package-id=` は syft 内部の識別子であって**ファイル位置ではない**。syft は位置を `properties` に置くが、ol はそれを読まない。つまり**畳んで失われる情報は、読み手が使えるものとしては存在しない**。当初この節に「ファイル位置という情報も失われる」と書いたが、それは誤りだった。
+
+#### 観測できる害
+
+`check` の違反出力が最も分かりやすい。
+
+```text
+$ ol check --report serilog-sbom.json --allow-licenses "MIT,Apache-2.0,BSD-3-Clause"
+License check failed: 401 violations.
+```
+
+**401 件の違反は 31 パッケージ**で、1 パッケージが 42 件を占める。読み手は同じ事実を 13 回読まされる。`scan` の表も同じ割合で膨らむ。
+
+一方 **baseline は無傷**である。401 件を承認しても baseline のエントリは 37 件で、既に purl 単位に畳まれている。
+
+#### 判断の芯
+
+registry は CycloneDX を既定の `Ordinal`（purl のみ、`SourceId` は同一性に含めない）で登録している。**つまり「SBOM の同一性は purl である」と既に宣言されている。** npm などが `OrdinalWithSourceId` を使うのは install path が意味を持つからで、その区別は既に表現されている。
+
+食い違っているのは単独 scan の行の粒度だけで、parser が bom-ref ごとに 1 行を作っている。複数入力の combiner はこの宣言に従って畳む。**単独 scan だけが自分の registry 宣言に従っていない**、というのが問題の正体である。
+
+#### 当初の選択肢立てが誤っていた
+
+最初は「inventory ごと畳む」対「表示だけ畳む」で立てたが、実測すると**混在 scan では combiner が既に inventory を畳んでいた**。
+
+```text
+serilog-sbom  inventory.components= 506  displayed components= 506  distinct purls=72
+serilog-both  inventory.components= 458  displayed components= 458  distinct purls=80
+```
+
+表示だけ畳むと、単独が inventory 506 / 表示 72、混在が 458 / 458 となり、**非対称が減るどころか増える**。同じ SBOM が、単独で読むか lockfile と一緒に読むかで自分の inventory 形状を変えることになる。
+
+#### 実施した内容
+
+単独入力も同じ combiner を通すようにした。**新しい規則を足したのではなく、規則から外れていた経路を戻した**だけである。`ScanInputs` は入力が 1 つのとき combiner を素通りしており、そこだけが自分の registry 宣言に従っていなかった。
+
+occurrence は残るので、その文書が何件記述したかは失われない。serilog がその極端な例になる。
+
+```text
+before : rows=506  inventory=506  occurrences=506
+after  : rows= 73  inventory= 73  occurrences=506
+```
+
+18 ケースの SBOM 単独 report で表示行は 2,537 → **1,802**（735 行減、29%）。`check` の違反出力は serilog で **401 → 37** になった。identity 単位の解決数は r6 と完全に一致しており、**畳んでも結論は 1 件も変わっていない**。PM 入力は `OrdinalWithSourceId` なので install path 違いは今も別行のままで、影響を受けない。
+
+#### 性能で一度やり直した
+
+単独入力を無条件に combiner へ通した最初の実装は、contexts・occurrences・edges を毎回コピーするため E2E がゲートを超えた。
+
+| | 素通り（従来） | 無条件 combine | 修正後 |
+|---|---|---|---|
+| ScanTextWithCachedMetadata | 171.4 us / 4.64 KB | — / 5.31 KB | 168.8 us / 4.97 KB |
+| ScanNuGetJsonWithCachedMetadata | 409.3 us / 10.36 KB | — / 11.38 KB | 388.6 us / 10.69 KB |
+
+単一 inventory 用の経路を分け、**畳むものが無ければ解析済みの配列をそのまま返す**ようにした。ほとんどの入力は各パッケージを一度しか述べないので、通常はこの分岐で終わる。最終的に平均は 4 件中 3 件でむしろ低下し、アロケーション増は +3〜7% に収まった。
+
+計測中に、最初に取った E2E のベースライン（294.6 us）自体が外れ値だったことも分かった。1 行だけ戻した同一ビルドで測り直すまで、存在しない退行を追いかけていた。
+
+#### リスク計測
+
+重複行が status・dependency・license・version のいずれかで食い違うグループは 18 ケースで **0 件**。name だけは 7 件食い違ったが、すべて `pkg:github/github/codeql-action` で、`#analyze` `#init` `#upload-sarif` という subpath で区別される別のアクションだった。combiner は purl 全体で比較するのでこれらは畳まれない。**食い違いに見えたのは私の集計が subpath を落としていたためである。**
 
 ## コマンド履歴と出力
 
@@ -528,6 +605,7 @@ unsupported_source_repository              11
 - **合成した fixture では見つからない欠陥がある。** 欠陥 1 は「生成器が purl のどこでモジュールパスを切るか」の食い違いで、自分で書いた fixture には自分の想定しか入らない。実在の生成器を実在のリポジトリに当てるまで存在に気づけなかった。Phase 4 の 15 個の等価クラステストは全て通っていた。
 - **理由の名前は解決率と同じくらい重要である。** 欠陥 2 と 4 は 1 件も解決を増やしていない。それでも直す価値があったのは、180 件が「ol は Maven に非対応」と読める文言で、235 行が「リポジトリが見つからない」という文言で報告されていたからで、どちらも利用者を誤った調査に送り出す。確定できないことより、確定できない理由を取り違えることの方が害が大きい場合がある。
 - **同じ手が隣のエコシステムで効くとは限らない。** deps.dev は Go の 65/65 に答え、NuGet の Microsoft 系には 1 件も答えない。違いは情報源の優劣ではなく、ライセンス事実がどこにあるかである。Go はパッケージ内容にあり、旧 .NET パッケージは fwlink の先の散文にある。[入力経路の優劣がエコシステムごとに逆転する](../specs/packagemanager.md#lessons-learned)のと同じ構造が、外部情報源にも当てはまる。
+- **性能の退行を疑う前に、ベースラインが本物か確かめる。** 単独入力を combiner に通した直後、E2E が +22〜33% に見えた。1 行だけ戻した同一ビルドで測り直すと、比較対象にしていた過去の値のほうが外れ値で、実際の差は誤差の範囲だった（3/4 はむしろ低下）。それでも無条件コピーは実在するコストだったので、畳むものが無ければ配列をそのまま返す経路は残している。**測り直さなければ、存在しない退行を追いかけ続けていた。**
 - **既にある規則を確認せずに課題を立てた。** root コンポーネントを「報告から除くべきか」という項目を立てたが、policy 側は最初から `non-root` で除外していた。実際に残っていたのは表示スコープと policy スコープのずれという別の話で、正しく切り分けるまで課題の粒度が合っていなかった。仕様に既存の答えがないか先に読むべきだった。
 - **報告の質を、報告を読まずに評価しかけた。** 未解決の分類を JSON の `warnings` 配列だけから作ったため、宣言された参照から導出される理由を 100 件取りこぼし、`unsupported_source_repository` が実際の 10 倍に見えていた。ol は最初から正しく報告していた。ツールの出力品質を測るなら、ツールが実際に出力するものを見る。
 - **「無い」ものを作る前に、「答えを持っている情報源」を探す。** `golang.org/x/*` の未解決に対して、最初は module proxy の zip から LICENSE を読む実装を想定していた。実際には ol が既に Maven で使っている deps.dev が Go にも同じ形で答え、実測 65 件すべてを埋めた。失敗の形が「このホストは GitHub ではない」であって「このパッケージにライセンスが見つからない」ではないとき、足りないのは収集能力ではなく問いに答える情報源である。

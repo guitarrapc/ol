@@ -154,6 +154,10 @@ Ol consumes already resolved inventories; it does not resolve manifests or versi
 
 Repeated and directory inputs are deduplicated by resolved file path and processed in deterministic logical-path order. Multiple package-manager formats form one collection while retaining their own contexts and graphs; Ol does not invent edges between inventories.
 
+<a id="contract-format-identity"></a>
+
+Each registered format declares what makes two observations the same package, and that declaration applies whether one input was scanned or several. A resolved input that tracks distinct installations counts a package once per installation, because two copies at different paths are two things it resolved. An SBOM declares identity to be the package URL, so a document that lists one purl under several component entries describes one component; the entries remain as occurrences, so the graph and the count of what the document stated are both kept. Applying the rule only when inputs were combined made one document report a different shape depending on whether a lockfile happened to be scanned beside it.
+
 <a id="contract-input-combination"></a>
 
 One SBOM document may be scanned together with any number of package-manager inputs. The two describe one resolution at two granularities, so combining them lets evidence from both reach the same component; a second repository-wide document would be a contradiction in the input rather than something Ol can resolve, which is why only one is accepted.

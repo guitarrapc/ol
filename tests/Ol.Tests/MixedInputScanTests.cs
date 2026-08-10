@@ -158,6 +158,45 @@ public sealed class MixedInputScanTests
     }
 
     [Test]
+    public async Task Scan_WithOneSbomListingAPurlTwice_AppliesTheSameIdentityRuleAsACollection()
+    {
+        // A format declares what makes two observations the same package, and CycloneDX declares that to be the purl.
+        // A collection already folds on that rule, so a single input that skipped it made the same document report a
+        // different shape depending on whether a lockfile was scanned beside it. The occurrences stay, because the
+        // document really did list the package twice; only the component identity is one.
+        var root = FindRepositoryRoot();
+        var sbomPath = Path.Combine(Path.GetTempPath(), $"ol-duplicate-purl-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(sbomPath, """
+        {
+          "bomFormat": "CycloneDX",
+          "specVersion": "1.6",
+          "components": [
+            { "bom-ref": "a", "type": "library", "name": "Example", "version": "1.0.0", "purl": "pkg:nuget/Example@1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] },
+            { "bom-ref": "b", "type": "library", "name": "Example", "version": "1.0.0", "purl": "pkg:nuget/Example@1.0.0", "licenses": [ { "license": { "id": "MIT" } } ] },
+            { "bom-ref": "c", "type": "library", "name": "Other", "version": "2.0.0", "purl": "pkg:nuget/Other@2.0.0", "licenses": [ { "license": { "id": "MIT" } } ] }
+          ]
+        }
+        """);
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--format", "json");
+
+            await Assert.That(stderr).IsEmpty();
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(FindComponents(report, "pkg:nuget/Example@1.0.0")).Count().IsEqualTo(1);
+            await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(2);
+            var inventory = report.RootElement.GetProperty("inventory");
+            await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(2);
+            await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(3);
+        }
+        finally
+        {
+            File.Delete(sbomPath);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithTwoPackageManagerFormatsSharingPurl_KeepsThemSeparate()
     {
         // Two lockfiles describe two installations, so the same purl in each is two observations rather

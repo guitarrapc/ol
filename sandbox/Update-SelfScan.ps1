@@ -58,6 +58,8 @@ try {
         dotnet $ol scan --input $sbom --format $format --no-external-evidence --quiet --concurrency 4 > $report
         if ($LASTEXITCODE -ne 0) { throw "Ol $format self-scan failed." }
 
+        # SelfScanSnapshotTests reproduces the two normalization rules below to verify the committed
+        # snapshots without PowerShell. Change one and the other stops guarding this file.
         # Normalize to no-BOM UTF-8 with LF newlines so snapshots stay stable across OS/shell.
         $content = [IO.File]::ReadAllText($report).Replace("`r`n", "`n")
         if ($format -eq "json") {

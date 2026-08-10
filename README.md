@@ -185,7 +185,7 @@ Options:
   --refresh                             Ignore cached package metadata and source repository entries and fetch them again.
   --cache-dir <string?>                 Root directory for isolated package-metadata and source-repository caches. [Default: null]
   --no-external-evidence                Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
-  --skip-evidence-packages <string?>    Comma-separated package URL prefixes whose external evidence is never collected. [Default: null]
+  --skip-evidence-packages <string?>    Comma-separated package URL prefixes whose external evidence is never collected. A prefix may stop at the ecosystem, as in pkg:github/. [Default: null]
   --concurrency <int>                   Maximum concurrent package metadata and source repository lookups. [Default: 0]
   --retry <int>                         Retry count for package registry and GitHub License API requests. [Default: 1]
 ```
@@ -200,7 +200,7 @@ Options:
   --report <string>                 Persisted canonical JSON scan report to evaluate. [Required]
   --allow-licenses <string>         Comma-separated SPDX License Identifiers. [Required]
   --allow-dev-licenses <string?>    Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
-  --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. [Default: null]
+  --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. A prefix may stop at the ecosystem, as in pkg:github/. [Default: null]
   --spdx-data <string?>             Directory containing licenses.json and exceptions.json. [Default: null]
   --verbose                         Include persisted report diagnostics.
   --baseline <string?>              Baseline file acknowledging already reviewed unresolved components. [Default: null]
@@ -440,6 +440,19 @@ These options solve different problems:
 Both use case-sensitive Package URL prefixes. ol does not infer package ownership or whether a package is private.
 
 Write a namespace the way its ecosystem spells it: `--skip-evidence-packages pkg:npm/@acme/` matches `pkg:npm/%40acme/util@1.0.0`. A version separator is unaffected, so `pkg:npm/left-pad@1.3.0` still selects that one component.
+
+A prefix can stop at the ecosystem and select all of it. This is what you want when a generator catalogues something your project never depended on — syft reads GitHub Actions out of workflow files, so an SBOM of any repository with CI carries `pkg:github/...` components that no package registry can answer for:
+
+```bash
+ol check --report report.json --allow-licenses MIT --exclude-packages "pkg:github/" --verbose
+```
+
+```text
+Exclusion prefix pkg:github/ matched 6 components.
+Excluded from evaluation: 6 components.
+```
+
+Because one entry can now take a lot, ol always reports how many components were selected, and `--verbose` attributes the count to each prefix. Check that number: it is what tells you the prefix took what you meant it to take. A prefix naming no ecosystem at all, such as `pkg:`, is still rejected.
 
 Neither is required to keep a private package reviewable: a registry `404` already yields `unknown`, which a baseline can acknowledge. Use `--skip-evidence-packages` when you want to stop spending a request that cannot succeed, and `--exclude-packages` when the component is outside the check.
 

@@ -126,18 +126,34 @@ public sealed class PurlPrefixSet
     }
 
     /// <summary>
-    /// Requires a prefix to name an ecosystem and at least one package or namespace character, so one entry cannot
-    /// select a whole ecosystem.
+    /// Requires a prefix to name an ecosystem. It may stop there, selecting that whole ecosystem.
     /// </summary>
+    /// <remarks>
+    /// An earlier rule also demanded a package or namespace character, so that one entry could not select an entire
+    /// ecosystem by mistake. Practice showed the cost of that: an SBOM generator can catalogue a whole ecosystem the
+    /// project never depended on — GitHub Actions read out of workflow files is the case that prompted this — and the
+    /// only way to drop them was to enumerate every namespace the generator happened to emit, which changes with the
+    /// generator and the repository. Prohibiting the intent did not make it wrong, only unreachable.
+    ///
+    /// Breadth is now answered by visibility rather than refusal: the number of selected components is reported, and
+    /// verbose output attributes it per prefix, so an over-broad entry states its own effect. What stays rejected is a
+    /// prefix naming no ecosystem at all, which selects everything and cannot be a considered choice.
+    /// </remarks>
     private static bool IsPackageUrlPrefix(ReadOnlySpan<char> value)
     {
         if (!value.StartsWith("pkg:", StringComparison.Ordinal)) return false;
 
         var remainder = value[4..];
         var separator = remainder.IndexOf('/');
-        if (separator <= 0) return false;
+        var ecosystem = separator < 0 ? remainder : remainder[..separator];
+        if (ecosystem.IsEmpty) return false;
+
+        // A trailing separator states the prefix's own boundary, so an ecosystem alone is complete either way. What
+        // must not pass is a tail made only of separators, which names a namespace the writer never finished.
+        if (separator < 0) return true;
 
         var tail = remainder[(separator + 1)..];
+        if (tail.IsEmpty) return true;
         for (var i = 0; i < tail.Length; i++)
         {
             if (!IsSeparator(tail[i])) return true;

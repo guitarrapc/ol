@@ -42,15 +42,44 @@ public sealed class PurlPrefixSetTests
 
     [Test]
     [Arguments("pkg:npm/@")]
-    [Arguments("pkg:npm/")]
-    [Arguments("pkg:npm")]
     [Arguments("npm/@acme")]
+    [Arguments("pkg:")]
+    [Arguments("pkg:/")]
     [Arguments("")]
-    public async Task TryCreate_WithoutPackageOrNamespace_RejectsEntry(string value)
+    public async Task TryCreate_WithoutAnEcosystem_RejectsEntry(string value)
     {
         var created = PurlPrefixSet.TryCreate([value], out _, out var error);
 
         await Assert.That(created).IsFalse();
         await Assert.That(error).IsNotEmpty();
     }
+
+    [Test]
+    [Arguments("pkg:github/")]
+    [Arguments("pkg:github")]
+    public async Task TryCreate_EcosystemOnly_SelectsThatEcosystem(string value)
+    {
+        // A generator can inject a whole ecosystem a project never depended on, and listing every namespace it
+        // happens to emit is not a stable answer. Selecting the ecosystem is a legitimate intent.
+        var created = PurlPrefixSet.TryCreate([value], out var set, out var error);
+
+        await Assert.That(created).IsTrue();
+        await Assert.That(error).IsEmpty();
+        await Assert.That(set!.Contains(Purl("pkg:github/actions/checkout@v4"))).IsTrue();
+        await Assert.That(set.Contains(Purl("pkg:github/golangci/golangci-lint-action@v8.0.0"))).IsTrue();
+    }
+
+    [Test]
+    [Arguments("pkg:github/")]
+    [Arguments("pkg:github")]
+    public async Task TryCreate_EcosystemOnly_StopsAtTheEcosystemBoundary(string value)
+    {
+        // The boundary still has to hold, or "pkg:github" would reach an ecosystem merely starting with those letters.
+        PurlPrefixSet.TryCreate([value], out var set, out _);
+
+        await Assert.That(set!.Contains(Purl("pkg:npm/left-pad@1.3.0"))).IsFalse();
+        await Assert.That(set.Contains(Purl("pkg:githubfoo/actions/checkout@v4"))).IsFalse();
+    }
+
+    private static Utf8Slice Purl(string value) => Utf8Slice.FromOwnedBytes(System.Text.Encoding.UTF8.GetBytes(value));
 }

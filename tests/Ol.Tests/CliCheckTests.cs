@@ -811,6 +811,26 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    public async Task Check_ExcludingAWholeEcosystem_ReportsHowManyItTook()
+    {
+        // Selecting an ecosystem is allowed because a generator can inject one, but breadth has to state itself:
+        // the count is what tells a reader whether the prefix took what they meant it to take.
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/", "--verbose", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stderr).Contains("Exclusion prefix pkg:npm/ matched 1 component.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithExcludePackagesWithoutVerbose_OmitsPerPrefixMatches()
     {
         var root = FindRepositoryRoot();
@@ -861,7 +881,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxAsync("MIT");
         try
         {
-            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--skip-evidence-packages", "pkg:nuget/");
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--skip-evidence-packages", "pkg:nuget/@");
 
             await Assert.That(result.ExitCode).IsEqualTo(1);
             await Assert.That(result.Stdout).IsEmpty();
@@ -955,7 +975,7 @@ public sealed class CliCheckTests
         var inputPath = await WriteCycloneDxAsync("MIT");
         try
         {
-            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/", "--no-external-evidence");
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--exclude-packages", "pkg:npm/@", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(1);
             await Assert.That(result.Stdout).IsEmpty();

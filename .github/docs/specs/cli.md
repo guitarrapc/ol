@@ -116,7 +116,11 @@ Reports, baselines, SARIF, and diagnostics must not contain token values, absolu
 
 <a id="contract-purl-prefix"></a>
 
-`--exclude-packages` and `--skip-evidence-packages` share one package URL prefix rule. Matching is ordinal, case-sensitive, and anchored at `/`, `.`, and `@` separators. A full versioned purl matches exactly; a component without a purl never matches. Empty values, non-`pkg:` values, and ecosystem-only prefixes such as `pkg:npm/` are invalid. Duplicate prefixes have no additional effect, and supplied order is retained for verbose match counts.
+`--exclude-packages` and `--skip-evidence-packages` share one package URL prefix rule. Matching is ordinal, case-sensitive, and anchored at `/`, `.`, and `@` separators. A full versioned purl matches exactly; a component without a purl never matches. Empty values, non-`pkg:` values, and a prefix naming no ecosystem are invalid. Duplicate prefixes have no additional effect, and supplied order is retained for verbose match counts.
+
+A prefix may stop at the ecosystem, so `pkg:github/` selects every component of that type. This was once rejected, on the reasoning that no single entry should be able to select a whole ecosystem by mistake. What that reasoning missed is that an SBOM generator can catalogue an entire ecosystem the project never depended on — GitHub Actions read out of workflow files are the case that prompted the change — and the only remaining way to drop them was to enumerate every namespace the generator happened to emit, which varies with the generator and the repository. Refusing the intent did not make it wrong, only unreachable, and the list of unsupported ecosystems will keep growing.
+
+Breadth is answered by visibility rather than refusal. The count of selected components is always reported and verbose output attributes it per prefix, so an over-broad entry states its own effect rather than acting silently. A prefix naming no ecosystem stays invalid, because it selects everything and cannot be a considered choice.
 
 A namespace written the way its ecosystem spells it is accepted: an `@` that starts a segment is canonicalized to `%40`, so `pkg:npm/@acme/` and `pkg:npm/%40acme/` are the same prefix and deduplicate to one entry. The `@` that separates a version is left alone, so a full purl such as `pkg:npm/left-pad@1.3.0` still addresses one component. Verbose output reports the canonical form, because that is what was matched.
 

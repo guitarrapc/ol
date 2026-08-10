@@ -4,7 +4,7 @@
 
 2026-08-10 に、6 つのパッケージマネージャーそれぞれで実在の OSS リポジトリ 3 件を選び、ol を SBOM 経路・package manager 経路・混在経路の 3 通りで実行した記録である。目的は 2 つあった。**SBOM 単独あるいは PM 単独で検知するツールではなく ol を使う理由が実データで立つか**を確かめること、そして**確定できるべきなのにできないケースを見つけて直す**ことである。
 
-評価の過程で 4 件の欠陥を修正した。修正はこの文書に記録した順で実施済みで、仕様は [input combination](../specs/cli.md#contract-input-combination) と [unqueryable purl](../specs/packagemanager.md#contract-unqueryable-purl) に反映してある。未実施の提案と、ol が決めるべきでないスコープ判断は「優先度順の対応事項」に残した。
+評価の過程で 4 件の欠陥を修正し、1 件の仕様変更（エコシステム単位の除外）を入れた。修正はこの文書に記録した順で実施済みで、仕様は [input combination](../specs/cli.md#contract-input-combination) と [unqueryable purl](../specs/packagemanager.md#contract-unqueryable-purl) に反映してある。未実施の提案と、ol が決めるべきでないスコープ判断は「優先度順の対応事項」に残した。
 
 計測環境: syft 1.22.0、go 1.26.4、cargo 1.97.1、maven 3.9.16、Node v24.18.0、Python 3.14.5、Temurin JDK 21.0.12。評価スクリプトと全レポートは `.references/_eval/`（gitignore 対象）にある。
 
@@ -160,28 +160,38 @@ Unresolved components
 
 これで「ol はこのエコシステムに対応していない」という事実がそのまま出る。スコープをどう決めるにせよ、この表示が正しい。
 
-### P2: エコシステム単位の除外を許す
+### P2: エコシステム単位の除外を許す（実施済み）
 
-`pkg:github/*` をスコープ外と決めた場合、これが回避策になる。しかし現状 `--exclude-packages pkg:github/` は拒否される。
+修正前は `--exclude-packages pkg:github/` が拒否された。
 
 ```text
 Invalid license policy: Package URL prefix entries must identify at least one package or namespace, such as pkg:nuget/MyCompany.: pkg:github/
 ```
 
-namespace を一つずつ列挙すれば動く。
+namespace を一つずつ列挙すれば動いたが、namespace は生成器と対象リポジトリ次第で増える。
 
 ```text
 --exclude-packages "pkg:github/actions/,pkg:github/golangci/,pkg:github/msys2/"
 → Excluded from evaluation: 6 components.
 ```
 
-しかし namespace は生成器と対象リポジトリ次第で増える。[purl prefix の規則](../specs/cli.md#contract-purl-prefix)がエコシステムのみの接頭辞を禁じているのは、打ち間違いが広く効くのを防ぐためで筋が通っている。だが**生成器が丸ごと一つのエコシステムを注入してくる**という状況をこの規則は想定していない。危険性は「意図せず広く効く」ことなので、明示的な別オプションか、`--verbose` の一致件数表示で可視性を担保する形が考えられる。
+[purl prefix の規則](../specs/cli.md#contract-purl-prefix)がエコシステムのみの接頭辞を禁じていたのは、打ち間違いが広く効くのを防ぐためだった。だが**生成器が丸ごと一つのエコシステムを注入してくる**状況をこの規則は想定しておらず、意図を禁じても意図が誤りになるわけではなく、到達不能になるだけだった。未サポートのエコシステムは今後も増える。
+
+エコシステムで止まる接頭辞を許可し、危険性は**拒否ではなく可視性**で担保する形に変えた。選択件数は常に報告され、`--verbose` は接頭辞ごとに内訳を出す。エコシステムを名指さない接頭辞（`pkg:` など）は引き続き無効である。全体を選ぶ意図はありえないため。
+
+```text
+Exclusion prefix pkg:github/ matched 6 components.
+Excluded from evaluation: 6 components.
+License check failed: 3 violations.
+```
+
+9 件あった違反が、実質的な 3 件（リポジトリのライセンスを分類できない Go 依存）だけになった。
 
 ### 保留中の判断: GitHub Actions を依存として扱うか
 
 タスクではなく決定事項なので番号を振らない。18 ケース中 15 件、235 行が該当する。
 
-**扱わない場合**の帰結は、利用者が生成器側で止める（`--select-catalogers "-github-actions-usage-cataloger"`）か、P2 が入るまで namespace を列挙して除外する。ol は `unsupported_package_metadata` と正しく報告し続ける。
+**扱わない場合**の帰結は、利用者が生成器側で止める（`--select-catalogers "-github-actions-usage-cataloger"`）か、P2 で入った `--exclude-packages "pkg:github/"` で落とす。ol は `unsupported_package_metadata` と正しく報告し続ける。この道は P2 の実施で塞がりがなくなった。
 
 **扱う場合**、`pkg:github/{namespace}/{name}` は namespace と name がそのまま GitHub リポジトリを指すので、導出は機械的である。[GoPackageMetadataProvider](../../../src/Ol.Core/PackageManagers/GoPackageMetadataProvider.cs) が既に「識別子が取得元を述べているなら識別子からリポジトリを導出する」という判断を下しており、同じ理屈がより直接的に当てはまる。ただし新エコシステムの追加なので、対応形式一覧と [verification.md](../specs/verification.md) の ecosystem smoke 契約まで波及する。
 
@@ -397,7 +407,7 @@ source_repository_fetch_failed                                     2
 
 ## 検証状況
 
-全 812 テスト合格。`DependencyInventoryCombinerBenchmark`（warmup 3 / iteration 10）は 1024 → 4096 コンポーネントで 4.32 倍、線形を保っている。アロケーションは欠陥 1 の修正前後で不変（546.35 KB / 2140.32 KB）。二片構成のパスを通らない一般ケースのために fast path を入れてある。self-scan golden は無変化、`seiton` は 0 issues。
+全 816 テスト合格。`DependencyInventoryCombinerBenchmark`（warmup 3 / iteration 10）は 1024 → 4096 コンポーネントで 4.32 倍、線形を保っている。アロケーションは欠陥 1 の修正前後で不変（546.35 KB / 2140.32 KB）。二片構成のパスを通らない一般ケースのために fast path を入れてある。self-scan golden は無変化、`seiton` は 0 issues。
 
 ## Lessons learned
 

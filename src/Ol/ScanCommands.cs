@@ -46,7 +46,7 @@ internal sealed class ScanCommands
     /// <param name="refresh">Ignore cached package metadata and source repository entries and fetch them again.</param>
     /// <param name="cacheDir">Root directory for isolated package-metadata and source-repository caches.</param>
     /// <param name="noExternalEvidence">Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.</param>
-    /// <param name="skipEvidencePackages">Comma-separated package URL prefixes whose external evidence is never collected.</param>
+    /// <param name="skipEvidencePackages">Comma-separated package URL prefixes whose external evidence is never collected. A prefix may stop at the ecosystem, as in pkg:github/.</param>
     /// <param name="concurrency">Maximum concurrent package metadata and source repository lookups.</param>
     /// <param name="retry">Retry count for package registry and GitHub License API requests.</param>
     [Command("scan")]

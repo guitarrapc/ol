@@ -157,7 +157,7 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-evidence-packages", "pkg:nuget/");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-evidence-packages", "pkg:nuget/@");
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();

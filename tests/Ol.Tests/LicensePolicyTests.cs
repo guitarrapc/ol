@@ -331,8 +331,7 @@ public sealed class LicensePolicyTests
     [Arguments("   ")]
     [Arguments("npm/example")]
     [Arguments("pkg:")]
-    [Arguments("pkg:npm")]
-    [Arguments("pkg:npm/")]
+    [Arguments("pkg:/")]
     [Arguments("pkg:npm/@")]
     public async Task TryCreate_WithInvalidExcludedPackage_RejectsPolicy(string value)
     {

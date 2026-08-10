@@ -16,7 +16,7 @@ internal sealed class CheckCommands
     /// <param name="report">Persisted canonical JSON scan report to evaluate.</param>
     /// <param name="allowLicenses">Comma-separated SPDX License Identifiers.</param>
     /// <param name="allowDevLicenses">Comma-separated SPDX License Identifiers additionally allowed for development-only components.</param>
-    /// <param name="excludePackages">Comma-separated package URL prefixes whose components are not evaluated.</param>
+    /// <param name="excludePackages">Comma-separated package URL prefixes whose components are not evaluated. A prefix may stop at the ecosystem, as in pkg:github/.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="verbose">Include persisted report diagnostics.</param>
     /// <param name="baseline">Baseline file acknowledging already reviewed unresolved components.</param>

@@ -1317,14 +1317,15 @@ internal static class ReportRenderer
             : (warnings & LicenseCandidateWarnings.SourceLicenseNotDetected) != 0 ? "license_not_detected"u8
             : declaredLocation ? "declared_license_location_not_collected"u8
             : familyClassifier ? "license_classifier_not_specific"u8
-            // Ranked above every repository reason: a purl that names no version is why nothing could be looked up,
-            // and reporting the missing repository instead sends the reader hunting for one that was never sought.
+            // Both reasons for never reaching a registry rank above every repository reason. A component no registry
+            // could be asked about also has no repository, because nothing produced one; naming the repository would
+            // report the consequence and send the reader hunting for something that was never sought.
             : (warnings & LicenseCandidateWarnings.PackageMetadataUnversionedPurl) != 0 ? "package_metadata_unversioned_purl"u8
+            : (warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0 ? "unsupported_package_metadata"u8
             : (warnings & LicenseCandidateWarnings.UnsupportedSourceRepository) != 0 ? "unsupported_source_repository"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0 ? "source_repository_subdirectory"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryUnavailable) != 0 ? "source_repository_unavailable"u8
             : (warnings & LicenseCandidateWarnings.SourceRepositoryFetchFailed) != 0 ? "source_repository_fetch_failed"u8
-            : (warnings & LicenseCandidateWarnings.UnsupportedPackageMetadata) != 0 ? "unsupported_package_metadata"u8
             : (warnings & LicenseCandidateWarnings.PackageMetadataFetchFailed) != 0 ? "package_metadata_fetch_failed"u8
             : default;
         return !reason.IsEmpty;

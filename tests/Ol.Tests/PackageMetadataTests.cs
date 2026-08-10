@@ -56,6 +56,50 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Unresolved_WhenNoRegistryCouldBeAsked_NamesThatRatherThanTheMissingRepository()
+    {
+        // Every purl no registry can answer for also ends with no repository, because nothing ever produced one.
+        // Reporting the repository sends the reader looking for something that was never sought; the reason they can
+        // act on is why the registry was skipped. This is the same masking that once hid an unversioned purl.
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var cases = new[]
+        {
+            (Purl: "pkg:conan/zlib@1.3", Expected: "unsupported_package_metadata"),
+            (Purl: "pkg:maven/org.example/module", Expected: "package_metadata_unversioned_purl"),
+        };
+
+        foreach (var (purl, expected) in cases)
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+            try
+            {
+                var service = new PackageMetadataService(index, new PackageMetadataCache(root), refresh: false, retryCount: 0);
+                var components = new[] { CreateEnrichmentComponent(index, purl) };
+                using var workspace = new PackageMetadataWorkspace(components.Length);
+                var (enriched, _) = await service.EnrichAsync(components, workspace, concurrency: 1);
+                var withRepositoryOutcome = LicenseReconciler.AddCandidate(
+                    enriched[0],
+                    LicenseCandidateFactory.CreateError(
+                        LicenseCandidateSource.SourceRepository,
+                        LicenseCandidateKind.Unavailable,
+                        LicenseCandidateWarnings.SourceRepositoryUnavailable));
+
+                var buffer = new System.Buffers.ArrayBufferWriter<byte>(4 * 1024);
+                var descriptor = new ScanInputDescriptor(ScanInputKind.Sbom, ScanInputFormat.CycloneDx, "test", string.Empty, default);
+                ReportRenderer.WriteText(buffer, descriptor, new[] { withRepositoryOutcome }, verbose: false);
+                var rendered = System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+
+                await Assert.That(rendered).Contains(expected);
+                await Assert.That(rendered).DoesNotContain("source_repository_unavailable");
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
     public async Task Enrichment_RegistryAnswersNotFound_RecordsUnknownRatherThanCollectionError()
     {
         // A 404 is a completed answer, not a failed operation: the registry successfully reported that the package

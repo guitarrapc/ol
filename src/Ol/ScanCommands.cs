@@ -194,7 +194,7 @@ internal sealed class ScanCommands
             Console.Error.WriteLine();
             Console.Error.WriteLine("Scan summary");
             Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid; {summary.Error} error");
-            Console.Error.WriteLine($"  Findings: {summary.WarningCount} warning{(summary.WarningCount == 1 ? string.Empty : "s")}; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
+            Console.Error.WriteLine($"  Findings: {summary.UnresolvedWarningCount} warning{(summary.UnresolvedWarningCount == 1 ? string.Empty : "s")} on unresolved components; {summary.ResolvedWarningCount} on resolved components; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
 
             // Zeroed collection counters read as "nothing was needed" rather than "nothing was attempted",
             // which is the whole point of this mode, so state the absence instead of printing the counters.
@@ -2283,7 +2283,15 @@ internal static class ReportRenderer
     }
 }
 
-internal readonly record struct ScanSummary(int Matched, int Conflict, int Unknown, int Ambiguous, int Invalid, int Error, int WarningCount, int DeprecatedSpdxCount)
+/// <param name="UnresolvedWarningCount">Warnings on components the scan did not resolve to one license.</param>
+/// <param name="ResolvedWarningCount">Warnings on components that resolved despite them.</param>
+/// <remarks>
+/// The two counts are reported separately rather than summed. Collecting evidence Ol could not read is
+/// routine — a repository outside GitHub, a registry with no license field — and when the component
+/// resolved from other evidence anyway, that warning changed no outcome. One total makes a fully resolved
+/// report announce findings a reader then has to open the JSON to dismiss.
+/// </remarks>
+internal readonly record struct ScanSummary(int Matched, int Conflict, int Unknown, int Ambiguous, int Invalid, int Error, int UnresolvedWarningCount, int ResolvedWarningCount, int DeprecatedSpdxCount)
 {
     public static ScanSummary Create(ReadOnlySpan<GroupRow> groups)
     {
@@ -2298,7 +2306,8 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
                 total.Ambiguous + summary.Ambiguous,
                 total.Invalid + summary.Invalid,
                 total.Error + summary.Error,
-                total.WarningCount + summary.WarningCount,
+                total.UnresolvedWarningCount + summary.UnresolvedWarningCount,
+                total.ResolvedWarningCount + summary.ResolvedWarningCount,
                 total.DeprecatedSpdxCount + summary.DeprecatedSpdxCount);
         }
 
@@ -2313,7 +2322,8 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
         var ambiguous = 0;
         var invalid = 0;
         var error = 0;
-        var warningCount = 0;
+        var unresolvedWarningCount = 0;
+        var resolvedWarningCount = 0;
         var deprecatedSpdxCount = 0;
 
         for (var i = 0; i < components.Length; i++)
@@ -2340,7 +2350,11 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
                     break;
             }
 
-            warningCount += components[i].Warnings.Length;
+            // A component that reached one license resolved whatever else failed on the way, so its
+            // warnings describe collection rather than the result.
+            if (components[i].Status == LicenseStatus.Matched) resolvedWarningCount += components[i].Warnings.Length;
+            else unresolvedWarningCount += components[i].Warnings.Length;
+
             for (var candidateIndex = 0; candidateIndex < components[i].CandidateCount; candidateIndex++)
             {
                 if (components[i].GetCandidate(candidateIndex).Deprecated)
@@ -2350,6 +2364,6 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
             }
         }
 
-        return new ScanSummary(matched, conflict, unknown, ambiguous, invalid, error, warningCount, deprecatedSpdxCount);
+        return new ScanSummary(matched, conflict, unknown, ambiguous, invalid, error, unresolvedWarningCount, resolvedWarningCount, deprecatedSpdxCount);
     }
 }

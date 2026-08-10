@@ -16,6 +16,7 @@ internal readonly record struct PackageMetadataSummary(
     int RefreshedCount,
     int FetchErrorCount,
     int UnsupportedEcosystemCount,
+    int UnversionedPurlCount,
     int Concurrency,
     int RetryCount,
     int TargetCount = 0);
@@ -87,7 +88,7 @@ internal sealed class PackageMetadataService(
         {
             return ValueTask.FromResult((
                 Components: components,
-                Summary: new PackageMetadataSummary(0, 0, 0, 0, 0, 0, concurrency, retryCount)));
+                Summary: new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, concurrency, retryCount)));
         }
 
         return components.Length == 1
@@ -161,6 +162,7 @@ internal sealed class PackageMetadataService(
                 result.Refreshed ? 1 : 0,
                 result.FetchError ? 1 : 0,
                 result.Unsupported ? 1 : 0,
+                result.UnversionedPurl ? 1 : 0,
                 concurrency,
                 retryCount,
                 lookupCount));
@@ -313,6 +315,7 @@ internal sealed class PackageMetadataService(
         var refreshed = 0;
         var errors = 0;
         var unsupported = 0;
+        var unversioned = 0;
         for (var i = 0; i < components.Length; i++)
         {
             var lookupIndex = componentLookupIndexes[i];
@@ -327,9 +330,10 @@ internal sealed class PackageMetadataService(
             refreshed += result.Refreshed ? 1 : 0;
             errors += result.FetchError ? 1 : 0;
             unsupported += result.Unsupported ? 1 : 0;
+            unversioned += result.UnversionedPurl ? 1 : 0;
         }
 
-        return new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, concurrency, retryCount, lookupCount);
+        return new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, unversioned, concurrency, retryCount, lookupCount);
     }
 
     private async Task<PackageMetadataLookupResult> EnrichLookupAsync(PackageMetadataRequest request, CancellationToken cancellationToken)
@@ -477,7 +481,10 @@ internal sealed class PackageMetadataService(
                 ? LicenseCandidateWarnings.PackageMetadataUnversionedPurl
                 : LicenseCandidateWarnings.UnsupportedPackageMetadata,
             new LicenseEvidence(LicenseEvidenceKind.PackageRegistry));
-        return new PackageMetadataLookupResult(null, candidate, true, false, false, false, false, true);
+
+        // The summary keeps the distinction the warning makes. Counting an unversioned purl as an
+        // unsupported ecosystem reports that Ol has no provider for an ecosystem it does support.
+        return new PackageMetadataLookupResult(null, candidate, true, false, false, false, false, !ecosystemSupported, ecosystemSupported);
     }
 
     private static void EnsureLookupCapacity(ref PackageMetadataLookup[] lookups, int lookupCount)
@@ -569,10 +576,10 @@ internal sealed class PackageMetadataService(
 
     private readonly record struct PackageMetadataLookup(int Index, PackageMetadataRequest Request);
 
-    private readonly record struct PackageMetadataLookupResult(PackageMetadataResolution? Resolution, LicenseCandidate Candidate, bool HasCandidate, bool Supported, bool CacheHit, bool CacheMiss, bool Refreshed, bool FetchError, bool Unsupported)
+    private readonly record struct PackageMetadataLookupResult(PackageMetadataResolution? Resolution, LicenseCandidate Candidate, bool HasCandidate, bool Supported, bool CacheHit, bool CacheMiss, bool Refreshed, bool FetchError, bool Unsupported, bool UnversionedPurl = false)
     {
-        public PackageMetadataLookupResult(PackageMetadataResolution? resolution, LicenseCandidate candidate, bool supported, bool cacheHit, bool cacheMiss, bool refreshed, bool fetchError, bool unsupported)
-            : this(resolution, candidate, true, supported, cacheHit, cacheMiss, refreshed, fetchError, unsupported)
+        public PackageMetadataLookupResult(PackageMetadataResolution? resolution, LicenseCandidate candidate, bool supported, bool cacheHit, bool cacheMiss, bool refreshed, bool fetchError, bool unsupported, bool unversionedPurl = false)
+            : this(resolution, candidate, true, supported, cacheHit, cacheMiss, refreshed, fetchError, unsupported, unversionedPurl)
         {
         }
     }

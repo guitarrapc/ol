@@ -862,7 +862,7 @@ public sealed class PackageMetadataTests
                 new DependencyInventory(default, [], [component], [], []),
                 new[] { component },
                 SpdxData.Load(null),
-                new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 1, 0),
+                new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, 1, 0),
                 new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", 1, 0),
                 new ScanReportScope(ExternalEvidenceCollected: true, DependencyFilter: null, ExcludedCount: 0, ExcludedUnknownCount: 0));
         }
@@ -2281,6 +2281,33 @@ public sealed class PackageMetadataTests
         await Assert.That(emptyEnrichment.Summary.TargetCount).IsEqualTo(0);
         await Assert.That(emptyEnrichment.Components[0].CandidateCount).IsEqualTo(1);
         await Assert.That(GetRecord(emptyWorkspace, 0).HasValue).IsFalse();
+    }
+
+    /// <summary>
+    /// Separates the two reasons a purl cannot be queried in the summary as well as in the warning.
+    /// </summary>
+    /// <remarks>
+    /// A supported ecosystem whose purl names no version is not an unsupported ecosystem, and summing
+    /// them reports that Ol has no provider for an ecosystem it does support.
+    /// </remarks>
+    [Test]
+    public async Task Enrichment_WithUnversionedPurl_CountsItApartFromAnUnsupportedEcosystem()
+    {
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var service = new PackageMetadataService(index, new PackageMetadataCache(Path.GetTempPath()), refresh: false, retryCount: 0);
+        var unversioned = new[] { CreateEnrichmentComponent(index, "pkg:maven/com.example/module") };
+        var unsupported = new[] { CreateEnrichmentComponent(index, "pkg:unknown-ecosystem/example@1.0.0") };
+        using var unversionedWorkspace = new PackageMetadataWorkspace(unversioned.Length);
+        using var unsupportedWorkspace = new PackageMetadataWorkspace(unsupported.Length);
+
+        var unversionedEnrichment = await service.EnrichAsync(unversioned, unversionedWorkspace, concurrency: 1);
+        var unsupportedEnrichment = await service.EnrichAsync(unsupported, unsupportedWorkspace, concurrency: 1);
+
+        await Assert.That(unversionedEnrichment.Summary.UnversionedPurlCount).IsEqualTo(1);
+        await Assert.That(unversionedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(0);
+        await Assert.That(unversionedEnrichment.Components[0].Warnings).Contains("package_metadata_unversioned_purl");
+        await Assert.That(unsupportedEnrichment.Summary.UnversionedPurlCount).IsEqualTo(0);
+        await Assert.That(unsupportedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(1);
     }
 
     private static PackageMetadataResolution? GetRecord(PackageMetadataWorkspace workspace, int index) => workspace.Records[index];

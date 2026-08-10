@@ -160,7 +160,7 @@ internal static class ScanExecution
             GitHubRateLimitStatus? gitHubRateLimit = null;
             if (noExternalEvidence)
             {
-                packageMetadataSummary = new PackageMetadataSummary(0, 0, 0, 0, 0, 0, preparation.Concurrency, preparation.Retry);
+                packageMetadataSummary = new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, preparation.Concurrency, preparation.Retry);
                 sourceRepositorySummary = new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", preparation.Concurrency, preparation.Retry);
             }
             else

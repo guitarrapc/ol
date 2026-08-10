@@ -33,6 +33,7 @@
       "refreshedCount": 0,
       "fetchErrorCount": 0,
       "unsupportedEcosystemCount": 0,
+      "unversionedPurlCount": 0,
       "concurrency": 4,
       "retryCount": 1
     },

@@ -175,6 +175,86 @@ public sealed class CliScanTests
         }
     }
 
+    /// <summary>
+    /// Counts an unqueryable purl under the reason that applies to it.
+    /// </summary>
+    /// <remarks>
+    /// A purl naming no version is not an ecosystem Ol lacks a provider for, and a summary that adds them
+    /// together says Ol does not support the ecosystem — the exact wrong conclusion the per-component
+    /// reasons were split to prevent. A multi-module Maven build emits every module without the version
+    /// its parent supplies, so this is the common shape rather than a corner case. The single-component
+    /// path bypasses the planner, so both sizes are pinned.
+    /// </remarks>
+    [Test]
+    [Arguments(1)]
+    [Arguments(3)]
+    public async Task Scan_WithUnversionedPurls_CountsThemApartFromUnsupportedEcosystems(int componentCount)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        var entries = new string[componentCount];
+        for (var i = 0; i < componentCount; i++)
+        {
+            entries[i] = $$"""{ "type": "library", "name": "mod-{{i}}", "version": "1.0.0", "purl": "pkg:maven/com.example/mod-{{i}}" }""";
+        }
+
+        await File.WriteAllTextAsync(
+            inputPath,
+            $$"""{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [ {{string.Join(", ", entries)}} ] }""",
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            var metadata = report.RootElement.GetProperty("metadata").GetProperty("packageMetadata");
+            await Assert.That(metadata.GetProperty("unversionedPurlCount").GetInt32()).IsEqualTo(componentCount);
+            await Assert.That(metadata.GetProperty("unsupportedEcosystemCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(SelectWarnings(report, "mod-0")).Contains("package_metadata_unversioned_purl");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>The two reasons in one input, which is what the shared counter used to merge.</summary>
+    [Test]
+    public async Task Scan_WithUnversionedAndUnsupportedPurls_ReportsEachCountInTheSummary()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "name": "Versionless", "version": "1.0.0", "purl": "pkg:maven/com.example/module" },
+                { "type": "library", "name": "Unsupported", "version": "1.0.0", "purl": "pkg:generic/thing@1.0.0" },
+                { "type": "library", "name": "AlsoUnsupported", "version": "1.0.0", "purl": "pkg:generic/other@1.0.0" }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath);
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            // Every counter on this line carries a fixed plural, so this one does too.
+            await Assert.That(stderr).Contains("0 fetch errors; 2 unsupported ecosystems; 1 unversioned purls");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
     /// <summary>The counter that reports the same collision as the warning above.</summary>
     [Test]
     public async Task Scan_WithSkippedAndUnsupportedComponents_CountsOnlyTheUnsupportedEcosystem()

@@ -12,7 +12,7 @@ public class JsonReportRendererBenchmark
     private readonly ScanComponent[] components;
     private readonly GroupRow[] groups;
     private readonly DependencyInventory inventory;
-    private readonly PackageMetadataSummary packageMetadataSummary = new(0, 0, 0, 0, 0, 0, 1, 0);
+    private readonly PackageMetadataSummary packageMetadataSummary = new(0, 0, 0, 0, 0, 0, 0, 1, 0);
     private readonly SourceRepositorySummary sourceRepositorySummary = new(0, 0, 0, 0, 0, 0, "none", 1, 0);
     private readonly ScanReportScope scope = new(ExternalEvidenceCollected: true, DependencyFilter: null, ExcludedCount: 0, ExcludedUnknownCount: 0);
     private readonly SpdxData spdx;

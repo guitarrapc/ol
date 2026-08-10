@@ -204,7 +204,7 @@ internal sealed class ScanCommands
             }
             else
             {
-                Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems");
+                Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems; {packageMetadata.UnversionedPurlCount} unversioned purls");
                 Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
                 Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
             }
@@ -1924,6 +1924,7 @@ internal static class ReportRenderer
         writer.WriteNumber("refreshedCount", summary.RefreshedCount);
         writer.WriteNumber("fetchErrorCount", summary.FetchErrorCount);
         writer.WriteNumber("unsupportedEcosystemCount", summary.UnsupportedEcosystemCount);
+        writer.WriteNumber("unversionedPurlCount", summary.UnversionedPurlCount);
         writer.WriteNumber("concurrency", summary.Concurrency);
         writer.WriteNumber("retryCount", summary.RetryCount);
         writer.WriteEndObject();

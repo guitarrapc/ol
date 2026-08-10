@@ -215,7 +215,7 @@ Only `unknown`, `ambiguous`, `conflict`, and `invalid` may be acknowledged into 
 
 <a id="contract-policy-sarif"></a>
 
-`--sarif <file>` writes the same violations as SARIF 2.1.0 without changing stdout. Stable rule IDs are `OL0001` not allowed, `OL0002` conflict, `OL0003` unresolved, `OL0004` ambiguous, `OL0005` invalid expression, and `OL0006` evidence error. Results use logical component locations and include the deterministic shortest dependency path when available; Ol does not invent source positions. Development-policy allowances are recorded as run properties rather than findings.
+`--sarif <file>` writes the same violations as SARIF 2.1.0 without changing stdout, declaring `$schema` as `https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json`. Stable rule IDs are `OL0001` not allowed, `OL0002` conflict, `OL0003` unresolved, `OL0004` ambiguous, `OL0005` invalid expression, and `OL0006` evidence error. Results use logical component locations and include the deterministic shortest dependency path when available; Ol does not invent source positions. Development-policy allowances are recorded as run properties rather than findings.
 
 Policy files, deny-lists, per-package exceptions, and concluded licenses are outside this command's contract. Dependency-scope policy is limited to `--allow-dev-licenses` above; no other scope distinction is evaluated.
 

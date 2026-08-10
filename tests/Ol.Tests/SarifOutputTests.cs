@@ -24,6 +24,8 @@ public sealed class SarifOutputTests
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(document.RootElement.GetProperty("version").GetString()).IsEqualTo("2.1.0");
+            await Assert.That(document.RootElement.GetProperty("$schema").GetString())
+                .IsEqualTo("https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json");
             await Assert.That(run.GetProperty("tool").GetProperty("driver").GetProperty("name").GetString()).IsEqualTo("ol");
             await Assert.That(results.GetArrayLength()).IsEqualTo(1);
             await Assert.That(results[0].GetProperty("ruleId").GetString()).IsEqualTo("OL0001");

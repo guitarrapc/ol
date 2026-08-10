@@ -17,7 +17,7 @@ namespace Ol.Internals;
 /// </remarks>
 internal static class SarifRenderer
 {
-    private const string SchemaUri = "https://raw.githubusercontent.com/oasis-tcs/sarif-spectrum/main/sarif-2.1/schema/sarif-schema-2.1.0.json";
+    private const string SchemaUri = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json";
 
     public static byte[] Render(
         in DependencyInventory inventory,

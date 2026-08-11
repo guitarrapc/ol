@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
@@ -8,7 +8,7 @@ public class ScanViewBenchmark : IDisposable
 {
     private const int ComponentCount = 1_024;
     private readonly ScanComponent[] metadataComponents;
-    private readonly PackageMetadataWorkspace metadataWorkspace;
+    private readonly PackageMetadataResolution?[] metadataResolutions;
     private readonly ScanComponent[] metadataTemplate;
     private readonly PackageMetadataService metadataService;
     private readonly string cacheRoot;
@@ -21,7 +21,7 @@ public class ScanViewBenchmark : IDisposable
         metadataTemplate = new ScanComponent[ComponentCount];
         sortComponents = new ScanComponent[ComponentCount];
         metadataComponents = new ScanComponent[ComponentCount];
-        metadataWorkspace = new PackageMetadataWorkspace(ComponentCount);
+        metadataResolutions = new PackageMetadataResolution?[ComponentCount];
         for (var i = 0; i < ComponentCount; i++)
         {
             sortTemplate[i] = CreateComponent(
@@ -55,13 +55,12 @@ public class ScanViewBenchmark : IDisposable
     public int EnrichDuplicatePurls()
     {
         ResetInputs();
-        var result = metadataService.EnrichAsync(metadataComponents, metadataWorkspace, concurrency: 1).GetAwaiter().GetResult();
+        var result = metadataService.EnrichAsync(metadataComponents, metadataResolutions, concurrency: 1).GetAwaiter().GetResult();
         return result.Summary.CacheHitCount;
     }
 
     public void Dispose()
     {
-        metadataWorkspace.Dispose();
         if (Directory.Exists(cacheRoot))
         {
             Directory.Delete(cacheRoot, recursive: true);
@@ -69,5 +68,5 @@ public class ScanViewBenchmark : IDisposable
     }
 
     private static ScanComponent CreateComponent(string name, string ecosystem, string purl)
-        => new(name, "1.0.0", "-", ecosystem, DependencyType.Unknown, LicenseStatus.Unknown, purl, purl, default, [], []);
+        => new(name, "1.0.0", "-", ecosystem, DependencyType.Unknown, LicenseStatus.Unknown, purl, purl, default, []);
 }

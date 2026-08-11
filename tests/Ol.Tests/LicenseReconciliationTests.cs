@@ -138,7 +138,6 @@ public sealed class LicenseReconciliationTests
             "pkg:cargo/example@1.0.0",
             default,
             default,
-            [],
             []);
         foreach (var expression in expressions)
         {

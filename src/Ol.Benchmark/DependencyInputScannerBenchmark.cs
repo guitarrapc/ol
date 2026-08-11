@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;
@@ -421,8 +421,8 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory CreateNuGetInventoryResultFloor()
     {
         var components = new ScanComponent[2];
-        components[0] = new ScanComponent(directName, directVersion, default, "nuget", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:nuget/Direct.Package@1.0.0"u8.ToArray()), directSourceId, default, [], []);
-        components[1] = new ScanComponent(sharedName, sharedVersion, default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:nuget/Shared.Package@2.0.0"u8.ToArray()), sharedSourceId, default, [], []);
+        components[0] = new ScanComponent(directName, directVersion, default, "nuget", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:nuget/Direct.Package@1.0.0"u8.ToArray()), directSourceId, default, []);
+        components[1] = new ScanComponent(sharedName, sharedVersion, default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:nuget/Shared.Package@2.0.0"u8.ToArray()), sharedSourceId, default, []);
         return new DependencyInventory(
             default,
             [new DependencyResolutionContext(projectOrigin, target, default, default, default, default)],
@@ -435,8 +435,8 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory CreateNpmInventoryResultFloor()
     {
         var components = new ScanComponent[2];
-        components[0] = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, [], []);
-        components[1] = new ScanComponent(npmNativeName, npmNativeVersion, default, "npm", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/native-addon@2.0.0"u8.ToArray()), npmNativeSourceId, default, [], []);
+        components[0] = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, []);
+        components[1] = new ScanComponent(npmNativeName, npmNativeVersion, default, "npm", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/native-addon@2.0.0"u8.ToArray()), npmNativeSourceId, default, []);
         return new DependencyInventory(
             default,
             [new DependencyResolutionContext(npmRoot, default, default, default, default, default)],
@@ -449,7 +449,7 @@ public class DependencyInputScannerBenchmark
     [Benchmark]
     public DependencyInventory CreateSingleNpmInventoryResultFloor()
     {
-        var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, [], []);
+        var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, []);
         return new DependencyInventory(
             default,
             [new DependencyResolutionContext(npmRoot, default, default, default, default, default)],
@@ -461,7 +461,7 @@ public class DependencyInputScannerBenchmark
     [Benchmark]
     public DependencyInventory CreateYarnClassicInventoryResultFloor()
     {
-        var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, [], []);
+        var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, []);
         return new DependencyInventory(
             default,
             [new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("yarn.lock"u8.ToArray()), default, default, default, default, default)],
@@ -473,7 +473,7 @@ public class DependencyInputScannerBenchmark
     [Benchmark]
     public DependencyInventory CreateCargoInventoryResultFloor()
     {
-        var component = new ScanComponent(cargoName, cargoVersion, default, "cargo", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:cargo/itoa@1.0.0"u8.ToArray()), cargoSourceId, default, [], []);
+        var component = new ScanComponent(cargoName, cargoVersion, default, "cargo", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:cargo/itoa@1.0.0"u8.ToArray()), cargoSourceId, default, []);
         return new DependencyInventory(
             default,
             [new DependencyResolutionContext(cargoRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("features=default"u8.ToArray()))],
@@ -486,7 +486,7 @@ public class DependencyInputScannerBenchmark
     [Benchmark]
     public DependencyInventory CreateGoModuleGraphInventoryResultFloor()
     {
-        var component = new ScanComponent(goName, goVersion, default, "golang", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:golang/github.com/google/uuid@v1.6.0"u8.ToArray()), Utf8Slice.FromOwnedBytes(goSourceId.Span.ToArray()), default, [], []);
+        var component = new ScanComponent(goName, goVersion, default, "golang", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:golang/github.com/google/uuid@v1.6.0"u8.ToArray()), Utf8Slice.FromOwnedBytes(goSourceId.Span.ToArray()), default, []);
         return new DependencyInventory(
             default,
             [new DependencyResolutionContext(goRoot, default, default, default, default, default)],
@@ -500,8 +500,8 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory CreatePipInspectInventoryResultFloor()
     {
         var components = new ScanComponent[2];
-        components[0] = new ScanComponent(pythonRequestsName, pythonRequestsVersion, default, "pypi", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:pypi/requests@2.32.4"u8.ToArray()), Utf8Slice.FromOwnedBytes("requests@2.32.4"u8.ToArray()), default, [], []);
-        components[1] = new ScanComponent(pythonUrllibName, pythonUrllibVersion, default, "pypi", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:pypi/urllib3@2.5.0"u8.ToArray()), Utf8Slice.FromOwnedBytes("urllib3@2.5.0"u8.ToArray()), default, [], []);
+        components[0] = new ScanComponent(pythonRequestsName, pythonRequestsVersion, default, "pypi", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:pypi/requests@2.32.4"u8.ToArray()), Utf8Slice.FromOwnedBytes("requests@2.32.4"u8.ToArray()), default, []);
+        components[1] = new ScanComponent(pythonUrllibName, pythonUrllibVersion, default, "pypi", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:pypi/urllib3@2.5.0"u8.ToArray()), Utf8Slice.FromOwnedBytes("urllib3@2.5.0"u8.ToArray()), default, []);
         return new DependencyInventory(
             default,
             [new DependencyResolutionContext(pythonRoot, pythonTarget, pythonRuntime, pythonPlatform, pythonArchitecture, Utf8Slice.FromOwnedBytes("pip=25.1"u8.ToArray()))],
@@ -515,8 +515,8 @@ public class DependencyInputScannerBenchmark
     public DependencyInventory CreateComposerLockInventoryResultFloor()
     {
         var components = new ScanComponent[2];
-        components[0] = new ScanComponent(composerMonologName, composerMonologVersion, composerLicense, "composer", DependencyType.Direct, LicenseStatus.Matched, Utf8Slice.FromOwnedBytes("pkg:composer/monolog/monolog@3.9.0"u8.ToArray()), Utf8Slice.FromOwnedBytes("monolog/monolog@3.9.0"u8.ToArray()), default, [], []);
-        components[1] = new ScanComponent(composerPsrLogName, composerPsrLogVersion, composerLicense, "composer", DependencyType.Transitive, LicenseStatus.Matched, Utf8Slice.FromOwnedBytes("pkg:composer/psr/log@3.0.2"u8.ToArray()), Utf8Slice.FromOwnedBytes("psr/log@3.0.2"u8.ToArray()), default, [], []);
+        components[0] = new ScanComponent(composerMonologName, composerMonologVersion, composerLicense, "composer", DependencyType.Direct, LicenseStatus.Matched, Utf8Slice.FromOwnedBytes("pkg:composer/monolog/monolog@3.9.0"u8.ToArray()), Utf8Slice.FromOwnedBytes("monolog/monolog@3.9.0"u8.ToArray()), default, []);
+        components[1] = new ScanComponent(composerPsrLogName, composerPsrLogVersion, composerLicense, "composer", DependencyType.Transitive, LicenseStatus.Matched, Utf8Slice.FromOwnedBytes("pkg:composer/psr/log@3.0.2"u8.ToArray()), Utf8Slice.FromOwnedBytes("psr/log@3.0.2"u8.ToArray()), default, []);
         return new DependencyInventory(
             default,
             [new DependencyResolutionContext(composerRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("plugin-api=2.6.0"u8.ToArray()))],
@@ -539,7 +539,6 @@ public class DependencyInputScannerBenchmark
             Utf8Slice.FromOwnedBytes("pkg:gem/rack@3.1.8"u8.ToArray()),
             Utf8Slice.FromOwnedBytes("rack@3.1.8"u8.ToArray()),
             default,
-            [],
             []);
         return new DependencyInventory(
             default,
@@ -563,7 +562,6 @@ public class DependencyInputScannerBenchmark
             Utf8Slice.FromOwnedBytes("pkg:maven/org.example/library@2.0.0"u8.ToArray()),
             Utf8Slice.FromOwnedBytes("org.example:library:jar::2.0.0"u8.ToArray()),
             default,
-            [],
             []);
         return new DependencyInventory(
             default,
@@ -588,7 +586,7 @@ public class DependencyInputScannerBenchmark
             Utf8Slice.FromOwnedBytes("swift-log@1.6.2"u8.ToArray()),
             default,
             [],
-            [],
+            LicenseCandidateWarnings.None,
             swiftRepository);
         return new DependencyInventory(
             default,
@@ -612,7 +610,6 @@ public class DependencyInputScannerBenchmark
             Utf8Slice.FromOwnedBytes("pkg:cocoapods/Moya@15.0.0"u8.ToArray()),
             Utf8Slice.FromOwnedBytes("Moya@15.0.0"u8.ToArray()),
             default,
-            [],
             []);
         return new DependencyInventory(
             default,

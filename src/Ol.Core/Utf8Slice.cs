@@ -91,11 +91,7 @@ public readonly struct Utf8Slice : IEquatable<Utf8Slice>
     public override int GetHashCode()
     {
         var hash = new HashCode();
-        foreach (var value in Span)
-        {
-            hash.Add(value);
-        }
-
+        hash.AddBytes(Span);
         return hash.ToHashCode();
     }
 

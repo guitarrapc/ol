@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -572,7 +572,7 @@ internal static class ComposerLockInputParser
             CreateIdentity(node.Name, node.Version),
             candidate,
             [],
-            candidate.Warnings.ToStrings(),
+            candidate.Warnings,
             node.RepositoryUrl);
     }
 

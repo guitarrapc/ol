@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using System.Buffers;
 using System.Text;
@@ -27,7 +27,7 @@ public class TextReportRendererBenchmark
                 """),
             spdx.Index);
         components = inventory.Components;
-        groups = ScanView.Group(components, "license");
+        groups = ScanView.Group(components, null, components.Length, "license");
     }
 
     [Benchmark]

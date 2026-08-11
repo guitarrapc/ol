@@ -177,7 +177,6 @@ internal static class MavenDependencyTreeInputParser
                         CreatePurl(node),
                         CreateSourceId(node),
                         default,
-                        [],
                         []);
                     componentCount++;
                 }

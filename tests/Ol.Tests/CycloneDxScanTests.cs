@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json;
 using Ol.Core;
 using Ol.Core.Licensing;
@@ -326,7 +326,7 @@ public sealed class CycloneDxScanTests
         var report = DependencyInputScanner.Scan(sbom, deprecatedSpdx);
 
         await Assert.That(report.Components[0].GetCandidate(0).Deprecated).IsTrue();
-        await Assert.That(report.Components[0].Warnings[0]).IsEqualTo("deprecated_spdx_identifier");
+        await Assert.That(report.Components[0].Warnings.ToStrings()[0]).IsEqualTo("deprecated_spdx_identifier");
     }
 
     [Test]

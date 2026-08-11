@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
@@ -45,14 +45,14 @@ internal sealed class SourceRepositoryService
 
     public ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichAsync(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         int concurrency,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(workspace);
-        if (workspace.Length < components.Length)
+        ArgumentNullException.ThrowIfNull(resolutions);
+        if (resolutions.Length < components.Length)
         {
-            throw new ArgumentException("Package metadata records must correspond to every component.", nameof(workspace));
+            throw new ArgumentException("Package metadata records must correspond to every component.", nameof(resolutions));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -64,13 +64,13 @@ internal sealed class SourceRepositoryService
         }
 
         return components.Length == 1
-            ? EnrichSingleComponent(components, workspace, concurrency, cancellationToken)
-            : EnrichCoreAsync(components, workspace, concurrency, cancellationToken);
+            ? EnrichSingleComponent(components, resolutions, concurrency, cancellationToken)
+            : EnrichCoreAsync(components, resolutions, concurrency, cancellationToken);
     }
 
     private ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichSingleComponent(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         int concurrency,
         CancellationToken cancellationToken)
     {
@@ -82,7 +82,7 @@ internal sealed class SourceRepositoryService
                 Summary: new SourceRepositorySummary(0, 0, 0, 0, 0, 0, authentication.Mode, concurrency, retryCount)));
         }
 
-        var metadata = workspace.Records[0];
+        var metadata = resolutions[0];
         if (metadata is { RepositorySubdirectoryDeclared: true })
         {
             components[0] = AddSubdirectoryCandidate(components[0], metadata.Value.RepositoryUrl);
@@ -166,7 +166,7 @@ internal sealed class SourceRepositoryService
 
     private async ValueTask<(ScanComponent[] Components, SourceRepositorySummary Summary)> EnrichCoreAsync(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         int concurrency,
         CancellationToken cancellationToken)
     {
@@ -181,7 +181,7 @@ internal sealed class SourceRepositoryService
         var targetCount = 0;
         try
         {
-            targetCount = PlanTargets(components, workspace, targets, origins, componentTargetIndexes, originIndexes, targetIndexes, uncollectedPackages, out var unplannedUnknownCount);
+            targetCount = PlanTargets(components, resolutions, targets, origins, componentTargetIndexes, originIndexes, targetIndexes, uncollectedPackages, out var unplannedUnknownCount);
 
             if (targetCount == 1)
             {
@@ -234,7 +234,7 @@ internal sealed class SourceRepositoryService
     }
 
     /// <summary>
-    /// Deduplicates every component's repository target. Synchronous so the workspace records cannot span an await.
+    /// Deduplicates every component's repository target. Synchronous so the resolution reads cannot span an await.
     /// </summary>
     /// <remarks>
     /// Deduplication happens twice, and the order matters. The first pass keys on the supplied
@@ -246,7 +246,7 @@ internal sealed class SourceRepositoryService
     /// </remarks>
     private static int PlanTargets(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         Span<SourceRepositoryTarget> targets,
         Span<SourceRepositoryOrigin> origins,
         Span<int> componentTargetIndexes,
@@ -255,7 +255,7 @@ internal sealed class SourceRepositoryService
         PurlPrefixSet? uncollectedPackages,
         out int unplannedUnknownCount)
     {
-        var records = workspace.Records;
+        var records = resolutions;
         var useLinearPlanning = targetIndexes is null;
         var targetCount = 0;
         unplannedUnknownCount = 0;

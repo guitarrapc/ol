@@ -329,7 +329,7 @@ internal static class CheckRenderer
         // The path names the direct dependency a reviewer can actually change, which the row identifying
         // only the offending package never does when the violation is transitive.
         builder.AppendLine("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tPath");
-        var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
+        using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
         for (var i = 0; i < violations.Length; i++)
         {
             var violation = violations[i];

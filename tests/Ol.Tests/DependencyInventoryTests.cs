@@ -1,4 +1,4 @@
-﻿using Ol.Core;
+using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 
@@ -17,10 +17,10 @@ public sealed class DependencyInventoryTests
         };
         var components = new[]
         {
-            new ScanComponent("App", "1.0.0", default, "nuget", DependencyType.Root, LicenseStatus.Unknown, default, "App/1.0.0", default, [], []),
-            new ScanComponent("Example.Native", "1.0.0", default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, "pkg:nuget/Example.Native@1.0.0", "Example.Native/1.0.0", default, [], []),
-            new ScanComponent("App", "1.0.0", default, "nuget", DependencyType.Root, LicenseStatus.Unknown, default, "App/1.0.0", default, [], []),
-            new ScanComponent("Example.Native", "1.0.0", default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, "pkg:nuget/Example.Native@1.0.0", "Example.Native/1.0.0", default, [], []),
+            new ScanComponent("App", "1.0.0", default, "nuget", DependencyType.Root, LicenseStatus.Unknown, default, "App/1.0.0", default, []),
+            new ScanComponent("Example.Native", "1.0.0", default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, "pkg:nuget/Example.Native@1.0.0", "Example.Native/1.0.0", default, []),
+            new ScanComponent("App", "1.0.0", default, "nuget", DependencyType.Root, LicenseStatus.Unknown, default, "App/1.0.0", default, []),
+            new ScanComponent("Example.Native", "1.0.0", default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, "pkg:nuget/Example.Native@1.0.0", "Example.Native/1.0.0", default, []),
         };
         var occurrences = new[]
         {
@@ -50,7 +50,7 @@ public sealed class DependencyInventoryTests
         var secondLookup = OlDefaults.TryCreatePackageMetadataRequest(second.Purl.ToString(), out var secondRequest);
         await Assert.That(firstLookup).IsTrue();
         await Assert.That(secondLookup).IsTrue();
-        await Assert.That(firstRequest.CacheKey).IsEqualTo(secondRequest.CacheKey);
+        await Assert.That(firstRequest.CacheKey.ToString()).IsEqualTo(secondRequest.CacheKey.ToString());
     }
 
     [Test]
@@ -60,7 +60,7 @@ public sealed class DependencyInventoryTests
             LicenseEvidenceKind.DependencyInput,
             DependencyInput: new DependencyInputEvidence("nuget-assets", "libraries.license"));
         var candidate = LicenseCandidateFactory.Create(LicenseCandidateSource.DependencyInput, LicenseCandidateKind.License, "MIT"u8, new SpdxLicenseIndex(["MIT"], []), evidence);
-        var component = new ScanComponent("Example", "1.0.0", "MIT", "nuget", DependencyType.Direct, LicenseStatus.Matched, "pkg:nuget/Example@1.0.0", "Example/1.0.0", candidate, [], []);
+        var component = new ScanComponent("Example", "1.0.0", "MIT", "nuget", DependencyType.Direct, LicenseStatus.Matched, "pkg:nuget/Example@1.0.0", "Example/1.0.0", candidate, []);
 
         await Assert.That(component.PrimaryCandidate.Evidence.Kind).IsEqualTo(LicenseEvidenceKind.DependencyInput);
         await Assert.That(component.PrimaryCandidate.Evidence.Kind).IsNotEqualTo(LicenseEvidenceKind.Sbom);

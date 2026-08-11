@@ -9,7 +9,7 @@
 /// not as an empty <see cref="Matched"/> expression that a policy check would then be unable to explain.
 /// Report and baseline documents persist these as name tokens, so the numbers are free to be pinned here.
 /// </remarks>
-public enum LicenseStatus
+public enum LicenseStatus : byte
 {
     /// <summary>No usable license information is available. The safe default for an unset status.</summary>
     Unknown = 0,

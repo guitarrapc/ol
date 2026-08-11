@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Internals;
 using System.Buffers;
@@ -35,7 +35,7 @@ public class JsonReportRendererBenchmark
                 """),
             spdx.Index);
         components = inventory.Components;
-        groups = ScanView.Group(components, "license");
+        groups = ScanView.Group(components, null, components.Length, "license");
     }
 
     [Benchmark]

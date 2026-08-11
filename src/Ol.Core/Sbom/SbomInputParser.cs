@@ -879,7 +879,7 @@ internal static class SbomInputParser
             sourceId,
             primaryCandidate,
             additionalCandidates,
-            hasDeprecatedWarning ? ["deprecated_spdx_identifier"] : [],
+            hasDeprecatedWarning ? LicenseCandidateWarnings.DeprecatedSpdxIdentifier : LicenseCandidateWarnings.None,
             repositoryUrl);
     }
 

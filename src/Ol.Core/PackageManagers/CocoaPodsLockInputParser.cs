@@ -216,7 +216,6 @@ internal static class CocoaPodsLockInputParser
                         purl,
                         CreateSourceId(node.Name, node.Version),
                         default,
-                        [],
                         []);
                     if (!retainGraph) continue;
                     occurrences[nodeIndex] = new DependencyOccurrence(0, nodeIndex);

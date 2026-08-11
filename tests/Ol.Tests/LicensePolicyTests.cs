@@ -1,4 +1,4 @@
-﻿using Ol.Core;
+using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 
@@ -542,10 +542,10 @@ public sealed class LicensePolicyTests
     }
 
     private static ScanComponent CreateComponent(Utf8Slice license, LicenseStatus status, string name = "example")
-        => new(name, "1.0.0", license, "npm", DependencyType.Direct, status, $"pkg:npm/{name}@1.0.0", name, default, [], []);
+        => new(name, "1.0.0", license, "npm", DependencyType.Direct, status, $"pkg:npm/{name}@1.0.0", name, default, []);
 
     private static ScanComponent CreateComponentWithPurl(Utf8Slice purl, LicenseStatus status, Utf8Slice license = default)
-        => new("example", "1.0.0", license, "npm", DependencyType.Direct, status, purl, "example", default, [], []);
+        => new("example", "1.0.0", license, "npm", DependencyType.Direct, status, purl, "example", default, []);
 
     /// <summary>Builds an ambiguous component through the factory, so a value it declines to resolve
     /// reaches the policy exactly as it would in a scan.</summary>
@@ -575,6 +575,5 @@ public sealed class LicensePolicyTests
             "pkg:npm/example@1.0.0",
             "example",
             candidates[0],
-            candidates[1..],
-            []);
+            candidates[1..]);
 }

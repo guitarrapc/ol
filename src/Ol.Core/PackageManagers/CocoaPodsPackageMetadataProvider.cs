@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.PackageMetadata;
 using System.Buffers;
 using System.Security.Cryptography;
@@ -16,7 +16,7 @@ public sealed class CocoaPodsPackageMetadataProvider : PackageMetadataProvider
 
     public override string Ecosystem => "cocoapods";
 
-    public override bool TryCreate(string purl, out PackageMetadataRequest request)
+    public override bool TryCreate(Utf8Slice purl, out PackageMetadataRequest request)
     {
         if (!base.TryCreate(purl, out request)
             || request.Namespace.Length != 0

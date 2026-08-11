@@ -1,4 +1,5 @@
-﻿using Ol.Core.PackageMetadata;
+using Ol.Core.PackageMetadata;
+using System.Text;
 using System.Text.Json;
 
 namespace Ol.Core.PackageManagers;
@@ -10,17 +11,18 @@ public sealed class RubyGemsPackageMetadataProvider : PackageMetadataProvider
 
     public override string Ecosystem => "gem";
 
-    public override bool TryCreate(string purl, out PackageMetadataRequest request)
+    public override bool TryCreate(Utf8Slice purl, out PackageMetadataRequest request)
     {
-        if (!base.TryCreate(purl, out request) || request.Namespace.Length != 0 || !TryReadPlatform(purl, out var platform))
+        if (!base.TryCreate(purl, out request) || request.Namespace.Length != 0 || !TryReadPlatform(purl.Span, out var platform))
         {
             request = default;
             return false;
         }
 
-        var fragment = purl.IndexOf('#');
-        var cacheKey = fragment < 0 ? purl : purl[..fragment];
-        request = request with { CacheKey = cacheKey, Platform = platform };
+        // The platform qualifier distinguishes two published gems, so unlike every other ecosystem the key
+        // keeps the query. Only the subpath is dropped, and what remains is still a slice of the purl.
+        var fragment = purl.Span.IndexOf((byte)'#');
+        request = request with { CacheKey = fragment < 0 ? purl : purl.Slice(0, fragment), Platform = platform };
         return true;
     }
 
@@ -53,22 +55,22 @@ public sealed class RubyGemsPackageMetadataProvider : PackageMetadataProvider
         return new("rubygems-registry", license, repository);
     }
 
-    private static bool TryReadPlatform(string purl, out string platform)
+    private static bool TryReadPlatform(ReadOnlySpan<byte> purl, out string platform)
     {
         platform = string.Empty;
-        var query = purl.IndexOf('?');
-        var fragment = purl.IndexOf('#');
+        var query = purl.IndexOf((byte)'?');
+        var fragment = purl.IndexOf((byte)'#');
         if (query < 0) return true;
         if (fragment >= 0 && query > fragment) return false;
         var end = fragment < 0 ? purl.Length : fragment;
-        var value = purl.AsSpan(query + 1, end - query - 1);
-        const string Prefix = "platform=";
-        if (!value.StartsWith(Prefix, StringComparison.Ordinal) || value[Prefix.Length..].IndexOf('&') >= 0)
+        var value = purl[(query + 1)..end];
+        const int PrefixLength = 9; // "platform="
+        if (!value.StartsWith("platform="u8) || value[PrefixLength..].IndexOf((byte)'&') >= 0)
         {
             return false;
         }
 
-        platform = Uri.UnescapeDataString(value[Prefix.Length..].ToString());
+        platform = Uri.UnescapeDataString(Encoding.UTF8.GetString(value[PrefixLength..]));
         return platform.Length != 0;
     }
 

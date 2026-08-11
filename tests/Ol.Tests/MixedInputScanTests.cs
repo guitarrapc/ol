@@ -325,9 +325,9 @@ public sealed class MixedInputScanTests
                 CreateComponent(index, "pkg:npm/shared@1.0.0"),
                 CreateComponent(index, "pkg:npm/alpha@1.0.0"),
             };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.TargetCount).IsEqualTo(2);
             await Assert.That(enrichment.Summary.SupportedComponentCount).IsEqualTo(3);
@@ -339,7 +339,7 @@ public sealed class MixedInputScanTests
     }
 
     private static ScanComponent CreateComponent(SpdxLicenseIndex index, Utf8Slice purl)
-        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
 
     private static int EdgeCount(JsonDocument report)
         => report.RootElement.GetProperty("inventory").GetProperty("edges").GetArrayLength();

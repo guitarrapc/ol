@@ -1,4 +1,5 @@
-﻿using BenchmarkDotNet.Attributes;
+using Ol.Core;
+using BenchmarkDotNet.Attributes;
 
 // TEMPORARY: added to measure the P0 cache-read allocation work
 // (see .github/docs/plans/plan_allocation_reduction.md).
@@ -10,7 +11,12 @@
 [MemoryDiagnoser]
 public class CacheReadBenchmark : IDisposable
 {
-    private const string PackageCacheKey = "pkg:npm/example@1.0.0";
+    private const string PackageCacheKeyText = "pkg:npm/example@1.0.0";
+
+    // Enrichment reaches the cache with the purl it already holds as UTF-8, so the keys are sliced the way
+    // the scan supplies them rather than decoded into text the product never builds.
+    private static readonly Utf8Slice PackageCacheKey = Utf8Slice.FromString(PackageCacheKeyText);
+    private static readonly Utf8Slice AbsentCacheKey = Utf8Slice.FromString("pkg:npm/absent@1.0.0");
     private readonly PackageMetadataCache packageCache;
     private readonly string root;
     private readonly SourceRepositoryCache sourceCache;
@@ -21,7 +27,7 @@ public class CacheReadBenchmark : IDisposable
         root = Path.Combine(Path.GetTempPath(), $"ol-cache-read-{Guid.NewGuid():N}");
         packageCache = new PackageMetadataCache(Path.Combine(root, "package"));
         packageCache
-            .WriteAsync(new PackageMetadataRecord(PackageCacheKey, "npm-registry", "MIT", "https://github.com/owner/repository", [], []))
+            .WriteAsync(new PackageMetadataRecord(PackageCacheKeyText, "npm-registry", "MIT", "https://github.com/owner/repository", [], []))
             .GetAwaiter()
             .GetResult();
 
@@ -37,14 +43,14 @@ public class CacheReadBenchmark : IDisposable
     [Benchmark]
     public int PackageCacheHit()
     {
-        using var entry = packageCache.TryRead(PackageCacheKey);
+        var entry = packageCache.TryRead(PackageCacheKey);
         return entry.RawLicense.Length;
     }
 
     [Benchmark]
     public int PackageCacheMiss()
     {
-        using var entry = packageCache.TryRead("pkg:npm/absent@1.0.0");
+        var entry = packageCache.TryRead(AbsentCacheKey);
         return entry.IsHit ? 1 : 0;
     }
 
@@ -59,7 +65,7 @@ public class CacheReadBenchmark : IDisposable
     public int SourceCacheMiss() => (int)sourceCache.Read("github:owner/absent@default").Status;
 
     [Benchmark]
-    public int PackageCachePath() => packageCache.GetPath(PackageCacheKey).Length;
+    public int PackageCachePath() => packageCache.GetPath(PackageCacheKeyText).Length;
 
     public void Dispose()
     {

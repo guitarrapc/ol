@@ -15,7 +15,7 @@ namespace Ol.Core;
 /// <param name="SourceId">The source SBOM component identifier, when present.</param>
 /// <param name="PrimaryCandidate">The first extracted license candidate, when present.</param>
 /// <param name="AdditionalCandidates">The additional extracted candidates, when present.</param>
-/// <param name="Warnings">Warnings associated with this component.</param>
+/// <param name="Warnings">Warnings associated with this component, as the same bit set its candidates carry.</param>
 /// <param name="RepositoryUrl">The source repository URL supplied by the SBOM, when present.</param>
 /// <param name="SuppliedBy">The input kinds that supplied this component.</param>
 public readonly record struct ScanComponent(
@@ -29,7 +29,7 @@ public readonly record struct ScanComponent(
     Utf8Slice SourceId,
     LicenseCandidate PrimaryCandidate,
     LicenseCandidate[] AdditionalCandidates,
-    string[] Warnings,
+    LicenseCandidateWarnings Warnings = LicenseCandidateWarnings.None,
     Utf8Slice RepositoryUrl = default,
     ComponentSupply SuppliedBy = ComponentSupply.None)
 {

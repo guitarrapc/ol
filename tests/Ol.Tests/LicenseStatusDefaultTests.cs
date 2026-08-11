@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
@@ -100,7 +100,7 @@ public sealed class LicenseStatusDefaultTests
     [Test]
     public async Task Reconcile_WithNoCandidates_ReportsUnknown()
     {
-        var component = new ScanComponent("x", "1.0.0", default, "npm", DependencyType.Direct, LicenseStatus.Matched, default, default, default, [], []);
+        var component = new ScanComponent("x", "1.0.0", default, "npm", DependencyType.Direct, LicenseStatus.Matched, default, default, default, []);
 
         var reconciled = LicenseReconciler.Reconcile(component);
 

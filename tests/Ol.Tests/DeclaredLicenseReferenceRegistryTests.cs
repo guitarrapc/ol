@@ -75,7 +75,7 @@ public sealed class DeclaredLicenseReferenceRegistryTests
             Directory.CreateDirectory(root);
             await cache.WriteAsync(new PackageMetadataRecord(purl, "nuget-registry", string.Empty, string.Empty, [], [], DateTimeOffset.UtcNow, string.Empty, DeclaredLicenseReferenceKind.ArtifactPath, "MIT-LICENSE.txt"));
 
-            using var entry = await cache.TryReadAsync(purl);
+            var entry = await cache.TryReadAsync(purl);
 
             await Assert.That(entry.IsHit).IsTrue();
             await Assert.That(entry.DeclaredLicenseReferenceKind).IsEqualTo(DeclaredLicenseReferenceKind.ArtifactPath);
@@ -100,9 +100,9 @@ public sealed class DeclaredLicenseReferenceRegistryTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0);
             var components = new[] { CreateComponent(index, purl) };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
             var component = enrichment.Components[0];
             var reference = component.GetCandidate(component.CandidateCount - 1).Evidence.DeclaredReference;
 
@@ -145,9 +145,9 @@ public sealed class DeclaredLicenseReferenceRegistryTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             using var httpClient = new HttpClient(new StaticHandler("""{ "version": { "license": "MIT" } }"""));
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
-            using var workspace = new PackageMetadataWorkspace(1);
+            var resolutions = new PackageMetadataResolution?[1];
 
-            var enrichment = await service.EnrichAsync([CreateComponent(index, purl)], workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync([CreateComponent(index, purl)], resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(expectedMisses);
         }
@@ -158,7 +158,7 @@ public sealed class DeclaredLicenseReferenceRegistryTests
     }
 
     private static ScanComponent CreateComponent(SpdxLicenseIndex index, Utf8Slice purl)
-        => new("example", "1.0.0", default, "nuget", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        => new("example", "1.0.0", default, "nuget", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
 
     private const string NuGetServiceIndexJson = """
         {

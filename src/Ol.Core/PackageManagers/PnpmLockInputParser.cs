@@ -120,7 +120,6 @@ internal static class PnpmLockInputParser
                     CreatePurl(name, version),
                     node.Identity,
                     default,
-                    [],
                     []);
             }
 

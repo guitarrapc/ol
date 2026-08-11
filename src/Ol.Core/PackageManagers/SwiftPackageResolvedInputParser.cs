@@ -98,7 +98,7 @@ internal static class SwiftPackageResolvedInputParser
                     CreateSourceId(pin.Identity, resolved),
                     default,
                     [],
-                    [],
+                    LicenseCandidateWarnings.None,
                     purl.IsEmpty ? default : pin.Location);
                 if (retainGraph)
                 {

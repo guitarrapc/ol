@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -768,7 +768,7 @@ internal static class CargoMetadataInputParser
             node.Id,
             candidate,
             [],
-            candidate.Warnings.ToStrings(),
+            candidate.Warnings,
             node.Repository);
     }
 

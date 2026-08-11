@@ -71,7 +71,7 @@ public class DependencyInventoryCombinerBenchmark
                 sourceId,
                 LicenseCandidateFactory.Create(LicenseCandidateSource.DependencyInput, LicenseCandidateKind.Id, "MIT"u8, spdx),
                 [],
-                [],
+                LicenseCandidateWarnings.None,
                 default,
                 ComponentSupply.PackageManager);
             occurrences[i] = new DependencyOccurrence(DependencyOccurrence.UnspecifiedContext, i);
@@ -98,7 +98,7 @@ public class DependencyInventoryCombinerBenchmark
                 Utf8Slice.FromOwnedBytes(System.Text.Encoding.UTF8.GetBytes($"ref-{i}")),
                 LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "MIT"u8, spdx),
                 [],
-                [],
+                LicenseCandidateWarnings.None,
                 default,
                 ComponentSupply.Sbom);
             occurrences[i] = new DependencyOccurrence(DependencyOccurrence.UnspecifiedContext, i);

@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -21,9 +21,13 @@ public sealed class PackageMetadataCache(string root)
     /// <param name="cacheKey">The logical package metadata cache key.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The cache entry, which the caller must dispose. Absent or corrupt entries are not hits.</returns>
-    public async Task<PackageMetadataCacheEntry> TryReadAsync(string cacheKey, CancellationToken cancellationToken = default)
+    public Task<PackageMetadataCacheEntry> TryReadAsync(string cacheKey, CancellationToken cancellationToken = default)
+        => TryReadAsync(Utf8Slice.FromString(cacheKey), cancellationToken);
+
+    /// <inheritdoc cref="TryReadAsync(string, CancellationToken)"/>
+    public async Task<PackageMetadataCacheEntry> TryReadAsync(Utf8Slice cacheKey, CancellationToken cancellationToken = default)
     {
-        var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey);
+        var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey.Span);
         var (content, length) = await CacheFile.RentContentAsync(CacheFile.BuildPath(Root, cacheKeySha256), cancellationToken).ConfigureAwait(false);
         return length < 0 ? default : Parse(content, length, cacheKey, cacheKeySha256);
     }
@@ -33,9 +37,12 @@ public sealed class PackageMetadataCache(string root)
     /// </summary>
     /// <param name="cacheKey">The logical package metadata cache key.</param>
     /// <returns>The cache entry, which the caller must dispose. Absent or corrupt entries are not hits.</returns>
-    public PackageMetadataCacheEntry TryRead(string cacheKey)
+    public PackageMetadataCacheEntry TryRead(string cacheKey) => TryRead(Utf8Slice.FromString(cacheKey));
+
+    /// <inheritdoc cref="TryRead(string)"/>
+    public PackageMetadataCacheEntry TryRead(Utf8Slice cacheKey)
     {
-        var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey);
+        var cacheKeySha256 = CacheFile.GetCacheKeySha256(cacheKey.Span);
         return CacheFile.TryRentContent(CacheFile.BuildPath(Root, cacheKeySha256), out var content, out var length)
             ? Parse(content, length, cacheKey, cacheKeySha256)
             : default;
@@ -43,21 +50,22 @@ public sealed class PackageMetadataCache(string root)
 
     /// <summary>Validates and captures one entry in a single pass, without materializing discarded text.</summary>
     /// <remarks>
-    /// The entry adopts <paramref name="content"/> only when it is a hit, so a rejected entry returns
-    /// its buffer here and a hit returns it from <see cref="PackageMetadataCacheEntry.Dispose"/>.
+    /// The buffer is returned here whatever the outcome, so no caller can hold storage the pool has
+    /// already handed to someone else. Values the entry keeps are copied out before that happens.
     /// </remarks>
-    private static PackageMetadataCacheEntry Parse(byte[] content, int length, string cacheKey, string cacheKeySha256)
+    private static PackageMetadataCacheEntry Parse(byte[] content, int length, Utf8Slice cacheKey, string cacheKeySha256)
     {
-        if (TryParseVersion1(content, length, cacheKey, cacheKeySha256, out var entry))
+        try
         {
-            return entry;
+            return TryParseVersion1(content, length, cacheKey, cacheKeySha256, out var entry) ? entry : default;
         }
-
-        CacheFile.Return(content);
-        return default;
+        finally
+        {
+            CacheFile.Return(content);
+        }
     }
 
-    private static bool TryParseVersion1(byte[] content, int length, string cacheKey, string cacheKeySha256, out PackageMetadataCacheEntry entry)
+    private static bool TryParseVersion1(byte[] content, int length, Utf8Slice cacheKey, string cacheKeySha256, out PackageMetadataCacheEntry entry)
     {
         entry = default;
         var reader = new Utf8JsonReader(content.AsSpan(0, length));
@@ -96,7 +104,7 @@ public sealed class PackageMetadataCache(string root)
                 }
                 else if (reader.ValueTextEquals("CacheKey"u8))
                 {
-                    if (!reader.Read() || reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(cacheKey))
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(cacheKey.Span))
                     {
                         return false;
                     }
@@ -227,8 +235,35 @@ public sealed class PackageMetadataCache(string root)
             return false;
         }
 
-        entry = new PackageMetadataCacheEntry(content, cacheKeySha256, source, rawLicense, warnings, repositoryUrl, repositoryRef, fetchedAt, resolverVersion, referenceKind, reference);
+        // Read out of the buffer while it is still valid. Everything the entry keeps is owned from here on.
+        entry = new PackageMetadataCacheEntry(
+            true,
+            cacheKeySha256,
+            GetCandidateSource(source.Span),
+            Utf8Slice.FromOwnedBytes(rawLicense.Span.ToArray()),
+            LicenseCandidateIdentifiers.ParseWarnings(warnings.Span),
+            repositoryUrl,
+            repositoryRef,
+            fetchedAt,
+            resolverVersion,
+            referenceKind,
+            referenceKind == DeclaredLicenseReferenceKind.None ? default : Utf8Slice.FromOwnedBytes(reference.Span.ToArray()));
         return true;
+    }
+
+    /// <summary>Maps a persisted source token to the candidate source it names.</summary>
+    /// <remarks>
+    /// An unrecognized token is still a registry answer, so it resolves to the general
+    /// <see cref="LicenseCandidateSource.PackageRegistry"/> rather than to no source at all.
+    /// </remarks>
+    private static LicenseCandidateSource GetCandidateSource(ReadOnlySpan<byte> source)
+    {
+        if (source.SequenceEqual("npm-registry"u8)) return LicenseCandidateSource.NpmRegistry;
+        if (source.SequenceEqual("nuget-registry"u8)) return LicenseCandidateSource.NuGetRegistry;
+        if (source.SequenceEqual("cargo-registry"u8)) return LicenseCandidateSource.CargoRegistry;
+        if (source.SequenceEqual("go-module-proxy"u8)) return LicenseCandidateSource.GoModuleProxy;
+        if (source.SequenceEqual("deps.dev"u8)) return LicenseCandidateSource.DepsDev;
+        return LicenseCandidateSource.PackageRegistry;
     }
 
     /// <summary>Captures a string value as a slice of the entry buffer, copying only escaped text.</summary>
@@ -363,6 +398,11 @@ public sealed class PackageMetadataCache(string root)
     /// <param name="cacheKey">The logical package metadata cache key.</param>
     /// <returns>The lower-case SHA-256 cache key hash.</returns>
     public static string GetCacheKeySha256(string cacheKey) => CacheFile.GetCacheKeySha256(cacheKey);
+
+    /// <summary>Calculates the cache key hash from the UTF-8 the key was read from.</summary>
+    /// <param name="cacheKey">The logical package metadata cache key.</param>
+    /// <returns>The lower-case SHA-256 cache key hash.</returns>
+    public static string GetCacheKeySha256(ReadOnlySpan<byte> cacheKey) => CacheFile.GetCacheKeySha256(cacheKey);
 
     /// <summary>Parses the persisted reference kind. An unknown value rejects the entry rather than losing it silently.</summary>
     private static bool TryParseReferenceKind(ReadOnlySpan<byte> value, out DeclaredLicenseReferenceKind kind)

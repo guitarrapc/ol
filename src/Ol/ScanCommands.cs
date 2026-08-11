@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Buffers;
+using System.Numerics;
 using System.Buffers.Text;
 using System.Reflection;
 using System.Text;
@@ -134,7 +135,7 @@ internal sealed class ScanCommands
         var components = viewComponents.AsSpan(0, componentCount);
         var componentUsages = viewUsages is null ? default : viewUsages.AsSpan(0, componentCount);
         var dependencyFilteredCount = dependency is null or "" ? 0 : scanResult.Inventory.Components.Length - components.Length;
-        var groups = groupBy is null or "" ? null : ScanView.Group(components, groupBy);
+        var groups = groupBy is null or "" ? null : ScanView.Group(viewComponents, viewUsages, componentCount, groupBy);
         if (format == ReportFormat.Json)
         {
             try
@@ -165,19 +166,9 @@ internal sealed class ScanCommands
         }
         else
         {
-            var emptyInventory = scanResult.Inventory.Components.Length == 0;
-            var text = groups is null
-                ? ReportRenderer.RenderMarkdown(scanResult.Inventory, components, verbose, emptyInventory)
-                : ReportRenderer.RenderMarkdown(groups, groupBy!, emptyInventory);
-            text = ReportRenderer.RenderInputHeader(format, scanResult.Inventory.Input) + text;
-            if (!text.EndsWith('\n'))
-            {
-                text += '\n';
-            }
-
             try
             {
-                Console.Write(text);
+                WriteMarkdown(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, groups, groupBy, verbose, scanResult.Inventory.Components.Length == 0);
             }
             catch (IOException exception)
             {
@@ -236,6 +227,28 @@ internal sealed class ScanCommands
         else
         {
             ReportRenderer.WriteText(buffer, inventory.Input, groups, groupBy!, emptyInventory);
+        }
+    }
+
+    /// <summary>Writes the Markdown report through the same pooled buffer the other views use.</summary>
+    private static void WriteMarkdown(
+        Stream output,
+        in DependencyInventory inventory,
+        ReadOnlySpan<ScanComponent> components,
+        GroupRow[]? groups,
+        string? groupBy,
+        bool verbose,
+        bool emptyInventory)
+    {
+        using var buffer = new PooledStreamBufferWriter(output);
+        ReportRenderer.WriteMarkdownInputHeader(buffer, inventory.Input);
+        if (groups is null)
+        {
+            ReportRenderer.WriteMarkdown(buffer, inventory, components, verbose, emptyInventory);
+        }
+        else
+        {
+            ReportRenderer.WriteMarkdown(buffer, groups, groupBy!, emptyInventory);
         }
     }
 
@@ -853,7 +866,7 @@ internal static class ScanView
     public static int Apply(ScanComponent[] components, string? dependency, string sort, SortOrder sortOrder)
     {
         var count = FilterByDependency(components, dependency);
-        components.AsSpan(0, count).Sort(CreateComparison(sort, sortOrder));
+        SortView(components, null, count, sort, sortOrder);
         return count;
     }
 
@@ -861,37 +874,213 @@ internal static class ScanView
     public static int Apply(ScanComponent[] components, DependencyUsage[] usages, string? dependency, string sort, SortOrder sortOrder)
     {
         var count = FilterByDependency(components, usages, dependency);
-        Array.Sort(components, usages, 0, count, Comparer<ScanComponent>.Create(CreateComparison(sort, sortOrder)));
+        SortView(components, usages, count, sort, sortOrder);
         return count;
     }
 
-    public static GroupRow[] Group(ReadOnlySpan<ScanComponent> components, string groupBy)
+    /// <summary>
+    /// Orders the view by sorting component positions rather than the components themselves.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A component is a 216-byte struct, and sorting the array directly moved one per swap and copied two
+    /// per comparison, because a <see cref="Comparison{T}"/> takes both operands by value. Sorting an
+    /// index moves four bytes per swap and reads each component through a reference, so the work the
+    /// comparison does is the key comparison and nothing else. Applying the result costs one gather and
+    /// one bulk copy, which is linear against the sort's n log n.
+    /// </para>
+    /// <para>
+    /// Ties resolve to input order, which makes a view reproducible from the inventory alone instead of
+    /// depending on what introsort happened to do with equal keys.
+    /// </para>
+    /// </remarks>
+    private static void SortView(ScanComponent[] components, DependencyUsage[]? usages, int count, string sort, SortOrder sortOrder)
     {
-        var fields = ParseGroupFields(groupBy);
-        var groups = new Dictionary<string, GroupRowBuilder>(StringComparer.Ordinal);
-        for (var i = 0; i < components.Length; i++)
+        var keys = ParseSortFields(sort);
+        if (count < 2)
         {
-            var values = CreateGroupValues(components[i], fields);
-            var key = string.Join('\u001f', values);
-            if (!groups.TryGetValue(key, out var builder))
+            return;
+        }
+
+        var order = ArrayPool<int>.Shared.Rent(count);
+        var ordered = ArrayPool<ScanComponent>.Shared.Rent(count);
+        var orderedUsages = usages is null ? [] : ArrayPool<DependencyUsage>.Shared.Rent(count);
+        try
+        {
+            for (var i = 0; i < count; i++)
             {
-                builder = new GroupRowBuilder(values);
-                groups[key] = builder;
+                order[i] = i;
             }
 
-            builder.Components.Add(components[i]);
-        }
+            order.AsSpan(0, count).Sort(new ComponentOrderComparer(components, keys, sortOrder));
 
-        var result = new GroupRow[groups.Count];
-        var index = 0;
-        foreach (var group in groups.Values)
+            for (var i = 0; i < count; i++)
+            {
+                ordered[i] = components[order[i]];
+            }
+
+            ordered.AsSpan(0, count).CopyTo(components);
+            if (usages is not null)
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    orderedUsages[i] = usages[order[i]];
+                }
+
+                orderedUsages.AsSpan(0, count).CopyTo(usages);
+            }
+        }
+        finally
         {
-            result[index] = new GroupRow(group.Values, group.Components.Count, group.Components.ToArray());
-            index++;
+            if (orderedUsages.Length != 0)
+            {
+                ArrayPool<DependencyUsage>.Shared.Return(orderedUsages);
+            }
+
+            ArrayPool<ScanComponent>.Shared.Return(ordered, clearArray: true);
+            ArrayPool<int>.Shared.Return(order);
+        }
+    }
+
+    /// <summary>Compares two component positions by the requested keys, reading each component by reference.</summary>
+    private readonly struct ComponentOrderComparer(ScanComponent[] components, SortField[] keys, SortOrder sortOrder) : IComparer<int>
+    {
+        public int Compare(int x, int y)
+        {
+            ref var left = ref components[x];
+            ref var right = ref components[y];
+            for (var i = 0; i < keys.Length; i++)
+            {
+                var comparison = CompareByKey(in left, in right, keys[i]);
+                if (comparison != 0)
+                {
+                    return sortOrder == SortOrder.Desc ? -comparison : comparison;
+                }
+            }
+
+            return x.CompareTo(y);
+        }
+    }
+
+    public static GroupRow[] Group(ScanComponent[] components, DependencyUsage[]? usages, int count, string groupBy)
+    {
+        var fields = ParseGroupFields(groupBy);
+        if (count == 0)
+        {
+            return [];
         }
 
-        Array.Sort(result, CompareGroupRows);
-        return result;
+        // Sized so the table never rehashes and stays under half full, which is what lets the index be a
+        // pooled array of row numbers instead of a dictionary that allocates per entry.
+        var capacity = (int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(count * 2, 4));
+        var mask = capacity - 1;
+        var table = ArrayPool<int>.Shared.Rent(capacity);
+        var componentGroups = ArrayPool<int>.Shared.Rent(count);
+        var representatives = ArrayPool<int>.Shared.Rent(count);
+        var starts = ArrayPool<int>.Shared.Rent(count);
+        var counts = ArrayPool<int>.Shared.Rent(count);
+        try
+        {
+            table.AsSpan(0, capacity).Fill(-1);
+            var groupCount = 0;
+            for (var i = 0; i < count; i++)
+            {
+                var slot = GetGroupHash(components[i], fields) & mask;
+                int group;
+                while (true)
+                {
+                    group = table[slot];
+                    if (group < 0)
+                    {
+                        group = groupCount++;
+                        table[slot] = group;
+                        representatives[group] = i;
+                        counts[group] = 0;
+                        break;
+                    }
+
+                    if (GroupEquals(components[i], components[representatives[group]], fields))
+                    {
+                        break;
+                    }
+
+                    slot = (slot + 1) & mask;
+                }
+
+                componentGroups[i] = group;
+                counts[group]++;
+            }
+
+            // Built from the original positions, before the components move.
+            var result = new GroupRow[groupCount];
+            var offset = 0;
+            for (var i = 0; i < groupCount; i++)
+            {
+                starts[i] = offset;
+                result[i] = new GroupRow(CreateGroupValues(components[representatives[i]], fields), counts[i], components.AsMemory(offset, counts[i]));
+                offset += counts[i];
+            }
+
+            Reorder(components, usages, count, componentGroups, starts, groupCount);
+            Array.Sort(result, CompareGroupRows);
+            return result;
+        }
+        finally
+        {
+            ArrayPool<int>.Shared.Return(counts);
+            ArrayPool<int>.Shared.Return(starts);
+            ArrayPool<int>.Shared.Return(representatives);
+            ArrayPool<int>.Shared.Return(componentGroups);
+            ArrayPool<int>.Shared.Return(table);
+        }
+    }
+
+    /// <summary>Moves the view into group order so each row can be a window onto it.</summary>
+    /// <remarks>
+    /// The usages travel with their components. Nothing reads them once a view is grouped, because grouped
+    /// output states counts rather than per-component reachability, but leaving two positionally paired
+    /// arrays disagreeing would make the next reader of that pairing wrong rather than merely unlucky.
+    /// </remarks>
+    private static void Reorder(
+        ScanComponent[] components,
+        DependencyUsage[]? usages,
+        int count,
+        ReadOnlySpan<int> componentGroups,
+        ReadOnlySpan<int> starts,
+        int groupCount)
+    {
+        var positions = ArrayPool<int>.Shared.Rent(groupCount);
+        var ordered = ArrayPool<ScanComponent>.Shared.Rent(count);
+        var orderedUsages = usages is null ? [] : ArrayPool<DependencyUsage>.Shared.Rent(count);
+        try
+        {
+            starts[..groupCount].CopyTo(positions);
+            for (var i = 0; i < count; i++)
+            {
+                var target = positions[componentGroups[i]]++;
+                ordered[target] = components[i];
+                if (usages is not null)
+                {
+                    orderedUsages[target] = usages[i];
+                }
+            }
+
+            ordered.AsSpan(0, count).CopyTo(components);
+            if (usages is not null)
+            {
+                orderedUsages.AsSpan(0, count).CopyTo(usages);
+            }
+        }
+        finally
+        {
+            if (orderedUsages.Length != 0)
+            {
+                ArrayPool<DependencyUsage>.Shared.Return(orderedUsages);
+            }
+
+            ArrayPool<ScanComponent>.Shared.Return(ordered, clearArray: true);
+            ArrayPool<int>.Shared.Return(positions);
+        }
     }
 
     public static int CountExcludedUnknown(ReadOnlySpan<ScanComponent> components, string dependency)
@@ -988,24 +1177,6 @@ internal static class ScanView
         };
     }
 
-    private static Comparison<ScanComponent> CreateComparison(string sort, SortOrder sortOrder)
-    {
-        var keys = ParseSortFields(sort);
-        return (left, right) =>
-        {
-            for (var i = 0; i < keys.Length; i++)
-            {
-                var comparison = CompareByKey(left, right, keys[i]);
-                if (comparison != 0)
-                {
-                    return sortOrder == SortOrder.Desc ? -comparison : comparison;
-                }
-            }
-
-            return 0;
-        };
-    }
-
     private static SortField[] ParseSortFields(string sort)
     {
         var tokens = sort.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -1063,7 +1234,7 @@ internal static class ScanView
         throw new ArgumentException($"Unknown sort key: {value}");
     }
 
-    private static int CompareByKey(ScanComponent left, ScanComponent right, SortField key)
+    private static int CompareByKey(in ScanComponent left, in ScanComponent right, SortField key)
     {
         return key switch
         {
@@ -1104,19 +1275,33 @@ internal static class ScanView
         return fields;
     }
 
-    private static string[] CreateGroupValues(ScanComponent component, GroupField[] fields)
+    // The tokens a grouped row displays for the two fields that are not source-backed text. Static UTF-8
+    // storage, so a row naming one of them holds a slice rather than a value it had to encode.
+    private static readonly byte[] GroupTokens = "unknownroottransitiveerrormatchedconflictambiguousinvaliddirect"u8.ToArray();
+    private static readonly Utf8Slice UnknownToken = new(GroupTokens, 0, 7);
+    private static readonly Utf8Slice RootToken = new(GroupTokens, 7, 4);
+    private static readonly Utf8Slice TransitiveToken = new(GroupTokens, 11, 10);
+    private static readonly Utf8Slice ErrorToken = new(GroupTokens, 21, 5);
+    private static readonly Utf8Slice MatchedToken = new(GroupTokens, 26, 7);
+    private static readonly Utf8Slice ConflictToken = new(GroupTokens, 33, 8);
+    private static readonly Utf8Slice AmbiguousToken = new(GroupTokens, 41, 9);
+    private static readonly Utf8Slice InvalidToken = new(GroupTokens, 50, 7);
+    private static readonly Utf8Slice DirectToken = new(GroupTokens, 57, 6);
+
+    /// <summary>Builds one row's displayed values. Runs once per row, never once per component.</summary>
+    private static Utf8Slice[] CreateGroupValues(in ScanComponent component, GroupField[] fields)
     {
-        var values = new string[fields.Length];
+        var values = new Utf8Slice[fields.Length];
         for (var i = 0; i < fields.Length; i++)
         {
             values[i] = fields[i] switch
             {
-                GroupField.Name => component.Name.ToString(),
-                GroupField.Version => component.Version.ToString(),
-                GroupField.License => component.License.ToString(),
-                GroupField.Ecosystem => component.Ecosystem,
-                GroupField.Dependency => component.DependencyType.ToString().ToLowerInvariant(),
-                GroupField.Status => component.Status.ToString().ToLowerInvariant(),
+                GroupField.Name => component.Name,
+                GroupField.Version => component.Version,
+                GroupField.License => component.License,
+                GroupField.Ecosystem => Utf8Slice.FromString(component.Ecosystem),
+                GroupField.Dependency => GetDependencyTypeToken(component.DependencyType),
+                GroupField.Status => GetStatusToken(component.Status),
                 _ => throw new ArgumentOutOfRangeException(nameof(fields)),
             };
         }
@@ -1124,11 +1309,74 @@ internal static class ScanView
         return values;
     }
 
+    private static Utf8Slice GetDependencyTypeToken(DependencyType value) => value switch
+    {
+        DependencyType.Root => RootToken,
+        DependencyType.Direct => DirectToken,
+        DependencyType.Transitive => TransitiveToken,
+        _ => UnknownToken,
+    };
+
+    private static Utf8Slice GetStatusToken(LicenseStatus value) => value switch
+    {
+        LicenseStatus.Matched => MatchedToken,
+        LicenseStatus.Conflict => ConflictToken,
+        LicenseStatus.Ambiguous => AmbiguousToken,
+        LicenseStatus.Invalid => InvalidToken,
+        LicenseStatus.Error => ErrorToken,
+        _ => UnknownToken,
+    };
+
+    /// <summary>Hashes a component by the grouped fields alone, reading UTF-8 without decoding it.</summary>
+    private static int GetGroupHash(in ScanComponent component, GroupField[] fields)
+    {
+        var hash = new HashCode();
+        for (var i = 0; i < fields.Length; i++)
+        {
+            switch (fields[i])
+            {
+                case GroupField.Name: hash.AddBytes(component.Name.Span); break;
+                case GroupField.Version: hash.AddBytes(component.Version.Span); break;
+                case GroupField.License: hash.AddBytes(component.License.Span); break;
+                case GroupField.Ecosystem: hash.Add(component.Ecosystem, StringComparer.Ordinal); break;
+                case GroupField.Dependency: hash.Add((int)component.DependencyType); break;
+                case GroupField.Status: hash.Add((int)component.Status); break;
+                default: throw new ArgumentOutOfRangeException(nameof(fields));
+            }
+        }
+
+        return hash.ToHashCode();
+    }
+
+    /// <summary>Reports whether two components belong in the same row, comparing the grouped fields only.</summary>
+    private static bool GroupEquals(in ScanComponent left, in ScanComponent right, GroupField[] fields)
+    {
+        for (var i = 0; i < fields.Length; i++)
+        {
+            var equal = fields[i] switch
+            {
+                GroupField.Name => left.Name.Equals(right.Name),
+                GroupField.Version => left.Version.Equals(right.Version),
+                GroupField.License => left.License.Equals(right.License),
+                GroupField.Ecosystem => string.Equals(left.Ecosystem, right.Ecosystem, StringComparison.Ordinal),
+                GroupField.Dependency => left.DependencyType == right.DependencyType,
+                GroupField.Status => left.Status == right.Status,
+                _ => throw new ArgumentOutOfRangeException(nameof(fields)),
+            };
+            if (!equal)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static int CompareGroupRows(GroupRow left, GroupRow right)
     {
         for (var i = 0; i < left.Values.Length; i++)
         {
-            var comparison = string.CompareOrdinal(left.Values[i], right.Values[i]);
+            var comparison = Utf8Slice.CompareOrdinal(left.Values[i], right.Values[i]);
             if (comparison != 0)
             {
                 return comparison;
@@ -1160,14 +1408,16 @@ internal enum SortField
     Purl,
 }
 
-internal sealed class GroupRowBuilder(string[] values)
-{
-    public string[] Values { get; } = values;
-
-    public List<ScanComponent> Components { get; } = [];
-}
-
-internal readonly record struct GroupRow(string[] Values, int Count, ScanComponent[] Components);
+/// <summary>
+/// One grouped row: the values that name it, how many components it holds, and which ones.
+/// </summary>
+/// <remarks>
+/// <see cref="Components"/> is a window onto the view array rather than a copy of it. Copying cost one
+/// component struct per component — the row arrays together weighed as much as the whole view — for data
+/// the caller already had in hand. The window is valid for as long as that array is, which for the scan
+/// command is the rest of the report.
+/// </remarks>
+internal readonly record struct GroupRow(Utf8Slice[] Values, int Count, ReadOnlyMemory<ScanComponent> Components);
 
 /// <summary>What the run did and what the rendered view left out, as the canonical JSON report states it.</summary>
 /// <remarks>
@@ -1196,11 +1446,6 @@ internal static class ReportRenderer
         typeof(ReportRenderer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? typeof(ReportRenderer).Assembly.GetName().Version?.ToString()
         ?? "unknown";
-
-    public static string RenderInputHeader(ReportFormat format, ScanInputDescriptor input)
-        => format == ReportFormat.Markdown
-            ? $"Input: `{input.Kind.Name}/{input.Format.Name}`{Environment.NewLine}{Environment.NewLine}"
-            : $"Input: {input.Kind.Name}/{input.Format.Name}{Environment.NewLine}{Environment.NewLine}";
 
     /// <summary>The identifier and sentence that state an input contributed no dependency inventory.</summary>
     /// <remarks>
@@ -1284,47 +1529,57 @@ internal static class ReportRenderer
     private static void WriteUnresolvedText(IBufferWriter<byte> writer, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components)
     {
         var first = true;
+
+        // Built on the first row that needs it, so a report with nothing to explain rents nothing, and
+        // returned however the loop ends.
         var rootPaths = default(DependencyRootPaths);
-        for (var i = 0; i < components.Length; i++)
+        try
         {
-            var component = components[i];
-            if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
+            for (var i = 0; i < components.Length; i++)
             {
-                continue;
-            }
+                var component = components[i];
+                if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
+                {
+                    continue;
+                }
 
-            if (first)
-            {
-                WriteNewLine(writer);
-                WriteUtf8(writer, "Unresolved components"u8);
-                WriteNewLine(writer);
-                rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
-                first = false;
-            }
+                if (first)
+                {
+                    WriteNewLine(writer);
+                    WriteUtf8(writer, "Unresolved components"u8);
+                    WriteNewLine(writer);
+                    rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
+                    first = false;
+                }
 
-            WriteUtf8(writer, "  "u8);
-            WriteDisplay(writer, component.Name);
-            WriteUtf8(writer, " "u8);
-            WriteDisplay(writer, component.Version);
-            WriteUtf8(writer, " "u8);
-            WriteUtf8(writer, reason);
-            var reference = GetUnresolvedReference(component, reason);
-            if (reference.Length != 0)
-            {
+                WriteUtf8(writer, "  "u8);
+                WriteDisplay(writer, component.Name);
                 WriteUtf8(writer, " "u8);
-                WriteUtf8(writer, System.Text.Encoding.UTF8.GetBytes(reference));
-            }
+                WriteDisplay(writer, component.Version);
+                WriteUtf8(writer, " "u8);
+                WriteUtf8(writer, reason);
+                var reference = GetUnresolvedReference(component, reason);
+                if (reference.Length != 0)
+                {
+                    WriteUtf8(writer, " "u8);
+                    WriteUtf8(writer, reference);
+                }
 
-            // The section says what to do next, and for a transitive component that is to change the
-            // direct dependency that pulled it in rather than the component the row names.
-            var path = DependencyPathText.Introducer(inventory, rootPaths, component, i);
-            if (path.Length != 0)
-            {
-                WriteUtf8(writer, " via "u8);
-                WriteUtf8(writer, System.Text.Encoding.UTF8.GetBytes(path));
-            }
+                // The section says what to do next, and for a transitive component that is to change the
+                // direct dependency that pulled it in rather than the component the row names.
+                var path = DependencyPathText.Introducer(inventory, rootPaths, component, i);
+                if (path.Length != 0)
+                {
+                    WriteUtf8(writer, " via "u8);
+                    WriteUtf8(writer, path);
+                }
 
-            WriteNewLine(writer);
+                WriteNewLine(writer);
+            }
+        }
+        finally
+        {
+            rootPaths.Dispose();
         }
     }
 
@@ -1477,91 +1732,129 @@ internal static class ReportRenderer
         return string.Empty;
     }
 
-    public static string RenderMarkdown(in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, bool verbose, bool emptyInventory = false)
+    /// <summary>
+    /// Writes the Markdown report as UTF-8, the encoding it is read in.
+    /// </summary>
+    /// <remarks>
+    /// The report used to be assembled as text and handed over as one string, which cost the document
+    /// twice — once in the builder's chunks and once in the string it produced — and decoded every
+    /// source-backed value on the way in only for the encoder to undo it on the way out. Written as bytes
+    /// the values are copied, not translated, and nothing holds the document but the output buffer.
+    /// </remarks>
+    public static void WriteMarkdown(IBufferWriter<byte> writer, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, bool verbose, bool emptyInventory = false)
     {
-        var builder = new StringBuilder();
-        builder.AppendLine(verbose ? "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED | PURL |" : "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED |");
-        builder.AppendLine(verbose ? "|---|---|---|---|---|---|---|---|" : "|---|---|---|---|---|---|---|");
+        WriteUtf8(writer, verbose
+            ? "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED | PURL |"u8
+            : "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, verbose ? "|---|---|---|---|---|---|---|---|"u8 : "|---|---|---|---|---|---|---|"u8);
+        WriteNewLine(writer);
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
-            builder.Append("| ");
-            AppendMarkdownValue(builder, component.Name);
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, component.Version);
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, component.License);
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, component.Ecosystem);
-            builder.Append(" | ");
-            builder.Append(component.DependencyType.ToString().ToLowerInvariant());
-            builder.Append(" | ");
-            builder.Append(component.Status.ToString().ToLowerInvariant());
-            builder.Append(" | ");
-            builder.Append(Encoding.UTF8.GetString(GetSuppliedByUtf8(component.SuppliedBy)));
+            WriteUtf8(writer, "| "u8);
+            WriteMarkdownValue(writer, component.Name);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.Version);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.License);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.Ecosystem);
+            WriteUtf8(writer, " | "u8);
+            WriteUtf8(writer, GetDependencyTypeUtf8(component.DependencyType));
+            WriteUtf8(writer, " | "u8);
+            WriteUtf8(writer, component.Status.ToUtf8());
+            WriteUtf8(writer, " | "u8);
+            WriteUtf8(writer, GetSuppliedByUtf8(component.SuppliedBy));
             if (verbose)
             {
-                builder.Append(" | ");
-                AppendMarkdownValue(builder, component.Purl);
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, component.Purl);
             }
 
-            builder.AppendLine(" |");
+            WriteUtf8(writer, " |"u8);
+            WriteNewLine(writer);
         }
 
-        AppendEmptyInventoryMarkdown(builder, emptyInventory);
-        AppendUnresolvedMarkdown(builder, inventory, components);
-        return builder.ToString();
+        WriteEmptyInventoryMarkdown(writer, emptyInventory);
+        WriteUnresolvedMarkdown(writer, inventory, components);
+    }
+
+    /// <summary>Writes the report's input line. The text view states the same thing without the code span.</summary>
+    public static void WriteMarkdownInputHeader(IBufferWriter<byte> writer, ScanInputDescriptor input)
+    {
+        WriteUtf8(writer, "Input: `"u8);
+        WriteUtf8(writer, input.Kind.Name);
+        WriteUtf8(writer, "/"u8);
+        WriteUtf8(writer, input.Format.Name);
+        WriteUtf8(writer, "`"u8);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
     }
 
     /// <summary>Renders the same statement as the text report. See <see cref="EmptyInventoryWarning"/>.</summary>
-    private static void AppendEmptyInventoryMarkdown(StringBuilder builder, bool emptyInventory)
+    private static void WriteEmptyInventoryMarkdown(IBufferWriter<byte> writer, bool emptyInventory)
     {
         if (!emptyInventory)
         {
             return;
         }
 
-        builder.AppendLine();
-        builder.Append("## ").AppendLine(Encoding.UTF8.GetString(EmptyInventoryHeadingUtf8));
-        builder.AppendLine();
-        builder.AppendLine(Encoding.UTF8.GetString(EmptyInventorySentenceUtf8));
+        WriteNewLine(writer);
+        WriteUtf8(writer, "## "u8);
+        WriteUtf8(writer, EmptyInventoryHeadingUtf8);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
+        WriteUtf8(writer, EmptyInventorySentenceUtf8);
+        WriteNewLine(writer);
     }
 
     /// <summary>Renders the same explanation as the text report. See <see cref="WriteUnresolvedText"/>.</summary>
-    private static void AppendUnresolvedMarkdown(StringBuilder builder, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components)
+    private static void WriteUnresolvedMarkdown(IBufferWriter<byte> writer, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components)
     {
         var first = true;
         var rootPaths = default(DependencyRootPaths);
-        for (var i = 0; i < components.Length; i++)
+        try
         {
-            var component = components[i];
-            if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
+            for (var i = 0; i < components.Length; i++)
             {
-                continue;
-            }
+                var component = components[i];
+                if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
+                {
+                    continue;
+                }
 
-            if (first)
-            {
-                builder.AppendLine();
-                builder.AppendLine("## Unresolved components");
-                builder.AppendLine();
-                builder.AppendLine("| NAME | VERSION | REASON | REFERENCE | PATH |");
-                builder.AppendLine("|---|---|---|---|---|");
-                rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
-                first = false;
-            }
+                if (first)
+                {
+                    WriteNewLine(writer);
+                    WriteUtf8(writer, "## Unresolved components"u8);
+                    WriteNewLine(writer);
+                    WriteNewLine(writer);
+                    WriteUtf8(writer, "| NAME | VERSION | REASON | REFERENCE | PATH |"u8);
+                    WriteNewLine(writer);
+                    WriteUtf8(writer, "|---|---|---|---|---|"u8);
+                    WriteNewLine(writer);
+                    rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
+                    first = false;
+                }
 
-            builder.Append("| ");
-            AppendMarkdownValue(builder, component.Name);
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, component.Version);
-            builder.Append(" | ");
-            builder.Append(System.Text.Encoding.UTF8.GetString(reason));
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, GetUnresolvedReference(component, reason));
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, DependencyPathText.Introducer(inventory, rootPaths, component, i));
-            builder.AppendLine(" |");
+                WriteUtf8(writer, "| "u8);
+                WriteMarkdownValue(writer, component.Name);
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, component.Version);
+                WriteUtf8(writer, " | "u8);
+                WriteUtf8(writer, reason);
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, GetUnresolvedReference(component, reason));
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, DependencyPathText.Introducer(inventory, rootPaths, component, i));
+                WriteUtf8(writer, " |"u8);
+                WriteNewLine(writer);
+            }
+        }
+        finally
+        {
+            rootPaths.Dispose();
         }
     }
 
@@ -1612,35 +1905,48 @@ internal static class ReportRenderer
         WriteEmptyInventoryText(writer, emptyInventory);
     }
 
-    public static string RenderMarkdown(ReadOnlySpan<GroupRow> groups, string groupBy, bool emptyInventory = false)
+    /// <summary>
+    /// Writes the grouped Markdown report. Headers come from the same table the text view reads, so the
+    /// two views cannot disagree about what a column is called.
+    /// </summary>
+    public static void WriteMarkdown(IBufferWriter<byte> writer, ReadOnlySpan<GroupRow> groups, string groupBy, bool emptyInventory = false)
     {
-        var headers = groupBy.ToUpperInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var builder = new StringBuilder();
-        builder.Append("| ");
-        builder.AppendJoin(" | ", headers);
-        builder.AppendLine(" | COUNT |");
-        builder.Append('|');
-        for (var i = 0; i < headers.Length + 1; i++)
+        var headerCount = GetGroupFieldCount(groupBy);
+        WriteUtf8(writer, "| "u8);
+        for (var i = 0; i < headerCount; i++)
         {
-            builder.Append("---|");
-        }
-
-        builder.AppendLine();
-        for (var i = 0; i < groups.Length; i++)
-        {
-            builder.Append("| ");
-            for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
+            if (i != 0)
             {
-                AppendMarkdownValue(builder, groups[i].Values[valueIndex]);
-                builder.Append(" | ");
+                WriteUtf8(writer, " | "u8);
             }
 
-            builder.Append(groups[i].Count);
-            builder.AppendLine(" |");
+            WriteUtf8(writer, GetGroupHeaderUtf8(groupBy, i));
         }
 
-        AppendEmptyInventoryMarkdown(builder, emptyInventory);
-        return builder.ToString();
+        WriteUtf8(writer, " | COUNT |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "|"u8);
+        for (var i = 0; i < headerCount + 1; i++)
+        {
+            WriteUtf8(writer, "---|"u8);
+        }
+
+        WriteNewLine(writer);
+        for (var i = 0; i < groups.Length; i++)
+        {
+            WriteUtf8(writer, "| "u8);
+            for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
+            {
+                WriteMarkdownValue(writer, groups[i].Values[valueIndex]);
+                WriteUtf8(writer, " | "u8);
+            }
+
+            WriteCount(writer, groups[i].Count);
+            WriteUtf8(writer, " |"u8);
+            WriteNewLine(writer);
+        }
+
+        WriteEmptyInventoryMarkdown(writer, emptyInventory);
     }
 
     public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
@@ -1681,7 +1987,7 @@ internal static class ReportRenderer
             }
 
             WriteLicenseCandidates(writer, component);
-            WriteWarnings(writer, component.Warnings);
+            WriteCandidateWarnings(writer, component.Warnings);
             writer.WriteEndObject();
         }
 
@@ -1713,14 +2019,15 @@ internal static class ReportRenderer
             writer.WriteStartObject();
             for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
             {
-                writer.WriteString(GetGroupPropertyNameUtf8(groupBy, valueIndex), groups[i].Values[valueIndex]);
+                writer.WriteString(GetGroupPropertyNameUtf8(groupBy, valueIndex), groups[i].Values[valueIndex].Span);
             }
 
             writer.WriteNumber("count", groups[i].Count);
             writer.WriteStartArray("components");
-            for (var componentIndex = 0; componentIndex < groups[i].Components.Length; componentIndex++)
+            var rowComponents = groups[i].Components.Span;
+            for (var componentIndex = 0; componentIndex < rowComponents.Length; componentIndex++)
             {
-                var component = groups[i].Components[componentIndex];
+                var component = rowComponents[componentIndex];
                 writer.WriteStartObject();
                 writer.WriteString("name"u8, component.Name.Span);
                 writer.WriteString("version"u8, component.Version.Span);
@@ -1784,7 +2091,9 @@ internal static class ReportRenderer
         writer.Advance(value.Length);
     }
 
-    private static void WriteUtf8(IBufferWriter<byte> writer, string value)
+    private static void WriteUtf8(IBufferWriter<byte> writer, string value) => WriteUtf8(writer, value.AsSpan());
+
+    private static void WriteUtf8(IBufferWriter<byte> writer, ReadOnlySpan<char> value)
     {
         var byteCount = Encoding.UTF8.GetByteCount(value);
         var destination = writer.GetSpan(byteCount);
@@ -1826,19 +2135,74 @@ internal static class ReportRenderer
         throw new ArgumentOutOfRangeException(nameof(targetIndex));
     }
 
-    private static void AppendMarkdownValue(StringBuilder builder, string value)
+    /// <summary>
+    /// Writes a source-backed value into a table cell without decoding it.
+    /// </summary>
+    /// <remarks>
+    /// The only character a cell has to escape is the one that would end it, and in UTF-8 that byte never
+    /// occurs inside a multi-byte sequence, so the scan is safe on bytes and the value is copied rather
+    /// than translated.
+    /// </remarks>
+    private static void WriteMarkdownValue(IBufferWriter<byte> writer, Utf8Slice value)
     {
-        builder.Append(Display(value).Replace("|", "\\|", StringComparison.Ordinal));
+        var remaining = value.Span;
+        if (remaining.IsEmpty)
+        {
+            WriteUtf8(writer, "-"u8);
+            return;
+        }
+
+        while (true)
+        {
+            var index = remaining.IndexOf((byte)'|');
+            if (index < 0)
+            {
+                WriteUtf8(writer, remaining);
+                return;
+            }
+
+            WriteUtf8(writer, remaining[..index]);
+            WriteUtf8(writer, "\\|"u8);
+            remaining = remaining[(index + 1)..];
+        }
     }
 
-    private static void AppendMarkdownValue(StringBuilder builder, Utf8Slice value)
+    /// <summary>Writes a value the report owns as text, such as an ecosystem name or a resolved path.</summary>
+    private static void WriteMarkdownValue(IBufferWriter<byte> writer, string value)
     {
-        AppendMarkdownValue(builder, value.ToString());
+        if (value.Length == 0)
+        {
+            WriteUtf8(writer, "-"u8);
+            return;
+        }
+
+        var remaining = value.AsSpan();
+        while (true)
+        {
+            var index = remaining.IndexOf('|');
+            if (index < 0)
+            {
+                WriteUtf8(writer, remaining);
+                return;
+            }
+
+            WriteUtf8(writer, remaining[..index]);
+            WriteUtf8(writer, "\\|"u8);
+            remaining = remaining[(index + 1)..];
+        }
     }
 
-    private static string Display(string value) => value.Length == 0 ? "-" : value;
+    private static void WriteCount(IBufferWriter<byte> writer, int count)
+    {
+        var destination = writer.GetSpan(11);
+        if (!Utf8Formatter.TryFormat(count, destination, out var bytesWritten))
+        {
+            throw new InvalidOperationException("Unable to format group count.");
+        }
 
-    private static string Display(Utf8Slice value) => value.IsEmpty ? "-" : value.ToString();
+        writer.Advance(bytesWritten);
+    }
+
 
     private static ReadOnlySpan<byte> GetDependencyTypeUtf8(DependencyType value) => value switch
     {
@@ -2085,17 +2449,7 @@ internal static class ReportRenderer
         writer.WriteString("licenseUrl", value.LicenseUrl);
     }
 
-    private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<string> warnings)
-    {
-        writer.WriteStartArray("warnings");
-        for (var i = 0; i < warnings.Length; i++)
-        {
-            writer.WriteStringValue(warnings[i]);
-        }
-
-        writer.WriteEndArray();
-    }
-
+    /// <summary>Writes a warning set as identifiers. Used for both a component and each of its candidates.</summary>
     private static void WriteCandidateWarnings(Utf8JsonWriter writer, LicenseCandidateWarnings warnings)
     {
         writer.WriteStartArray("warnings");
@@ -2150,7 +2504,7 @@ internal static class ReportRenderer
         writer.WriteStartArray("warnings");
         for (var i = 0; i < groups.Length; i++)
         {
-            if (HasDeprecatedWarning(groups[i].Components))
+            if (HasDeprecatedWarning(groups[i].Components.Span))
             {
                 writer.WriteStringValue("deprecated_spdx_identifier");
                 break;
@@ -2169,7 +2523,7 @@ internal static class ReportRenderer
     {
         for (var i = 0; i < components.Length; i++)
         {
-            if (Array.IndexOf(components[i].Warnings, "deprecated_spdx_identifier") >= 0)
+            if ((components[i].Warnings & LicenseCandidateWarnings.DeprecatedSpdxIdentifier) != 0)
             {
                 return true;
             }
@@ -2299,7 +2653,7 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
         var total = default(ScanSummary);
         for (var i = 0; i < groups.Length; i++)
         {
-            var summary = Create(groups[i].Components);
+            var summary = Create(groups[i].Components.Span);
             total = new ScanSummary(
                 total.Matched + summary.Matched,
                 total.Conflict + summary.Conflict,
@@ -2353,8 +2707,9 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
 
             // A component that reached one license resolved whatever else failed on the way, so its
             // warnings describe collection rather than the result.
-            if (components[i].Status == LicenseStatus.Matched) resolvedWarningCount += components[i].Warnings.Length;
-            else unresolvedWarningCount += components[i].Warnings.Length;
+            var warningCount = BitOperations.PopCount((uint)components[i].Warnings);
+            if (components[i].Status == LicenseStatus.Matched) resolvedWarningCount += warningCount;
+            else unresolvedWarningCount += warningCount;
 
             for (var candidateIndex = 0; candidateIndex < components[i].CandidateCount; candidateIndex++)
             {

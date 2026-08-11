@@ -112,11 +112,13 @@ An integration must not introduce source-specific final statuses or bypass recon
 
 | Component | Responsibility |
 |---|---|
-| `Ol.Core` | Normalized inventory, domain data, SPDX validation, candidate creation, reconciliation, evidence planning and collection primitives, caches, and report models. Deterministic transformations remain separate from I/O where practical. |
-| `Ol` | CLI parsing, configuration, orchestration, filtering, grouping, rendering, output files, stdout/stderr, and exit behavior. |
+| `Ol.Core` | Normalized inventory, domain data, input combination, SPDX validation, candidate creation, reconciliation, evidence collection primitives, caches, and report models. Deterministic transformations remain separate from I/O where practical. |
+| `Ol` | CLI parsing, configuration, input discovery, evidence planning and scheduling, filtering, grouping, rendering, output files, stdout/stderr, and exit behavior. |
 | `Ol.Update` | Development-time download and deterministic generation of bundled SPDX lookup data. It is not a runtime dependency. |
 
-The core favors explicit typed data and narrow side-effect boundaries. Output views do not alter inventory resolution or evidence reconciliation.
+The core favors explicit typed data and narrow side-effect boundaries. Output views do not alter inventory resolution or evidence reconciliation. Dependencies run one way, between these components and inside them: `Ol` reaches into `Ol.Core`, and the pipeline stages within `Ol` do not reach back into the commands that invoke them.
+
+A concern several formats or ecosystems share belongs to whichever component already owns it, not to each of its users — but only when the concern is one rule rather than one behavior. A rule fixed by an external specification, such as package URL percent-encoding or a table's index hash, is one function. Behavior that genuinely differs, such as which parts compose a package URL or which fields a document supplies, stays with its format in one file. The distinction was learned rather than designed: Ol reached ten copies of the package URL encoder before it was stated, and by then the copies had stopped agreeing on whether their length arithmetic was checked. Sharing a rule is not the same as introducing a layer: behavior-heavy service layers, inheritance hierarchies, and dispatch through interfaces remain out of parsing and reconciliation paths.
 
 ## Cross-Cutting Constraints
 

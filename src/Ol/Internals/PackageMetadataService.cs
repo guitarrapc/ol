@@ -73,14 +73,14 @@ internal sealed class PackageMetadataService(
 
     public ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichAsync(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         int concurrency,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(workspace);
-        if (workspace.Length < components.Length)
+        ArgumentNullException.ThrowIfNull(resolutions);
+        if (resolutions.Length < components.Length)
         {
-            throw new ArgumentException("Package metadata workspace must correspond to every component.", nameof(workspace));
+            throw new ArgumentException("Package metadata resolutions must correspond to every component.", nameof(resolutions));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -92,66 +92,64 @@ internal sealed class PackageMetadataService(
         }
 
         return components.Length == 1
-            ? EnrichSingleComponent(components, workspace, concurrency, cancellationToken)
-            : EnrichCoreAsync(components, workspace, concurrency, cancellationToken);
+            ? EnrichSingleComponent(components, resolutions, concurrency, cancellationToken)
+            : EnrichCoreAsync(components, resolutions, concurrency, cancellationToken);
     }
 
     private ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichSingleComponent(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         int concurrency,
         CancellationToken cancellationToken)
     {
         var purl = components[0].Purl;
         if (purl.IsEmpty)
         {
-            return ValueTask.FromResult(ApplySingleLookup(components, workspace, default, concurrency, lookupCount: 0));
+            return ValueTask.FromResult(ApplySingleLookup(components, resolutions, default, concurrency, lookupCount: 0));
         }
 
         if (uncollectedPackages is not null && uncollectedPackages.Contains(purl))
         {
             components[0] = LicenseReconciler.AddCandidate(components[0], NotCollectedCandidate);
-            return ValueTask.FromResult(ApplySingleLookup(components, workspace, default, concurrency, lookupCount: 0));
+            return ValueTask.FromResult(ApplySingleLookup(components, resolutions, default, concurrency, lookupCount: 0));
         }
 
         if (!OlDefaults.TryCreatePackageMetadataRequest(purl.Span, out var request, out var ecosystemSupported))
         {
-            return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateUnqueryablePurlResult(purl, ecosystemSupported), concurrency, lookupCount: 0));
+            return ValueTask.FromResult(ApplySingleLookup(components, resolutions, CreateUnqueryablePurlResult(purl, ecosystemSupported), concurrency, lookupCount: 0));
         }
 
         if (!refresh)
         {
-            using (var entry = cache.TryRead(request.CacheKey))
+            var entry = cache.TryRead(request.CacheKey);
+            if (entry.IsHit && !IsStaleUnresolvedEntry(entry))
             {
-                if (entry.IsHit && !IsStaleUnresolvedEntry(entry))
-                {
-                    return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateCacheHit(request, entry), concurrency, lookupCount: 1));
-                }
+                return ValueTask.FromResult(ApplySingleLookup(components, resolutions, CreateCacheHit(request, entry), concurrency, lookupCount: 1));
             }
         }
 
-        return FetchSingleLookupAsync(components, workspace, request, concurrency, cancellationToken);
+        return FetchSingleLookupAsync(components, resolutions, request, concurrency, cancellationToken);
     }
 
     private async ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> FetchSingleLookupAsync(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         PackageMetadataRequest request,
         int concurrency,
         CancellationToken cancellationToken)
     {
         var result = await FetchLookupAsync(request, cancellationToken).ConfigureAwait(false);
-        return ApplySingleLookup(components, workspace, result, concurrency, lookupCount: 1);
+        return ApplySingleLookup(components, resolutions, result, concurrency, lookupCount: 1);
     }
 
     private (ScanComponent[] Components, PackageMetadataSummary Summary) ApplySingleLookup(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         in PackageMetadataLookupResult result,
         int concurrency,
         int lookupCount)
     {
-        workspace.Records[0] = result.Resolution;
+        resolutions[0] = result.Resolution;
         components[0] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[0], result.Candidate) : components[0];
         return (
             components,
@@ -170,7 +168,7 @@ internal sealed class PackageMetadataService(
 
     private async ValueTask<(ScanComponent[] Components, PackageMetadataSummary Summary)> EnrichCoreAsync(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         int concurrency,
         CancellationToken cancellationToken)
     {
@@ -286,7 +284,7 @@ internal sealed class PackageMetadataService(
                 }
             }
 
-            return (components, ProjectLookups(components, workspace, componentLookupIndexes, lookupResults, concurrency, lookupCount));
+            return (components, ProjectLookups(components, resolutions, componentLookupIndexes, lookupResults, concurrency, lookupCount));
         }
         finally
         {
@@ -299,16 +297,16 @@ internal sealed class PackageMetadataService(
         }
     }
 
-    /// <summary>Writes every lookup result back in component order. Synchronous so the workspace records cannot span an await.</summary>
+    /// <summary>Writes every lookup result back in component order. Synchronous so the resolution writes cannot span an await.</summary>
     private PackageMetadataSummary ProjectLookups(
         ScanComponent[] components,
-        PackageMetadataWorkspace workspace,
+        PackageMetadataResolution?[] resolutions,
         ReadOnlySpan<int> componentLookupIndexes,
         ReadOnlySpan<PackageMetadataLookupResult> lookupResults,
         int concurrency,
         int lookupCount)
     {
-        var records = workspace.Records;
+        var records = resolutions;
         var supported = 0;
         var hits = 0;
         var misses = 0;
@@ -340,12 +338,10 @@ internal sealed class PackageMetadataService(
     {
         if (!refresh)
         {
-            using (var entry = await cache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false))
+            var entry = await cache.TryReadAsync(request.CacheKey, cancellationToken).ConfigureAwait(false);
+            if (entry.IsHit && !IsStaleUnresolvedEntry(entry))
             {
-                if (entry.IsHit && !IsStaleUnresolvedEntry(entry))
-                {
-                    return CreateCacheHit(request, entry);
-                }
+                return CreateCacheHit(request, entry);
             }
         }
 
@@ -379,7 +375,7 @@ internal sealed class PackageMetadataService(
     /// </remarks>
     private static bool IsPreSubdirectoryNpmEntry(in PackageMetadataCacheEntry entry)
         => entry.ResolverVersion < PackageMetadataRecord.NpmRepositoryDirectoryResolverVersion
-        && entry.Source.Span.SequenceEqual("npm-registry"u8);
+        && entry.Source == LicenseCandidateSource.NpmRegistry;
 
     /// <summary>Reads the subdirectory fact back out of the warnings a registry answer persisted.</summary>
     /// <remarks>
@@ -389,10 +385,10 @@ internal sealed class PackageMetadataService(
     private static bool HasSubdirectoryWarning(LicenseCandidateWarnings warnings)
         => (warnings & LicenseCandidateWarnings.SourceRepositorySubdirectory) != 0;
 
-    /// <summary>Projects a cache entry before its pooled buffer is returned.</summary>
+    /// <summary>Projects one cache entry into the lookup result the plan carries.</summary>
     private PackageMetadataLookupResult CreateCacheHit(PackageMetadataRequest request, in PackageMetadataCacheEntry entry)
         => new(
-            new PackageMetadataResolution(request.CacheKey, entry.RepositoryUrl, entry.RepositoryRef, HasSubdirectoryWarning(LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span))),
+            new PackageMetadataResolution(request.CacheKey, entry.RepositoryUrl, entry.RepositoryRef, HasSubdirectoryWarning(entry.Warnings)),
             CreateMetadataCandidate(entry),
             true,
             true,
@@ -500,28 +496,25 @@ internal sealed class PackageMetadataService(
         lookups = expanded;
     }
 
-    /// <summary>Creates the candidate for a cached entry without decoding its UTF-8 values.</summary>
+    /// <summary>Creates the candidate for a cached entry, whose values the cache already owns.</summary>
     private LicenseCandidate CreateMetadataCandidate(in PackageMetadataCacheEntry entry)
     {
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(entry.CacheKeySha256, entry.FetchedAt));
-        evidence = evidence with { DeclaredReference = CreateDeclaredReference(entry.DeclaredLicenseReferenceKind, entry.DeclaredLicenseReference.Span) };
-        var candidate = CreateRegistryCandidate(GetCandidateSource(entry.Source.Span), Utf8Slice.FromOwnedBytes(entry.RawLicense.Span.ToArray()), evidence);
-        return candidate with { Warnings = candidate.Warnings | LicenseCandidateIdentifiers.ParseWarnings(entry.Warnings.Span) };
+        evidence = evidence with
+        {
+            DeclaredReference = entry.DeclaredLicenseReferenceKind == DeclaredLicenseReferenceKind.None
+                ? null
+                : new(entry.DeclaredLicenseReferenceKind, entry.DeclaredLicenseReference),
+        };
+        var candidate = CreateRegistryCandidate(entry.Source, entry.RawLicense, evidence);
+        return candidate with { Warnings = candidate.Warnings | entry.Warnings };
     }
 
     /// <summary>Classifies a registry license and, failing that, the location the registry declared.</summary>
     private LicenseCandidate CreateRegistryCandidate(LicenseCandidateSource source, Utf8Slice raw, LicenseEvidence evidence)
         => LicenseCandidateFactory.ResolveDeclaredLocation(CreateRegistryLicenseCandidate(source, raw, evidence), spdxLicenseIndex);
-
-    /// <summary>Copies a declared location out of storage that the caller is about to release.</summary>
-    /// <remarks>
-    /// A cache entry's UTF-8 values point into a pooled buffer returned when the entry is disposed, and
-    /// the candidate outlives it. Only an entry that declares a location pays for the copy.
-    /// </remarks>
-    private static DeclaredLicenseReference? CreateDeclaredReference(DeclaredLicenseReferenceKind kind, ReadOnlySpan<byte> value)
-        => kind == DeclaredLicenseReferenceKind.None ? null : new(kind, Utf8Slice.FromOwnedBytes(value.ToArray()));
 
     private LicenseCandidate CreateMetadataCandidate(PackageMetadataRecord record)
     {
@@ -563,16 +556,6 @@ internal sealed class PackageMetadataService(
         "deps.dev" => LicenseCandidateSource.DepsDev,
         _ => LicenseCandidateSource.PackageRegistry,
     };
-
-    private static LicenseCandidateSource GetCandidateSource(ReadOnlySpan<byte> source)
-    {
-        if (source.SequenceEqual("npm-registry"u8)) return LicenseCandidateSource.NpmRegistry;
-        if (source.SequenceEqual("nuget-registry"u8)) return LicenseCandidateSource.NuGetRegistry;
-        if (source.SequenceEqual("cargo-registry"u8)) return LicenseCandidateSource.CargoRegistry;
-        if (source.SequenceEqual("go-module-proxy"u8)) return LicenseCandidateSource.GoModuleProxy;
-        if (source.SequenceEqual("deps.dev"u8)) return LicenseCandidateSource.DepsDev;
-        return LicenseCandidateSource.PackageRegistry;
-    }
 
     private readonly record struct PackageMetadataLookup(int Index, PackageMetadataRequest Request);
 

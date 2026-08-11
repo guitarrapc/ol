@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 
 // TEMPORARY: added to measure the P0 cache-read allocation work
 // (see .github/docs/plans/plan_allocation_reduction.md).
@@ -37,14 +37,14 @@ public class CacheReadBenchmark : IDisposable
     [Benchmark]
     public int PackageCacheHit()
     {
-        using var entry = packageCache.TryRead(PackageCacheKey);
+        var entry = packageCache.TryRead(PackageCacheKey);
         return entry.RawLicense.Length;
     }
 
     [Benchmark]
     public int PackageCacheMiss()
     {
-        using var entry = packageCache.TryRead("pkg:npm/absent@1.0.0");
+        var entry = packageCache.TryRead("pkg:npm/absent@1.0.0");
         return entry.IsHit ? 1 : 0;
     }
 

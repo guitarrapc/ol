@@ -325,9 +325,9 @@ public sealed class MixedInputScanTests
                 CreateComponent(index, "pkg:npm/shared@1.0.0"),
                 CreateComponent(index, "pkg:npm/alpha@1.0.0"),
             };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.TargetCount).IsEqualTo(2);
             await Assert.That(enrichment.Summary.SupportedComponentCount).IsEqualTo(3);

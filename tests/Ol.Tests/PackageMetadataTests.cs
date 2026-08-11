@@ -11,7 +11,7 @@ namespace Ol.Tests;
 public sealed class PackageMetadataTests
 {
     [Test]
-    public async Task Enrichment_WithInsufficientMetadataWorkspace_RejectsCallerBuffer()
+    public async Task Enrichment_WithInsufficientResolutionBuffer_RejectsCallerBuffer()
     {
         var service = new PackageMetadataService(
             new SpdxLicenseIndex(["MIT"], []),
@@ -19,9 +19,9 @@ public sealed class PackageMetadataTests
             refresh: false,
             retryCount: 0);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, default, default, default, []);
-        using var workspace = new PackageMetadataWorkspace(0);
+        var resolutions = new PackageMetadataResolution?[0];
 
-        await Assert.That(async () => await service.EnrichAsync([component], workspace, concurrency: 1)).Throws<ArgumentException>();
+        await Assert.That(async () => await service.EnrichAsync([component], resolutions, concurrency: 1)).Throws<ArgumentException>();
     }
 
     [Test]
@@ -40,9 +40,9 @@ public sealed class PackageMetadataTests
                 CreateEnrichmentComponent(index, "pkg:maven/com.tencent.polaris/auth-block-allow-list"),
                 CreateEnrichmentComponent(index, "pkg:conan/zlib@1.3"),
             };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var (enriched, summary) = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var (enriched, summary) = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enriched[0].Warnings.ToStrings()).Contains("package_metadata_unversioned_purl");
             await Assert.That(enriched[0].Warnings.ToStrings()).DoesNotContain("unsupported_package_metadata");
@@ -75,8 +75,8 @@ public sealed class PackageMetadataTests
             {
                 var service = new PackageMetadataService(index, new PackageMetadataCache(root), refresh: false, retryCount: 0);
                 var components = new[] { CreateEnrichmentComponent(index, purl) };
-                using var workspace = new PackageMetadataWorkspace(components.Length);
-                var (enriched, _) = await service.EnrichAsync(components, workspace, concurrency: 1);
+                var resolutions = new PackageMetadataResolution?[components.Length];
+                var (enriched, _) = await service.EnrichAsync(components, resolutions, concurrency: 1);
                 var withRepositoryOutcome = LicenseReconciler.AddCandidate(
                     enriched[0],
                     LicenseCandidateFactory.CreateError(
@@ -113,9 +113,9 @@ public sealed class PackageMetadataTests
         {
             var service = new PackageMetadataService(index, new PackageMetadataCache(root), refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
             var components = new[] { CreateEnrichmentComponent(index, "pkg:npm/private-pkg@1.0.0") };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var (enriched, summary) = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var (enriched, summary) = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enriched[0].Status).IsEqualTo(LicenseStatus.Unknown);
             await Assert.That(enriched[0].Warnings.ToStrings()).Contains("package_metadata_not_found");
@@ -138,9 +138,9 @@ public sealed class PackageMetadataTests
         {
             var service = new PackageMetadataService(index, new PackageMetadataCache(root), refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
             var components = new[] { CreateEnrichmentComponent(index, "pkg:npm/example@1.0.0") };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var (enriched, summary) = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var (enriched, summary) = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enriched[0].Status).IsEqualTo(LicenseStatus.Error);
             await Assert.That(enriched[0].Warnings.ToStrings()).Contains("package_metadata_fetch_failed");
@@ -151,37 +151,6 @@ public sealed class PackageMetadataTests
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
-
-    [Test]
-    public async Task MetadataWorkspace_AfterDisposal_RejectsAccessInsteadOfReadingReturnedRental()
-    {
-        var workspace = new PackageMetadataWorkspace(2);
-        SetFirstRecord(workspace, new PackageMetadataResolution("pkg:npm/example@1.0.0", string.Empty, string.Empty));
-
-        await Assert.That(GetRecordCount(workspace)).IsEqualTo(2);
-
-        workspace.Dispose();
-        workspace.Dispose();
-
-        await Assert.That(() => GetRecordCount(workspace)).Throws<ObjectDisposedException>();
-        await Assert.That(() => SetFirstRecord(workspace, null)).Throws<ObjectDisposedException>();
-    }
-
-    [Test]
-    public async Task Enrichment_WithDisposedMetadataWorkspace_FailsInsteadOfWritingReturnedRental()
-    {
-        var index = new SpdxLicenseIndex(["MIT"], []);
-        var service = new PackageMetadataService(index, new PackageMetadataCache(Path.GetTempPath()), refresh: false, retryCount: 0);
-        var components = new[] { CreateEnrichmentComponent(index, default) };
-        var workspace = new PackageMetadataWorkspace(components.Length);
-        workspace.Dispose();
-
-        await Assert.That(async () => await service.EnrichAsync(components, workspace, concurrency: 1)).Throws<ObjectDisposedException>();
-    }
-
-    private static int GetRecordCount(PackageMetadataWorkspace workspace) => workspace.Records.Length;
-
-    private static void SetFirstRecord(PackageMetadataWorkspace workspace, PackageMetadataResolution? resolution) => workspace.Records[0] = resolution;
 
     [Test]
     public async Task Fetch_RegisteredProvider_ParsesItsPurlAndOwnResponseWithoutCentralSwitches()
@@ -237,7 +206,7 @@ public sealed class PackageMetadataTests
             var cache = new PackageMetadataCache(root);
             await cache.WriteAsync(record);
 
-            using var read = await cache.TryReadAsync(request.CacheKey);
+            var read = await cache.TryReadAsync(request.CacheKey);
 
             await Assert.That(read.IsHit).IsTrue();
             await Assert.That(read.CacheKeySha256).IsEqualTo(PackageMetadataCache.GetCacheKeySha256(request.CacheKey));
@@ -359,9 +328,9 @@ public sealed class PackageMetadataTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(enrichment.Components[0].Warnings.ToStrings()).Contains("package_metadata_fetch_failed");
@@ -1491,9 +1460,9 @@ public sealed class PackageMetadataTests
             var index = new SpdxLicenseIndex(["BSD-3-Clause"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("BSD-3-Clause");
@@ -1887,8 +1856,8 @@ public sealed class PackageMetadataTests
             var cache = new PackageMetadataCache(root);
             await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", "https://example.test/repository", [], [], DateTimeOffset.UtcNow, "0123456789abcdef"));
 
-            using var read = cache.TryRead(cacheKey);
-            using var readAsync = await cache.TryReadAsync(cacheKey);
+            var read = cache.TryRead(cacheKey);
+            var readAsync = await cache.TryReadAsync(cacheKey);
 
             await Assert.That(read.IsHit).IsTrue();
             await Assert.That(read.CacheKeySha256).IsEqualTo(readAsync.CacheKeySha256);
@@ -1941,7 +1910,7 @@ public sealed class PackageMetadataTests
     {
         var cache = new PackageMetadataCache(Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}"));
 
-        using var read = cache.TryRead("pkg:npm/example@1.0.0");
+        var read = cache.TryRead("pkg:npm/example@1.0.0");
 
         await Assert.That(read.IsHit).IsFalse();
     }
@@ -1958,15 +1927,15 @@ public sealed class PackageMetadataTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(enrichment.Summary.TargetCount).IsEqualTo(1);
             await Assert.That(enrichment.Summary.SupportedComponentCount).IsEqualTo(1);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
-            await Assert.That(GetRecord(workspace, 0)!.Value.CacheKey).IsEqualTo(purl);
+            await Assert.That(GetRecord(resolutions, 0)!.Value.CacheKey).IsEqualTo(purl);
         }
         finally
         {
@@ -2010,22 +1979,22 @@ public sealed class PackageMetadataTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(0);
             await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
-            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/dotnet/core");
-            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryRef).IsEqualTo("main");
+            await Assert.That(GetRecord(resolutions, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/dotnet/core");
+            await Assert.That(GetRecord(resolutions, 0)!.Value.RepositoryRef).IsEqualTo("main");
 
-            using var refreshed = await cache.TryReadAsync(purl);
+            var refreshed = await cache.TryReadAsync(purl);
             await Assert.That(refreshed.RepositoryUrl).IsEqualTo("https://github.com/dotnet/core");
             await Assert.That(refreshed.RepositoryRef).IsEqualTo("main");
 
             var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
-            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
-            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+            var cachedResolutions = new PackageMetadataResolution?[cachedComponents.Length];
+            var cached = await service.EnrichAsync(cachedComponents, cachedResolutions, concurrency: 1);
 
             await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
@@ -2072,18 +2041,18 @@ public sealed class PackageMetadataTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(0);
             await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
-            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/example/versioned");
-            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryRef).IsEqualTo("main");
+            await Assert.That(GetRecord(resolutions, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/example/versioned");
+            await Assert.That(GetRecord(resolutions, 0)!.Value.RepositoryRef).IsEqualTo("main");
 
             var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
-            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
-            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+            var cachedResolutions = new PackageMetadataResolution?[cachedComponents.Length];
+            var cached = await service.EnrichAsync(cachedComponents, cachedResolutions, concurrency: 1);
 
             await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(handler.RequestUris.Count).IsEqualTo(2);
@@ -2134,16 +2103,16 @@ public sealed class PackageMetadataTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
-            await Assert.That(GetRecord(workspace, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/example/project");
+            await Assert.That(GetRecord(resolutions, 0)!.Value.RepositoryUrl).IsEqualTo("https://github.com/example/project");
 
             var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
-            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
-            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+            var cachedResolutions = new PackageMetadataResolution?[cachedComponents.Length];
+            var cached = await service.EnrichAsync(cachedComponents, cachedResolutions, concurrency: 1);
 
             await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(handler.RequestUris.Count).IsEqualTo(3);
@@ -2187,19 +2156,19 @@ public sealed class PackageMetadataTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheMissCount).IsEqualTo(1);
-            await Assert.That(GetRecord(workspace, 0)!.Value.RepositorySubdirectoryDeclared).IsTrue();
+            await Assert.That(GetRecord(resolutions, 0)!.Value.RepositorySubdirectoryDeclared).IsTrue();
 
             var cachedComponents = new[] { CreateEnrichmentComponent(index, purl) };
-            using var cachedWorkspace = new PackageMetadataWorkspace(cachedComponents.Length);
-            var cached = await service.EnrichAsync(cachedComponents, cachedWorkspace, concurrency: 1);
+            var cachedResolutions = new PackageMetadataResolution?[cachedComponents.Length];
+            var cached = await service.EnrichAsync(cachedComponents, cachedResolutions, concurrency: 1);
 
             await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
-            await Assert.That(GetRecord(cachedWorkspace, 0)!.Value.RepositorySubdirectoryDeclared).IsTrue();
+            await Assert.That(GetRecord(cachedResolutions, 0)!.Value.RepositorySubdirectoryDeclared).IsTrue();
             await Assert.That(handler.RequestUris.Count).IsEqualTo(1);
         }
         finally
@@ -2240,9 +2209,9 @@ public sealed class PackageMetadataTests
             var index = new SpdxLicenseIndex(["MIT"], []);
             var service = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
             var components = new[] { CreateEnrichmentComponent(index, purl) };
-            using var workspace = new PackageMetadataWorkspace(components.Length);
+            var resolutions = new PackageMetadataResolution?[components.Length];
 
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(handler.RequestUris).IsEmpty();
@@ -2263,22 +2232,22 @@ public sealed class PackageMetadataTests
         var service = new PackageMetadataService(index, new PackageMetadataCache(Path.GetTempPath()), refresh: false, retryCount: 0);
         var unsupported = new[] { CreateEnrichmentComponent(index, "pkg:unknown-ecosystem/example@1.0.0") };
         var empty = new[] { CreateEnrichmentComponent(index, default) };
-        using var unsupportedWorkspace = new PackageMetadataWorkspace(unsupported.Length);
-        using var emptyWorkspace = new PackageMetadataWorkspace(empty.Length);
+        var unsupportedResolutions = new PackageMetadataResolution?[unsupported.Length];
+        var emptyResolutions = new PackageMetadataResolution?[empty.Length];
 
-        var unsupportedEnrichment = await service.EnrichAsync(unsupported, unsupportedWorkspace, concurrency: 1);
-        var emptyEnrichment = await service.EnrichAsync(empty, emptyWorkspace, concurrency: 1);
+        var unsupportedEnrichment = await service.EnrichAsync(unsupported, unsupportedResolutions, concurrency: 1);
+        var emptyEnrichment = await service.EnrichAsync(empty, emptyResolutions, concurrency: 1);
 
         await Assert.That(unsupportedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(1);
         await Assert.That(unsupportedEnrichment.Summary.SupportedComponentCount).IsEqualTo(1);
         await Assert.That(unsupportedEnrichment.Summary.TargetCount).IsEqualTo(0);
         await Assert.That(unsupportedEnrichment.Components[0].Warnings.ToStrings()).Contains("unsupported_package_metadata");
-        await Assert.That(GetRecord(unsupportedWorkspace, 0).HasValue).IsFalse();
+        await Assert.That(GetRecord(unsupportedResolutions, 0).HasValue).IsFalse();
         await Assert.That(emptyEnrichment.Summary.SupportedComponentCount).IsEqualTo(0);
         await Assert.That(emptyEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(0);
         await Assert.That(emptyEnrichment.Summary.TargetCount).IsEqualTo(0);
         await Assert.That(emptyEnrichment.Components[0].CandidateCount).IsEqualTo(1);
-        await Assert.That(GetRecord(emptyWorkspace, 0).HasValue).IsFalse();
+        await Assert.That(GetRecord(emptyResolutions, 0).HasValue).IsFalse();
     }
 
     /// <summary>
@@ -2295,11 +2264,11 @@ public sealed class PackageMetadataTests
         var service = new PackageMetadataService(index, new PackageMetadataCache(Path.GetTempPath()), refresh: false, retryCount: 0);
         var unversioned = new[] { CreateEnrichmentComponent(index, "pkg:maven/com.example/module") };
         var unsupported = new[] { CreateEnrichmentComponent(index, "pkg:unknown-ecosystem/example@1.0.0") };
-        using var unversionedWorkspace = new PackageMetadataWorkspace(unversioned.Length);
-        using var unsupportedWorkspace = new PackageMetadataWorkspace(unsupported.Length);
+        var unversionedResolutions = new PackageMetadataResolution?[unversioned.Length];
+        var unsupportedResolutions = new PackageMetadataResolution?[unsupported.Length];
 
-        var unversionedEnrichment = await service.EnrichAsync(unversioned, unversionedWorkspace, concurrency: 1);
-        var unsupportedEnrichment = await service.EnrichAsync(unsupported, unsupportedWorkspace, concurrency: 1);
+        var unversionedEnrichment = await service.EnrichAsync(unversioned, unversionedResolutions, concurrency: 1);
+        var unsupportedEnrichment = await service.EnrichAsync(unsupported, unsupportedResolutions, concurrency: 1);
 
         await Assert.That(unversionedEnrichment.Summary.UnversionedPurlCount).IsEqualTo(1);
         await Assert.That(unversionedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(0);
@@ -2308,7 +2277,7 @@ public sealed class PackageMetadataTests
         await Assert.That(unsupportedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(1);
     }
 
-    private static PackageMetadataResolution? GetRecord(PackageMetadataWorkspace workspace, int index) => workspace.Records[index];
+    private static PackageMetadataResolution? GetRecord(PackageMetadataResolution?[] resolutions, int index) => resolutions[index];
 
     private static ScanComponent CreateEnrichmentComponent(SpdxLicenseIndex index, Utf8Slice purl)
         => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
@@ -2326,8 +2295,8 @@ public sealed class PackageMetadataTests
                 await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
             }
 
-            using var read = cache.TryRead(cacheKey);
-            using var readAsync = await cache.TryReadAsync(cacheKey);
+            var read = cache.TryRead(cacheKey);
+            var readAsync = await cache.TryReadAsync(cacheKey);
 
             await Assert.That(read.IsHit).IsFalse();
             await Assert.That(readAsync.IsHit).IsFalse();
@@ -2470,7 +2439,7 @@ public sealed class PackageMetadataTests
             Directory.CreateDirectory(root);
             await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
 
-            using var read = await cache.TryReadAsync(cacheKey);
+            var read = await cache.TryReadAsync(cacheKey);
 
             await Assert.That(read.IsHit).IsTrue();
             await Assert.That(read.RawLicense.ToString()).IsEqualTo(expected);
@@ -2494,7 +2463,7 @@ public sealed class PackageMetadataTests
             Directory.CreateDirectory(root);
             await File.WriteAllTextAsync(cache.GetPath(cacheKey), json);
 
-            using var read = await cache.TryReadAsync(cacheKey);
+            var read = await cache.TryReadAsync(cacheKey);
 
             await Assert.That(read.IsHit).IsFalse();
         }

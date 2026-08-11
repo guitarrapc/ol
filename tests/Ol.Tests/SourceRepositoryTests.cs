@@ -527,12 +527,12 @@ public sealed class SourceRepositoryTests
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["MIT"], []);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
-        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+        var resolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
@@ -554,12 +554,12 @@ public sealed class SourceRepositoryTests
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("ISC", "isc", "ISC License", "LICENSE", "sha", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["MIT", "ISC"], []);
         var component = new ScanComponent("example", "1.0.0", Utf8Slice.FromString("MIT"), "npm", DependencyType.Unknown, LicenseStatus.Matched, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.DependencyInput, LicenseCandidateKind.License, "MIT"u8, index), []);
-        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/monorepo", string.Empty, RepositorySubdirectoryDeclared: true));
+        var resolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/monorepo", string.Empty, RepositorySubdirectoryDeclared: true));
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
@@ -642,14 +642,14 @@ public sealed class SourceRepositoryTests
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         try
         {
-            using var fetchWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+            var fetchResolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
             using var httpClient = new HttpClient(new GitHubResponseHandler(HttpStatusCode.OK, ReadGitHubLicenseFixture()));
             var fetchService = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0, httpClient);
-            var fetched = await fetchService.EnrichAsync([CreateDigestComponent(index)], fetchWorkspace, concurrency: 1);
+            var fetched = await fetchService.EnrichAsync([CreateDigestComponent(index)], fetchResolutions, concurrency: 1);
 
-            using var cachedWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+            var cachedResolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
             var cachedService = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
-            var cached = await cachedService.EnrichAsync([CreateDigestComponent(index)], cachedWorkspace, concurrency: 1);
+            var cached = await cachedService.EnrichAsync([CreateDigestComponent(index)], cachedResolutions, concurrency: 1);
 
             await Assert.That(fetched.Summary.GitHubRequestCount).IsEqualTo(1);
             await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
@@ -749,11 +749,11 @@ public sealed class SourceRepositoryTests
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-plan-{Guid.NewGuid():N}");
         var index = new SpdxLicenseIndex(["MIT"], []);
         var components = new ScanComponent[repositoryUrls.Length];
-        var workspace = new PackageMetadataWorkspace(repositoryUrls.Length);
+        var resolutions = new PackageMetadataResolution?[repositoryUrls.Length];
         for (var i = 0; i < repositoryUrls.Length; i++)
         {
             components[i] = new ScanComponent($"example{i}", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, $"pkg:npm/example{i}@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
-            workspace.Records[i] = new PackageMetadataResolution($"pkg:npm/example{i}@1.0.0", repositoryUrls[i], repositoryRefs is null ? string.Empty : repositoryRefs[i]);
+            resolutions[i] = new PackageMetadataResolution($"pkg:npm/example{i}@1.0.0", repositoryUrls[i], repositoryRefs is null ? string.Empty : repositoryRefs[i]);
         }
 
         var handler = new SequenceResponseHandler(HttpStatusCode.OK);
@@ -761,12 +761,11 @@ public sealed class SourceRepositoryTests
         var service = new SourceRepositoryService(index, new SourceRepositoryCache(Path.Combine(root, "source")), refresh: false, retryCount: 0, httpClient);
         try
         {
-            var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync(components, resolutions, concurrency: 1);
             return (enrichment.Summary, enrichment.Components, handler.CallCount);
         }
         finally
         {
-            workspace.Dispose();
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
@@ -777,7 +776,7 @@ public sealed class SourceRepositoryTests
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-refresh-{Guid.NewGuid():N}");
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
-        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+        var resolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("Apache-2.0", "apache-2.0", "Apache", "LICENSE", "old", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["Apache-2.0", "MIT"], []);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
@@ -786,7 +785,7 @@ public sealed class SourceRepositoryTests
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], resolutions, concurrency: 1);
             var cached = await sourceCache.TryReadAsync(target.CacheKey);
 
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
@@ -807,7 +806,7 @@ public sealed class SourceRepositoryTests
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-invalid-{Guid.NewGuid():N}");
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
-        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+        var resolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         Directory.CreateDirectory(sourceCache.Root);
         await File.WriteAllTextAsync(sourceCache.GetPath(target.CacheKey), "{ invalid json");
         var index = new SpdxLicenseIndex(["MIT"], []);
@@ -817,7 +816,7 @@ public sealed class SourceRepositoryTests
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], resolutions, concurrency: 1);
             var warnings = enrichment.Components[0].Warnings.ToStrings();
             var cached = await sourceCache.TryReadAsync(target.CacheKey);
 
@@ -903,9 +902,9 @@ public sealed class SourceRepositoryTests
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0, httpClient);
         try
         {
-            using (var firstWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty)))
             {
-                var first = await service.EnrichAsync([CreateUnknownComponent(index)], firstWorkspace, concurrency: 1);
+                var firstResolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+                var first = await service.EnrichAsync([CreateUnknownComponent(index)], firstResolutions, concurrency: 1);
 
                 await Assert.That(first.Summary.FetchErrorCount).IsEqualTo(1);
             }
@@ -914,16 +913,16 @@ public sealed class SourceRepositoryTests
             await Assert.That((await sourceCache.ReadAsync(target.CacheKey)).Status).IsEqualTo(SourceRepositoryCacheReadStatus.Missing);
 
             // The same run does not keep spending the exhausted allowance on later components.
-            using (var stoppedWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/other@1.0.0", "https://github.com/owner/other", string.Empty)))
             {
-                await service.EnrichAsync([CreateUnknownComponent(index)], stoppedWorkspace, concurrency: 1);
+                var stoppedResolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/other@1.0.0", "https://github.com/owner/other", string.Empty));
+                await service.EnrichAsync([CreateUnknownComponent(index)], stoppedResolutions, concurrency: 1);
                 await Assert.That(handler.CallCount).IsEqualTo(1);
             }
 
             // Nothing was cached, so a later run collects the same target normally.
-            using var laterWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+            var laterResolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
             var laterService = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0, httpClient);
-            var later = await laterService.EnrichAsync([CreateUnknownComponent(index)], laterWorkspace, concurrency: 1);
+            var later = await laterService.EnrichAsync([CreateUnknownComponent(index)], laterResolutions, concurrency: 1);
 
             await Assert.That(later.Components[0].License.ToString()).IsEqualTo("MIT");
             await Assert.That(handler.CallCount).IsEqualTo(2);
@@ -945,7 +944,7 @@ public sealed class SourceRepositoryTests
         var sourceCache = new SourceRepositoryCache(Path.Combine(root, "source"));
         var target = new SourceRepositoryTarget("owner", "repository", "default");
         var index = new SpdxLicenseIndex(["MIT"], []);
-        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+        var resolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
         var handler = new SequenceResponseHandler(HttpStatusCode.OK);
         using var httpClient = new HttpClient(handler);
@@ -958,15 +957,15 @@ public sealed class SourceRepositoryTests
                 .Replace("\"Errors\": []", "\"Errors\": [\"source_repository_fetch_failed\"]", StringComparison.Ordinal);
             await File.WriteAllTextAsync(sourceCache.GetPath(target.CacheKey), legacy);
 
-            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(0);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
             await Assert.That(handler.CallCount).IsEqualTo(1);
 
-            using var cachedWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+            var cachedResolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
             var cachedComponent = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
-            var cached = await service.EnrichAsync([cachedComponent], cachedWorkspace, concurrency: 1);
+            var cached = await service.EnrichAsync([cachedComponent], cachedResolutions, concurrency: 1);
 
             await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
             await Assert.That(handler.CallCount).IsEqualTo(1);
@@ -982,7 +981,7 @@ public sealed class SourceRepositoryTests
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-write-failure-{Guid.NewGuid():N}");
         var invalidSourceRoot = Path.Combine(root, "source-is-a-file");
-        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+        var resolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         Directory.CreateDirectory(root);
         await File.WriteAllTextAsync(invalidSourceRoot, "not a directory");
         var index = new SpdxLicenseIndex(["MIT"], []);
@@ -992,7 +991,7 @@ public sealed class SourceRepositoryTests
 
         try
         {
-            var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync([component], resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
@@ -1165,12 +1164,12 @@ public sealed class SourceRepositoryTests
         var root = Path.Combine(Path.GetTempPath(), $"ol-source-unresolved-{Guid.NewGuid():N}");
         var index = new SpdxLicenseIndex(["MIT"], []);
         using var httpClient = new HttpClient(new GitHubResponseHandler(status, body));
-        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+        var resolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         try
         {
             var service = new SourceRepositoryService(index, new SourceRepositoryCache(Path.Combine(root, "source")), refresh: false, retryCount: 0, httpClient);
 
-            var enrichment = await service.EnrichAsync([CreateUnresolvedComponent(index)], workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync([CreateUnresolvedComponent(index)], resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Unknown);
             await Assert.That(enrichment.Components[0].Warnings.ToStrings()).Contains(expectedWarning);
@@ -1189,12 +1188,12 @@ public sealed class SourceRepositoryTests
         using var httpClient = new HttpClient(new GitHubResponseHandler(
             HttpStatusCode.OK,
             """{ "license": { "spdx_id": "MIT", "key": "mit", "name": "MIT License" }, "path": "LICENSE", "html_url": "https://github.com/owner/repository/blob/main/LICENSE" }"""));
-        using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
+        var resolutions = CreateResolutions(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         try
         {
             var service = new SourceRepositoryService(index, new SourceRepositoryCache(Path.Combine(root, "source")), refresh: false, retryCount: 0, httpClient);
 
-            var enrichment = await service.EnrichAsync([CreateUnresolvedComponent(index)], workspace, concurrency: 1);
+            var enrichment = await service.EnrichAsync([CreateUnresolvedComponent(index)], resolutions, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
             await Assert.That(enrichment.Components[0].Warnings.ToStrings()).DoesNotContain("license_not_recognized");
@@ -1209,11 +1208,11 @@ public sealed class SourceRepositoryTests
     private static ScanComponent CreateUnresolvedComponent(SpdxLicenseIndex index)
         => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
 
-    private static PackageMetadataWorkspace CreateWorkspace(PackageMetadataResolution? resolution)
+    private static PackageMetadataResolution?[] CreateResolutions(PackageMetadataResolution? resolution)
     {
-        var workspace = new PackageMetadataWorkspace(1);
-        workspace.Records[0] = resolution;
-        return workspace;
+        var resolutions = new PackageMetadataResolution?[1];
+        resolutions[0] = resolution;
+        return resolutions;
     }
 
     private static async Task AssertSyncReadMatchesAsync(string? json, SourceRepositoryCacheReadStatus expected)

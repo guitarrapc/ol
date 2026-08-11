@@ -9,7 +9,7 @@ public class SourceRepositoryEnrichmentBenchmark : IDisposable
 {
     private const int ComponentCount = 64;
     private readonly ScanComponent[] components;
-    private readonly PackageMetadataWorkspace metadataWorkspace;
+    private readonly PackageMetadataResolution?[] metadataResolutions;
     private readonly string root;
     private readonly SourceRepositoryService service;
 
@@ -23,22 +23,21 @@ public class SourceRepositoryEnrichmentBenchmark : IDisposable
         var index = new SpdxLicenseIndex(["MIT"], []);
         var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
         components = new ScanComponent[ComponentCount];
-        metadataWorkspace = new PackageMetadataWorkspace(ComponentCount);
+        metadataResolutions = new PackageMetadataResolution?[ComponentCount];
         Array.Fill(components, component);
-        metadataWorkspace.Records.Fill(metadata);
+        Array.Fill(metadataResolutions, metadata);
         service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
     }
 
     [Benchmark]
     public int EnrichDuplicateCachedTarget()
     {
-        var result = service.EnrichAsync((ScanComponent[])components.Clone(), metadataWorkspace, concurrency: 4).GetAwaiter().GetResult();
+        var result = service.EnrichAsync((ScanComponent[])components.Clone(), metadataResolutions, concurrency: 4).GetAwaiter().GetResult();
         return result.Summary.CacheHitCount;
     }
 
     public void Dispose()
     {
-        metadataWorkspace.Dispose();
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
 }

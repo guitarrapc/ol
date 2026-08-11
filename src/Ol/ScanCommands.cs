@@ -854,7 +854,7 @@ internal static class ScanView
     public static int Apply(ScanComponent[] components, string? dependency, string sort, SortOrder sortOrder)
     {
         var count = FilterByDependency(components, dependency);
-        components.AsSpan(0, count).Sort(CreateComparison(sort, sortOrder));
+        SortView(components, null, count, sort, sortOrder);
         return count;
     }
 
@@ -862,8 +862,92 @@ internal static class ScanView
     public static int Apply(ScanComponent[] components, DependencyUsage[] usages, string? dependency, string sort, SortOrder sortOrder)
     {
         var count = FilterByDependency(components, usages, dependency);
-        Array.Sort(components, usages, 0, count, Comparer<ScanComponent>.Create(CreateComparison(sort, sortOrder)));
+        SortView(components, usages, count, sort, sortOrder);
         return count;
+    }
+
+    /// <summary>
+    /// Orders the view by sorting component positions rather than the components themselves.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A component is a 216-byte struct, and sorting the array directly moved one per swap and copied two
+    /// per comparison, because a <see cref="Comparison{T}"/> takes both operands by value. Sorting an
+    /// index moves four bytes per swap and reads each component through a reference, so the work the
+    /// comparison does is the key comparison and nothing else. Applying the result costs one gather and
+    /// one bulk copy, which is linear against the sort's n log n.
+    /// </para>
+    /// <para>
+    /// Ties resolve to input order, which makes a view reproducible from the inventory alone instead of
+    /// depending on what introsort happened to do with equal keys.
+    /// </para>
+    /// </remarks>
+    private static void SortView(ScanComponent[] components, DependencyUsage[]? usages, int count, string sort, SortOrder sortOrder)
+    {
+        var keys = ParseSortFields(sort);
+        if (count < 2)
+        {
+            return;
+        }
+
+        var order = ArrayPool<int>.Shared.Rent(count);
+        var ordered = ArrayPool<ScanComponent>.Shared.Rent(count);
+        var orderedUsages = usages is null ? [] : ArrayPool<DependencyUsage>.Shared.Rent(count);
+        try
+        {
+            for (var i = 0; i < count; i++)
+            {
+                order[i] = i;
+            }
+
+            order.AsSpan(0, count).Sort(new ComponentOrderComparer(components, keys, sortOrder));
+
+            for (var i = 0; i < count; i++)
+            {
+                ordered[i] = components[order[i]];
+            }
+
+            ordered.AsSpan(0, count).CopyTo(components);
+            if (usages is not null)
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    orderedUsages[i] = usages[order[i]];
+                }
+
+                orderedUsages.AsSpan(0, count).CopyTo(usages);
+            }
+        }
+        finally
+        {
+            if (orderedUsages.Length != 0)
+            {
+                ArrayPool<DependencyUsage>.Shared.Return(orderedUsages);
+            }
+
+            ArrayPool<ScanComponent>.Shared.Return(ordered, clearArray: true);
+            ArrayPool<int>.Shared.Return(order);
+        }
+    }
+
+    /// <summary>Compares two component positions by the requested keys, reading each component by reference.</summary>
+    private readonly struct ComponentOrderComparer(ScanComponent[] components, SortField[] keys, SortOrder sortOrder) : IComparer<int>
+    {
+        public int Compare(int x, int y)
+        {
+            ref var left = ref components[x];
+            ref var right = ref components[y];
+            for (var i = 0; i < keys.Length; i++)
+            {
+                var comparison = CompareByKey(in left, in right, keys[i]);
+                if (comparison != 0)
+                {
+                    return sortOrder == SortOrder.Desc ? -comparison : comparison;
+                }
+            }
+
+            return x.CompareTo(y);
+        }
     }
 
     public static GroupRow[] Group(ReadOnlySpan<ScanComponent> components, string groupBy)
@@ -1047,24 +1131,6 @@ internal static class ScanView
         };
     }
 
-    private static Comparison<ScanComponent> CreateComparison(string sort, SortOrder sortOrder)
-    {
-        var keys = ParseSortFields(sort);
-        return (left, right) =>
-        {
-            for (var i = 0; i < keys.Length; i++)
-            {
-                var comparison = CompareByKey(left, right, keys[i]);
-                if (comparison != 0)
-                {
-                    return sortOrder == SortOrder.Desc ? -comparison : comparison;
-                }
-            }
-
-            return 0;
-        };
-    }
-
     private static SortField[] ParseSortFields(string sort)
     {
         var tokens = sort.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -1122,7 +1188,7 @@ internal static class ScanView
         throw new ArgumentException($"Unknown sort key: {value}");
     }
 
-    private static int CompareByKey(ScanComponent left, ScanComponent right, SortField key)
+    private static int CompareByKey(in ScanComponent left, in ScanComponent right, SortField key)
     {
         return key switch
         {

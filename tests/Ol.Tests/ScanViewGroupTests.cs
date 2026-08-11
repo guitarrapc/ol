@@ -30,9 +30,9 @@ public sealed class ScanViewGroupTests
         var groups = ScanView.Group(components, "license,ecosystem");
 
         await Assert.That(groups.Length).IsEqualTo(3);
-        await Assert.That(RowNames(groups, "Apache-2.0", "npm")).IsEquivalentTo(new[] { "c", "e" });
-        await Assert.That(RowNames(groups, "MIT", "npm")).IsEquivalentTo(new[] { "a", "d" });
-        await Assert.That(RowNames(groups, "MIT", "nuget")).IsEquivalentTo(new[] { "b", "f" });
+        await Assert.That(RowNames(groups, "Apache-2.0", "npm")).IsEqualTo("c|e");
+        await Assert.That(RowNames(groups, "MIT", "npm")).IsEqualTo("a|d");
+        await Assert.That(RowNames(groups, "MIT", "nuget")).IsEqualTo("b|f");
     }
 
     [Test]
@@ -76,7 +76,8 @@ public sealed class ScanViewGroupTests
     public async Task Group_NoComponents_ProducesNoRows()
         => await Assert.That(ScanView.Group([], "license").Length).IsEqualTo(0);
 
-    private static string[] RowNames(GroupRow[] groups, string license, string ecosystem)
+    /// <summary>Renders a row as one ordered string, so an assertion cannot pass on membership alone.</summary>
+    private static string RowNames(GroupRow[] groups, string license, string ecosystem)
     {
         foreach (var group in groups)
         {
@@ -91,7 +92,7 @@ public sealed class ScanViewGroupTests
                 names[i] = group.Components[i].Name.ToString();
             }
 
-            return names;
+            return string.Join('|', names);
         }
 
         throw new InvalidOperationException($"No group for {license}/{ecosystem}.");

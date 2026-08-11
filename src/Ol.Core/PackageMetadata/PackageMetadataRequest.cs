@@ -45,6 +45,7 @@ public readonly record struct PackageMetadataRequest(
             return false;
         }
 
+
         ecosystemSupported = true;
         return provider.TryCreate(purl, out request);
     }
@@ -52,7 +53,7 @@ public readonly record struct PackageMetadataRequest(
     internal static bool TryParse(string purl, string expectedEcosystem, out PackageMetadataRequest request)
     {
         request = default;
-        if (!TryGetEcosystem(purl, out var ecosystem) || !string.Equals(ecosystem, expectedEcosystem, StringComparison.OrdinalIgnoreCase))
+        if (!TryGetEcosystem(purl, out var ecosystem) || !ecosystem.Equals(expectedEcosystem, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -80,21 +81,30 @@ public readonly record struct PackageMetadataRequest(
         return true;
     }
 
-    private static bool TryGetEcosystem(string purl, out string ecosystem)
+    /// <summary>
+    /// Reads the purl type without copying it out.
+    /// </summary>
+    /// <remarks>
+    /// The type is only ever a lookup key and a comparison operand, never a retained value, and this runs
+    /// once per distinct package an inventory names. Returning a substring allocated a string per purl on
+    /// both of the paths that ask for it, and every one of them was discarded immediately.
+    /// </remarks>
+    private static bool TryGetEcosystem(string purl, out ReadOnlySpan<char> ecosystem)
     {
-        ecosystem = string.Empty;
-        if (!purl.StartsWith("pkg:", StringComparison.OrdinalIgnoreCase))
+        ecosystem = default;
+        var value = purl.AsSpan();
+        if (!value.StartsWith("pkg:", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        var typeEnd = purl.IndexOf('/');
+        var typeEnd = value.IndexOf('/');
         if (typeEnd <= "pkg:".Length)
         {
             return false;
         }
 
-        ecosystem = purl["pkg:".Length..typeEnd];
+        ecosystem = value["pkg:".Length..typeEnd];
         return true;
     }
 }

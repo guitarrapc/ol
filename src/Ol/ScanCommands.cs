@@ -868,30 +868,61 @@ internal static class ScanView
     public static GroupRow[] Group(ReadOnlySpan<ScanComponent> components, string groupBy)
     {
         var fields = ParseGroupFields(groupBy);
-        var groups = new Dictionary<string, GroupRowBuilder>(StringComparer.Ordinal);
-        for (var i = 0; i < components.Length; i++)
+        var indexes = new Dictionary<string[], int>(GroupValuesComparer.Instance);
+        var groupValues = new List<string[]>();
+        var counts = new List<int>();
+        var componentGroups = ArrayPool<int>.Shared.Rent(Math.Max(components.Length, 1));
+        try
         {
-            var values = CreateGroupValues(components[i], fields);
-            var key = string.Join('\u001f', values);
-            if (!groups.TryGetValue(key, out var builder))
+            for (var i = 0; i < components.Length; i++)
             {
-                builder = new GroupRowBuilder(values);
-                groups[key] = builder;
+                var candidate = CreateGroupValues(components[i], fields);
+                if (!indexes.TryGetValue(candidate, out var group))
+                {
+                    group = groupValues.Count;
+                    indexes.Add(candidate, group);
+                    groupValues.Add(candidate);
+                    counts.Add(0);
+                }
+
+                componentGroups[i] = group;
+                counts[group]++;
             }
 
-            builder.Components.Add(components[i]);
-        }
+            var buckets = new ScanComponent[groupValues.Count][];
+            var filled = ArrayPool<int>.Shared.Rent(Math.Max(groupValues.Count, 1));
+            try
+            {
+                for (var i = 0; i < buckets.Length; i++)
+                {
+                    buckets[i] = new ScanComponent[counts[i]];
+                    filled[i] = 0;
+                }
 
-        var result = new GroupRow[groups.Count];
-        var index = 0;
-        foreach (var group in groups.Values)
+                for (var i = 0; i < components.Length; i++)
+                {
+                    var group = componentGroups[i];
+                    buckets[group][filled[group]++] = components[i];
+                }
+            }
+            finally
+            {
+                ArrayPool<int>.Shared.Return(filled);
+            }
+
+            var result = new GroupRow[buckets.Length];
+            for (var i = 0; i < result.Length; i++)
+            {
+                result[i] = new GroupRow(groupValues[i], counts[i], buckets[i]);
+            }
+
+            Array.Sort(result, CompareGroupRows);
+            return result;
+        }
+        finally
         {
-            result[index] = new GroupRow(group.Values, group.Components.Count, group.Components.ToArray());
-            index++;
+            ArrayPool<int>.Shared.Return(componentGroups);
         }
-
-        Array.Sort(result, CompareGroupRows);
-        return result;
     }
 
     public static int CountExcludedUnknown(ReadOnlySpan<ScanComponent> components, string dependency)
@@ -1115,13 +1146,42 @@ internal static class ScanView
                 GroupField.Version => component.Version.ToString(),
                 GroupField.License => component.License.ToString(),
                 GroupField.Ecosystem => component.Ecosystem,
-                GroupField.Dependency => component.DependencyType.ToString().ToLowerInvariant(),
-                GroupField.Status => component.Status.ToString().ToLowerInvariant(),
+                GroupField.Dependency => ReportRenderer.GetDependencyTypeName(component.DependencyType),
+                GroupField.Status => ReportRenderer.GetStatusName(component.Status),
                 _ => throw new ArgumentOutOfRangeException(nameof(fields)),
             };
         }
 
         return values;
+    }
+
+    /// <summary>Compares group value arrays so the values themselves can serve as the row key.</summary>
+    private sealed class GroupValuesComparer : IEqualityComparer<string[]>
+    {
+        public static readonly GroupValuesComparer Instance = new();
+
+        public bool Equals(string[]? x, string[]? y)
+        {
+            if (ReferenceEquals(x, y)) return true;
+            if (x is null || y is null || x.Length != y.Length) return false;
+            for (var i = 0; i < x.Length; i++)
+            {
+                if (!string.Equals(x[i], y[i], StringComparison.Ordinal)) return false;
+            }
+
+            return true;
+        }
+
+        public int GetHashCode(string[] obj)
+        {
+            var hash = new HashCode();
+            for (var i = 0; i < obj.Length; i++)
+            {
+                hash.Add(obj[i], StringComparer.Ordinal);
+            }
+
+            return hash.ToHashCode();
+        }
     }
 
     private static int CompareGroupRows(GroupRow left, GroupRow right)
@@ -1158,13 +1218,6 @@ internal enum SortField
     Dependency,
     Status,
     Purl,
-}
-
-internal sealed class GroupRowBuilder(string[] values)
-{
-    public string[] Values { get; } = values;
-
-    public List<ScanComponent> Components { get; } = [];
 }
 
 internal readonly record struct GroupRow(string[] Values, int Count, ScanComponent[] Components);
@@ -1312,7 +1365,7 @@ internal static class ReportRenderer
             if (reference.Length != 0)
             {
                 WriteUtf8(writer, " "u8);
-                WriteUtf8(writer, System.Text.Encoding.UTF8.GetBytes(reference));
+                WriteUtf8(writer, reference);
             }
 
             // The section says what to do next, and for a transitive component that is to change the
@@ -1321,7 +1374,7 @@ internal static class ReportRenderer
             if (path.Length != 0)
             {
                 WriteUtf8(writer, " via "u8);
-                WriteUtf8(writer, System.Text.Encoding.UTF8.GetBytes(path));
+                WriteUtf8(writer, path);
             }
 
             WriteNewLine(writer);
@@ -1494,11 +1547,11 @@ internal static class ReportRenderer
             builder.Append(" | ");
             AppendMarkdownValue(builder, component.Ecosystem);
             builder.Append(" | ");
-            builder.Append(component.DependencyType.ToString().ToLowerInvariant());
+            builder.Append(GetDependencyTypeName(component.DependencyType));
             builder.Append(" | ");
-            builder.Append(component.Status.ToString().ToLowerInvariant());
+            builder.Append(GetStatusName(component.Status));
             builder.Append(" | ");
-            builder.Append(Encoding.UTF8.GetString(GetSuppliedByUtf8(component.SuppliedBy)));
+            builder.Append(GetSuppliedByName(component.SuppliedBy));
             if (verbose)
             {
                 builder.Append(" | ");
@@ -1556,7 +1609,7 @@ internal static class ReportRenderer
             builder.Append(" | ");
             AppendMarkdownValue(builder, component.Version);
             builder.Append(" | ");
-            builder.Append(System.Text.Encoding.UTF8.GetString(reason));
+            AppendAscii(builder, reason);
             builder.Append(" | ");
             AppendMarkdownValue(builder, GetUnresolvedReference(component, reason));
             builder.Append(" | ");
@@ -1758,6 +1811,15 @@ internal static class ReportRenderer
         WriteNewLine(writer);
     }
 
+    /// <summary>Appends an ASCII identifier without decoding it into a separate string first.</summary>
+    private static void AppendAscii(StringBuilder builder, ReadOnlySpan<byte> value)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            builder.Append((char)value[i]);
+        }
+    }
+
     private static void WriteDisplay(IBufferWriter<byte> writer, string value)
     {
         if (value.Length == 0)
@@ -1847,6 +1909,41 @@ internal static class ReportRenderer
         DependencyType.Direct => "direct"u8,
         DependencyType.Transitive => "transitive"u8,
         _ => default,
+    };
+
+    /// <summary>The same tokens as the UTF-8 forms, for the views that build a <see cref="string"/>.</summary>
+    /// <remarks>
+    /// Constants rather than <c>ToString().ToLowerInvariant()</c>, which allocated two strings per value
+    /// per component in the Markdown table and in every grouped row, none of which outlived the call.
+    /// </remarks>
+    internal static string GetDependencyTypeName(DependencyType value) => value switch
+    {
+        DependencyType.Unknown => "unknown",
+        DependencyType.Root => "root",
+        DependencyType.Direct => "direct",
+        DependencyType.Transitive => "transitive",
+        _ => string.Empty,
+    };
+
+    /// <summary>See <see cref="GetDependencyTypeName"/>.</summary>
+    internal static string GetStatusName(LicenseStatus value) => value switch
+    {
+        LicenseStatus.Matched => "matched",
+        LicenseStatus.Conflict => "conflict",
+        LicenseStatus.Unknown => "unknown",
+        LicenseStatus.Ambiguous => "ambiguous",
+        LicenseStatus.Invalid => "invalid",
+        LicenseStatus.Error => "error",
+        _ => string.Empty,
+    };
+
+    /// <summary>See <see cref="GetDependencyTypeName"/>.</summary>
+    private static string GetSuppliedByName(ComponentSupply value) => value switch
+    {
+        ComponentSupply.Sbom => "sbom",
+        ComponentSupply.PackageManager => "package-manager",
+        ComponentSupply.Sbom | ComponentSupply.PackageManager => "sbom,package-manager",
+        _ => "-",
     };
 
     // Human output keeps the same tokens the canonical JSON uses so one vocabulary describes both views.

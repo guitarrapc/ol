@@ -142,6 +142,7 @@ public abstract class PackageMetadataProvider
 public sealed class PackageMetadataProviders
 {
     private readonly FrozenDictionary<string, PackageMetadataProvider> byEcosystem;
+    private readonly FrozenDictionary<string, PackageMetadataProvider>.AlternateLookup<ReadOnlySpan<char>> byEcosystemSpan;
     private readonly PackageMetadataProvider[] providers;
 
     /// <summary>Gets the number of registered package ecosystems.</summary>
@@ -156,6 +157,7 @@ public sealed class PackageMetadataProviders
         ArgumentNullException.ThrowIfNull(providers);
         this.providers = providers.Length == 0 ? [] : (PackageMetadataProvider[])providers.Clone();
         byEcosystem = this.providers.ToFrozenDictionary(static provider => provider.Ecosystem, StringComparer.OrdinalIgnoreCase);
+        byEcosystemSpan = byEcosystem.GetAlternateLookup<ReadOnlySpan<char>>();
     }
 
     /// <summary>
@@ -166,6 +168,15 @@ public sealed class PackageMetadataProviders
     /// <returns><see langword="true"/> when a provider is registered.</returns>
     public bool TryGet(string ecosystem, out PackageMetadataProvider provider)
         => byEcosystem.TryGetValue(ecosystem, out provider!);
+
+    /// <summary>
+    /// Finds a provider by purl type without requiring the caller to materialize the type.
+    /// </summary>
+    /// <param name="ecosystem">The purl type, as a slice of the purl it was read from.</param>
+    /// <param name="provider">The registered provider.</param>
+    /// <returns><see langword="true"/> when a provider is registered.</returns>
+    public bool TryGet(ReadOnlySpan<char> ecosystem, out PackageMetadataProvider provider)
+        => byEcosystemSpan.TryGetValue(ecosystem, out provider!);
 
     /// <summary>
     /// Resolves the display ecosystem for an unescaped purl without decoding it.

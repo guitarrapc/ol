@@ -81,6 +81,11 @@ public class ScanReportScaleBenchmark
             enriched[i] = LicenseReconciler.AddCandidate(LicenseReconciler.AddCandidate(components[i], registryCandidate), sourceCandidate);
         }
 
+        // The report renders a sorted view, and the unresolved section resolves each row's introducer by
+        // locating it in the inventory. Rendering an inventory-ordered view instead measures a positional
+        // hit rate no scan produces, because every scan sorts before it renders.
+        ScanView.Apply(enriched, dependency: null, "ecosystem,name,version", SortOrder.Asc);
+
         groupScratch = new ScanComponent[components.Length];
         var groupedComponents = (ScanComponent[])enriched.Clone();
         groups = ScanView.Group(groupedComponents, null, groupedComponents.Length, "license,ecosystem");

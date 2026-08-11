@@ -1522,47 +1522,57 @@ internal static class ReportRenderer
     private static void WriteUnresolvedText(IBufferWriter<byte> writer, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components)
     {
         var first = true;
+
+        // Built on the first row that needs it, so a report with nothing to explain rents nothing, and
+        // returned however the loop ends.
         var rootPaths = default(DependencyRootPaths);
-        for (var i = 0; i < components.Length; i++)
+        try
         {
-            var component = components[i];
-            if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
+            for (var i = 0; i < components.Length; i++)
             {
-                continue;
-            }
+                var component = components[i];
+                if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
+                {
+                    continue;
+                }
 
-            if (first)
-            {
-                WriteNewLine(writer);
-                WriteUtf8(writer, "Unresolved components"u8);
-                WriteNewLine(writer);
-                rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
-                first = false;
-            }
+                if (first)
+                {
+                    WriteNewLine(writer);
+                    WriteUtf8(writer, "Unresolved components"u8);
+                    WriteNewLine(writer);
+                    rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
+                    first = false;
+                }
 
-            WriteUtf8(writer, "  "u8);
-            WriteDisplay(writer, component.Name);
-            WriteUtf8(writer, " "u8);
-            WriteDisplay(writer, component.Version);
-            WriteUtf8(writer, " "u8);
-            WriteUtf8(writer, reason);
-            var reference = GetUnresolvedReference(component, reason);
-            if (reference.Length != 0)
-            {
+                WriteUtf8(writer, "  "u8);
+                WriteDisplay(writer, component.Name);
                 WriteUtf8(writer, " "u8);
-                WriteUtf8(writer, reference);
-            }
+                WriteDisplay(writer, component.Version);
+                WriteUtf8(writer, " "u8);
+                WriteUtf8(writer, reason);
+                var reference = GetUnresolvedReference(component, reason);
+                if (reference.Length != 0)
+                {
+                    WriteUtf8(writer, " "u8);
+                    WriteUtf8(writer, reference);
+                }
 
-            // The section says what to do next, and for a transitive component that is to change the
-            // direct dependency that pulled it in rather than the component the row names.
-            var path = DependencyPathText.Introducer(inventory, rootPaths, component, i);
-            if (path.Length != 0)
-            {
-                WriteUtf8(writer, " via "u8);
-                WriteUtf8(writer, path);
-            }
+                // The section says what to do next, and for a transitive component that is to change the
+                // direct dependency that pulled it in rather than the component the row names.
+                var path = DependencyPathText.Introducer(inventory, rootPaths, component, i);
+                if (path.Length != 0)
+                {
+                    WriteUtf8(writer, " via "u8);
+                    WriteUtf8(writer, path);
+                }
 
-            WriteNewLine(writer);
+                WriteNewLine(writer);
+            }
+        }
+        finally
+        {
+            rootPaths.Dispose();
         }
     }
 
@@ -1770,36 +1780,43 @@ internal static class ReportRenderer
     {
         var first = true;
         var rootPaths = default(DependencyRootPaths);
-        for (var i = 0; i < components.Length; i++)
+        try
         {
-            var component = components[i];
-            if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
+            for (var i = 0; i < components.Length; i++)
             {
-                continue;
-            }
+                var component = components[i];
+                if (IsExplainedElsewhere(component) || !TryGetUnresolvedReason(component, out var reason))
+                {
+                    continue;
+                }
 
-            if (first)
-            {
-                builder.AppendLine();
-                builder.AppendLine("## Unresolved components");
-                builder.AppendLine();
-                builder.AppendLine("| NAME | VERSION | REASON | REFERENCE | PATH |");
-                builder.AppendLine("|---|---|---|---|---|");
-                rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
-                first = false;
-            }
+                if (first)
+                {
+                    builder.AppendLine();
+                    builder.AppendLine("## Unresolved components");
+                    builder.AppendLine();
+                    builder.AppendLine("| NAME | VERSION | REASON | REFERENCE | PATH |");
+                    builder.AppendLine("|---|---|---|---|---|");
+                    rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
+                    first = false;
+                }
 
-            builder.Append("| ");
-            AppendMarkdownValue(builder, component.Name);
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, component.Version);
-            builder.Append(" | ");
-            AppendAscii(builder, reason);
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, GetUnresolvedReference(component, reason));
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, DependencyPathText.Introducer(inventory, rootPaths, component, i));
-            builder.AppendLine(" |");
+                builder.Append("| ");
+                AppendMarkdownValue(builder, component.Name);
+                builder.Append(" | ");
+                AppendMarkdownValue(builder, component.Version);
+                builder.Append(" | ");
+                AppendAscii(builder, reason);
+                builder.Append(" | ");
+                AppendMarkdownValue(builder, GetUnresolvedReference(component, reason));
+                builder.Append(" | ");
+                AppendMarkdownValue(builder, DependencyPathText.Introducer(inventory, rootPaths, component, i));
+                builder.AppendLine(" |");
+            }
+        }
+        finally
+        {
+            rootPaths.Dispose();
         }
     }
 

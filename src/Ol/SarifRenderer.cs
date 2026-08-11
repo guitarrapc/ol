@@ -52,7 +52,7 @@ internal static class SarifRenderer
             writer.WriteEndObject();
 
             writer.WriteStartArray("results"u8);
-            var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
+            using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
             for (var i = 0; i < violations.Length; i++)
             {
                 WriteResult(writer, inventory, rootPaths, components, violations[i]);
@@ -127,7 +127,7 @@ internal static class SarifRenderer
     {
         var component = components[violation.ComponentIndex];
         var identity = Identity(component);
-        var inventoryComponentIndex = DependencyPathText.FindComponentIndex(inventory.Components, component, violation.ComponentIndex);
+        var inventoryComponentIndex = rootPaths.FindComponentIndex(component, violation.ComponentIndex);
         var path = rootPaths.GetPath(inventoryComponentIndex);
 
         writer.WriteStartObject();

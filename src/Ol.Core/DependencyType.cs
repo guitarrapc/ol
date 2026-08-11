@@ -3,7 +3,7 @@
 /// <summary>
 /// Describes how a component is related to the SBOM root component.
 /// </summary>
-public enum DependencyType
+public enum DependencyType : byte
 {
     /// <summary>The dependency relationship could not be determined from the SBOM.</summary>
     Unknown,

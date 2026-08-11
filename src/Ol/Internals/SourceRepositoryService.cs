@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;

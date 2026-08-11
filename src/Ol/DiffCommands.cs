@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using ConsoleAppFramework;
 using Ol.Core.Reporting;
-using Ol.Internals;
 
 /// <summary>Compare two persisted scan reports.</summary>
 internal sealed class DiffCommands

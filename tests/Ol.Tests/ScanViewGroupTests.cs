@@ -1,4 +1,4 @@
-using Ol.Core;
+﻿using Ol.Core;
 using Ol.Core.Licensing;
 
 namespace Ol.Tests;

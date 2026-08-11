@@ -1,4 +1,4 @@
-using Ol.Core.PackageMetadata;
+﻿using Ol.Core.PackageMetadata;
 using System.Text.Json;
 
 namespace Ol.Core.PackageManagers;

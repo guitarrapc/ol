@@ -1,4 +1,4 @@
-using Ol.Core.Licensing;
+﻿using Ol.Core.Licensing;
 using Ol.Core.PackageMetadata;
 using System.Buffers;
 using System.Security.Cryptography;

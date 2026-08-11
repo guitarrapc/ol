@@ -1,4 +1,4 @@
-namespace Ol.Core.Spdx;
+﻿namespace Ol.Core.Spdx;
 
 /// <summary>
 /// Decides whether one normalized SPDX expression states anything another does not already account for.

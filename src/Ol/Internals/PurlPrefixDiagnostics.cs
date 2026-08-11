@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using Ol.Core;
 
 namespace Ol.Internals;

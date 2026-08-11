@@ -1,7 +1,6 @@
-using System.Net;
+﻿using System.Net;
 using Ol.Core;
 using Ol.Core.Licensing;
-using Ol.Core.PackageMetadata;
 using Ol.Core.Spdx;
 using Ol.Internals;
 

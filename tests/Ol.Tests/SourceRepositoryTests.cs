@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;

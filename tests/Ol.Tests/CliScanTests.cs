@@ -1,9 +1,8 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using Ol.Core.Licensing;
-using Ol.Core.PackageMetadata;
 
 namespace Ol.Tests;
 

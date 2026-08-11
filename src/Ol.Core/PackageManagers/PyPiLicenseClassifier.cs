@@ -1,4 +1,4 @@
-namespace Ol.Core.PackageManagers;
+﻿namespace Ol.Core.PackageManagers;
 
 /// <summary>
 /// Recognizes the PyPI license classifiers that name a license family without saying which license in

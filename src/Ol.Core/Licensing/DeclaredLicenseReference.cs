@@ -1,4 +1,4 @@
-namespace Ol.Core.Licensing;
+﻿namespace Ol.Core.Licensing;
 
 /// <summary>
 /// A publisher's unverified claim about where its license can be found.

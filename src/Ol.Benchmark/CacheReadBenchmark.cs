@@ -1,4 +1,4 @@
-using Ol.Core;
+﻿using Ol.Core;
 using BenchmarkDotNet.Attributes;
 
 // TEMPORARY: added to measure the P0 cache-read allocation work

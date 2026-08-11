@@ -1,5 +1,4 @@
-using System.Text;
-using Ol.Core;
+﻿using System.Text;
 using Ol.Core.Generated;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;

@@ -2,7 +2,6 @@
 using Ol.Core.PackageMetadata;
 using System.Text.Json;
 using Ol.Core.Licensing;
-using Ol.Core.SourceRepository;
 
 namespace Ol.Core.PackageManagers;
 

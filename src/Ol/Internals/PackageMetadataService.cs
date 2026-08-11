@@ -1,10 +1,9 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Net;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.PackageManagers;
 using Ol.Core.PackageMetadata;
-using Ol.Core.SourceRepository;
 using Ol.Core.Spdx;
 
 namespace Ol.Internals;

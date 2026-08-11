@@ -1,4 +1,4 @@
-namespace Ol.Core.PackageManagers;
+﻿namespace Ol.Core.PackageManagers;
 
 /// <summary>
 /// Rewrites Cargo's pre-SPDX license spelling into the SPDX expression it stands for.

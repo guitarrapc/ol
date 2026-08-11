@@ -1,4 +1,4 @@
-namespace Ol.Internals;
+﻿namespace Ol.Internals;
 
 internal static class CommandLineRouting
 {

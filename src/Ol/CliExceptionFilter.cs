@@ -1,4 +1,4 @@
-using ConsoleAppFramework;
+﻿using ConsoleAppFramework;
 
 /// <summary>Writes command failures as concise stderr diagnostics.</summary>
 internal sealed class CliExceptionFilter(ConsoleAppFilter next) : ConsoleAppFilter(next)

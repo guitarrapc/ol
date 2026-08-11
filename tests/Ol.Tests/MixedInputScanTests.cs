@@ -1,8 +1,7 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using Ol.Core;
 using Ol.Core.Licensing;
-using Ol.Core.PackageMetadata;
 using Ol.Core.Spdx;
 using Ol.Internals;
 

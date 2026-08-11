@@ -1,4 +1,4 @@
-using Ol.Core.Licensing;
+﻿using Ol.Core.Licensing;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 

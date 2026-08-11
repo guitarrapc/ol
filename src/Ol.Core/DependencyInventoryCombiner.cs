@@ -1,11 +1,18 @@
 ﻿using System.Buffers;
-using Ol.Core;
 using Ol.Core.Licensing;
 
-namespace Ol.Internals;
+namespace Ol.Core;
 
-internal static class DependencyInventoryCombiner
+/// <summary>
+/// Combines the inventories parsed from one scan's inputs into a single normalized inventory.
+/// </summary>
+public static class DependencyInventoryCombiner
 {
+    /// <summary>Combines each inventory with the handler that produced it.</summary>
+    /// <param name="inventories">The parsed inventories, in the order their inputs were named.</param>
+    /// <param name="handlers">The registered handler per inventory, positionally aligned with <paramref name="inventories"/>.</param>
+    /// <param name="input">The descriptor recorded on the combined inventory.</param>
+    /// <returns>One inventory whose occurrence and edge indexes address its own arrays.</returns>
     public static DependencyInventory Combine(ReadOnlySpan<DependencyInventory> inventories, ReadOnlySpan<DependencyInputHandler> handlers, ScanInputDescriptor input)
     {
         if (inventories.Length == 0 || handlers.Length != inventories.Length)

@@ -1,8 +1,7 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
-using Ol.Internals;
 
 /// <summary>
 /// Measures combining several resolved inventories into one collection, including folding an SBOM into

@@ -135,7 +135,7 @@ internal sealed class ScanCommands
         var components = viewComponents.AsSpan(0, componentCount);
         var componentUsages = viewUsages is null ? default : viewUsages.AsSpan(0, componentCount);
         var dependencyFilteredCount = dependency is null or "" ? 0 : scanResult.Inventory.Components.Length - components.Length;
-        var groups = groupBy is null or "" ? null : ScanView.Group(components, groupBy);
+        var groups = groupBy is null or "" ? null : ScanView.Group(viewComponents, viewUsages, componentCount, groupBy);
         if (format == ReportFormat.Json)
         {
             try
@@ -950,27 +950,28 @@ internal static class ScanView
         }
     }
 
-    public static GroupRow[] Group(ReadOnlySpan<ScanComponent> components, string groupBy)
+    public static GroupRow[] Group(ScanComponent[] components, DependencyUsage[]? usages, int count, string groupBy)
     {
         var fields = ParseGroupFields(groupBy);
-        if (components.Length == 0)
+        if (count == 0)
         {
             return [];
         }
 
         // Sized so the table never rehashes and stays under half full, which is what lets the index be a
         // pooled array of row numbers instead of a dictionary that allocates per entry.
-        var capacity = (int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(components.Length * 2, 4));
+        var capacity = (int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(count * 2, 4));
         var mask = capacity - 1;
         var table = ArrayPool<int>.Shared.Rent(capacity);
-        var componentGroups = ArrayPool<int>.Shared.Rent(components.Length);
-        var representatives = ArrayPool<int>.Shared.Rent(components.Length);
-        var counts = ArrayPool<int>.Shared.Rent(components.Length);
+        var componentGroups = ArrayPool<int>.Shared.Rent(count);
+        var representatives = ArrayPool<int>.Shared.Rent(count);
+        var starts = ArrayPool<int>.Shared.Rent(count);
+        var counts = ArrayPool<int>.Shared.Rent(count);
         try
         {
             table.AsSpan(0, capacity).Fill(-1);
             var groupCount = 0;
-            for (var i = 0; i < components.Length; i++)
+            for (var i = 0; i < count; i++)
             {
                 var slot = GetGroupHash(components[i], fields) & mask;
                 int group;
@@ -998,42 +999,75 @@ internal static class ScanView
                 counts[group]++;
             }
 
-            var buckets = new ScanComponent[groupCount][];
-            var filled = ArrayPool<int>.Shared.Rent(groupCount);
-            try
-            {
-                for (var i = 0; i < groupCount; i++)
-                {
-                    buckets[i] = new ScanComponent[counts[i]];
-                    filled[i] = 0;
-                }
-
-                for (var i = 0; i < components.Length; i++)
-                {
-                    var group = componentGroups[i];
-                    buckets[group][filled[group]++] = components[i];
-                }
-            }
-            finally
-            {
-                ArrayPool<int>.Shared.Return(filled);
-            }
-
+            // Built from the original positions, before the components move.
             var result = new GroupRow[groupCount];
+            var offset = 0;
             for (var i = 0; i < groupCount; i++)
             {
-                result[i] = new GroupRow(CreateGroupValues(components[representatives[i]], fields), counts[i], buckets[i]);
+                starts[i] = offset;
+                result[i] = new GroupRow(CreateGroupValues(components[representatives[i]], fields), counts[i], components.AsMemory(offset, counts[i]));
+                offset += counts[i];
             }
 
+            Reorder(components, usages, count, componentGroups, starts, groupCount);
             Array.Sort(result, CompareGroupRows);
             return result;
         }
         finally
         {
             ArrayPool<int>.Shared.Return(counts);
+            ArrayPool<int>.Shared.Return(starts);
             ArrayPool<int>.Shared.Return(representatives);
             ArrayPool<int>.Shared.Return(componentGroups);
             ArrayPool<int>.Shared.Return(table);
+        }
+    }
+
+    /// <summary>Moves the view into group order so each row can be a window onto it.</summary>
+    /// <remarks>
+    /// The usages travel with their components. Nothing reads them once a view is grouped, because grouped
+    /// output states counts rather than per-component reachability, but leaving two positionally paired
+    /// arrays disagreeing would make the next reader of that pairing wrong rather than merely unlucky.
+    /// </remarks>
+    private static void Reorder(
+        ScanComponent[] components,
+        DependencyUsage[]? usages,
+        int count,
+        ReadOnlySpan<int> componentGroups,
+        ReadOnlySpan<int> starts,
+        int groupCount)
+    {
+        var positions = ArrayPool<int>.Shared.Rent(groupCount);
+        var ordered = ArrayPool<ScanComponent>.Shared.Rent(count);
+        var orderedUsages = usages is null ? [] : ArrayPool<DependencyUsage>.Shared.Rent(count);
+        try
+        {
+            starts[..groupCount].CopyTo(positions);
+            for (var i = 0; i < count; i++)
+            {
+                var target = positions[componentGroups[i]]++;
+                ordered[target] = components[i];
+                if (usages is not null)
+                {
+                    orderedUsages[target] = usages[i];
+                }
+            }
+
+            ordered.AsSpan(0, count).CopyTo(components);
+            if (usages is not null)
+            {
+                orderedUsages.AsSpan(0, count).CopyTo(usages);
+            }
+        }
+        finally
+        {
+            if (orderedUsages.Length != 0)
+            {
+                ArrayPool<DependencyUsage>.Shared.Return(orderedUsages);
+            }
+
+            ArrayPool<ScanComponent>.Shared.Return(ordered, clearArray: true);
+            ArrayPool<int>.Shared.Return(positions);
         }
     }
 
@@ -1362,7 +1396,16 @@ internal enum SortField
     Purl,
 }
 
-internal readonly record struct GroupRow(Utf8Slice[] Values, int Count, ScanComponent[] Components);
+/// <summary>
+/// One grouped row: the values that name it, how many components it holds, and which ones.
+/// </summary>
+/// <remarks>
+/// <see cref="Components"/> is a window onto the view array rather than a copy of it. Copying cost one
+/// component struct per component — the row arrays together weighed as much as the whole view — for data
+/// the caller already had in hand. The window is valid for as long as that array is, which for the scan
+/// command is the rest of the report.
+/// </remarks>
+internal readonly record struct GroupRow(Utf8Slice[] Values, int Count, ReadOnlyMemory<ScanComponent> Components);
 
 /// <summary>What the run did and what the rendered view left out, as the canonical JSON report states it.</summary>
 /// <remarks>
@@ -1913,9 +1956,10 @@ internal static class ReportRenderer
 
             writer.WriteNumber("count", groups[i].Count);
             writer.WriteStartArray("components");
-            for (var componentIndex = 0; componentIndex < groups[i].Components.Length; componentIndex++)
+            var rowComponents = groups[i].Components.Span;
+            for (var componentIndex = 0; componentIndex < rowComponents.Length; componentIndex++)
             {
-                var component = groups[i].Components[componentIndex];
+                var component = rowComponents[componentIndex];
                 writer.WriteStartObject();
                 writer.WriteString("name"u8, component.Name.Span);
                 writer.WriteString("version"u8, component.Version.Span);
@@ -2424,7 +2468,7 @@ internal static class ReportRenderer
         writer.WriteStartArray("warnings");
         for (var i = 0; i < groups.Length; i++)
         {
-            if (HasDeprecatedWarning(groups[i].Components))
+            if (HasDeprecatedWarning(groups[i].Components.Span))
             {
                 writer.WriteStringValue("deprecated_spdx_identifier");
                 break;
@@ -2573,7 +2617,7 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
         var total = default(ScanSummary);
         for (var i = 0; i < groups.Length; i++)
         {
-            var summary = Create(groups[i].Components);
+            var summary = Create(groups[i].Components.Span);
             total = new ScanSummary(
                 total.Matched + summary.Matched,
                 total.Conflict + summary.Conflict,

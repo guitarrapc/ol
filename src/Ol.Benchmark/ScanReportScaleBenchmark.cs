@@ -32,6 +32,11 @@ public class ScanReportScaleBenchmark
     private LicenseCandidate sourceCandidate;
     private SpdxData spdx;
     private ScanComponent[] reconcileScratch = [];
+
+    // Grouping moves the view into group order, so it gets its own copy. Sharing one array would leave the
+    // report benchmarks rendering a view an earlier benchmark permuted, and the unresolved section costs
+    // more on a view whose positions no longer line up with the inventory.
+    private ScanComponent[] groupScratch = [];
     private Utf8JsonWriter writer = null!;
 
     [Params(1024)]
@@ -76,7 +81,9 @@ public class ScanReportScaleBenchmark
             enriched[i] = LicenseReconciler.AddCandidate(LicenseReconciler.AddCandidate(components[i], registryCandidate), sourceCandidate);
         }
 
-        groups = ScanView.Group(enriched, "license,ecosystem");
+        groupScratch = new ScanComponent[components.Length];
+        var groupedComponents = (ScanComponent[])enriched.Clone();
+        groups = ScanView.Group(groupedComponents, null, groupedComponents.Length, "license,ecosystem");
     }
 
     [GlobalCleanup]
@@ -123,7 +130,11 @@ public class ScanReportScaleBenchmark
     }
 
     [Benchmark]
-    public int GroupByLicenseAndEcosystem() => ScanView.Group(enriched, "license,ecosystem").Length;
+    public int GroupByLicenseAndEcosystem()
+    {
+        enriched.CopyTo(groupScratch, 0);
+        return ScanView.Group(groupScratch, null, groupScratch.Length, "license,ecosystem").Length;
+    }
 
     [Benchmark]
     public int WriteText()

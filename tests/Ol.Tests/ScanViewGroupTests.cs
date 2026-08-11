@@ -27,7 +27,7 @@ public sealed class ScanViewGroupTests
             CreateComponent("f", "MIT", "nuget"),
         ];
 
-        var groups = ScanView.Group(components, "license,ecosystem");
+        var groups = ScanView.Group(components, null, components.Length, "license,ecosystem");
 
         await Assert.That(groups.Length).IsEqualTo(3);
         await Assert.That(RowNames(groups, "Apache-2.0", "npm")).IsEqualTo("c|e");
@@ -44,7 +44,7 @@ public sealed class ScanViewGroupTests
             components[i] = CreateComponent($"package-{i:D2}", i % 3 == 0 ? "MIT" : "ISC", i % 2 == 0 ? "npm" : "cargo");
         }
 
-        var groups = ScanView.Group(components, "license,ecosystem");
+        var groups = ScanView.Group(components, null, components.Length, "license,ecosystem");
 
         var total = 0;
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -52,9 +52,9 @@ public sealed class ScanViewGroupTests
         {
             await Assert.That(group.Count).IsEqualTo(group.Components.Length);
             total += group.Count;
-            foreach (var component in group.Components)
+            for (var i = 0; i < group.Components.Length; i++)
             {
-                await Assert.That(seen.Add(component.Name.ToString())).IsTrue();
+                await Assert.That(seen.Add(group.Components.Span[i].Name.ToString())).IsTrue();
             }
         }
 
@@ -62,19 +62,48 @@ public sealed class ScanViewGroupTests
     }
 
     [Test]
+    public async Task Group_WithUsages_KeepsEachUsagePairedWithItsComponent()
+    {
+        // Grouping moves the view into group order, and the usages are positionally paired with it. The
+        // assertion checks the pairing rather than the order, because the order is the thing under test.
+        ScanComponent[] components =
+        [
+            CreateComponent("a", "MIT", "npm"),
+            CreateComponent("b", "ISC", "npm"),
+            CreateComponent("c", "MIT", "npm"),
+            CreateComponent("d", "ISC", "npm"),
+        ];
+        DependencyUsage[] usages = [DependencyUsage.Development, DependencyUsage.Runtime, DependencyUsage.Unknown, DependencyUsage.Runtime];
+        var expected = new Dictionary<string, DependencyUsage>(StringComparer.Ordinal)
+        {
+            ["a"] = DependencyUsage.Development,
+            ["b"] = DependencyUsage.Runtime,
+            ["c"] = DependencyUsage.Unknown,
+            ["d"] = DependencyUsage.Runtime,
+        };
+
+        ScanView.Group(components, usages, components.Length, "license");
+
+        for (var i = 0; i < components.Length; i++)
+        {
+            await Assert.That(usages[i]).IsEqualTo(expected[components[i].Name.ToString()]);
+        }
+    }
+
+    [Test]
     public async Task Group_SingleComponent_ProducesOneRowHoldingIt()
     {
-        var groups = ScanView.Group([CreateComponent("only", "MIT", "npm")], "license");
+        var groups = ScanView.Group([CreateComponent("only", "MIT", "npm")], null, 1, "license");
 
         await Assert.That(groups.Length).IsEqualTo(1);
         await Assert.That(groups[0].Count).IsEqualTo(1);
         await Assert.That(groups[0].Components.Length).IsEqualTo(1);
-        await Assert.That(groups[0].Components[0].Name.ToString()).IsEqualTo("only");
+        await Assert.That(groups[0].Components.Span[0].Name.ToString()).IsEqualTo("only");
     }
 
     [Test]
     public async Task Group_NoComponents_ProducesNoRows()
-        => await Assert.That(ScanView.Group([], "license").Length).IsEqualTo(0);
+        => await Assert.That(ScanView.Group([], null, 0, "license").Length).IsEqualTo(0);
 
     /// <summary>Renders a row as one ordered string, so an assertion cannot pass on membership alone.</summary>
     private static string RowNames(GroupRow[] groups, string license, string ecosystem)
@@ -89,7 +118,7 @@ public sealed class ScanViewGroupTests
             var names = new string[group.Components.Length];
             for (var i = 0; i < names.Length; i++)
             {
-                names[i] = group.Components[i].Name.ToString();
+                names[i] = group.Components.Span[i].Name.ToString();
             }
 
             return string.Join('|', names);

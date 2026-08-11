@@ -23,7 +23,7 @@
       "ecosystem": "golang",
       "path": "sandbox/ecosystems/golang",
       "package": "github.com/google/uuid",
-      "metadataSource": "go-module-proxy"
+      "metadataSource": "deps.dev"
     },
     {
       "ecosystem": "pypi",
@@ -47,7 +47,7 @@
       "ecosystem": "maven",
       "path": "sandbox/ecosystems/maven",
       "package": "org.slf4j/slf4j-api",
-      "metadataSource": "package-registry"
+      "metadataSource": "deps.dev"
     },
     {
       "ecosystem": "cocoapods",

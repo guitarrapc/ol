@@ -158,7 +158,12 @@ public class ScanReportScaleBenchmark
     }
 
     [Benchmark]
-    public int RenderMarkdown() => ReportRenderer.RenderMarkdown(inventory, enriched, verbose: true).Length;
+    public int RenderMarkdown()
+    {
+        buffer.Clear();
+        ReportRenderer.WriteMarkdown(buffer, inventory, enriched, verbose: true);
+        return buffer.WrittenCount;
+    }
 
     [Benchmark]
     public int WriteJson()

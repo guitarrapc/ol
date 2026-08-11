@@ -166,19 +166,9 @@ internal sealed class ScanCommands
         }
         else
         {
-            var emptyInventory = scanResult.Inventory.Components.Length == 0;
-            var text = groups is null
-                ? ReportRenderer.RenderMarkdown(scanResult.Inventory, components, verbose, emptyInventory)
-                : ReportRenderer.RenderMarkdown(groups, groupBy!, emptyInventory);
-            text = ReportRenderer.RenderInputHeader(format, scanResult.Inventory.Input) + text;
-            if (!text.EndsWith('\n'))
-            {
-                text += '\n';
-            }
-
             try
             {
-                Console.Write(text);
+                WriteMarkdown(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, groups, groupBy, verbose, scanResult.Inventory.Components.Length == 0);
             }
             catch (IOException exception)
             {
@@ -237,6 +227,28 @@ internal sealed class ScanCommands
         else
         {
             ReportRenderer.WriteText(buffer, inventory.Input, groups, groupBy!, emptyInventory);
+        }
+    }
+
+    /// <summary>Writes the Markdown report through the same pooled buffer the other views use.</summary>
+    private static void WriteMarkdown(
+        Stream output,
+        in DependencyInventory inventory,
+        ReadOnlySpan<ScanComponent> components,
+        GroupRow[]? groups,
+        string? groupBy,
+        bool verbose,
+        bool emptyInventory)
+    {
+        using var buffer = new PooledStreamBufferWriter(output);
+        ReportRenderer.WriteMarkdownInputHeader(buffer, inventory.Input);
+        if (groups is null)
+        {
+            ReportRenderer.WriteMarkdown(buffer, inventory, components, verbose, emptyInventory);
+        }
+        else
+        {
+            ReportRenderer.WriteMarkdown(buffer, groups, groupBy!, emptyInventory);
         }
     }
 
@@ -1435,11 +1447,6 @@ internal static class ReportRenderer
         ?? typeof(ReportRenderer).Assembly.GetName().Version?.ToString()
         ?? "unknown";
 
-    public static string RenderInputHeader(ReportFormat format, ScanInputDescriptor input)
-        => format == ReportFormat.Markdown
-            ? $"Input: `{input.Kind.Name}/{input.Format.Name}`{Environment.NewLine}{Environment.NewLine}"
-            : $"Input: {input.Kind.Name}/{input.Format.Name}{Environment.NewLine}{Environment.NewLine}";
-
     /// <summary>The identifier and sentence that state an input contributed no dependency inventory.</summary>
     /// <remarks>
     /// A recognized input that resolves nothing produces a report where every count is zero, and a
@@ -1725,58 +1732,85 @@ internal static class ReportRenderer
         return string.Empty;
     }
 
-    public static string RenderMarkdown(in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, bool verbose, bool emptyInventory = false)
+    /// <summary>
+    /// Writes the Markdown report as UTF-8, the encoding it is read in.
+    /// </summary>
+    /// <remarks>
+    /// The report used to be assembled as text and handed over as one string, which cost the document
+    /// twice — once in the builder's chunks and once in the string it produced — and decoded every
+    /// source-backed value on the way in only for the encoder to undo it on the way out. Written as bytes
+    /// the values are copied, not translated, and nothing holds the document but the output buffer.
+    /// </remarks>
+    public static void WriteMarkdown(IBufferWriter<byte> writer, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, bool verbose, bool emptyInventory = false)
     {
-        var builder = new StringBuilder();
-        builder.AppendLine(verbose ? "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED | PURL |" : "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED |");
-        builder.AppendLine(verbose ? "|---|---|---|---|---|---|---|---|" : "|---|---|---|---|---|---|---|");
+        WriteUtf8(writer, verbose
+            ? "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED | PURL |"u8
+            : "| NAME | VERSION | LICENSE | ECOSYSTEM | DEPENDENCY | STATUS | SUPPLIED |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, verbose ? "|---|---|---|---|---|---|---|---|"u8 : "|---|---|---|---|---|---|---|"u8);
+        WriteNewLine(writer);
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
-            builder.Append("| ");
-            AppendMarkdownValue(builder, component.Name);
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, component.Version);
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, component.License);
-            builder.Append(" | ");
-            AppendMarkdownValue(builder, component.Ecosystem);
-            builder.Append(" | ");
-            builder.Append(GetDependencyTypeName(component.DependencyType));
-            builder.Append(" | ");
-            builder.Append(GetStatusName(component.Status));
-            builder.Append(" | ");
-            builder.Append(GetSuppliedByName(component.SuppliedBy));
+            WriteUtf8(writer, "| "u8);
+            WriteMarkdownValue(writer, component.Name);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.Version);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.License);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.Ecosystem);
+            WriteUtf8(writer, " | "u8);
+            WriteUtf8(writer, GetDependencyTypeUtf8(component.DependencyType));
+            WriteUtf8(writer, " | "u8);
+            WriteUtf8(writer, component.Status.ToUtf8());
+            WriteUtf8(writer, " | "u8);
+            WriteUtf8(writer, GetSuppliedByUtf8(component.SuppliedBy));
             if (verbose)
             {
-                builder.Append(" | ");
-                AppendMarkdownValue(builder, component.Purl);
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, component.Purl);
             }
 
-            builder.AppendLine(" |");
+            WriteUtf8(writer, " |"u8);
+            WriteNewLine(writer);
         }
 
-        AppendEmptyInventoryMarkdown(builder, emptyInventory);
-        AppendUnresolvedMarkdown(builder, inventory, components);
-        return builder.ToString();
+        WriteEmptyInventoryMarkdown(writer, emptyInventory);
+        WriteUnresolvedMarkdown(writer, inventory, components);
+    }
+
+    /// <summary>Writes the report's input line. The text view states the same thing without the code span.</summary>
+    public static void WriteMarkdownInputHeader(IBufferWriter<byte> writer, ScanInputDescriptor input)
+    {
+        WriteUtf8(writer, "Input: `"u8);
+        WriteUtf8(writer, input.Kind.Name);
+        WriteUtf8(writer, "/"u8);
+        WriteUtf8(writer, input.Format.Name);
+        WriteUtf8(writer, "`"u8);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
     }
 
     /// <summary>Renders the same statement as the text report. See <see cref="EmptyInventoryWarning"/>.</summary>
-    private static void AppendEmptyInventoryMarkdown(StringBuilder builder, bool emptyInventory)
+    private static void WriteEmptyInventoryMarkdown(IBufferWriter<byte> writer, bool emptyInventory)
     {
         if (!emptyInventory)
         {
             return;
         }
 
-        builder.AppendLine();
-        builder.Append("## ").AppendLine(Encoding.UTF8.GetString(EmptyInventoryHeadingUtf8));
-        builder.AppendLine();
-        builder.AppendLine(Encoding.UTF8.GetString(EmptyInventorySentenceUtf8));
+        WriteNewLine(writer);
+        WriteUtf8(writer, "## "u8);
+        WriteUtf8(writer, EmptyInventoryHeadingUtf8);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
+        WriteUtf8(writer, EmptyInventorySentenceUtf8);
+        WriteNewLine(writer);
     }
 
     /// <summary>Renders the same explanation as the text report. See <see cref="WriteUnresolvedText"/>.</summary>
-    private static void AppendUnresolvedMarkdown(StringBuilder builder, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components)
+    private static void WriteUnresolvedMarkdown(IBufferWriter<byte> writer, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components)
     {
         var first = true;
         var rootPaths = default(DependencyRootPaths);
@@ -1792,26 +1826,30 @@ internal static class ReportRenderer
 
                 if (first)
                 {
-                    builder.AppendLine();
-                    builder.AppendLine("## Unresolved components");
-                    builder.AppendLine();
-                    builder.AppendLine("| NAME | VERSION | REASON | REFERENCE | PATH |");
-                    builder.AppendLine("|---|---|---|---|---|");
+                    WriteNewLine(writer);
+                    WriteUtf8(writer, "## Unresolved components"u8);
+                    WriteNewLine(writer);
+                    WriteNewLine(writer);
+                    WriteUtf8(writer, "| NAME | VERSION | REASON | REFERENCE | PATH |"u8);
+                    WriteNewLine(writer);
+                    WriteUtf8(writer, "|---|---|---|---|---|"u8);
+                    WriteNewLine(writer);
                     rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
                     first = false;
                 }
 
-                builder.Append("| ");
-                AppendMarkdownValue(builder, component.Name);
-                builder.Append(" | ");
-                AppendMarkdownValue(builder, component.Version);
-                builder.Append(" | ");
-                AppendAscii(builder, reason);
-                builder.Append(" | ");
-                AppendMarkdownValue(builder, GetUnresolvedReference(component, reason));
-                builder.Append(" | ");
-                AppendMarkdownValue(builder, DependencyPathText.Introducer(inventory, rootPaths, component, i));
-                builder.AppendLine(" |");
+                WriteUtf8(writer, "| "u8);
+                WriteMarkdownValue(writer, component.Name);
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, component.Version);
+                WriteUtf8(writer, " | "u8);
+                WriteUtf8(writer, reason);
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, GetUnresolvedReference(component, reason));
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, DependencyPathText.Introducer(inventory, rootPaths, component, i));
+                WriteUtf8(writer, " |"u8);
+                WriteNewLine(writer);
             }
         }
         finally
@@ -1867,35 +1905,48 @@ internal static class ReportRenderer
         WriteEmptyInventoryText(writer, emptyInventory);
     }
 
-    public static string RenderMarkdown(ReadOnlySpan<GroupRow> groups, string groupBy, bool emptyInventory = false)
+    /// <summary>
+    /// Writes the grouped Markdown report. Headers come from the same table the text view reads, so the
+    /// two views cannot disagree about what a column is called.
+    /// </summary>
+    public static void WriteMarkdown(IBufferWriter<byte> writer, ReadOnlySpan<GroupRow> groups, string groupBy, bool emptyInventory = false)
     {
-        var headers = groupBy.ToUpperInvariant().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var builder = new StringBuilder();
-        builder.Append("| ");
-        builder.AppendJoin(" | ", headers);
-        builder.AppendLine(" | COUNT |");
-        builder.Append('|');
-        for (var i = 0; i < headers.Length + 1; i++)
+        var headerCount = GetGroupFieldCount(groupBy);
+        WriteUtf8(writer, "| "u8);
+        for (var i = 0; i < headerCount; i++)
         {
-            builder.Append("---|");
-        }
-
-        builder.AppendLine();
-        for (var i = 0; i < groups.Length; i++)
-        {
-            builder.Append("| ");
-            for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
+            if (i != 0)
             {
-                AppendMarkdownValue(builder, groups[i].Values[valueIndex]);
-                builder.Append(" | ");
+                WriteUtf8(writer, " | "u8);
             }
 
-            builder.Append(groups[i].Count);
-            builder.AppendLine(" |");
+            WriteUtf8(writer, GetGroupHeaderUtf8(groupBy, i));
         }
 
-        AppendEmptyInventoryMarkdown(builder, emptyInventory);
-        return builder.ToString();
+        WriteUtf8(writer, " | COUNT |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "|"u8);
+        for (var i = 0; i < headerCount + 1; i++)
+        {
+            WriteUtf8(writer, "---|"u8);
+        }
+
+        WriteNewLine(writer);
+        for (var i = 0; i < groups.Length; i++)
+        {
+            WriteUtf8(writer, "| "u8);
+            for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
+            {
+                WriteMarkdownValue(writer, groups[i].Values[valueIndex]);
+                WriteUtf8(writer, " | "u8);
+            }
+
+            WriteCount(writer, groups[i].Count);
+            WriteUtf8(writer, " |"u8);
+            WriteNewLine(writer);
+        }
+
+        WriteEmptyInventoryMarkdown(writer, emptyInventory);
     }
 
     public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
@@ -2014,15 +2065,6 @@ internal static class ReportRenderer
         WriteNewLine(writer);
     }
 
-    /// <summary>Appends an ASCII identifier without decoding it into a separate string first.</summary>
-    private static void AppendAscii(StringBuilder builder, ReadOnlySpan<byte> value)
-    {
-        for (var i = 0; i < value.Length; i++)
-        {
-            builder.Append((char)value[i]);
-        }
-    }
-
     private static void WriteDisplay(IBufferWriter<byte> writer, string value)
     {
         if (value.Length == 0)
@@ -2049,7 +2091,9 @@ internal static class ReportRenderer
         writer.Advance(value.Length);
     }
 
-    private static void WriteUtf8(IBufferWriter<byte> writer, string value)
+    private static void WriteUtf8(IBufferWriter<byte> writer, string value) => WriteUtf8(writer, value.AsSpan());
+
+    private static void WriteUtf8(IBufferWriter<byte> writer, ReadOnlySpan<char> value)
     {
         var byteCount = Encoding.UTF8.GetByteCount(value);
         var destination = writer.GetSpan(byteCount);
@@ -2091,64 +2135,74 @@ internal static class ReportRenderer
         throw new ArgumentOutOfRangeException(nameof(targetIndex));
     }
 
-    private static void AppendMarkdownValue(StringBuilder builder, string value)
-    {
-        if (value.Length == 0)
-        {
-            builder.Append('-');
-            return;
-        }
-
-        AppendEscapedCell(builder, value.AsSpan());
-    }
-
     /// <summary>
-    /// Appends a source-backed value to a table cell without decoding it into a string first.
+    /// Writes a source-backed value into a table cell without decoding it.
     /// </summary>
-    private static void AppendMarkdownValue(StringBuilder builder, Utf8Slice value)
+    /// <remarks>
+    /// The only character a cell has to escape is the one that would end it, and in UTF-8 that byte never
+    /// occurs inside a multi-byte sequence, so the scan is safe on bytes and the value is copied rather
+    /// than translated.
+    /// </remarks>
+    private static void WriteMarkdownValue(IBufferWriter<byte> writer, Utf8Slice value)
     {
-        var utf8 = value.Span;
-        if (utf8.IsEmpty)
+        var remaining = value.Span;
+        if (remaining.IsEmpty)
         {
-            builder.Append('-');
+            WriteUtf8(writer, "-"u8);
             return;
         }
 
-        const int MaxStackChars = 128;
-        var maxChars = Encoding.UTF8.GetMaxCharCount(utf8.Length);
-        char[]? rented = null;
-        var chars = maxChars <= MaxStackChars
-            ? stackalloc char[MaxStackChars]
-            : (rented = ArrayPool<char>.Shared.Rent(maxChars)).AsSpan();
-        try
-        {
-            AppendEscapedCell(builder, chars[..Encoding.UTF8.GetChars(utf8, chars)]);
-        }
-        finally
-        {
-            if (rented is not null)
-            {
-                ArrayPool<char>.Shared.Return(rented);
-            }
-        }
-    }
-
-    /// <summary>Appends cell text, escaping the one character that would end the cell early.</summary>
-    private static void AppendEscapedCell(StringBuilder builder, ReadOnlySpan<char> value)
-    {
         while (true)
         {
-            var index = value.IndexOf('|');
+            var index = remaining.IndexOf((byte)'|');
             if (index < 0)
             {
-                builder.Append(value);
+                WriteUtf8(writer, remaining);
                 return;
             }
 
-            builder.Append(value[..index]).Append("\\|");
-            value = value[(index + 1)..];
+            WriteUtf8(writer, remaining[..index]);
+            WriteUtf8(writer, "\\|"u8);
+            remaining = remaining[(index + 1)..];
         }
     }
+
+    /// <summary>Writes a value the report owns as text, such as an ecosystem name or a resolved path.</summary>
+    private static void WriteMarkdownValue(IBufferWriter<byte> writer, string value)
+    {
+        if (value.Length == 0)
+        {
+            WriteUtf8(writer, "-"u8);
+            return;
+        }
+
+        var remaining = value.AsSpan();
+        while (true)
+        {
+            var index = remaining.IndexOf('|');
+            if (index < 0)
+            {
+                WriteUtf8(writer, remaining);
+                return;
+            }
+
+            WriteUtf8(writer, remaining[..index]);
+            WriteUtf8(writer, "\\|"u8);
+            remaining = remaining[(index + 1)..];
+        }
+    }
+
+    private static void WriteCount(IBufferWriter<byte> writer, int count)
+    {
+        var destination = writer.GetSpan(11);
+        if (!Utf8Formatter.TryFormat(count, destination, out var bytesWritten))
+        {
+            throw new InvalidOperationException("Unable to format group count.");
+        }
+
+        writer.Advance(bytesWritten);
+    }
+
 
     private static ReadOnlySpan<byte> GetDependencyTypeUtf8(DependencyType value) => value switch
     {
@@ -2157,41 +2211,6 @@ internal static class ReportRenderer
         DependencyType.Direct => "direct"u8,
         DependencyType.Transitive => "transitive"u8,
         _ => default,
-    };
-
-    /// <summary>The same tokens as the UTF-8 forms, for the views that build a <see cref="string"/>.</summary>
-    /// <remarks>
-    /// Constants rather than <c>ToString().ToLowerInvariant()</c>, which allocated two strings per value
-    /// per component in the Markdown table and in every grouped row, none of which outlived the call.
-    /// </remarks>
-    internal static string GetDependencyTypeName(DependencyType value) => value switch
-    {
-        DependencyType.Unknown => "unknown",
-        DependencyType.Root => "root",
-        DependencyType.Direct => "direct",
-        DependencyType.Transitive => "transitive",
-        _ => string.Empty,
-    };
-
-    /// <summary>See <see cref="GetDependencyTypeName"/>.</summary>
-    internal static string GetStatusName(LicenseStatus value) => value switch
-    {
-        LicenseStatus.Matched => "matched",
-        LicenseStatus.Conflict => "conflict",
-        LicenseStatus.Unknown => "unknown",
-        LicenseStatus.Ambiguous => "ambiguous",
-        LicenseStatus.Invalid => "invalid",
-        LicenseStatus.Error => "error",
-        _ => string.Empty,
-    };
-
-    /// <summary>See <see cref="GetDependencyTypeName"/>.</summary>
-    private static string GetSuppliedByName(ComponentSupply value) => value switch
-    {
-        ComponentSupply.Sbom => "sbom",
-        ComponentSupply.PackageManager => "package-manager",
-        ComponentSupply.Sbom | ComponentSupply.PackageManager => "sbom,package-manager",
-        _ => "-",
     };
 
     // Human output keeps the same tokens the canonical JSON uses so one vocabulary describes both views.

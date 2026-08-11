@@ -339,7 +339,7 @@ public sealed class MixedInputScanTests
     }
 
     private static ScanComponent CreateComponent(SpdxLicenseIndex index, Utf8Slice purl)
-        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
 
     private static int EdgeCount(JsonDocument report)
         => report.RootElement.GetProperty("inventory").GetProperty("edges").GetArrayLength();

@@ -334,7 +334,6 @@ public static class ScanReportReader
                     Utf8Slice.FromString(purl),
                     Utf8Slice.FromString(sourceId),
                     default,
-                    [],
                     []);
             }
 
@@ -583,7 +582,7 @@ public static class ScanReportReader
             Utf8Slice.FromString(sourceId),
             candidates.Length == 0 ? default : candidates[0],
             candidates.Length <= 1 ? [] : candidates[1..],
-            warnings);
+            LicenseCandidateIdentifiers.ParseWarnings(warnings));
         error = string.Empty;
         return true;
     }

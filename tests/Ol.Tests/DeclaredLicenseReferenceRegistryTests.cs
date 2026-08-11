@@ -158,7 +158,7 @@ public sealed class DeclaredLicenseReferenceRegistryTests
     }
 
     private static ScanComponent CreateComponent(SpdxLicenseIndex index, Utf8Slice purl)
-        => new("example", "1.0.0", default, "nuget", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        => new("example", "1.0.0", default, "nuget", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
 
     private const string NuGetServiceIndexJson = """
         {

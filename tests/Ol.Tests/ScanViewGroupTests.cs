@@ -80,7 +80,7 @@ public sealed class ScanViewGroupTests
     {
         foreach (var group in groups)
         {
-            if (group.Values[0] != license || group.Values[1] != ecosystem)
+            if (group.Values[0].ToString() != license || group.Values[1].ToString() != ecosystem)
             {
                 continue;
             }
@@ -98,5 +98,5 @@ public sealed class ScanViewGroupTests
     }
 
     private static ScanComponent CreateComponent(string name, string license, string ecosystem)
-        => new(name, "1.0.0", license, ecosystem, DependencyType.Direct, LicenseStatus.Matched, default, default, default, [], []);
+        => new(name, "1.0.0", license, ecosystem, DependencyType.Direct, LicenseStatus.Matched, default, default, default, []);
 }

@@ -91,7 +91,7 @@ public static class LicenseReconciler
                 _ => (default(Utf8Slice), LicenseStatus.Unknown),
             };
 
-            return component with { License = license, Status = status, Warnings = candidateWarnings.ToStrings() };
+            return component with { License = license, Status = status, Warnings = candidateWarnings };
         }
         finally
         {

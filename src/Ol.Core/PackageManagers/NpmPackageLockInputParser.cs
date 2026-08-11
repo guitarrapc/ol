@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -602,7 +602,7 @@ internal static class NpmPackageLockInputParser
             node.Path,
             candidate,
             [],
-            candidate.Warnings.ToStrings());
+            candidate.Warnings);
     }
 
     private static Utf8Slice CreateVariant(NodeFlags flags, ReadOnlySpan<Utf8Slice> os, ReadOnlySpan<Utf8Slice> cpu)

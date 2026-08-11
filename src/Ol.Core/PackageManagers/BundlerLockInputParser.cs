@@ -245,7 +245,6 @@ internal static class BundlerLockInputParser
                 purl,
                 CreateSourceId(node.Name, node.FullVersion),
                 default,
-                [],
                 []);
         }
 

@@ -1,5 +1,4 @@
-﻿using System.Collections.Frozen;
-using System.Text.Json;
+﻿using System.Text.Json;
 using Ol.Core.Licensing;
 namespace Ol.Core.PackageMetadata;
 
@@ -54,10 +53,15 @@ public abstract class PackageMetadataProvider
     /// <summary>
     /// Parses a versioned purl handled by this provider.
     /// </summary>
-    /// <param name="purl">The purl without qualifiers or subpaths.</param>
+    /// <param name="purl">The UTF-8 purl, as the inventory holds it.</param>
     /// <param name="request">The resulting metadata request.</param>
     /// <returns><see langword="true"/> when the purl is supported by this provider.</returns>
-    public virtual bool TryCreate(string purl, out PackageMetadataRequest request)
+    /// <remarks>
+    /// UTF-8 rather than a string, because the purl reaching here is a slice of the scanned input and this
+    /// runs once per distinct package an inventory names. Only the values the request retains — the ones
+    /// that become endpoints and cache keys — are decoded, and each is decoded once.
+    /// </remarks>
+    public virtual bool TryCreate(ReadOnlySpan<byte> purl, out PackageMetadataRequest request)
         => PackageMetadataRequest.TryParse(purl, Ecosystem, out request);
 
     /// <summary>
@@ -141,8 +145,6 @@ public abstract class PackageMetadataProvider
 /// </summary>
 public sealed class PackageMetadataProviders
 {
-    private readonly FrozenDictionary<string, PackageMetadataProvider> byEcosystem;
-    private readonly FrozenDictionary<string, PackageMetadataProvider>.AlternateLookup<ReadOnlySpan<char>> byEcosystemSpan;
     private readonly PackageMetadataProvider[] providers;
 
     /// <summary>Gets the number of registered package ecosystems.</summary>
@@ -156,8 +158,6 @@ public sealed class PackageMetadataProviders
     {
         ArgumentNullException.ThrowIfNull(providers);
         this.providers = providers.Length == 0 ? [] : (PackageMetadataProvider[])providers.Clone();
-        byEcosystem = this.providers.ToFrozenDictionary(static provider => provider.Ecosystem, StringComparer.OrdinalIgnoreCase);
-        byEcosystemSpan = byEcosystem.GetAlternateLookup<ReadOnlySpan<char>>();
     }
 
     /// <summary>
@@ -166,17 +166,47 @@ public sealed class PackageMetadataProviders
     /// <param name="ecosystem">The purl type.</param>
     /// <param name="provider">The registered provider.</param>
     /// <returns><see langword="true"/> when a provider is registered.</returns>
+    /// <remarks>
+    /// A scan of the registered providers rather than a hash lookup. The registry holds one entry per
+    /// supported ecosystem, so the comparison is over a single-digit number of short ASCII names and the
+    /// hash of the key costs more than the scan it would replace. It also lets the UTF-8 overload share
+    /// one implementation instead of needing a second index keyed the other way.
+    /// </remarks>
     public bool TryGet(string ecosystem, out PackageMetadataProvider provider)
-        => byEcosystem.TryGetValue(ecosystem, out provider!);
+    {
+        for (var i = 0; i < providers.Length; i++)
+        {
+            if (string.Equals(providers[i].Ecosystem, ecosystem, StringComparison.OrdinalIgnoreCase))
+            {
+                provider = providers[i];
+                return true;
+            }
+        }
+
+        provider = null!;
+        return false;
+    }
 
     /// <summary>
-    /// Finds a provider by purl type without requiring the caller to materialize the type.
+    /// Finds a provider by purl type without requiring the caller to decode the type.
     /// </summary>
-    /// <param name="ecosystem">The purl type, as a slice of the purl it was read from.</param>
+    /// <param name="ecosystem">The purl type, as a slice of the UTF-8 purl it was read from.</param>
     /// <param name="provider">The registered provider.</param>
     /// <returns><see langword="true"/> when a provider is registered.</returns>
-    public bool TryGet(ReadOnlySpan<char> ecosystem, out PackageMetadataProvider provider)
-        => byEcosystemSpan.TryGetValue(ecosystem, out provider!);
+    public bool TryGet(ReadOnlySpan<byte> ecosystem, out PackageMetadataProvider provider)
+    {
+        for (var i = 0; i < providers.Length; i++)
+        {
+            if (AsciiEqualsIgnoreCase(ecosystem, providers[i].Ecosystem))
+            {
+                provider = providers[i];
+                return true;
+            }
+        }
+
+        provider = null!;
+        return false;
+    }
 
     /// <summary>
     /// Resolves the display ecosystem for an unescaped purl without decoding it.
@@ -225,7 +255,7 @@ public sealed class PackageMetadataProviders
         return "-";
     }
 
-    private static bool AsciiEqualsIgnoreCase(ReadOnlySpan<byte> value, string expected)
+    internal static bool AsciiEqualsIgnoreCase(ReadOnlySpan<byte> value, string expected)
     {
         if (value.Length != expected.Length)
         {

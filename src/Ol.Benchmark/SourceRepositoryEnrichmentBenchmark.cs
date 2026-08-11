@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
@@ -21,7 +21,7 @@ public class SourceRepositoryEnrichmentBenchmark : IDisposable
         var target = new SourceRepositoryTarget("owner", "repository", "default");
         sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, System.Net.HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty), [], [])).GetAwaiter().GetResult();
         var index = new SpdxLicenseIndex(["MIT"], []);
-        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
         components = new ScanComponent[ComponentCount];
         metadataWorkspace = new PackageMetadataWorkspace(ComponentCount);
         Array.Fill(components, component);

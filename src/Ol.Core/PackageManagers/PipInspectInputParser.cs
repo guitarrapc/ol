@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -345,7 +345,7 @@ internal static class PipInspectInputParser
             CreateIdentity(node.Name, node.Version),
             candidate,
             [],
-            candidate.Warnings.ToStrings());
+            candidate.Warnings);
     }
 
     private static bool TryReadUnconditionalRequirementName(Utf8Slice requirement, out Utf8Slice name)

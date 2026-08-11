@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
@@ -69,5 +69,5 @@ public class ScanViewBenchmark : IDisposable
     }
 
     private static ScanComponent CreateComponent(string name, string ecosystem, string purl)
-        => new(name, "1.0.0", "-", ecosystem, DependencyType.Unknown, LicenseStatus.Unknown, purl, purl, default, [], []);
+        => new(name, "1.0.0", "-", ecosystem, DependencyType.Unknown, LicenseStatus.Unknown, purl, purl, default, []);
 }

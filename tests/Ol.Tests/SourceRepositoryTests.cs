@@ -526,7 +526,7 @@ public sealed class SourceRepositoryTests
         var target = new SourceRepositoryTarget("owner", "repository", "default");
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["MIT"], []);
-        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
         using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
 
@@ -553,7 +553,7 @@ public sealed class SourceRepositoryTests
         var target = new SourceRepositoryTarget("owner", "monorepo", "default");
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("ISC", "isc", "ISC License", "LICENSE", "sha", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["MIT", "ISC"], []);
-        var component = new ScanComponent("example", "1.0.0", Utf8Slice.FromString("MIT"), "npm", DependencyType.Unknown, LicenseStatus.Matched, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.DependencyInput, LicenseCandidateKind.License, "MIT"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", Utf8Slice.FromString("MIT"), "npm", DependencyType.Unknown, LicenseStatus.Matched, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.DependencyInput, LicenseCandidateKind.License, "MIT"u8, index), []);
         using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/monorepo", string.Empty, RepositorySubdirectoryDeclared: true));
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0);
 
@@ -563,7 +563,7 @@ public sealed class SourceRepositoryTests
 
             await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
-            await Assert.That(enrichment.Components[0].Warnings).Contains("source_repository_subdirectory");
+            await Assert.That(enrichment.Components[0].Warnings.ToStrings()).Contains("source_repository_subdirectory");
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(0);
             await Assert.That(enrichment.Summary.TargetCount).IsEqualTo(0);
         }
@@ -664,7 +664,7 @@ public sealed class SourceRepositoryTests
     }
 
     private static ScanComponent CreateDigestComponent(SpdxLicenseIndex index)
-        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
 
     private static SourceRepositoryEvidence GetSourceEvidence(ScanComponent component)
     {
@@ -740,7 +740,7 @@ public sealed class SourceRepositoryTests
         await Assert.That(callCount).IsEqualTo(0);
         for (var i = 0; i < components.Length; i++)
         {
-            await Assert.That(components[i].Warnings).Contains("unsupported_source_repository");
+            await Assert.That(components[i].Warnings.ToStrings()).Contains("unsupported_source_repository");
         }
     }
 
@@ -752,7 +752,7 @@ public sealed class SourceRepositoryTests
         var workspace = new PackageMetadataWorkspace(repositoryUrls.Length);
         for (var i = 0; i < repositoryUrls.Length; i++)
         {
-            components[i] = new ScanComponent($"example{i}", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, $"pkg:npm/example{i}@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+            components[i] = new ScanComponent($"example{i}", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, $"pkg:npm/example{i}@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
             workspace.Records[i] = new PackageMetadataResolution($"pkg:npm/example{i}@1.0.0", repositoryUrls[i], repositoryRefs is null ? string.Empty : repositoryRefs[i]);
         }
 
@@ -780,7 +780,7 @@ public sealed class SourceRepositoryTests
         using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
         await sourceCache.WriteAsync(new SourceRepositoryRecord(target.CacheKey, "github-license-api", "none", target.Repository, target.Ref, HttpStatusCode.OK, new GitHubLicenseResult("Apache-2.0", "apache-2.0", "Apache", "LICENSE", "old", string.Empty), [], []));
         var index = new SpdxLicenseIndex(["Apache-2.0", "MIT"], []);
-        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
         using var httpClient = new HttpClient(new GitHubResponseHandler(HttpStatusCode.OK, ReadGitHubLicenseFixture()));
         var service = new SourceRepositoryService(index, sourceCache, refresh: true, retryCount: 0, httpClient);
 
@@ -811,14 +811,14 @@ public sealed class SourceRepositoryTests
         Directory.CreateDirectory(sourceCache.Root);
         await File.WriteAllTextAsync(sourceCache.GetPath(target.CacheKey), "{ invalid json");
         var index = new SpdxLicenseIndex(["MIT"], []);
-        var component = new ScanComponent("example", "1.0.0", "MIT", "npm", DependencyType.Unknown, LicenseStatus.Matched, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "MIT"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", "MIT", "npm", DependencyType.Unknown, LicenseStatus.Matched, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "MIT"u8, index), []);
         using var httpClient = new HttpClient(new SequenceResponseHandler(HttpStatusCode.Forbidden));
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 1, httpClient);
 
         try
         {
             var enrichment = await service.EnrichAsync([component], workspace, concurrency: 1);
-            var warnings = enrichment.Components[0].Warnings;
+            var warnings = enrichment.Components[0].Warnings.ToStrings();
             var cached = await sourceCache.TryReadAsync(target.CacheKey);
 
             await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
@@ -935,7 +935,7 @@ public sealed class SourceRepositoryTests
         }
 
         static ScanComponent CreateUnknownComponent(SpdxLicenseIndex index)
-            => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+            => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
     }
 
     [Test]
@@ -946,7 +946,7 @@ public sealed class SourceRepositoryTests
         var target = new SourceRepositoryTarget("owner", "repository", "default");
         var index = new SpdxLicenseIndex(["MIT"], []);
         using var workspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
-        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
         var handler = new SequenceResponseHandler(HttpStatusCode.OK);
         using var httpClient = new HttpClient(handler);
         var service = new SourceRepositoryService(index, sourceCache, refresh: false, retryCount: 0, httpClient);
@@ -965,7 +965,7 @@ public sealed class SourceRepositoryTests
             await Assert.That(handler.CallCount).IsEqualTo(1);
 
             using var cachedWorkspace = CreateWorkspace(new PackageMetadataResolution("pkg:npm/example@1.0.0", "https://github.com/owner/repository", string.Empty));
-            var cachedComponent = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+            var cachedComponent = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
             var cached = await service.EnrichAsync([cachedComponent], cachedWorkspace, concurrency: 1);
 
             await Assert.That(cached.Summary.CacheHitCount).IsEqualTo(1);
@@ -986,7 +986,7 @@ public sealed class SourceRepositoryTests
         Directory.CreateDirectory(root);
         await File.WriteAllTextAsync(invalidSourceRoot, "not a directory");
         var index = new SpdxLicenseIndex(["MIT"], []);
-        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
         using var httpClient = new HttpClient(new GitHubResponseHandler(HttpStatusCode.OK, ReadGitHubLicenseFixture()));
         var service = new SourceRepositoryService(index, new SourceRepositoryCache(invalidSourceRoot), refresh: true, retryCount: 0, httpClient);
 
@@ -996,7 +996,7 @@ public sealed class SourceRepositoryTests
 
             await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Matched);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
-            await Assert.That(enrichment.Components[0].Warnings).Contains("source_repository_cache_write_failed");
+            await Assert.That(enrichment.Components[0].Warnings.ToStrings()).Contains("source_repository_cache_write_failed");
             await Assert.That(enrichment.Summary.FetchErrorCount).IsEqualTo(0);
         }
         finally
@@ -1173,7 +1173,7 @@ public sealed class SourceRepositoryTests
             var enrichment = await service.EnrichAsync([CreateUnresolvedComponent(index)], workspace, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].Status).IsEqualTo(LicenseStatus.Unknown);
-            await Assert.That(enrichment.Components[0].Warnings).Contains(expectedWarning);
+            await Assert.That(enrichment.Components[0].Warnings.ToStrings()).Contains(expectedWarning);
         }
         finally
         {
@@ -1197,8 +1197,8 @@ public sealed class SourceRepositoryTests
             var enrichment = await service.EnrichAsync([CreateUnresolvedComponent(index)], workspace, concurrency: 1);
 
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
-            await Assert.That(enrichment.Components[0].Warnings).DoesNotContain("license_not_recognized");
-            await Assert.That(enrichment.Components[0].Warnings).DoesNotContain("license_not_detected");
+            await Assert.That(enrichment.Components[0].Warnings.ToStrings()).DoesNotContain("license_not_recognized");
+            await Assert.That(enrichment.Components[0].Warnings.ToStrings()).DoesNotContain("license_not_detected");
         }
         finally
         {
@@ -1207,7 +1207,7 @@ public sealed class SourceRepositoryTests
     }
 
     private static ScanComponent CreateUnresolvedComponent(SpdxLicenseIndex index)
-        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, "pkg:npm/example@1.0.0", default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
 
     private static PackageMetadataWorkspace CreateWorkspace(PackageMetadataResolution? resolution)
     {

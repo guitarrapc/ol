@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using Ol.Core;
 using Ol.Core.Licensing;
@@ -18,7 +18,7 @@ public sealed class PackageMetadataTests
             new PackageMetadataCache(Path.GetTempPath()),
             refresh: false,
             retryCount: 0);
-        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, default, default, default, [], []);
+        var component = new ScanComponent("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, default, default, default, []);
         using var workspace = new PackageMetadataWorkspace(0);
 
         await Assert.That(async () => await service.EnrichAsync([component], workspace, concurrency: 1)).Throws<ArgumentException>();
@@ -44,9 +44,9 @@ public sealed class PackageMetadataTests
 
             var (enriched, summary) = await service.EnrichAsync(components, workspace, concurrency: 1);
 
-            await Assert.That(enriched[0].Warnings).Contains("package_metadata_unversioned_purl");
-            await Assert.That(enriched[0].Warnings).DoesNotContain("unsupported_package_metadata");
-            await Assert.That(enriched[1].Warnings).Contains("unsupported_package_metadata");
+            await Assert.That(enriched[0].Warnings.ToStrings()).Contains("package_metadata_unversioned_purl");
+            await Assert.That(enriched[0].Warnings.ToStrings()).DoesNotContain("unsupported_package_metadata");
+            await Assert.That(enriched[1].Warnings.ToStrings()).Contains("unsupported_package_metadata");
             await Assert.That(summary.TargetCount).IsEqualTo(0);
         }
         finally
@@ -118,7 +118,7 @@ public sealed class PackageMetadataTests
             var (enriched, summary) = await service.EnrichAsync(components, workspace, concurrency: 1);
 
             await Assert.That(enriched[0].Status).IsEqualTo(LicenseStatus.Unknown);
-            await Assert.That(enriched[0].Warnings).Contains("package_metadata_not_found");
+            await Assert.That(enriched[0].Warnings.ToStrings()).Contains("package_metadata_not_found");
             await Assert.That(summary.FetchErrorCount).IsEqualTo(0);
         }
         finally
@@ -143,7 +143,7 @@ public sealed class PackageMetadataTests
             var (enriched, summary) = await service.EnrichAsync(components, workspace, concurrency: 1);
 
             await Assert.That(enriched[0].Status).IsEqualTo(LicenseStatus.Error);
-            await Assert.That(enriched[0].Warnings).Contains("package_metadata_fetch_failed");
+            await Assert.That(enriched[0].Warnings.ToStrings()).Contains("package_metadata_fetch_failed");
             await Assert.That(summary.FetchErrorCount).IsEqualTo(1);
         }
         finally
@@ -364,7 +364,7 @@ public sealed class PackageMetadataTests
             var enrichment = await service.EnrichAsync(components, workspace, concurrency: 1);
 
             await Assert.That(enrichment.Summary.CacheHitCount).IsEqualTo(1);
-            await Assert.That(enrichment.Components[0].Warnings).Contains("package_metadata_fetch_failed");
+            await Assert.That(enrichment.Components[0].Warnings.ToStrings()).Contains("package_metadata_fetch_failed");
         }
         finally
         {
@@ -420,7 +420,6 @@ public sealed class PackageMetadataTests
             "pkg:npm/example@1.0.0",
             "pkg:npm/example@1.0.0",
             LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index),
-            [],
             []);
 
         var result = LicenseReconciler.AddCandidate(component, LicenseCandidateFactory.Create(LicenseCandidateSource.NpmRegistry, LicenseCandidateKind.License, "MIT"u8, index));
@@ -851,7 +850,6 @@ public sealed class PackageMetadataTests
                 false,
                 combined,
                 new LicenseEvidence(LicenseEvidenceKind.PackageRegistry)),
-            [],
             []);
 
         var buffer = new System.Buffers.ArrayBufferWriter<byte>(4 * 1024);
@@ -2274,7 +2272,7 @@ public sealed class PackageMetadataTests
         await Assert.That(unsupportedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(1);
         await Assert.That(unsupportedEnrichment.Summary.SupportedComponentCount).IsEqualTo(1);
         await Assert.That(unsupportedEnrichment.Summary.TargetCount).IsEqualTo(0);
-        await Assert.That(unsupportedEnrichment.Components[0].Warnings).Contains("unsupported_package_metadata");
+        await Assert.That(unsupportedEnrichment.Components[0].Warnings.ToStrings()).Contains("unsupported_package_metadata");
         await Assert.That(GetRecord(unsupportedWorkspace, 0).HasValue).IsFalse();
         await Assert.That(emptyEnrichment.Summary.SupportedComponentCount).IsEqualTo(0);
         await Assert.That(emptyEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(0);
@@ -2305,7 +2303,7 @@ public sealed class PackageMetadataTests
 
         await Assert.That(unversionedEnrichment.Summary.UnversionedPurlCount).IsEqualTo(1);
         await Assert.That(unversionedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(0);
-        await Assert.That(unversionedEnrichment.Components[0].Warnings).Contains("package_metadata_unversioned_purl");
+        await Assert.That(unversionedEnrichment.Components[0].Warnings.ToStrings()).Contains("package_metadata_unversioned_purl");
         await Assert.That(unsupportedEnrichment.Summary.UnversionedPurlCount).IsEqualTo(0);
         await Assert.That(unsupportedEnrichment.Summary.UnsupportedEcosystemCount).IsEqualTo(1);
     }
@@ -2313,7 +2311,7 @@ public sealed class PackageMetadataTests
     private static PackageMetadataResolution? GetRecord(PackageMetadataWorkspace workspace, int index) => workspace.Records[index];
 
     private static ScanComponent CreateEnrichmentComponent(SpdxLicenseIndex index, Utf8Slice purl)
-        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), [], []);
+        => new("example", "1.0.0", default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, purl, default, LicenseCandidateFactory.Create(LicenseCandidateSource.Sbom, LicenseCandidateKind.Id, "NOASSERTION"u8, index), []);
 
     private static async Task AssertSyncReadMatchesAsyncMiss(string? json)
     {

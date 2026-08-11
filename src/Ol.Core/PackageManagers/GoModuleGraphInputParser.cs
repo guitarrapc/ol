@@ -396,7 +396,6 @@ internal static class GoModuleGraphInputParser
             purl,
             node.Identity,
             default,
-            [],
             []);
     }
 

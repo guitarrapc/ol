@@ -506,7 +506,7 @@ internal static class NuGetAssetsInputParser
                 {
                     EnsureCapacity(ref components, componentCount);
                     componentIndex = componentCount++;
-                    components[componentIndex] = new ScanComponent(node.Name, node.Version, default, "nuget", dependencyType, LicenseStatus.Unknown, CreatePurl(node.Name, node.Version), node.Identity, default, [], []);
+                    components[componentIndex] = new ScanComponent(node.Name, node.Version, default, "nuget", dependencyType, LicenseStatus.Unknown, CreatePurl(node.Name, node.Version), node.Identity, default, []);
                     AddComponentIndex(components, componentIndexes, componentIndexCapacity, componentIndex);
                 }
                 else

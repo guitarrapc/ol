@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
@@ -43,5 +43,5 @@ public class LicensePolicyBenchmark
     public int AllUnresolved() => policy.Evaluate(unresolved).Length;
 
     private static ScanComponent CreateComponent(Utf8Slice license, LicenseStatus status)
-        => new("example", "1.0.0", license, "npm", DependencyType.Transitive, status, "pkg:npm/example@1.0.0", default, default, [], []);
+        => new("example", "1.0.0", license, "npm", DependencyType.Transitive, status, "pkg:npm/example@1.0.0", default, default, []);
 }

@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Net;
 using Ol.Core;
 using Ol.Core.Licensing;
@@ -114,7 +114,7 @@ internal sealed class PackageMetadataService(
             return ValueTask.FromResult(ApplySingleLookup(components, workspace, default, concurrency, lookupCount: 0));
         }
 
-        if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request, out var ecosystemSupported))
+        if (!OlDefaults.TryCreatePackageMetadataRequest(purl.Span, out var request, out var ecosystemSupported))
         {
             return ValueTask.FromResult(ApplySingleLookup(components, workspace, CreateUnqueryablePurlResult(purl, ecosystemSupported), concurrency, lookupCount: 0));
         }
@@ -226,7 +226,7 @@ internal sealed class PackageMetadataService(
                     continue;
                 }
 
-                if (!OlDefaults.TryCreatePackageMetadataRequest(purl.ToString(), out var request, out var ecosystemSupported))
+                if (!OlDefaults.TryCreatePackageMetadataRequest(purl.Span, out var request, out var ecosystemSupported))
                 {
                     // Two distinct "no request" outcomes share the plan's negative index space, so the projection can
                     // name the right one without parsing the purl a second time.

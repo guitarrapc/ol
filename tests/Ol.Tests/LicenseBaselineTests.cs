@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
@@ -451,7 +451,6 @@ public sealed class LicenseBaselineTests
             resolvedPurl,
             name,
             candidates.Length == 0 ? default : candidates[0],
-            candidates.Length <= 1 ? [] : candidates[1..],
-            []);
+            candidates.Length <= 1 ? [] : candidates[1..]);
     }
 }

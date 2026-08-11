@@ -229,7 +229,7 @@ internal static class YarnLockGraphParser
                 var node = nodes[i];
                 if (node.IsWorkspace) continue;
                 componentByNode[i] = componentCount;
-                components[componentCount++] = new ScanComponent(node.Name, node.Version, default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, CreatePurl(node.Name, node.Version), node.Resolution, default, [], []);
+                components[componentCount++] = new ScanComponent(node.Name, node.Version, default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, CreatePurl(node.Name, node.Version), node.Resolution, default, []);
             }
 
             if (workspaces)

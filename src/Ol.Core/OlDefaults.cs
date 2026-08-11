@@ -19,11 +19,19 @@ public static class OlDefaults
         new CocoaPodsPackageMetadataProvider(),
     ]);
 
-    /// <summary>Parses a package URL using Ol's built-in package metadata providers.</summary>
+    /// <summary>Parses a UTF-8 package URL using Ol's built-in package metadata providers.</summary>
+    public static bool TryCreatePackageMetadataRequest(ReadOnlySpan<byte> purl, out PackageMetadataRequest request)
+        => PackageMetadataRequest.TryCreate(purl, PackageMetadataProviders, out request);
+
+    /// <summary>Parses a UTF-8 package URL, also reporting whether its ecosystem has a registered provider.</summary>
+    public static bool TryCreatePackageMetadataRequest(ReadOnlySpan<byte> purl, out PackageMetadataRequest request, out bool ecosystemSupported)
+        => PackageMetadataRequest.TryCreate(purl, PackageMetadataProviders, out request, out ecosystemSupported);
+
+    /// <summary>Parses a package URL supplied as text.</summary>
     public static bool TryCreatePackageMetadataRequest(string purl, out PackageMetadataRequest request)
         => PackageMetadataRequest.TryCreate(purl, PackageMetadataProviders, out request);
 
-    /// <summary>Parses a package URL, also reporting whether its ecosystem has a registered provider.</summary>
+    /// <summary>Parses a package URL supplied as text, also reporting whether its ecosystem is registered.</summary>
     public static bool TryCreatePackageMetadataRequest(string purl, out PackageMetadataRequest request, out bool ecosystemSupported)
         => PackageMetadataRequest.TryCreate(purl, PackageMetadataProviders, out request, out ecosystemSupported);
 

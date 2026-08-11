@@ -32,7 +32,6 @@ public class ScanReportScaleBenchmark
     private LicenseCandidate sourceCandidate;
     private SpdxData spdx;
     private ScanComponent[] reconcileScratch = [];
-    private string[] purls = [];
     private Utf8JsonWriter writer = null!;
 
     [Params(1024)]
@@ -78,12 +77,6 @@ public class ScanReportScaleBenchmark
         }
 
         groups = ScanView.Group(enriched, "license,ecosystem");
-
-        purls = new string[components.Length];
-        for (var i = 0; i < purls.Length; i++)
-        {
-            purls[i] = components[i].Purl.ToString();
-        }
     }
 
     [GlobalCleanup]
@@ -100,7 +93,7 @@ public class ScanReportScaleBenchmark
             var component = LicenseReconciler.AddCandidate(reconcileScratch[i], registryCandidate);
             component = LicenseReconciler.AddCandidate(component, sourceCandidate);
             reconcileScratch[i] = component;
-            warned += component.Warnings.Length;
+            warned += System.Numerics.BitOperations.PopCount((uint)component.Warnings);
         }
 
         return warned;
@@ -118,9 +111,9 @@ public class ScanReportScaleBenchmark
     public int ParseMetadataRequests()
     {
         var parsed = 0;
-        for (var i = 0; i < purls.Length; i++)
+        for (var i = 0; i < components.Length; i++)
         {
-            if (OlDefaults.TryCreatePackageMetadataRequest(purls[i], out _, out _))
+            if (OlDefaults.TryCreatePackageMetadataRequest(components[i].Purl.Span, out _, out _))
             {
                 parsed++;
             }

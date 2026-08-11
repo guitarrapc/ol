@@ -1,4 +1,4 @@
-﻿using Ol.Core.PackageMetadata;
+using Ol.Core.PackageMetadata;
 using System.Text.Json;
 
 namespace Ol.Core.PackageManagers;
@@ -10,7 +10,7 @@ public sealed class MavenPackageMetadataProvider : PackageMetadataProvider
 
     public override string Ecosystem => "maven";
 
-    public override bool TryCreate(string purl, out PackageMetadataRequest request)
+    public override bool TryCreate(ReadOnlySpan<byte> purl, out PackageMetadataRequest request)
     {
         if (!base.TryCreate(purl, out request)
             || request.Namespace.Length == 0

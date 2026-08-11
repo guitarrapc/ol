@@ -97,7 +97,7 @@ public sealed class DependencyUsageResolverTests
         var components = new ScanComponent[componentCount];
         for (var i = 0; i < componentCount; i++)
         {
-            components[i] = new ScanComponent($"pkg{i}", "1.0.0", "MIT", "npm", DependencyType.Direct, LicenseStatus.Matched, $"pkg:npm/pkg{i}@1.0.0", $"pkg{i}", default, [], []);
+            components[i] = new ScanComponent($"pkg{i}", "1.0.0", "MIT", "npm", DependencyType.Direct, LicenseStatus.Matched, $"pkg:npm/pkg{i}@1.0.0", $"pkg{i}", default, []);
         }
 
         var occurrences = new DependencyOccurrence[occurrenceComponents.Length];

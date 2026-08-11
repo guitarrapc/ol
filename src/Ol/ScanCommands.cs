@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Buffers;
+using System.Numerics;
 using System.Buffers.Text;
 using System.Reflection;
 using System.Text;
@@ -868,32 +869,56 @@ internal static class ScanView
     public static GroupRow[] Group(ReadOnlySpan<ScanComponent> components, string groupBy)
     {
         var fields = ParseGroupFields(groupBy);
-        var indexes = new Dictionary<string[], int>(GroupValuesComparer.Instance);
-        var groupValues = new List<string[]>();
-        var counts = new List<int>();
-        var componentGroups = ArrayPool<int>.Shared.Rent(Math.Max(components.Length, 1));
+        if (components.Length == 0)
+        {
+            return [];
+        }
+
+        // Sized so the table never rehashes and stays under half full, which is what lets the index be a
+        // pooled array of row numbers instead of a dictionary that allocates per entry.
+        var capacity = (int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(components.Length * 2, 4));
+        var mask = capacity - 1;
+        var table = ArrayPool<int>.Shared.Rent(capacity);
+        var componentGroups = ArrayPool<int>.Shared.Rent(components.Length);
+        var representatives = ArrayPool<int>.Shared.Rent(components.Length);
+        var counts = ArrayPool<int>.Shared.Rent(components.Length);
         try
         {
+            table.AsSpan(0, capacity).Fill(-1);
+            var groupCount = 0;
             for (var i = 0; i < components.Length; i++)
             {
-                var candidate = CreateGroupValues(components[i], fields);
-                if (!indexes.TryGetValue(candidate, out var group))
+                var slot = GetGroupHash(components[i], fields) & mask;
+                int group;
+                while (true)
                 {
-                    group = groupValues.Count;
-                    indexes.Add(candidate, group);
-                    groupValues.Add(candidate);
-                    counts.Add(0);
+                    group = table[slot];
+                    if (group < 0)
+                    {
+                        group = groupCount++;
+                        table[slot] = group;
+                        representatives[group] = i;
+                        counts[group] = 0;
+                        break;
+                    }
+
+                    if (GroupEquals(components[i], components[representatives[group]], fields))
+                    {
+                        break;
+                    }
+
+                    slot = (slot + 1) & mask;
                 }
 
                 componentGroups[i] = group;
                 counts[group]++;
             }
 
-            var buckets = new ScanComponent[groupValues.Count][];
-            var filled = ArrayPool<int>.Shared.Rent(Math.Max(groupValues.Count, 1));
+            var buckets = new ScanComponent[groupCount][];
+            var filled = ArrayPool<int>.Shared.Rent(groupCount);
             try
             {
-                for (var i = 0; i < buckets.Length; i++)
+                for (var i = 0; i < groupCount; i++)
                 {
                     buckets[i] = new ScanComponent[counts[i]];
                     filled[i] = 0;
@@ -910,10 +935,10 @@ internal static class ScanView
                 ArrayPool<int>.Shared.Return(filled);
             }
 
-            var result = new GroupRow[buckets.Length];
-            for (var i = 0; i < result.Length; i++)
+            var result = new GroupRow[groupCount];
+            for (var i = 0; i < groupCount; i++)
             {
-                result[i] = new GroupRow(groupValues[i], counts[i], buckets[i]);
+                result[i] = new GroupRow(CreateGroupValues(components[representatives[i]], fields), counts[i], buckets[i]);
             }
 
             Array.Sort(result, CompareGroupRows);
@@ -921,7 +946,10 @@ internal static class ScanView
         }
         finally
         {
+            ArrayPool<int>.Shared.Return(counts);
+            ArrayPool<int>.Shared.Return(representatives);
             ArrayPool<int>.Shared.Return(componentGroups);
+            ArrayPool<int>.Shared.Return(table);
         }
     }
 
@@ -1135,19 +1163,33 @@ internal static class ScanView
         return fields;
     }
 
-    private static string[] CreateGroupValues(ScanComponent component, GroupField[] fields)
+    // The tokens a grouped row displays for the two fields that are not source-backed text. Static UTF-8
+    // storage, so a row naming one of them holds a slice rather than a value it had to encode.
+    private static readonly byte[] GroupTokens = "unknownroottransitiveerrormatchedconflictambiguousinvaliddirect"u8.ToArray();
+    private static readonly Utf8Slice UnknownToken = new(GroupTokens, 0, 7);
+    private static readonly Utf8Slice RootToken = new(GroupTokens, 7, 4);
+    private static readonly Utf8Slice TransitiveToken = new(GroupTokens, 11, 10);
+    private static readonly Utf8Slice ErrorToken = new(GroupTokens, 21, 5);
+    private static readonly Utf8Slice MatchedToken = new(GroupTokens, 26, 7);
+    private static readonly Utf8Slice ConflictToken = new(GroupTokens, 33, 8);
+    private static readonly Utf8Slice AmbiguousToken = new(GroupTokens, 41, 9);
+    private static readonly Utf8Slice InvalidToken = new(GroupTokens, 50, 7);
+    private static readonly Utf8Slice DirectToken = new(GroupTokens, 57, 6);
+
+    /// <summary>Builds one row's displayed values. Runs once per row, never once per component.</summary>
+    private static Utf8Slice[] CreateGroupValues(in ScanComponent component, GroupField[] fields)
     {
-        var values = new string[fields.Length];
+        var values = new Utf8Slice[fields.Length];
         for (var i = 0; i < fields.Length; i++)
         {
             values[i] = fields[i] switch
             {
-                GroupField.Name => component.Name.ToString(),
-                GroupField.Version => component.Version.ToString(),
-                GroupField.License => component.License.ToString(),
-                GroupField.Ecosystem => component.Ecosystem,
-                GroupField.Dependency => ReportRenderer.GetDependencyTypeName(component.DependencyType),
-                GroupField.Status => ReportRenderer.GetStatusName(component.Status),
+                GroupField.Name => component.Name,
+                GroupField.Version => component.Version,
+                GroupField.License => component.License,
+                GroupField.Ecosystem => Utf8Slice.FromString(component.Ecosystem),
+                GroupField.Dependency => GetDependencyTypeToken(component.DependencyType),
+                GroupField.Status => GetStatusToken(component.Status),
                 _ => throw new ArgumentOutOfRangeException(nameof(fields)),
             };
         }
@@ -1155,40 +1197,74 @@ internal static class ScanView
         return values;
     }
 
-    /// <summary>Compares group value arrays so the values themselves can serve as the row key.</summary>
-    private sealed class GroupValuesComparer : IEqualityComparer<string[]>
+    private static Utf8Slice GetDependencyTypeToken(DependencyType value) => value switch
     {
-        public static readonly GroupValuesComparer Instance = new();
+        DependencyType.Root => RootToken,
+        DependencyType.Direct => DirectToken,
+        DependencyType.Transitive => TransitiveToken,
+        _ => UnknownToken,
+    };
 
-        public bool Equals(string[]? x, string[]? y)
+    private static Utf8Slice GetStatusToken(LicenseStatus value) => value switch
+    {
+        LicenseStatus.Matched => MatchedToken,
+        LicenseStatus.Conflict => ConflictToken,
+        LicenseStatus.Ambiguous => AmbiguousToken,
+        LicenseStatus.Invalid => InvalidToken,
+        LicenseStatus.Error => ErrorToken,
+        _ => UnknownToken,
+    };
+
+    /// <summary>Hashes a component by the grouped fields alone, reading UTF-8 without decoding it.</summary>
+    private static int GetGroupHash(in ScanComponent component, GroupField[] fields)
+    {
+        var hash = new HashCode();
+        for (var i = 0; i < fields.Length; i++)
         {
-            if (ReferenceEquals(x, y)) return true;
-            if (x is null || y is null || x.Length != y.Length) return false;
-            for (var i = 0; i < x.Length; i++)
+            switch (fields[i])
             {
-                if (!string.Equals(x[i], y[i], StringComparison.Ordinal)) return false;
+                case GroupField.Name: hash.AddBytes(component.Name.Span); break;
+                case GroupField.Version: hash.AddBytes(component.Version.Span); break;
+                case GroupField.License: hash.AddBytes(component.License.Span); break;
+                case GroupField.Ecosystem: hash.Add(component.Ecosystem, StringComparer.Ordinal); break;
+                case GroupField.Dependency: hash.Add((int)component.DependencyType); break;
+                case GroupField.Status: hash.Add((int)component.Status); break;
+                default: throw new ArgumentOutOfRangeException(nameof(fields));
             }
-
-            return true;
         }
 
-        public int GetHashCode(string[] obj)
-        {
-            var hash = new HashCode();
-            for (var i = 0; i < obj.Length; i++)
-            {
-                hash.Add(obj[i], StringComparer.Ordinal);
-            }
+        return hash.ToHashCode();
+    }
 
-            return hash.ToHashCode();
+    /// <summary>Reports whether two components belong in the same row, comparing the grouped fields only.</summary>
+    private static bool GroupEquals(in ScanComponent left, in ScanComponent right, GroupField[] fields)
+    {
+        for (var i = 0; i < fields.Length; i++)
+        {
+            var equal = fields[i] switch
+            {
+                GroupField.Name => left.Name.Equals(right.Name),
+                GroupField.Version => left.Version.Equals(right.Version),
+                GroupField.License => left.License.Equals(right.License),
+                GroupField.Ecosystem => string.Equals(left.Ecosystem, right.Ecosystem, StringComparison.Ordinal),
+                GroupField.Dependency => left.DependencyType == right.DependencyType,
+                GroupField.Status => left.Status == right.Status,
+                _ => throw new ArgumentOutOfRangeException(nameof(fields)),
+            };
+            if (!equal)
+            {
+                return false;
+            }
         }
+
+        return true;
     }
 
     private static int CompareGroupRows(GroupRow left, GroupRow right)
     {
         for (var i = 0; i < left.Values.Length; i++)
         {
-            var comparison = string.CompareOrdinal(left.Values[i], right.Values[i]);
+            var comparison = Utf8Slice.CompareOrdinal(left.Values[i], right.Values[i]);
             if (comparison != 0)
             {
                 return comparison;
@@ -1220,7 +1296,7 @@ internal enum SortField
     Purl,
 }
 
-internal readonly record struct GroupRow(string[] Values, int Count, ScanComponent[] Components);
+internal readonly record struct GroupRow(Utf8Slice[] Values, int Count, ScanComponent[] Components);
 
 /// <summary>What the run did and what the rendered view left out, as the canonical JSON report states it.</summary>
 /// <remarks>
@@ -1734,7 +1810,7 @@ internal static class ReportRenderer
             }
 
             WriteLicenseCandidates(writer, component);
-            WriteWarnings(writer, component.Warnings);
+            WriteCandidateWarnings(writer, component.Warnings);
             writer.WriteEndObject();
         }
 
@@ -1766,7 +1842,7 @@ internal static class ReportRenderer
             writer.WriteStartObject();
             for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
             {
-                writer.WriteString(GetGroupPropertyNameUtf8(groupBy, valueIndex), groups[i].Values[valueIndex]);
+                writer.WriteString(GetGroupPropertyNameUtf8(groupBy, valueIndex), groups[i].Values[valueIndex].Span);
             }
 
             writer.WriteNumber("count", groups[i].Count);
@@ -1890,17 +1966,62 @@ internal static class ReportRenderer
 
     private static void AppendMarkdownValue(StringBuilder builder, string value)
     {
-        builder.Append(Display(value).Replace("|", "\\|", StringComparison.Ordinal));
+        if (value.Length == 0)
+        {
+            builder.Append('-');
+            return;
+        }
+
+        AppendEscapedCell(builder, value.AsSpan());
     }
 
+    /// <summary>
+    /// Appends a source-backed value to a table cell without decoding it into a string first.
+    /// </summary>
     private static void AppendMarkdownValue(StringBuilder builder, Utf8Slice value)
     {
-        AppendMarkdownValue(builder, value.ToString());
+        var utf8 = value.Span;
+        if (utf8.IsEmpty)
+        {
+            builder.Append('-');
+            return;
+        }
+
+        const int MaxStackChars = 128;
+        var maxChars = Encoding.UTF8.GetMaxCharCount(utf8.Length);
+        char[]? rented = null;
+        var chars = maxChars <= MaxStackChars
+            ? stackalloc char[MaxStackChars]
+            : (rented = ArrayPool<char>.Shared.Rent(maxChars)).AsSpan();
+        try
+        {
+            AppendEscapedCell(builder, chars[..Encoding.UTF8.GetChars(utf8, chars)]);
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<char>.Shared.Return(rented);
+            }
+        }
     }
 
-    private static string Display(string value) => value.Length == 0 ? "-" : value;
+    /// <summary>Appends cell text, escaping the one character that would end the cell early.</summary>
+    private static void AppendEscapedCell(StringBuilder builder, ReadOnlySpan<char> value)
+    {
+        while (true)
+        {
+            var index = value.IndexOf('|');
+            if (index < 0)
+            {
+                builder.Append(value);
+                return;
+            }
 
-    private static string Display(Utf8Slice value) => value.IsEmpty ? "-" : value.ToString();
+            builder.Append(value[..index]).Append("\\|");
+            value = value[(index + 1)..];
+        }
+    }
 
     private static ReadOnlySpan<byte> GetDependencyTypeUtf8(DependencyType value) => value switch
     {
@@ -2182,17 +2303,7 @@ internal static class ReportRenderer
         writer.WriteString("licenseUrl", value.LicenseUrl);
     }
 
-    private static void WriteWarnings(Utf8JsonWriter writer, ReadOnlySpan<string> warnings)
-    {
-        writer.WriteStartArray("warnings");
-        for (var i = 0; i < warnings.Length; i++)
-        {
-            writer.WriteStringValue(warnings[i]);
-        }
-
-        writer.WriteEndArray();
-    }
-
+    /// <summary>Writes a warning set as identifiers. Used for both a component and each of its candidates.</summary>
     private static void WriteCandidateWarnings(Utf8JsonWriter writer, LicenseCandidateWarnings warnings)
     {
         writer.WriteStartArray("warnings");
@@ -2266,7 +2377,7 @@ internal static class ReportRenderer
     {
         for (var i = 0; i < components.Length; i++)
         {
-            if (Array.IndexOf(components[i].Warnings, "deprecated_spdx_identifier") >= 0)
+            if ((components[i].Warnings & LicenseCandidateWarnings.DeprecatedSpdxIdentifier) != 0)
             {
                 return true;
             }
@@ -2450,8 +2561,9 @@ internal readonly record struct ScanSummary(int Matched, int Conflict, int Unkno
 
             // A component that reached one license resolved whatever else failed on the way, so its
             // warnings describe collection rather than the result.
-            if (components[i].Status == LicenseStatus.Matched) resolvedWarningCount += components[i].Warnings.Length;
-            else unresolvedWarningCount += components[i].Warnings.Length;
+            var warningCount = BitOperations.PopCount((uint)components[i].Warnings);
+            if (components[i].Status == LicenseStatus.Matched) resolvedWarningCount += warningCount;
+            else unresolvedWarningCount += warningCount;
 
             for (var candidateIndex = 0; candidateIndex < components[i].CandidateCount; candidateIndex++)
             {

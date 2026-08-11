@@ -124,7 +124,7 @@ internal sealed class SourceRepositoryService
             var cached = sourceCache.Read(target.CacheKey);
             if (cached.Record is { } cachedRecord)
             {
-                return ValueTask.FromResult(ApplySingleTarget(components, CreateResult(cachedRecord, cached.CacheKeySha256, cacheHit: true, cacheMiss: false, requested: false), concurrency));
+                return ValueTask.FromResult(ApplySingleTarget(components, CreateResult(cachedRecord, cached.CacheKeySha256, LookupOutcome.CacheHit), concurrency));
             }
 
             cacheWasInvalid = cached.Status == SourceRepositoryCacheReadStatus.Invalid;
@@ -154,11 +154,11 @@ internal sealed class SourceRepositoryService
             components,
             new SourceRepositorySummary(
                 1,
-                result.Requested ? 1 : 0,
-                result.CacheHit ? 1 : 0,
-                result.CacheMiss ? 1 : 0,
-                result.FetchError ? 1 : 0,
-                result.Unknown ? 1 : 0,
+                result.Has(LookupOutcome.Requested) ? 1 : 0,
+                result.Has(LookupOutcome.CacheHit) ? 1 : 0,
+                result.Has(LookupOutcome.CacheMiss) ? 1 : 0,
+                result.Has(LookupOutcome.FetchError) ? 1 : 0,
+                result.Has(LookupOutcome.Unknown) ? 1 : 0,
                 authentication.Mode,
                 concurrency,
                 retryCount));
@@ -203,7 +203,7 @@ internal sealed class SourceRepositoryService
                 if (targetIndex < 0) continue;
                 var result = results[targetIndex];
                 components[i] = LicenseReconciler.AddCandidate(components[i], result.Candidate);
-                unknown += result.Unknown ? 1 : 0;
+                unknown += result.Has(LookupOutcome.Unknown) ? 1 : 0;
             }
 
             var requests = 0;
@@ -213,10 +213,10 @@ internal sealed class SourceRepositoryService
             for (var i = 0; i < targetCount; i++)
             {
                 var result = results[i];
-                requests += result.Requested ? 1 : 0;
-                hits += result.CacheHit ? 1 : 0;
-                misses += result.CacheMiss ? 1 : 0;
-                errors += result.FetchError ? 1 : 0;
+                requests += result.Has(LookupOutcome.Requested) ? 1 : 0;
+                hits += result.Has(LookupOutcome.CacheHit) ? 1 : 0;
+                misses += result.Has(LookupOutcome.CacheMiss) ? 1 : 0;
+                errors += result.Has(LookupOutcome.FetchError) ? 1 : 0;
             }
 
             return (components, new SourceRepositorySummary(targetCount, requests, hits, misses, errors, unknown, authentication.Mode, concurrency, retryCount));
@@ -376,7 +376,7 @@ internal sealed class SourceRepositoryService
         if (!refresh)
         {
             var cached = await sourceCache.ReadAsync(target.CacheKey, cancellationToken).ConfigureAwait(false);
-            if (cached.Record is { } record) return CreateResult(record, cached.CacheKeySha256, cacheHit: true, cacheMiss: false, requested: false);
+            if (cached.Record is { } record) return CreateResult(record, cached.CacheKeySha256, LookupOutcome.CacheHit);
             cacheWasInvalid = cached.Status == SourceRepositoryCacheReadStatus.Invalid;
         }
 
@@ -394,7 +394,7 @@ internal sealed class SourceRepositoryService
             }
 
             record = await WriteCacheBestEffortAsync(record, cancellationToken).ConfigureAwait(false);
-            return CreateResult(record, SourceRepositoryCache.GetCacheKeySha256(target.CacheKey), cacheHit: false, cacheMiss: true, requested: true);
+            return CreateResult(record, SourceRepositoryCache.GetCacheKeySha256(target.CacheKey), LookupOutcome.CacheMiss | LookupOutcome.Requested);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (OperationCanceledException) { return await CreateErrorAsync(target, null, cacheWasInvalid, cancellationToken).ConfigureAwait(false); }
@@ -408,7 +408,8 @@ internal sealed class SourceRepositoryService
     /// derived it to locate the entry file, and <see cref="SourceRepositoryRecord.CacheKeySha256"/> is a
     /// calculated property that would hash the key again for every target.
     /// </param>
-    private SourceRepositoryLookupResult CreateResult(SourceRepositoryRecord record, string cacheKeySha256, bool cacheHit, bool cacheMiss, bool requested)
+    /// <param name="outcome">How the record was obtained: <see cref="LookupOutcome.CacheHit"/>, or a miss that issued a request.</param>
+    private SourceRepositoryLookupResult CreateResult(SourceRepositoryRecord record, string cacheKeySha256, LookupOutcome outcome)
     {
         var raw = record.License?.SpdxId ?? "NOASSERTION";
         var candidate = LicenseCandidateFactory.Create(LicenseCandidateSource.GitHubLicenseApi, LicenseCandidateKind.License, Utf8Slice.FromString(raw), spdxLicenseIndex);
@@ -437,7 +438,9 @@ internal sealed class SourceRepositoryService
                 license?.HtmlUrl ?? string.Empty)),
         };
 
-        return new SourceRepositoryLookupResult(candidate, cacheHit, cacheMiss, requested, record.Errors.Length != 0, unknown);
+        if (record.Errors.Length != 0) outcome |= LookupOutcome.FetchError;
+        if (unknown) outcome |= LookupOutcome.Unknown;
+        return new SourceRepositoryLookupResult(candidate, outcome);
     }
 
     /// <summary>Names why a completed source lookup produced no SPDX identifier.</summary>
@@ -465,7 +468,7 @@ internal sealed class SourceRepositoryService
             record = await WriteCacheBestEffortAsync(record, cancellationToken).ConfigureAwait(false);
         }
 
-        return CreateResult(record, SourceRepositoryCache.GetCacheKeySha256(target.CacheKey), cacheHit: false, cacheMiss: true, requested: true);
+        return CreateResult(record, SourceRepositoryCache.GetCacheKeySha256(target.CacheKey), LookupOutcome.CacheMiss | LookupOutcome.Requested);
     }
 
     private async Task<SourceRepositoryRecord> WriteCacheBestEffortAsync(SourceRepositoryRecord record, CancellationToken cancellationToken)
@@ -537,7 +540,28 @@ internal sealed class SourceRepositoryService
             new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
     }
 
-    private readonly record struct SourceRepositoryLookupResult(LicenseCandidate Candidate, bool CacheHit, bool CacheMiss, bool Requested, bool FetchError, bool Unknown);
+    /// <summary>What one planned source lookup did, as the projection and the summary counters read it.</summary>
+    /// <remarks>
+    /// One field rather than one bool per outcome, matching the package side. The outcomes are not
+    /// independent: a lookup is a cache hit or a cache miss, and only a miss issues a request, so the two
+    /// combinations that occur were being spelled out as five positional literals that named nothing at
+    /// the call site.
+    /// </remarks>
+    [Flags]
+    private enum LookupOutcome : byte
+    {
+        None = 0,
+        CacheHit = 1 << 0,
+        CacheMiss = 1 << 1,
+        Requested = 1 << 2,
+        FetchError = 1 << 3,
+        Unknown = 1 << 4,
+    }
+
+    private readonly record struct SourceRepositoryLookupResult(LicenseCandidate Candidate, LookupOutcome Outcome)
+    {
+        public bool Has(LookupOutcome outcome) => (Outcome & outcome) != 0;
+    }
 
     /// <summary>Identifies the supplied repository reference a component was planned from, before normalization.</summary>
     /// <param name="RepositoryUrl">The repository URL exactly as package metadata or the SBOM supplied it.</param>

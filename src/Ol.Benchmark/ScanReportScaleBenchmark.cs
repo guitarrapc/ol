@@ -113,7 +113,7 @@ public class ScanReportScaleBenchmark
         var parsed = 0;
         for (var i = 0; i < components.Length; i++)
         {
-            if (OlDefaults.TryCreatePackageMetadataRequest(components[i].Purl.Span, out _, out _))
+            if (OlDefaults.TryCreatePackageMetadataRequest(components[i].Purl, out _, out _))
             {
                 parsed++;
             }

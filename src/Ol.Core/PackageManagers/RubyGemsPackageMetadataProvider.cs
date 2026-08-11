@@ -1,4 +1,4 @@
-﻿using Ol.Core.PackageMetadata;
+using Ol.Core.PackageMetadata;
 using System.Text;
 using System.Text.Json;
 
@@ -11,17 +11,18 @@ public sealed class RubyGemsPackageMetadataProvider : PackageMetadataProvider
 
     public override string Ecosystem => "gem";
 
-    public override bool TryCreate(ReadOnlySpan<byte> purl, out PackageMetadataRequest request)
+    public override bool TryCreate(Utf8Slice purl, out PackageMetadataRequest request)
     {
-        if (!base.TryCreate(purl, out request) || request.Namespace.Length != 0 || !TryReadPlatform(purl, out var platform))
+        if (!base.TryCreate(purl, out request) || request.Namespace.Length != 0 || !TryReadPlatform(purl.Span, out var platform))
         {
             request = default;
             return false;
         }
 
-        var fragment = purl.IndexOf((byte)'#');
-        var cacheKey = Encoding.UTF8.GetString(fragment < 0 ? purl : purl[..fragment]);
-        request = request with { CacheKey = cacheKey, Platform = platform };
+        // The platform qualifier distinguishes two published gems, so unlike every other ecosystem the key
+        // keeps the query. Only the subpath is dropped, and what remains is still a slice of the purl.
+        var fragment = purl.Span.IndexOf((byte)'#');
+        request = request with { CacheKey = fragment < 0 ? purl : purl.Slice(0, fragment), Platform = platform };
         return true;
     }
 

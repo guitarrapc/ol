@@ -17,11 +17,11 @@ public readonly record struct PackageMetadataRequest(
     string Namespace,
     string Name,
     string Version,
-    string CacheKey,
+    Utf8Slice CacheKey,
     string Platform = "")
 {
-    /// <summary>The stack budget for encoding a purl supplied as a string. 512 bytes.</summary>
-    private const int MaxStackPurlBytes = 512;
+    /// <summary>The stack budget for decoding a purl identity before slicing its parts. 512 bytes.</summary>
+    private const int MaxStackIdentityChars = 256;
 
     /// <summary>
     /// Parses a supported package URL using a provider registry.
@@ -30,7 +30,7 @@ public readonly record struct PackageMetadataRequest(
     /// <param name="providers">The ecosystem providers available for this operation.</param>
     /// <param name="request">The parsed request when the purl is supported and versioned.</param>
     /// <returns><see langword="true"/> when a supported request was created.</returns>
-    public static bool TryCreate(ReadOnlySpan<byte> purl, PackageMetadataProviders providers, out PackageMetadataRequest request)
+    public static bool TryCreate(Utf8Slice purl, PackageMetadataProviders providers, out PackageMetadataRequest request)
         => TryCreate(purl, providers, out request, out _);
 
     /// <summary>
@@ -41,12 +41,12 @@ public readonly record struct PackageMetadataRequest(
     /// no request means the purl does not identify one package version, which asks the reader to fix the input
     /// rather than to wait for Ol to gain a provider.
     /// </param>
-    public static bool TryCreate(ReadOnlySpan<byte> purl, PackageMetadataProviders providers, out PackageMetadataRequest request, out bool ecosystemSupported)
+    public static bool TryCreate(Utf8Slice purl, PackageMetadataProviders providers, out PackageMetadataRequest request, out bool ecosystemSupported)
     {
         ArgumentNullException.ThrowIfNull(providers);
         request = default;
         ecosystemSupported = false;
-        if (!TryGetEcosystem(purl, out var ecosystem) || !providers.TryGet(ecosystem, out var provider))
+        if (!TryGetEcosystem(purl.Span, out var ecosystem) || !providers.TryGet(ecosystem, out var provider))
         {
             return false;
         }
@@ -57,8 +57,9 @@ public readonly record struct PackageMetadataRequest(
 
     /// <summary>Parses a package URL supplied as text, for callers that hold one rather than an inventory slice.</summary>
     /// <remarks>
-    /// Encodes into a bounded buffer instead of widening the parse to UTF-16, so the one representation the
-    /// parser understands stays UTF-8 whichever way a caller arrives at it.
+    /// The purl becomes an owned UTF-8 value, because the request keeps a slice of it as the cache key and
+    /// that slice has to outlive this call. Callers on the scan path already hold their purl as UTF-8 and
+    /// reach the overload that copies nothing.
     /// </remarks>
     public static bool TryCreate(string purl, PackageMetadataProviders providers, out PackageMetadataRequest request)
         => TryCreate(purl, providers, out request, out _);
@@ -67,58 +68,59 @@ public readonly record struct PackageMetadataRequest(
     public static bool TryCreate(string purl, PackageMetadataProviders providers, out PackageMetadataRequest request, out bool ecosystemSupported)
     {
         ArgumentNullException.ThrowIfNull(purl);
-        var maximumByteCount = Encoding.UTF8.GetMaxByteCount(purl.Length);
-        byte[]? rented = null;
-        Span<byte> utf8 = maximumByteCount <= MaxStackPurlBytes
-            ? stackalloc byte[MaxStackPurlBytes]
-            : (rented = ArrayPool<byte>.Shared.Rent(maximumByteCount));
+        return TryCreate(Utf8Slice.FromString(purl), providers, out request, out ecosystemSupported);
+    }
+
+    internal static bool TryParse(Utf8Slice purl, string expectedEcosystem, out PackageMetadataRequest request)
+    {
+        request = default;
+        var utf8 = purl.Span;
+        if (!TryGetEcosystem(utf8, out var ecosystem) || !PackageMetadataProviders.AsciiEqualsIgnoreCase(ecosystem, expectedEcosystem))
+        {
+            return false;
+        }
+
+        var qualifierIndex = utf8.IndexOfAny((byte)'?', (byte)'#');
+        var identityLength = qualifierIndex < 0 ? utf8.Length : qualifierIndex;
+
+        // Decoded once into a buffer rather than into a string. The name and version are slices of the
+        // identity and have to be materialized because the request keeps them, but the identity itself is
+        // only read here: the cache key is the UTF-8 it was decoded from.
+        char[]? rented = null;
+        var maximumCharCount = Encoding.UTF8.GetMaxCharCount(identityLength);
+        var buffer = maximumCharCount <= MaxStackIdentityChars
+            ? stackalloc char[MaxStackIdentityChars]
+            : (rented = ArrayPool<char>.Shared.Rent(maximumCharCount)).AsSpan();
         try
         {
-            return TryCreate(utf8[..Encoding.UTF8.GetBytes(purl, utf8)], providers, out request, out ecosystemSupported);
+            var value = buffer[..Encoding.UTF8.GetChars(utf8[..identityLength], buffer)];
+            var typeEnd = value.IndexOf('/');
+            var versionSeparator = value.LastIndexOf('@');
+            if (versionSeparator <= typeEnd + 1 || versionSeparator == value.Length - 1)
+            {
+                return false;
+            }
+
+            var packagePath = value[(typeEnd + 1)..versionSeparator];
+            var nameSeparator = packagePath.LastIndexOf('/');
+            var namespaceValue = nameSeparator < 0 ? string.Empty : Unescape(packagePath[..nameSeparator]);
+            var name = Unescape(nameSeparator < 0 ? packagePath : packagePath[(nameSeparator + 1)..]);
+            var version = Unescape(value[(versionSeparator + 1)..]);
+            if (name.Length == 0 || version.Length == 0)
+            {
+                return false;
+            }
+
+            request = new PackageMetadataRequest(expectedEcosystem, namespaceValue, name, version, purl.Slice(0, identityLength));
+            return true;
         }
         finally
         {
             if (rented is not null)
             {
-                ArrayPool<byte>.Shared.Return(rented);
+                ArrayPool<char>.Shared.Return(rented);
             }
         }
-    }
-
-    internal static bool TryParse(ReadOnlySpan<byte> purl, string expectedEcosystem, out PackageMetadataRequest request)
-    {
-        request = default;
-        if (!TryGetEcosystem(purl, out var ecosystem) || !PackageMetadataProviders.AsciiEqualsIgnoreCase(ecosystem, expectedEcosystem))
-        {
-            return false;
-        }
-
-        var qualifierIndex = purl.IndexOfAny((byte)'?', (byte)'#');
-
-        // Decoded once, because the identity is itself the cache key the request retains and the name and
-        // version are slices of it. Decoding each part separately would cost three UTF-8 decodes for the
-        // same three strings, which measured slower than one decode and two copies.
-        var identity = Encoding.UTF8.GetString(qualifierIndex < 0 ? purl : purl[..qualifierIndex]);
-        var value = identity.AsSpan();
-        var typeEnd = value.IndexOf('/');
-        var versionSeparator = value.LastIndexOf('@');
-        if (versionSeparator <= typeEnd + 1 || versionSeparator == value.Length - 1)
-        {
-            return false;
-        }
-
-        var packagePath = value[(typeEnd + 1)..versionSeparator];
-        var nameSeparator = packagePath.LastIndexOf('/');
-        var namespaceValue = nameSeparator < 0 ? string.Empty : Unescape(packagePath[..nameSeparator]);
-        var name = Unescape(nameSeparator < 0 ? packagePath : packagePath[(nameSeparator + 1)..]);
-        var version = Unescape(value[(versionSeparator + 1)..]);
-        if (name.Length == 0 || version.Length == 0)
-        {
-            return false;
-        }
-
-        request = new PackageMetadataRequest(expectedEcosystem, namespaceValue, name, version, identity);
-        return true;
     }
 
     /// <summary>

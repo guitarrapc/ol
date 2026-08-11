@@ -16,7 +16,7 @@ public sealed class CocoaPodsPackageMetadataProvider : PackageMetadataProvider
 
     public override string Ecosystem => "cocoapods";
 
-    public override bool TryCreate(ReadOnlySpan<byte> purl, out PackageMetadataRequest request)
+    public override bool TryCreate(Utf8Slice purl, out PackageMetadataRequest request)
     {
         if (!base.TryCreate(purl, out request)
             || request.Namespace.Length != 0

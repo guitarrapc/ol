@@ -50,7 +50,7 @@ public sealed class DependencyInventoryTests
         var secondLookup = OlDefaults.TryCreatePackageMetadataRequest(second.Purl.ToString(), out var secondRequest);
         await Assert.That(firstLookup).IsTrue();
         await Assert.That(secondLookup).IsTrue();
-        await Assert.That(firstRequest.CacheKey).IsEqualTo(secondRequest.CacheKey);
+        await Assert.That(firstRequest.CacheKey.ToString()).IsEqualTo(secondRequest.CacheKey.ToString());
     }
 
     [Test]

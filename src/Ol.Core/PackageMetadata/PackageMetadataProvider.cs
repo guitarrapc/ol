@@ -61,7 +61,7 @@ public abstract class PackageMetadataProvider
     /// runs once per distinct package an inventory names. Only the values the request retains — the ones
     /// that become endpoints and cache keys — are decoded, and each is decoded once.
     /// </remarks>
-    public virtual bool TryCreate(ReadOnlySpan<byte> purl, out PackageMetadataRequest request)
+    public virtual bool TryCreate(Utf8Slice purl, out PackageMetadataRequest request)
         => PackageMetadataRequest.TryParse(purl, Ecosystem, out request);
 
     /// <summary>

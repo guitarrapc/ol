@@ -191,7 +191,7 @@ public sealed class PackageMetadataTests
         await Assert.That(request.Namespace).IsEqualTo("@scope");
         await Assert.That(request.Name).IsEqualTo("example");
         await Assert.That(request.Version).IsEqualTo("1.2.3");
-        await Assert.That(request.CacheKey).IsEqualTo("pkg:npm/%40scope/example@1.2.3");
+        await Assert.That(request.CacheKey.ToString()).IsEqualTo("pkg:npm/%40scope/example@1.2.3");
     }
 
     [Test]
@@ -199,7 +199,7 @@ public sealed class PackageMetadataTests
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
         var request = new PackageMetadataRequest("npm", "", "example", "1.0.0", "pkg:npm/example@1.0.0");
-        var record = new PackageMetadataRecord(request.CacheKey, "npm-registry", "MIT", "https://example.test/repository", [], [], DateTimeOffset.UtcNow);
+        var record = new PackageMetadataRecord(request.CacheKey.ToString(), "npm-registry", "MIT", "https://example.test/repository", [], [], DateTimeOffset.UtcNow);
 
         try
         {
@@ -209,13 +209,13 @@ public sealed class PackageMetadataTests
             var read = await cache.TryReadAsync(request.CacheKey);
 
             await Assert.That(read.IsHit).IsTrue();
-            await Assert.That(read.CacheKeySha256).IsEqualTo(PackageMetadataCache.GetCacheKeySha256(request.CacheKey));
+            await Assert.That(read.CacheKeySha256).IsEqualTo(PackageMetadataCache.GetCacheKeySha256(request.CacheKey.Span));
             await Assert.That(read.RawLicense.ToString()).IsEqualTo("MIT");
             await Assert.That(Directory.GetFiles(root, "*.json")[0]).DoesNotContain("example");
 
-            using var document = JsonDocument.Parse(await File.ReadAllBytesAsync(cache.GetPath(request.CacheKey)));
+            using var document = JsonDocument.Parse(await File.ReadAllBytesAsync(cache.GetPath(request.CacheKey.ToString())));
             await Assert.That(document.RootElement.GetProperty("SchemaVersion").GetInt32()).IsEqualTo(1);
-            await Assert.That(document.RootElement.GetProperty("CacheKeySha256").GetString()).IsEqualTo(PackageMetadataCache.GetCacheKeySha256(request.CacheKey));
+            await Assert.That(document.RootElement.GetProperty("CacheKeySha256").GetString()).IsEqualTo(PackageMetadataCache.GetCacheKeySha256(request.CacheKey.Span));
         }
         finally
         {
@@ -1669,7 +1669,7 @@ public sealed class PackageMetadataTests
 
         var parsed = OlDefaults.TryCreatePackageMetadataRequest("pkg:gem/example@1.2.3?platform=java", out var request);
         await Assert.That(parsed).IsTrue();
-        await Assert.That(request.CacheKey).IsEqualTo("pkg:gem/example@1.2.3?platform=java");
+        await Assert.That(request.CacheKey.ToString()).IsEqualTo("pkg:gem/example@1.2.3?platform=java");
         var record = await client.FetchAsync(request);
 
         await Assert.That(handler.RequestUris).IsEquivalentTo(["https://rubygems.org/api/v2/rubygems/example/versions/1.2.3.json?platform=java"]);
@@ -1700,7 +1700,7 @@ public sealed class PackageMetadataTests
         await Assert.That(handler.RequestUris).IsEquivalentTo([
             "https://api.deps.dev/v3/systems/maven/packages/org.apache.commons%3Acommons-lang3/versions/3.17.0",
         ]);
-        await Assert.That(request.CacheKey).IsEqualTo("pkg:maven/org.apache.commons/commons-lang3@3.17.0");
+        await Assert.That(request.CacheKey.ToString()).IsEqualTo("pkg:maven/org.apache.commons/commons-lang3@3.17.0");
         await Assert.That(record.Source).IsEqualTo("deps.dev");
         await Assert.That(record.RawLicense).IsEqualTo("Apache-2.0");
         await Assert.That(record.RepositoryUrl).IsEqualTo("https://github.com/apache/commons-lang");
@@ -1757,8 +1757,8 @@ public sealed class PackageMetadataTests
 
         await Assert.That(qualifierParsed).IsTrue();
         await Assert.That(subpathParsed).IsTrue();
-        await Assert.That(qualifierRequest.CacheKey).IsEqualTo("pkg:cocoapods/Moya@15.0.0");
-        await Assert.That(subpathRequest.CacheKey).IsEqualTo("pkg:cocoapods/Moya@15.0.0");
+        await Assert.That(qualifierRequest.CacheKey.ToString()).IsEqualTo("pkg:cocoapods/Moya@15.0.0");
+        await Assert.That(subpathRequest.CacheKey.ToString()).IsEqualTo("pkg:cocoapods/Moya@15.0.0");
     }
 
     [Test]
@@ -1935,7 +1935,7 @@ public sealed class PackageMetadataTests
             await Assert.That(enrichment.Summary.TargetCount).IsEqualTo(1);
             await Assert.That(enrichment.Summary.SupportedComponentCount).IsEqualTo(1);
             await Assert.That(enrichment.Components[0].License.ToString()).IsEqualTo("MIT");
-            await Assert.That(GetRecord(resolutions, 0)!.Value.CacheKey).IsEqualTo(purl);
+            await Assert.That(GetRecord(resolutions, 0)!.Value.CacheKey.ToString()).IsEqualTo(purl);
         }
         finally
         {

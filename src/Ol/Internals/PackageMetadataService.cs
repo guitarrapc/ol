@@ -114,7 +114,7 @@ internal sealed class PackageMetadataService(
             return ValueTask.FromResult(ApplySingleLookup(components, resolutions, default, concurrency, lookupCount: 0));
         }
 
-        if (!OlDefaults.TryCreatePackageMetadataRequest(purl.Span, out var request, out var ecosystemSupported))
+        if (!OlDefaults.TryCreatePackageMetadataRequest(purl, out var request, out var ecosystemSupported))
         {
             return ValueTask.FromResult(ApplySingleLookup(components, resolutions, CreateUnqueryablePurlResult(purl, ecosystemSupported), concurrency, lookupCount: 0));
         }
@@ -174,7 +174,7 @@ internal sealed class PackageMetadataService(
     {
         var initialLookupCapacity = Math.Clamp(components.Length, 1, 16);
         var useLinearPlanning = components.Length <= LinearPlanningComponentLimit;
-        var lookupByCacheKey = useLinearPlanning ? null : new Dictionary<string, int>(initialLookupCapacity, StringComparer.Ordinal);
+        var lookupByCacheKey = useLinearPlanning ? null : new Dictionary<Utf8Slice, int>(initialLookupCapacity);
         var lookupByPurl = useLinearPlanning ? null : new Dictionary<Utf8Slice, int>(initialLookupCapacity);
         var lookups = ArrayPool<PackageMetadataLookup>.Shared.Rent(initialLookupCapacity);
         var componentLookupIndexes = ArrayPool<int>.Shared.Rent(components.Length);
@@ -224,7 +224,7 @@ internal sealed class PackageMetadataService(
                     continue;
                 }
 
-                if (!OlDefaults.TryCreatePackageMetadataRequest(purl.Span, out var request, out var ecosystemSupported))
+                if (!OlDefaults.TryCreatePackageMetadataRequest(purl, out var request, out var ecosystemSupported))
                 {
                     // Two distinct "no request" outcomes share the plan's negative index space, so the projection can
                     // name the right one without parsing the purl a second time.
@@ -239,7 +239,7 @@ internal sealed class PackageMetadataService(
                 {
                     for (var existingLookupIndex = 0; existingLookupIndex < lookupCount; existingLookupIndex++)
                     {
-                        if (string.Equals(lookups[existingLookupIndex].Request.CacheKey, request.CacheKey, StringComparison.Ordinal))
+                        if (lookups[existingLookupIndex].Request.CacheKey.Equals(request.CacheKey))
                         {
                             lookupIndex = existingLookupIndex;
                             break;
@@ -433,7 +433,7 @@ internal sealed class PackageMetadataService(
     {
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
-            PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey)));
+            PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey.Span)));
         var candidate = new LicenseCandidate(
             LicenseCandidateSource.PackageRegistry,
             LicenseCandidateKind.Fetch,
@@ -450,7 +450,7 @@ internal sealed class PackageMetadataService(
     {
         var evidence = new LicenseEvidence(
             LicenseEvidenceKind.PackageRegistry,
-            PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey)));
+            PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey.Span)));
         var error = LicenseCandidateFactory.CreateError(LicenseCandidateSource.PackageRegistry, LicenseCandidateKind.Fetch, LicenseCandidateWarnings.PackageMetadataFetchFailed, evidence);
         return new PackageMetadataLookupResult(null, error, true, false, true, false, true, false);
     }

@@ -33,10 +33,7 @@ internal static class CacheFile
             : (rented = ArrayPool<byte>.Shared.Rent(maximumByteCount));
         try
         {
-            var byteCount = Encoding.UTF8.GetBytes(cacheKey, utf8);
-            Span<byte> hash = stackalloc byte[SHA256.HashSizeInBytes];
-            SHA256.HashData(utf8[..byteCount], hash);
-            return Convert.ToHexStringLower(hash);
+            return GetCacheKeySha256(utf8[..Encoding.UTF8.GetBytes(cacheKey, utf8)]);
         }
         finally
         {
@@ -45,6 +42,20 @@ internal static class CacheFile
                 ArrayPool<byte>.Shared.Return(rented);
             }
         }
+    }
+
+    /// <summary>Calculates the lower-case SHA-256 of a UTF-8 cache key.</summary>
+    /// <param name="cacheKey">The logical cache key, as the bytes it was read from.</param>
+    /// <returns>The 64-character lower-case hexadecimal hash.</returns>
+    /// <remarks>
+    /// A key that already exists as UTF-8 is hashed where it lies. The text overload encodes into a bounded
+    /// buffer and lands here, which is what the hash always did — it never wanted characters.
+    /// </remarks>
+    public static string GetCacheKeySha256(ReadOnlySpan<byte> cacheKey)
+    {
+        Span<byte> hash = stackalloc byte[SHA256.HashSizeInBytes];
+        SHA256.HashData(cacheKey, hash);
+        return Convert.ToHexStringLower(hash);
     }
 
     /// <summary>Builds the opaque cache file path from an already calculated cache-key hash.</summary>

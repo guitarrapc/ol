@@ -1,4 +1,6 @@
-﻿namespace Ol.Internals;
+using Ol.Core;
+
+namespace Ol.Internals;
 
 /// <summary>
 /// Contains the package-metadata facts one component carries into the source repository stage.
@@ -8,7 +10,7 @@
 /// <param name="RepositoryRef">The repository commit or ref mapped to this package version.</param>
 /// <param name="RepositorySubdirectoryDeclared">Whether the publisher placed this package in one directory of a repository that holds several.</param>
 internal readonly record struct PackageMetadataResolution(
-    string CacheKey,
+    Utf8Slice CacheKey,
     string RepositoryUrl,
     string RepositoryRef,
     bool RepositorySubdirectoryDeclared = false);

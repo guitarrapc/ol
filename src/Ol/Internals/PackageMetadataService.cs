@@ -149,17 +149,17 @@ internal sealed class PackageMetadataService(
         int lookupCount)
     {
         resolutions[0] = result.Resolution;
-        components[0] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[0], result.Candidate) : components[0];
+        components[0] = result.Has(LookupOutcome.HasCandidate) ? LicenseReconciler.AddCandidate(components[0], result.Candidate) : components[0];
         return (
             components,
             new PackageMetadataSummary(
-                result.Supported ? 1 : 0,
-                result.CacheHit ? 1 : 0,
-                result.CacheMiss ? 1 : 0,
-                result.Refreshed ? 1 : 0,
-                result.FetchError ? 1 : 0,
-                result.Unsupported ? 1 : 0,
-                result.UnversionedPurl ? 1 : 0,
+                result.Has(LookupOutcome.Supported) ? 1 : 0,
+                result.Has(LookupOutcome.CacheHit) ? 1 : 0,
+                result.Has(LookupOutcome.CacheMiss) ? 1 : 0,
+                result.Has(LookupOutcome.Refreshed) ? 1 : 0,
+                result.Has(LookupOutcome.FetchError) ? 1 : 0,
+                result.Has(LookupOutcome.Unsupported) ? 1 : 0,
+                result.Has(LookupOutcome.UnversionedPurl) ? 1 : 0,
                 concurrency,
                 retryCount,
                 lookupCount));
@@ -320,14 +320,14 @@ internal sealed class PackageMetadataService(
                 ? lookupResults[lookupIndex]
                 : lookupIndex == NoLookupIndex ? default : CreateUnqueryablePurlResult(components[i].Purl, lookupIndex == UnversionedPurlIndex);
             records[i] = result.Resolution;
-            components[i] = result.HasCandidate ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];
-            supported += result.Supported ? 1 : 0;
-            hits += result.CacheHit ? 1 : 0;
-            misses += result.CacheMiss ? 1 : 0;
-            refreshed += result.Refreshed ? 1 : 0;
-            errors += result.FetchError ? 1 : 0;
-            unsupported += result.Unsupported ? 1 : 0;
-            unversioned += result.UnversionedPurl ? 1 : 0;
+            components[i] = result.Has(LookupOutcome.HasCandidate) ? LicenseReconciler.AddCandidate(components[i], result.Candidate) : components[i];
+            supported += result.Has(LookupOutcome.Supported) ? 1 : 0;
+            hits += result.Has(LookupOutcome.CacheHit) ? 1 : 0;
+            misses += result.Has(LookupOutcome.CacheMiss) ? 1 : 0;
+            refreshed += result.Has(LookupOutcome.Refreshed) ? 1 : 0;
+            errors += result.Has(LookupOutcome.FetchError) ? 1 : 0;
+            unsupported += result.Has(LookupOutcome.Unsupported) ? 1 : 0;
+            unversioned += result.Has(LookupOutcome.UnversionedPurl) ? 1 : 0;
         }
 
         return new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, unversioned, concurrency, retryCount, lookupCount);
@@ -389,12 +389,7 @@ internal sealed class PackageMetadataService(
         => new(
             new PackageMetadataResolution(request.CacheKey, entry.RepositoryUrl, entry.RepositoryRef, HasSubdirectoryWarning(entry.Warnings)),
             CreateMetadataCandidate(entry),
-            true,
-            true,
-            false,
-            false,
-            false,
-            false);
+            LookupOutcome.HasCandidate | LookupOutcome.Supported | LookupOutcome.CacheHit);
 
     private async Task<PackageMetadataLookupResult> FetchLookupAsync(PackageMetadataRequest request, CancellationToken cancellationToken)
     {
@@ -403,7 +398,8 @@ internal sealed class PackageMetadataService(
             var record = await PackageMetadataFetchScheduler.FetchAsync(registryClient, request, retryCount, cancellationToken).ConfigureAwait(false);
             await cache.WriteAsync(record, cancellationToken).ConfigureAwait(false);
             var resolution = new PackageMetadataResolution(record.CacheKey, record.RepositoryUrl, record.RepositoryRef, HasSubdirectoryWarning(LicenseCandidateIdentifiers.ParseWarnings(record.Warnings)));
-            return new PackageMetadataLookupResult(resolution, CreateMetadataCandidate(record), true, false, true, refresh, false, false);
+            var outcome = LookupOutcome.HasCandidate | LookupOutcome.Supported | LookupOutcome.CacheMiss;
+            return new PackageMetadataLookupResult(resolution, CreateMetadataCandidate(record), refresh ? outcome | LookupOutcome.Refreshed : outcome);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -442,7 +438,7 @@ internal sealed class PackageMetadataService(
             false,
             LicenseCandidateWarnings.PackageMetadataNotFound,
             evidence);
-        return new PackageMetadataLookupResult(null, candidate, true, false, true, false, false, false);
+        return new PackageMetadataLookupResult(null, candidate, LookupOutcome.HasCandidate | LookupOutcome.Supported | LookupOutcome.CacheMiss);
     }
 
     private static PackageMetadataLookupResult CreateFetchError(PackageMetadataRequest request)
@@ -451,7 +447,7 @@ internal sealed class PackageMetadataService(
             LicenseEvidenceKind.PackageRegistry,
             PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey.Span)));
         var error = LicenseCandidateFactory.CreateError(LicenseCandidateSource.PackageRegistry, LicenseCandidateKind.Fetch, LicenseCandidateWarnings.PackageMetadataFetchFailed, evidence);
-        return new PackageMetadataLookupResult(null, error, true, false, true, false, true, false);
+        return new PackageMetadataLookupResult(null, error, LookupOutcome.HasCandidate | LookupOutcome.Supported | LookupOutcome.CacheMiss | LookupOutcome.FetchError);
     }
 
     /// <summary>
@@ -479,7 +475,10 @@ internal sealed class PackageMetadataService(
 
         // The summary keeps the distinction the warning makes. Counting an unversioned purl as an
         // unsupported ecosystem reports that Ol has no provider for an ecosystem it does support.
-        return new PackageMetadataLookupResult(null, candidate, true, false, false, false, false, !ecosystemSupported, ecosystemSupported);
+        return new PackageMetadataLookupResult(
+            null,
+            candidate,
+            LookupOutcome.HasCandidate | LookupOutcome.Supported | (ecosystemSupported ? LookupOutcome.UnversionedPurl : LookupOutcome.Unsupported));
     }
 
     private static void EnsureLookupCapacity(ref PackageMetadataLookup[] lookups, int lookupCount)
@@ -558,11 +557,33 @@ internal sealed class PackageMetadataService(
 
     private readonly record struct PackageMetadataLookup(int Index, PackageMetadataRequest Request);
 
-    private readonly record struct PackageMetadataLookupResult(PackageMetadataResolution? Resolution, LicenseCandidate Candidate, bool HasCandidate, bool Supported, bool CacheHit, bool CacheMiss, bool Refreshed, bool FetchError, bool Unsupported, bool UnversionedPurl = false)
+    /// <summary>What one planned lookup did, as the projection and the summary counters read it.</summary>
+    /// <remarks>
+    /// One field rather than one bool per outcome. The outcomes are not independent — a lookup is a cache
+    /// hit or a cache miss, and an unqueryable purl is an unsupported ecosystem or an unversioned purl but
+    /// never both — so a positional bool list could state a combination that cannot occur, and stated the
+    /// real ones as a row of bare literals that named nothing at the call site.
+    /// </remarks>
+    [Flags]
+    private enum LookupOutcome : byte
     {
-        public PackageMetadataLookupResult(PackageMetadataResolution? resolution, LicenseCandidate candidate, bool supported, bool cacheHit, bool cacheMiss, bool refreshed, bool fetchError, bool unsupported, bool unversionedPurl = false)
-            : this(resolution, candidate, true, supported, cacheHit, cacheMiss, refreshed, fetchError, unsupported, unversionedPurl)
-        {
-        }
+        /// <summary>Nothing was looked up and no candidate was produced: no purl, or collection the user excluded.</summary>
+        None = 0,
+        HasCandidate = 1 << 0,
+        Supported = 1 << 1,
+        CacheHit = 1 << 2,
+        CacheMiss = 1 << 3,
+        Refreshed = 1 << 4,
+        FetchError = 1 << 5,
+        Unsupported = 1 << 6,
+        UnversionedPurl = 1 << 7,
+    }
+
+    private readonly record struct PackageMetadataLookupResult(
+        PackageMetadataResolution? Resolution,
+        LicenseCandidate Candidate,
+        LookupOutcome Outcome)
+    {
+        public bool Has(LookupOutcome outcome) => (Outcome & outcome) != 0;
     }
 }

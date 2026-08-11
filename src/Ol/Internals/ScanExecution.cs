@@ -7,7 +7,7 @@ using Ol.Core.SourceRepository;
 namespace Ol.Internals;
 
 internal readonly record struct ScanPreparation(
-    ScanCommands.ScanInputSelection Input,
+    ScanInputSelection Input,
     SpdxData Spdx,
     CacheDirectories CacheDirectories,
     int Concurrency,
@@ -46,7 +46,7 @@ internal static class ScanExecution
         out ScanPreparation preparation,
         out string error)
     {
-        if (!ScanCommands.TryResolveInput(input, inputFormat, out var inputSelection, out var inputError))
+        if (!ScanInputIngestion.TryResolve(input, inputFormat, out var inputSelection, out var inputError))
         {
             preparation = default;
             error = $"Invalid scan input: {inputError}";
@@ -142,7 +142,7 @@ internal static class ScanExecution
         ScanResult scanResult;
         try
         {
-            var inventory = ScanCommands.ScanInputs(preparation.Input, preparation.Spdx.Index, includeHash);
+            var inventory = ScanInputIngestion.Ingest(preparation.Input, preparation.Spdx.Index, includeHash);
             scanResult = ScanResult.FromInventory(inventory);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)

@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -846,45 +846,16 @@ internal static class CargoMetadataInputParser
 
     private static Utf8Slice CreatePurl(Utf8Slice name, Utf8Slice version)
     {
-        var nameLength = GetEncodedLength(name.Span);
-        var versionLength = GetEncodedLength(version.Span);
+        var nameLength = Utf8Purl.GetEncodedLength(name.Span);
+        var versionLength = Utf8Purl.GetEncodedLength(version.Span);
         var bytes = new byte[PurlPrefix.Length + nameLength + 1 + versionLength];
         PurlPrefix.CopyTo(bytes);
         var index = PurlPrefix.Length;
-        WriteEncoded(name.Span, bytes, ref index);
+        Utf8Purl.WriteEncoded(name.Span, bytes, ref index);
         bytes[index++] = (byte)'@';
-        WriteEncoded(version.Span, bytes, ref index);
+        Utf8Purl.WriteEncoded(version.Span, bytes, ref index);
         return Utf8Slice.FromOwnedBytes(bytes);
     }
-
-    private static int GetEncodedLength(ReadOnlySpan<byte> value)
-    {
-        var length = 0;
-        for (var index = 0; index < value.Length; index++) length += IsPurlSafe(value[index]) ? 1 : 3;
-        return length;
-    }
-
-    private static void WriteEncoded(ReadOnlySpan<byte> value, Span<byte> destination, ref int index)
-    {
-        const string Hex = "0123456789ABCDEF";
-        for (var valueIndex = 0; valueIndex < value.Length; valueIndex++)
-        {
-            var item = value[valueIndex];
-            if (IsPurlSafe(item)) destination[index++] = item;
-            else
-            {
-                destination[index++] = (byte)'%';
-                destination[index++] = (byte)Hex[item >> 4];
-                destination[index++] = (byte)Hex[item & 0x0F];
-            }
-        }
-    }
-
-    private static bool IsPurlSafe(byte value)
-        => value is >= (byte)'a' and <= (byte)'z'
-        || value is >= (byte)'A' and <= (byte)'Z'
-        || value is >= (byte)'0' and <= (byte)'9'
-        || value is (byte)'-' or (byte)'.' or (byte)'_' or (byte)'~';
 
     private static int GetIndexCapacity(int count)
     {
@@ -895,7 +866,7 @@ internal static class CargoMetadataInputParser
 
     private static bool AddNodeIndex(ReadOnlySpan<PackageNode> nodes, Span<int> indexes, int capacity, int nodeIndex)
     {
-        var slot = (int)(Hash(nodes[nodeIndex].Id.Span) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(nodes[nodeIndex].Id.Span) & (uint)(capacity - 1));
         while (indexes[slot] >= 0)
         {
             if (nodes[indexes[slot]].Id.Equals(nodes[nodeIndex].Id)) return false;
@@ -908,7 +879,7 @@ internal static class CargoMetadataInputParser
 
     private static bool TryGetNodeIndex(ReadOnlySpan<PackageNode> nodes, ReadOnlySpan<int> indexes, int capacity, ReadOnlySpan<byte> id, out int nodeIndex)
     {
-        var slot = (int)(Hash(id) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(id) & (uint)(capacity - 1));
         while ((nodeIndex = indexes[slot]) >= 0)
         {
             if (nodes[nodeIndex].Id.Span.SequenceEqual(id)) return true;
@@ -916,13 +887,6 @@ internal static class CargoMetadataInputParser
         }
 
         return false;
-    }
-
-    private static uint Hash(ReadOnlySpan<byte> value)
-    {
-        var hash = 2166136261u;
-        for (var index = 0; index < value.Length; index++) hash = (hash ^ value[index]) * 16777619;
-        return hash;
     }
 
     private static Utf8Slice ReadString(ref Utf8JsonReader reader, byte[] source, int offset)

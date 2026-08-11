@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -264,26 +264,26 @@ internal static class MavenDependencyTreeInputParser
 
     private static Utf8Slice CreatePurl(MavenNode node)
     {
-        var groupLength = GetEncodedLength(node.GroupId.Span);
-        var artifactLength = GetEncodedLength(node.ArtifactId.Span);
-        var versionLength = GetEncodedLength(node.Version.Span);
+        var groupLength = Utf8Purl.GetEncodedLength(node.GroupId.Span);
+        var artifactLength = Utf8Purl.GetEncodedLength(node.ArtifactId.Span);
+        var versionLength = Utf8Purl.GetEncodedLength(node.Version.Span);
         var hasClassifier = !node.Classifier.IsEmpty;
         var hasType = !node.Type.Span.SequenceEqual("jar"u8);
-        var qualifierLength = (hasClassifier ? "?classifier=".Length + GetEncodedLength(node.Classifier.Span) : 0)
-            + (hasType ? 1 + "type=".Length + GetEncodedLength(node.Type.Span) : 0);
+        var qualifierLength = (hasClassifier ? "?classifier=".Length + Utf8Purl.GetEncodedLength(node.Classifier.Span) : 0)
+            + (hasType ? 1 + "type=".Length + Utf8Purl.GetEncodedLength(node.Type.Span) : 0);
         var bytes = new byte[checked(PurlPrefix.Length + groupLength + 1 + artifactLength + 1 + versionLength + qualifierLength)];
         PurlPrefix.CopyTo(bytes);
         var index = PurlPrefix.Length;
-        WriteEncoded(node.GroupId.Span, bytes, ref index);
+        Utf8Purl.WriteEncoded(node.GroupId.Span, bytes, ref index);
         bytes[index++] = (byte)'/';
-        WriteEncoded(node.ArtifactId.Span, bytes, ref index);
+        Utf8Purl.WriteEncoded(node.ArtifactId.Span, bytes, ref index);
         bytes[index++] = (byte)'@';
-        WriteEncoded(node.Version.Span, bytes, ref index);
+        Utf8Purl.WriteEncoded(node.Version.Span, bytes, ref index);
         if (hasClassifier)
         {
             "?classifier="u8.CopyTo(bytes.AsSpan(index));
             index += "?classifier=".Length;
-            WriteEncoded(node.Classifier.Span, bytes, ref index);
+            Utf8Purl.WriteEncoded(node.Classifier.Span, bytes, ref index);
         }
 
         if (hasType)
@@ -291,7 +291,7 @@ internal static class MavenDependencyTreeInputParser
             bytes[index++] = hasClassifier ? (byte)'&' : (byte)'?';
             "type="u8.CopyTo(bytes.AsSpan(index));
             index += "type=".Length;
-            WriteEncoded(node.Type.Span, bytes, ref index);
+            Utf8Purl.WriteEncoded(node.Type.Span, bytes, ref index);
         }
 
         return Utf8Slice.FromOwnedBytes(bytes);
@@ -342,19 +342,13 @@ internal static class MavenDependencyTreeInputParser
 
     private static uint HashIdentity(MavenNode node)
     {
-        var hash = 2166136261u;
-        Hash(node.GroupId.Span, ref hash);
-        Hash(node.ArtifactId.Span, ref hash);
-        Hash(node.Version.Span, ref hash);
-        Hash(node.Type.Span, ref hash);
-        Hash(node.Classifier.Span, ref hash);
+        var hash = Fnv1a.OffsetBasis;
+        hash = Fnv1a.HashSeparator(Fnv1a.Hash(node.GroupId.Span, hash));
+        hash = Fnv1a.HashSeparator(Fnv1a.Hash(node.ArtifactId.Span, hash));
+        hash = Fnv1a.HashSeparator(Fnv1a.Hash(node.Version.Span, hash));
+        hash = Fnv1a.HashSeparator(Fnv1a.Hash(node.Type.Span, hash));
+        hash = Fnv1a.HashSeparator(Fnv1a.Hash(node.Classifier.Span, hash));
         return hash;
-    }
-
-    private static void Hash(ReadOnlySpan<byte> value, ref uint hash)
-    {
-        for (var index = 0; index < value.Length; index++) hash = (hash ^ value[index]) * 16777619;
-        hash = (hash ^ 0xff) * 16777619;
     }
 
     private static int GetIndexCapacity(int count)
@@ -364,38 +358,6 @@ internal static class MavenDependencyTreeInputParser
         while (capacity < count * 2) capacity *= 2;
         return capacity;
     }
-
-    private static int GetEncodedLength(ReadOnlySpan<byte> value)
-    {
-        var length = 0;
-        for (var index = 0; index < value.Length; index++) length = checked(length + (IsPurlSafe(value[index]) ? 1 : 3));
-        return length;
-    }
-
-    private static void WriteEncoded(ReadOnlySpan<byte> value, Span<byte> destination, ref int index)
-    {
-        ReadOnlySpan<byte> hex = "0123456789ABCDEF"u8;
-        for (var valueIndex = 0; valueIndex < value.Length; valueIndex++)
-        {
-            var item = value[valueIndex];
-            if (IsPurlSafe(item))
-            {
-                destination[index++] = item;
-            }
-            else
-            {
-                destination[index++] = (byte)'%';
-                destination[index++] = hex[item >> 4];
-                destination[index++] = hex[item & 0x0f];
-            }
-        }
-    }
-
-    private static bool IsPurlSafe(byte value)
-        => value is >= (byte)'a' and <= (byte)'z'
-        || value is >= (byte)'A' and <= (byte)'Z'
-        || value is >= (byte)'0' and <= (byte)'9'
-        || value is (byte)'-' or (byte)'.' or (byte)'_' or (byte)'~';
 
     private static void WritePart(ReadOnlySpan<byte> value, Span<byte> destination, ref int index)
     {

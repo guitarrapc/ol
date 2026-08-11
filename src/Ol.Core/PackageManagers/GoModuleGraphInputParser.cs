@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -464,46 +464,16 @@ internal static class GoModuleGraphInputParser
 
     private static Utf8Slice CreatePurl(Utf8Slice path, Utf8Slice version)
     {
-        var pathLength = GetEncodedLength(path.Span, allowSlash: true);
-        var versionLength = GetEncodedLength(version.Span, allowSlash: false);
+        var pathLength = Utf8Purl.GetEncodedLength(path.Span, allowSlash: true);
+        var versionLength = Utf8Purl.GetEncodedLength(version.Span, allowSlash: false);
         var bytes = new byte[PurlPrefix.Length + pathLength + 1 + versionLength];
         PurlPrefix.CopyTo(bytes);
         var index = PurlPrefix.Length;
-        WriteEncoded(path.Span, allowSlash: true, bytes, ref index);
+        Utf8Purl.WriteEncoded(path.Span, bytes, ref index, allowSlash: true);
         bytes[index++] = (byte)'@';
-        WriteEncoded(version.Span, allowSlash: false, bytes, ref index);
+        Utf8Purl.WriteEncoded(version.Span, bytes, ref index, allowSlash: false);
         return Utf8Slice.FromOwnedBytes(bytes);
     }
-
-    private static int GetEncodedLength(ReadOnlySpan<byte> value, bool allowSlash)
-    {
-        var length = 0;
-        for (var index = 0; index < value.Length; index++) length += IsPurlSafe(value[index], allowSlash) ? 1 : 3;
-        return length;
-    }
-
-    private static void WriteEncoded(ReadOnlySpan<byte> value, bool allowSlash, Span<byte> destination, ref int index)
-    {
-        const string Hex = "0123456789ABCDEF";
-        for (var valueIndex = 0; valueIndex < value.Length; valueIndex++)
-        {
-            var item = value[valueIndex];
-            if (IsPurlSafe(item, allowSlash)) destination[index++] = item;
-            else
-            {
-                destination[index++] = (byte)'%';
-                destination[index++] = (byte)Hex[item >> 4];
-                destination[index++] = (byte)Hex[item & 0x0F];
-            }
-        }
-    }
-
-    private static bool IsPurlSafe(byte value, bool allowSlash)
-        => value is >= (byte)'a' and <= (byte)'z'
-        || value is >= (byte)'A' and <= (byte)'Z'
-        || value is >= (byte)'0' and <= (byte)'9'
-        || value is (byte)'-' or (byte)'.' or (byte)'_' or (byte)'~'
-        || allowSlash && value == (byte)'/';
 
     private static int GetIndexCapacity(int count)
     {
@@ -514,7 +484,7 @@ internal static class GoModuleGraphInputParser
 
     private static bool AddNodeIndex(ReadOnlySpan<GoModuleNode> nodes, Span<int> indexes, int capacity, int nodeIndex)
     {
-        var slot = (int)(Hash(nodes[nodeIndex].Identity.Span) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(nodes[nodeIndex].Identity.Span) & (uint)(capacity - 1));
         while (indexes[slot] >= 0)
         {
             if (nodes[indexes[slot]].Identity.Equals(nodes[nodeIndex].Identity)) return false;
@@ -527,7 +497,7 @@ internal static class GoModuleGraphInputParser
 
     private static bool TryGetNodeIndex(ReadOnlySpan<GoModuleNode> nodes, ReadOnlySpan<int> indexes, int capacity, ReadOnlySpan<byte> identity, out int nodeIndex)
     {
-        var slot = (int)(Hash(identity) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(identity) & (uint)(capacity - 1));
         while ((nodeIndex = indexes[slot]) >= 0)
         {
             if (nodes[nodeIndex].Identity.Span.SequenceEqual(identity)) return true;
@@ -535,13 +505,6 @@ internal static class GoModuleGraphInputParser
         }
 
         return false;
-    }
-
-    private static uint Hash(ReadOnlySpan<byte> value)
-    {
-        var hash = 2166136261u;
-        for (var index = 0; index < value.Length; index++) hash = (hash ^ value[index]) * 16777619;
-        return hash;
     }
 
     private static Utf8Slice ReadString(ref Utf8JsonReader reader, byte[] source, int offset)

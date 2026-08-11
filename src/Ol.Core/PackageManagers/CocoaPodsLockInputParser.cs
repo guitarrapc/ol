@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -366,7 +366,7 @@ internal static class CocoaPodsLockInputParser
 
     private static int FindNode(ReadOnlySpan<PodNode> nodes, int[] indexes, int capacity, Utf8Slice name)
     {
-        var slot = (int)(HashName(name.Span) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(name.Span) & (uint)(capacity - 1));
         while (indexes[slot] >= 0)
         {
             if (nodes[indexes[slot]].Name.Equals(name)) return indexes[slot];
@@ -377,7 +377,7 @@ internal static class CocoaPodsLockInputParser
 
     private static void AddNodeIndex(ReadOnlySpan<PodNode> nodes, int[] indexes, int capacity, int nodeIndex)
     {
-        var slot = (int)(HashName(nodes[nodeIndex].Name.Span) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(nodes[nodeIndex].Name.Span) & (uint)(capacity - 1));
         while (indexes[slot] >= 0) slot = (slot + 1) & (capacity - 1);
         indexes[slot] = nodeIndex;
     }
@@ -423,12 +423,12 @@ internal static class CocoaPodsLockInputParser
 
     private static Utf8Slice CreatePurl(Utf8Slice name, Utf8Slice version)
     {
-        var bytes = new byte[checked(PurlPrefix.Length + GetEncodedLength(name.Span) + 1 + GetEncodedLength(version.Span))];
+        var bytes = new byte[checked(PurlPrefix.Length + Utf8Purl.GetEncodedLength(name.Span) + 1 + Utf8Purl.GetEncodedLength(version.Span))];
         PurlPrefix.CopyTo(bytes);
         var index = PurlPrefix.Length;
-        WriteEncoded(name.Span, bytes, ref index);
+        Utf8Purl.WriteEncoded(name.Span, bytes, ref index);
         bytes[index++] = (byte)'@';
-        WriteEncoded(version.Span, bytes, ref index);
+        Utf8Purl.WriteEncoded(version.Span, bytes, ref index);
         return Utf8Slice.FromOwnedBytes(bytes);
     }
 
@@ -448,35 +448,6 @@ internal static class CocoaPodsLockInputParser
         version.Span.CopyTo(bytes.AsSpan("cocoapods=".Length));
         return Utf8Slice.FromOwnedBytes(bytes);
     }
-
-    private static int GetEncodedLength(ReadOnlySpan<byte> value)
-    {
-        var length = 0;
-        for (var index = 0; index < value.Length; index++) length = checked(length + (IsPurlSafe(value[index]) ? 1 : 3));
-        return length;
-    }
-
-    private static void WriteEncoded(ReadOnlySpan<byte> value, Span<byte> destination, ref int index)
-    {
-        ReadOnlySpan<byte> hex = "0123456789ABCDEF"u8;
-        for (var valueIndex = 0; valueIndex < value.Length; valueIndex++)
-        {
-            var item = value[valueIndex];
-            if (IsPurlSafe(item)) destination[index++] = item;
-            else
-            {
-                destination[index++] = (byte)'%';
-                destination[index++] = hex[item >> 4];
-                destination[index++] = hex[item & 0x0f];
-            }
-        }
-    }
-
-    private static bool IsPurlSafe(byte value)
-        => value is >= (byte)'a' and <= (byte)'z'
-        || value is >= (byte)'A' and <= (byte)'Z'
-        || value is >= (byte)'0' and <= (byte)'9'
-        || value is (byte)'-' or (byte)'.' or (byte)'_' or (byte)'~';
 
     private static PodSection GetSection(ReadOnlySpan<byte> key)
         => key.SequenceEqual("PODS"u8) ? PodSection.Pods

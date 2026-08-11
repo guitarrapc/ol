@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -610,46 +610,15 @@ internal static class ComposerLockInputParser
 
     private static Utf8Slice CreatePurl(Utf8Slice name, Utf8Slice version)
     {
-        var encodedVersionLength = GetEncodedLength(version.Span);
+        var encodedVersionLength = Utf8Purl.GetEncodedLength(version.Span);
         var bytes = new byte[PurlPrefix.Length + name.Length + 1 + encodedVersionLength];
         PurlPrefix.CopyTo(bytes);
         name.Span.CopyTo(bytes.AsSpan(PurlPrefix.Length));
         bytes[PurlPrefix.Length + name.Length] = (byte)'@';
-        WriteEncoded(version.Span, bytes.AsSpan(PurlPrefix.Length + name.Length + 1));
+        var versionIndex = 0;
+        Utf8Purl.WriteEncoded(version.Span, bytes.AsSpan(PurlPrefix.Length + name.Length + 1), ref versionIndex);
         return Utf8Slice.FromOwnedBytes(bytes);
     }
-
-    private static int GetEncodedLength(ReadOnlySpan<byte> value)
-    {
-        var length = 0;
-        for (var index = 0; index < value.Length; index++) length += IsPurlUnreserved(value[index]) ? 1 : 3;
-        return length;
-    }
-
-    private static void WriteEncoded(ReadOnlySpan<byte> value, Span<byte> destination)
-    {
-        const string Hex = "0123456789ABCDEF";
-        var written = 0;
-        for (var index = 0; index < value.Length; index++)
-        {
-            var current = value[index];
-            if (IsPurlUnreserved(current))
-            {
-                destination[written++] = current;
-                continue;
-            }
-
-            destination[written++] = (byte)'%';
-            destination[written++] = (byte)Hex[current >> 4];
-            destination[written++] = (byte)Hex[current & 0x0F];
-        }
-    }
-
-    private static bool IsPurlUnreserved(byte value)
-        => value is >= (byte)'a' and <= (byte)'z'
-        || value is >= (byte)'A' and <= (byte)'Z'
-        || value is >= (byte)'0' and <= (byte)'9'
-        || value is (byte)'-' or (byte)'.' or (byte)'_' or (byte)'~';
 
     private static Utf8Slice CreatePrefixedValue(ReadOnlySpan<byte> prefix, Utf8Slice value)
     {
@@ -662,7 +631,7 @@ internal static class ComposerLockInputParser
     private static bool AddNodeIndex(ReadOnlySpan<ComposerNode> nodes, Span<int> indexes, int capacity, int nodeIndex)
     {
         var name = nodes[nodeIndex].Name.Span;
-        var slot = (int)(Hash(name) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(name) & (uint)(capacity - 1));
         while (indexes[slot] >= 0)
         {
             if (nodes[indexes[slot]].Name.Span.SequenceEqual(name)) return false;
@@ -680,7 +649,7 @@ internal static class ComposerLockInputParser
         ReadOnlySpan<byte> name,
         out int nodeIndex)
     {
-        var slot = (int)(Hash(name) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(name) & (uint)(capacity - 1));
         while ((nodeIndex = indexes[slot]) >= 0)
         {
             if (nodes[nodeIndex].Name.Span.SequenceEqual(name)) return true;
@@ -688,13 +657,6 @@ internal static class ComposerLockInputParser
         }
 
         return false;
-    }
-
-    private static uint Hash(ReadOnlySpan<byte> value)
-    {
-        var hash = 2166136261u;
-        for (var index = 0; index < value.Length; index++) hash = (hash ^ value[index]) * 16777619;
-        return hash;
     }
 
     private static int GetIndexCapacity(int count)

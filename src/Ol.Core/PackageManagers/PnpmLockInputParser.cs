@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -765,46 +765,16 @@ internal static class PnpmLockInputParser
 
     private static Utf8Slice CreatePurl(Utf8Slice name, Utf8Slice version)
     {
-        var nameLength = GetEncodedLength(name.Span, true);
-        var versionLength = GetEncodedLength(version.Span, false);
+        var nameLength = Utf8Purl.GetEncodedLength(name.Span, true);
+        var versionLength = Utf8Purl.GetEncodedLength(version.Span, false);
         var bytes = new byte[PurlPrefix.Length + nameLength + 1 + versionLength];
         PurlPrefix.CopyTo(bytes);
         var index = PurlPrefix.Length;
-        WriteEncoded(name.Span, true, bytes, ref index);
+        Utf8Purl.WriteEncoded(name.Span, bytes, ref index, true);
         bytes[index++] = (byte)'@';
-        WriteEncoded(version.Span, false, bytes, ref index);
+        Utf8Purl.WriteEncoded(version.Span, bytes, ref index, false);
         return Utf8Slice.FromOwnedBytes(bytes);
     }
-
-    private static int GetEncodedLength(ReadOnlySpan<byte> value, bool allowSlash)
-    {
-        var length = 0;
-        for (var i = 0; i < value.Length; i++) length += IsPurlSafe(value[i], allowSlash) ? 1 : 3;
-        return length;
-    }
-
-    private static void WriteEncoded(ReadOnlySpan<byte> value, bool allowSlash, Span<byte> destination, ref int index)
-    {
-        const string Hex = "0123456789ABCDEF";
-        for (var i = 0; i < value.Length; i++)
-        {
-            var item = value[i];
-            if (IsPurlSafe(item, allowSlash)) destination[index++] = item;
-            else
-            {
-                destination[index++] = (byte)'%';
-                destination[index++] = (byte)Hex[item >> 4];
-                destination[index++] = (byte)Hex[item & 15];
-            }
-        }
-    }
-
-    private static bool IsPurlSafe(byte value, bool allowSlash)
-        => value is >= (byte)'a' and <= (byte)'z'
-        || value is >= (byte)'A' and <= (byte)'Z'
-        || value is >= (byte)'0' and <= (byte)'9'
-        || value is (byte)'-' or (byte)'.' or (byte)'_' or (byte)'~'
-        || allowSlash && value == (byte)'/';
 
     private static int GetIndexCapacity(int count)
     {
@@ -815,7 +785,7 @@ internal static class PnpmLockInputParser
 
     private static bool AddSnapshotIndex(ReadOnlySpan<ResolverNode> nodes, Span<int> indexes, int capacity, int nodeIndex)
     {
-        var slot = (int)(Hash(nodes[nodeIndex].Identity.Span) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(nodes[nodeIndex].Identity.Span) & (uint)(capacity - 1));
         while (indexes[slot] >= 0)
         {
             if (nodes[indexes[slot]].Identity.Equals(nodes[nodeIndex].Identity)) return false;
@@ -828,9 +798,9 @@ internal static class PnpmLockInputParser
 
     private static bool TryGetSnapshotIndex(ReadOnlySpan<ResolverNode> nodes, ReadOnlySpan<int> indexes, int capacity, ReadOnlySpan<byte> name, ReadOnlySpan<byte> resolution, out int nodeIndex)
     {
-        var hash = Hash(name);
-        hash = Hash("@"u8, hash);
-        hash = Hash(resolution, hash);
+        var hash = Fnv1a.Hash(name);
+        hash = Fnv1a.Hash("@"u8, hash);
+        hash = Fnv1a.Hash(resolution, hash);
         var slot = (int)(hash & (uint)(capacity - 1));
         var expectedLength = name.Length + 1 + resolution.Length;
         while ((nodeIndex = indexes[slot]) >= 0)
@@ -844,12 +814,6 @@ internal static class PnpmLockInputParser
         }
 
         return false;
-    }
-
-    private static uint Hash(ReadOnlySpan<byte> value, uint hash = 2166136261)
-    {
-        for (var i = 0; i < value.Length; i++) hash = (hash ^ value[i]) * 16777619;
-        return hash;
     }
 
     private static void EnsureCapacity<T>(ref T[] values, int count)

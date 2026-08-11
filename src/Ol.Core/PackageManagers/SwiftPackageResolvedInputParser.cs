@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -216,7 +216,7 @@ internal static class SwiftPackageResolvedInputParser
             indexes.AsSpan(0, capacity).Fill(-1);
             for (var pinIndex = 0; pinIndex < pins.Length; pinIndex++)
             {
-                var slot = (int)(Hash(pins[pinIndex].Identity.Span) & (uint)(capacity - 1));
+                var slot = (int)(Fnv1a.Hash(pins[pinIndex].Identity.Span) & (uint)(capacity - 1));
                 while (indexes[slot] >= 0)
                 {
                     if (pins[indexes[slot]].Identity.Equals(pins[pinIndex].Identity))
@@ -251,13 +251,13 @@ internal static class SwiftPackageResolvedInputParser
         {
             return default;
         }
-        var encodedLength = GetEncodedLength(value, keepSlash: true);
-        var bytes = new byte[checked(PurlPrefix.Length + encodedLength + 1 + GetEncodedLength(version.Span, keepSlash: false))];
+        var encodedLength = Utf8Purl.GetEncodedLength(value, allowSlash: true);
+        var bytes = new byte[checked(PurlPrefix.Length + encodedLength + 1 + Utf8Purl.GetEncodedLength(version.Span, allowSlash: false))];
         PurlPrefix.CopyTo(bytes);
         var index = PurlPrefix.Length;
-        WriteEncoded(value, bytes, ref index, keepSlash: true);
+        Utf8Purl.WriteEncoded(value, bytes, ref index, allowSlash: true);
         bytes[index++] = (byte)'@';
-        WriteEncoded(version.Span, bytes, ref index, keepSlash: false);
+        Utf8Purl.WriteEncoded(version.Span, bytes, ref index, allowSlash: false);
         return Utf8Slice.FromOwnedBytes(bytes);
     }
 
@@ -303,43 +303,6 @@ internal static class SwiftPackageResolvedInputParser
                 throw new JsonException("Package.resolved pin identity contains an unsupported character.");
             }
         }
-    }
-
-    private static int GetEncodedLength(ReadOnlySpan<byte> value, bool keepSlash)
-    {
-        var length = 0;
-        for (var index = 0; index < value.Length; index++) length = checked(length + (IsPurlSafe(value[index], keepSlash) ? 1 : 3));
-        return length;
-    }
-
-    private static void WriteEncoded(ReadOnlySpan<byte> value, Span<byte> destination, ref int index, bool keepSlash)
-    {
-        ReadOnlySpan<byte> hex = "0123456789ABCDEF"u8;
-        for (var valueIndex = 0; valueIndex < value.Length; valueIndex++)
-        {
-            var item = value[valueIndex];
-            if (IsPurlSafe(item, keepSlash)) destination[index++] = item;
-            else
-            {
-                destination[index++] = (byte)'%';
-                destination[index++] = hex[item >> 4];
-                destination[index++] = hex[item & 0x0f];
-            }
-        }
-    }
-
-    private static bool IsPurlSafe(byte value, bool keepSlash)
-        => value is >= (byte)'a' and <= (byte)'z'
-        || value is >= (byte)'A' and <= (byte)'Z'
-        || value is >= (byte)'0' and <= (byte)'9'
-        || value is (byte)'-' or (byte)'.' or (byte)'_' or (byte)'~'
-        || (keepSlash && value == (byte)'/');
-
-    private static uint Hash(ReadOnlySpan<byte> value)
-    {
-        var hash = 2166136261u;
-        for (var index = 0; index < value.Length; index++) hash = (hash ^ value[index]) * 16777619;
-        return hash;
     }
 
     private static Utf8Slice ReadString(ref Utf8JsonReader reader, byte[] source, int offset, string message)

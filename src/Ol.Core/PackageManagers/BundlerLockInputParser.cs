@@ -1,4 +1,4 @@
-﻿using Ol.Core.Licensing;
+using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -446,7 +446,7 @@ internal static class BundlerLockInputParser
     private static bool AddNodeIndex(ReadOnlySpan<BundlerNode> nodes, Span<int> indexes, int capacity, int nodeIndex)
     {
         var node = nodes[nodeIndex];
-        var slot = (int)(Hash(node.Name.Span, node.Platform.Span) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(node.Platform.Span, Fnv1a.HashSeparator(Fnv1a.Hash(node.Name.Span))) & (uint)(capacity - 1));
         while (indexes[slot] >= 0)
         {
             var registered = nodes[indexes[slot]];
@@ -466,7 +466,7 @@ internal static class BundlerLockInputParser
         ReadOnlySpan<byte> platform,
         out int nodeIndex)
     {
-        var slot = (int)(Hash(name, platform) & (uint)(capacity - 1));
+        var slot = (int)(Fnv1a.Hash(platform, Fnv1a.HashSeparator(Fnv1a.Hash(name))) & (uint)(capacity - 1));
         while ((nodeIndex = indexes[slot]) >= 0)
         {
             var node = nodes[nodeIndex];
@@ -475,15 +475,6 @@ internal static class BundlerLockInputParser
         }
 
         return false;
-    }
-
-    private static uint Hash(ReadOnlySpan<byte> name, ReadOnlySpan<byte> platform)
-    {
-        var hash = 2166136261u;
-        for (var i = 0; i < name.Length; i++) hash = (hash ^ name[i]) * 16777619;
-        hash = (hash ^ 0xff) * 16777619;
-        for (var i = 0; i < platform.Length; i++) hash = (hash ^ platform[i]) * 16777619;
-        return hash;
     }
 
     private static int GetIndexCapacity(int count)
@@ -540,53 +531,24 @@ internal static class BundlerLockInputParser
 
     private static Utf8Slice CreatePurl(Utf8Slice name, Utf8Slice version, Utf8Slice platform)
     {
-        var nameLength = GetEncodedLength(name.Span);
-        var versionLength = GetEncodedLength(version.Span);
-        var qualifierLength = platform.IsEmpty ? 0 : "?platform="u8.Length + GetEncodedLength(platform.Span);
+        var nameLength = Utf8Purl.GetEncodedLength(name.Span);
+        var versionLength = Utf8Purl.GetEncodedLength(version.Span);
+        var qualifierLength = platform.IsEmpty ? 0 : "?platform="u8.Length + Utf8Purl.GetEncodedLength(platform.Span);
         var bytes = new byte[PurlPrefix.Length + nameLength + 1 + versionLength + qualifierLength];
         PurlPrefix.CopyTo(bytes);
         var index = PurlPrefix.Length;
-        WriteEncoded(name.Span, bytes, ref index);
+        Utf8Purl.WriteEncoded(name.Span, bytes, ref index);
         bytes[index++] = (byte)'@';
-        WriteEncoded(version.Span, bytes, ref index);
+        Utf8Purl.WriteEncoded(version.Span, bytes, ref index);
         if (!platform.IsEmpty)
         {
             "?platform="u8.CopyTo(bytes.AsSpan(index));
             index += "?platform="u8.Length;
-            WriteEncoded(platform.Span, bytes, ref index);
+            Utf8Purl.WriteEncoded(platform.Span, bytes, ref index);
         }
 
         return Utf8Slice.FromOwnedBytes(bytes);
     }
-
-    private static int GetEncodedLength(ReadOnlySpan<byte> value)
-    {
-        var length = 0;
-        for (var i = 0; i < value.Length; i++) length += IsPurlSafe(value[i]) ? 1 : 3;
-        return length;
-    }
-
-    private static void WriteEncoded(ReadOnlySpan<byte> value, Span<byte> destination, ref int index)
-    {
-        const string Hex = "0123456789ABCDEF";
-        for (var i = 0; i < value.Length; i++)
-        {
-            var item = value[i];
-            if (IsPurlSafe(item)) destination[index++] = item;
-            else
-            {
-                destination[index++] = (byte)'%';
-                destination[index++] = (byte)Hex[item >> 4];
-                destination[index++] = (byte)Hex[item & 15];
-            }
-        }
-    }
-
-    private static bool IsPurlSafe(byte value)
-        => value is >= (byte)'a' and <= (byte)'z'
-        || value is >= (byte)'A' and <= (byte)'Z'
-        || value is >= (byte)'0' and <= (byte)'9'
-        || value is (byte)'-' or (byte)'.' or (byte)'_' or (byte)'~';
 
     private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> value)
     {

@@ -10,8 +10,11 @@ public class NuGetRestoreArtifactCollectorBenchmark : IDisposable
 {
     private readonly string assetsPath;
     private readonly ScanComponent[] components = new ScanComponent[1];
+    private readonly ScanComponent[] emptyComponents = [];
     private readonly SpdxLicenseIndex index = new(["MIT"], []);
     private readonly SpdxLicenseTextMatcher matcher = new("benchmark", [new("MIT", "MIT License")]);
+    private readonly string missingAssetsPath;
+    private readonly ScanComponent[] missingComponents = new ScanComponent[1];
     private readonly string root;
     private readonly ScanComponent template;
 
@@ -25,12 +28,12 @@ public class NuGetRestoreArtifactCollectorBenchmark : IDisposable
         assetsPath = Path.Combine(root, "project.assets.json");
         File.WriteAllText(
             assetsPath,
-            System.Text.Json.JsonSerializer.Serialize(new
-            {
-                packageFolders = new Dictionary<string, object> { [packageRoot + Path.DirectorySeparatorChar] = new { } },
-                libraries = new Dictionary<string, object> { ["example/1.0.0"] = new { type = "package", path = "example/1.0.0" } },
-            }),
+            CreateAssets(packageRoot, "example/1.0.0"),
             Encoding.UTF8);
+        var missingPackageRoot = Path.Combine(root, "missing-packages");
+        Directory.CreateDirectory(Path.Combine(missingPackageRoot, "example", "1.0.0"));
+        missingAssetsPath = Path.Combine(root, "missing-project.assets.json");
+        File.WriteAllText(missingAssetsPath, CreateAssets(missingPackageRoot, "example/1.0.0"), Encoding.UTF8);
         template = new ScanComponent(
             "example",
             "1.0.0",
@@ -51,8 +54,26 @@ public class NuGetRestoreArtifactCollectorBenchmark : IDisposable
         return NuGetRestoreArtifactCollector.Collect(assetsPath, components, matcher, index).Summary.MatchedCount;
     }
 
+    [Benchmark]
+    public int ParseOneWithoutMatchingComponent()
+        => NuGetRestoreArtifactCollector.Collect(assetsPath, emptyComponents, matcher, index).Summary.TargetCount;
+
+    [Benchmark]
+    public int CollectOneMissingDocument()
+    {
+        missingComponents[0] = template;
+        return NuGetRestoreArtifactCollector.Collect(missingAssetsPath, missingComponents, matcher, index).Summary.TargetCount;
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
+
+    private static string CreateAssets(string packageRoot, string identity)
+        => System.Text.Json.JsonSerializer.Serialize(new
+        {
+            packageFolders = new Dictionary<string, object> { [packageRoot + Path.DirectorySeparatorChar] = new { } },
+            libraries = new Dictionary<string, object> { [identity] = new { type = "package", path = identity } },
+        });
 }

@@ -3,6 +3,7 @@ using System.Text;
 using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
+using Ol.Core.PackageManagers;
 using Ol.Internals;
 
 namespace Ol.Tests;
@@ -65,6 +66,7 @@ public sealed class ScanExecutionArtifactTests
             var component = completed.Result.Components.Single(static item => item.Purl.ToString() == "pkg:nuget/System.Buffers@4.5.1");
             await Assert.That(component.Status).IsEqualTo(LicenseStatus.Matched);
             await Assert.That(component.License.ToString()).IsEqualTo("MIT");
+            await Assert.That(completed.PackageArtifactSummary).IsEqualTo(new PackageArtifactCollectionSummary(1, 1, 1));
             var artifact = Enumerable.Range(0, component.CandidateCount)
                 .Select(component.GetCandidate)
                 .Single(static candidate => candidate.Source == LicenseCandidateSource.PackageArtifact)
@@ -137,6 +139,8 @@ public sealed class ScanExecutionArtifactTests
             var component = completed.Result.Components.Single();
             await Assert.That(component.Status).IsEqualTo(LicenseStatus.Matched);
             await Assert.That(component.License.ToString()).IsEqualTo("MIT");
+            await Assert.That(completed.DeclaredGitHubFileSummary).IsEqualTo(
+                new DeclaredGitHubFileArtifactCollectionSummary(1, 1, 0, 0, 1, 1, 0));
             var artifact = Enumerable.Range(0, component.CandidateCount)
                 .Select(component.GetCandidate)
                 .Single(static candidate => candidate.Source == LicenseCandidateSource.PackageArtifact)
@@ -184,6 +188,8 @@ public sealed class ScanExecutionArtifactTests
 
             await Assert.That(executed).IsTrue().Because(executionError);
             await Assert.That(completed.Result.Components.Single().License.ToString()).IsEqualTo("MIT");
+            await Assert.That(completed.DeclaredGitHubFileSummary).IsEqualTo(
+                new DeclaredGitHubFileArtifactCollectionSummary(1, 0, 1, 0, 1, 1, 0));
         }
         finally
         {

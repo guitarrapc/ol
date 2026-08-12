@@ -974,6 +974,8 @@ public sealed class CliScanTests
                 await Assert.That(exitCode).IsEqualTo(0);
                 await Assert.That(stderr).StartsWith($"{Environment.NewLine}Scan summary{Environment.NewLine}");
                 await Assert.That(stderr).Contains("  License results: 1 displayed component; 1 matched; 0 conflict; 0 unknown; 0 ambiguous; 0 invalid; 0 error");
+                await Assert.That(stderr).Contains("  Package artifacts (full scan): 0 targets; 0 documents; 0 matched");
+                await Assert.That(stderr).Contains("  Declared GitHub files (full scan): 0 targets; 0 GitHub requests; 0 cache hits; 0 cache misses; 0 documents; 0 matched; 0 fetch errors");
                 await Assert.That(stderr).Contains("  Package metadata (full scan):");
                 await Assert.That(stderr).Contains("  Source repositories (full scan):");
                 await Assert.That(stderr).Contains("  Input:");
@@ -1078,10 +1080,13 @@ public sealed class CliScanTests
             await Assert.That(jsonExitCode).IsEqualTo(0);
             await Assert.That(jsonStderr).IsEmpty();
             using var report = JsonDocument.Parse(jsonStdout);
-            var tool = report.RootElement.GetProperty("metadata").GetProperty("tool");
+            var metadata = report.RootElement.GetProperty("metadata");
+            var tool = metadata.GetProperty("tool");
             await Assert.That(tool.GetProperty("name").GetString()).IsEqualTo("ol");
             await Assert.That(tool.GetProperty("version").GetString()).IsEqualTo(ToolVersion);
             await Assert.That(tool.GetProperty("informationUri").GetString()).IsEqualTo("https://github.com/guitarrapc/ol");
+            await Assert.That(metadata.GetProperty("packageArtifacts").GetProperty("targetCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(metadata.GetProperty("declaredGitHubFiles").GetProperty("targetCount").GetInt32()).IsEqualTo(0);
             var summary = report.RootElement.GetProperty("summary");
             await Assert.That(summary.GetProperty("matched").GetInt32()).IsEqualTo(3);
             await Assert.That(summary.GetProperty("error").GetInt32()).IsEqualTo(0);

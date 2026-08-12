@@ -2,6 +2,7 @@
 using ConsoleAppFramework;
 using Ol.Core;
 using Ol.Core.GitHub;
+using Ol.Core.PackageManagers;
 using Ol.Internals;
 
 /// <summary>
@@ -84,6 +85,8 @@ internal sealed class ScanCommands
 
         var scanResult = completed.Result;
         var spdx = preparation.Spdx;
+        var packageArtifactSummary = completed.PackageArtifactSummary;
+        var declaredGitHubFileSummary = completed.DeclaredGitHubFileSummary;
         var packageMetadataSummary = completed.PackageMetadataSummary;
         var sourceRepositorySummary = completed.SourceRepositorySummary;
 
@@ -130,7 +133,7 @@ internal sealed class ScanCommands
             try
             {
                 var scope = new ScanReportScope(!noExternalEvidence, dependency is null or "" ? null : dependency, dependencyFilteredCount, excludedUnknownCount);
-                WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, componentUsages, groups, groupBy, spdx, packageMetadataSummary, sourceRepositorySummary, scope);
+                WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, componentUsages, groups, groupBy, spdx, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, scope);
             }
             catch (IOException exception)
             {
@@ -169,6 +172,8 @@ internal sealed class ScanCommands
         if (!quiet)
         {
             var summary = ScanSummary.Create(components);
+            var packageArtifacts = packageArtifactSummary;
+            var declaredGitHubFiles = declaredGitHubFileSummary;
             var packageMetadata = packageMetadataSummary;
             var source = sourceRepositorySummary;
             Console.Error.WriteLine();
@@ -184,6 +189,8 @@ internal sealed class ScanCommands
             }
             else
             {
+                Console.Error.WriteLine($"  Package artifacts (full scan): {packageArtifacts.TargetCount} targets; {packageArtifacts.DocumentCount} documents; {packageArtifacts.MatchedCount} matched");
+                Console.Error.WriteLine($"  Declared GitHub files (full scan): {declaredGitHubFiles.TargetCount} targets; {declaredGitHubFiles.GitHubRequestCount} GitHub requests; {declaredGitHubFiles.CacheHitCount} cache hits; {declaredGitHubFiles.CacheMissCount} cache misses; {declaredGitHubFiles.DocumentCount} documents; {declaredGitHubFiles.MatchedCount} matched; {declaredGitHubFiles.FetchErrorCount} fetch errors");
                 Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems; {packageMetadata.UnversionedPurlCount} unversioned purls");
                 Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
                 Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
@@ -277,6 +284,8 @@ internal sealed class ScanCommands
         GroupRow[]? groups,
         string? groupBy,
         SpdxData spdx,
+        PackageArtifactCollectionSummary packageArtifactSummary,
+        DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFileSummary,
         PackageMetadataSummary metadataSummary,
         SourceRepositorySummary sourceSummary,
         ScanReportScope scope)
@@ -286,11 +295,11 @@ internal sealed class ScanCommands
         {
             if (groups is null)
             {
-                ReportRenderer.WriteJson(writer, inventory, components, componentUsages, spdx, metadataSummary, sourceSummary, scope);
+                ReportRenderer.WriteJson(writer, inventory, components, componentUsages, spdx, packageArtifactSummary, declaredGitHubFileSummary, metadataSummary, sourceSummary, scope);
             }
             else
             {
-                ReportRenderer.WriteJson(writer, inventory, groups, groupBy!, spdx, metadataSummary, sourceSummary, scope);
+                ReportRenderer.WriteJson(writer, inventory, groups, groupBy!, spdx, packageArtifactSummary, declaredGitHubFileSummary, metadataSummary, sourceSummary, scope);
             }
 
             writer.Flush();

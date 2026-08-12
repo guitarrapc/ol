@@ -1,7 +1,9 @@
 ﻿using System.Buffers;
 using System.Text.Json;
 using Ol.Core;
+using Ol.Core.GitHub;
 using Ol.Core.Licensing;
+using Ol.Core.PackageManagers;
 using Ol.Internals;
 
 namespace Ol.Tests;
@@ -58,6 +60,8 @@ public sealed class PackageArtifactEvidenceTests
                 new DependencyInventory(default, [], [component], [], []),
                 [component],
                 SpdxData.Load(null),
+                new PackageArtifactCollectionSummary(2, 3, 1),
+                new DeclaredGitHubFileArtifactCollectionSummary(4, 5, 6, 7, 8, 9, 10),
                 new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, 1, 0),
                 new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", 1, 0),
                 new ScanReportScope(true, null, 0, 0));
@@ -65,6 +69,19 @@ public sealed class PackageArtifactEvidenceTests
 
         using var report = JsonDocument.Parse(buffer.WrittenMemory);
         var evidence = report.RootElement.GetProperty("components")[0].GetProperty("licenseCandidates")[0].GetProperty("evidence");
+        var metadata = report.RootElement.GetProperty("metadata");
+        var packageArtifacts = metadata.GetProperty("packageArtifacts");
+        await Assert.That(packageArtifacts.GetProperty("targetCount").GetInt32()).IsEqualTo(2);
+        await Assert.That(packageArtifacts.GetProperty("documentCount").GetInt32()).IsEqualTo(3);
+        await Assert.That(packageArtifacts.GetProperty("matchedCount").GetInt32()).IsEqualTo(1);
+        var declaredGitHubFiles = metadata.GetProperty("declaredGitHubFiles");
+        await Assert.That(declaredGitHubFiles.GetProperty("targetCount").GetInt32()).IsEqualTo(4);
+        await Assert.That(declaredGitHubFiles.GetProperty("githubRequestCount").GetInt32()).IsEqualTo(5);
+        await Assert.That(declaredGitHubFiles.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(6);
+        await Assert.That(declaredGitHubFiles.GetProperty("cacheMissCount").GetInt32()).IsEqualTo(7);
+        await Assert.That(declaredGitHubFiles.GetProperty("documentCount").GetInt32()).IsEqualTo(8);
+        await Assert.That(declaredGitHubFiles.GetProperty("matchedCount").GetInt32()).IsEqualTo(9);
+        await Assert.That(declaredGitHubFiles.GetProperty("fetchErrorCount").GetInt32()).IsEqualTo(10);
         await Assert.That(evidence.GetProperty("type").GetString()).IsEqualTo("package-artifact");
         await Assert.That(evidence.GetProperty("artifact").GetString()).IsEqualTo("pkg:nuget/System.Buffers@4.5.1");
         await Assert.That(evidence.GetProperty("path").GetString()).IsEqualTo("LICENSE.TXT");

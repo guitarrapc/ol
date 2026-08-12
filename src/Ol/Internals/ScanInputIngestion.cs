@@ -1,6 +1,7 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
 using Ol.Core;
+using Ol.Core.PackageManagers;
 using Ol.Core.Spdx;
 
 namespace Ol.Internals;
@@ -12,6 +13,15 @@ internal readonly record struct ScanInputSelection(string[] Paths, DependencyInp
 {
     public bool HasExpectedFormat => !string.IsNullOrEmpty(ExpectedHandler.Format.Name);
 }
+
+/// <summary>Identifies one physical dependency input that has a restored-artifact collector.</summary>
+internal readonly record struct ResolvedPackageArtifactInput(string Path, PackageArtifactCollector Collector);
+
+/// <summary>Contains the combined inventory and the bounded physical inputs needed by local artifact collection.</summary>
+internal readonly record struct ScanInputIngestionResult(
+    DependencyInventory Inventory,
+    ResolvedPackageArtifactInput[] PackageArtifactInputs,
+    int PackageArtifactInputCount);
 
 /// <summary>
 /// Turns named input paths into one combined dependency inventory.
@@ -63,11 +73,16 @@ internal static class ScanInputIngestion
     }
 
     /// <summary>Reads every selected input and combines them into one inventory.</summary>
-    public static DependencyInventory Ingest(ScanInputSelection selection, SpdxLicenseIndex spdx, bool includeHash)
+    public static ScanInputIngestionResult Ingest(
+        ScanInputSelection selection,
+        SpdxLicenseIndex spdx,
+        bool includeHash,
+        bool collectPackageArtifacts)
     {
         var files = CollectInputFiles(selection);
         var inventories = new DependencyInventory[files.Length];
         var handlers = new DependencyInputHandler[files.Length];
+        var packageArtifactInputs = collectPackageArtifacts ? new ResolvedPackageArtifactInput[files.Length] : [];
         var consumed = new bool[files.Length];
         var loadedInputs = includeHash ? new byte[files.Length][] : null;
         IncrementalHash? sourceHash = includeHash ? IncrementalHash.CreateHash(HashAlgorithmName.SHA256) : null;
@@ -76,6 +91,7 @@ internal static class ScanInputIngestion
         var format = default(ScanInputFormat);
         var specificationVersion = default(Utf8Slice);
         var inventoryCount = 0;
+        var packageArtifactInputCount = 0;
         var sbomCount = 0;
         try
         {
@@ -112,6 +128,11 @@ internal static class ScanInputIngestion
                     }
 
                     inventory = DependencyInputScanner.ScanBundle(bundleSources, spdx, handler.Format);
+                    if (collectPackageArtifacts
+                        && PackageArtifactCollectorRegistry.Default.TryGet(handler.Format, out var artifactHandler))
+                    {
+                        packageArtifactInputs[packageArtifactInputCount++] = new ResolvedPackageArtifactInput(files[bundleIndexes[0]].Path, artifactHandler.Collector);
+                    }
                 }
                 else
                 {
@@ -121,6 +142,12 @@ internal static class ScanInputIngestion
                     if (!DependencyInputRegistry.Default.TryGetInputFormat(inventory.Input.Format.Name, out handler))
                     {
                         throw new InvalidOperationException($"Detected input format is not registered: {inventory.Input.Format.Name}");
+                    }
+
+                    if (collectPackageArtifacts
+                        && PackageArtifactCollectorRegistry.Default.TryGet(handler.Format, out var artifactHandler))
+                    {
+                        packageArtifactInputs[packageArtifactInputCount++] = new ResolvedPackageArtifactInput(files[i].Path, artifactHandler.Collector);
                     }
                 }
 
@@ -176,7 +203,10 @@ internal static class ScanInputIngestion
             // observations the same package, and skipping the combiner made a single input the only path that did not
             // apply its own declaration: one CycloneDX document reported a component per bom-ref alone and per purl
             // when a lockfile was scanned beside it. The occurrences still record every entry the document listed.
-            return DependencyInventoryCombiner.Combine(inventories.AsSpan(0, inventoryCount), handlers.AsSpan(0, inventoryCount), descriptor);
+            return new ScanInputIngestionResult(
+                DependencyInventoryCombiner.Combine(inventories.AsSpan(0, inventoryCount), handlers.AsSpan(0, inventoryCount), descriptor),
+                packageArtifactInputs,
+                packageArtifactInputCount);
         }
         finally
         {

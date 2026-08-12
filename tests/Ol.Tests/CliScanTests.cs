@@ -2335,6 +2335,116 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_CsbindgenEquivalentFixture_ResolvesCoreFxGitHubLicenseAndReportsCollectors()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-csbindgen-e2e-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(temporaryDirectory, "packages");
+        var cacheRoot = Path.Combine(temporaryDirectory, "cache");
+        var assetsPath = Path.Combine(temporaryDirectory, "project.assets.json");
+        var fixtureRoot = Path.Combine(AppContext.BaseDirectory, "Fixtures");
+        var packages = new[]
+        {
+            (Name: "System.Buffers", Version: "4.5.1"),
+            (Name: "System.Memory", Version: "4.5.4"),
+            (Name: "System.Numerics.Vectors", Version: "4.4.0"),
+            (Name: "System.Threading.Tasks.Extensions", Version: "4.5.4"),
+        };
+        const string licenseLocation = "https://github.com/dotnet/corefx/blob/master/LICENSE.TXT";
+
+        Directory.CreateDirectory(temporaryDirectory);
+        var packageRootWithSeparator = Path.EndsInDirectorySeparator(packageRoot) ? packageRoot : packageRoot + Path.DirectorySeparatorChar;
+        var assets = await File.ReadAllTextAsync(Path.Combine(fixtureRoot, "csbindgen-project.assets.json"));
+        assets = assets.Replace("\"__PACKAGE_ROOT__\"", JsonSerializer.Serialize(packageRootWithSeparator), StringComparison.Ordinal);
+        await File.WriteAllTextAsync(assetsPath, assets, Encoding.UTF8);
+        for (var index = 0; index < packages.Length; index++)
+        {
+            Directory.CreateDirectory(Path.Combine(packageRoot, packages[index].Name.ToLowerInvariant(), packages[index].Version));
+        }
+
+        var packageMetadataCache = new PackageMetadataCache(Path.Combine(cacheRoot, "package-metadata"));
+        for (var index = 0; index < packages.Length; index++)
+        {
+            var package = packages[index];
+            await packageMetadataCache.WriteAsync(new PackageMetadataRecord(
+                $"pkg:nuget/{package.Name}@{package.Version}",
+                "nuget-registry",
+                string.Empty,
+                string.Empty,
+                [],
+                [],
+                DeclaredLicenseReferenceKind: DeclaredLicenseReferenceKind.Location,
+                DeclaredLicenseReference: licenseLocation));
+        }
+
+        DeclaredGitHubFileTarget.TryCreate(licenseLocation, out var target);
+        new DeclaredGitHubFileCache(Path.Combine(cacheRoot, "github-file")).Write(
+            target,
+            System.Net.HttpStatusCode.OK,
+            await File.ReadAllBytesAsync(Path.Combine(fixtureRoot, "corefx-LICENSE.TXT")));
+
+        try
+        {
+            var json = await RunOlAsync(
+                repositoryRoot,
+                "scan", "--input", assetsPath,
+                "--input-format", "nuget-assets",
+                "--cache-dir", cacheRoot,
+                "--format", "json",
+                "--concurrency", "1",
+                "--retry", "0");
+
+            await Assert.That(json.ExitCode).IsEqualTo(0).Because(json.Stderr);
+            await Assert.That(json.Stderr).IsEmpty();
+            using var report = JsonDocument.Parse(json.Stdout);
+            var components = report.RootElement.GetProperty("components").EnumerateArray().ToArray();
+            await Assert.That(components).Count().IsEqualTo(4);
+            await Assert.That(components.All(static component => component.GetProperty("license").GetString() == "MIT")).IsTrue();
+            await Assert.That(components.All(static component => component.GetProperty("status").GetString() == "matched")).IsTrue();
+
+            var metadata = report.RootElement.GetProperty("metadata");
+            var artifacts = metadata.GetProperty("packageArtifacts");
+            await Assert.That(artifacts.GetProperty("targetCount").GetInt32()).IsEqualTo(4);
+            await Assert.That(artifacts.GetProperty("documentCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(artifacts.GetProperty("matchedCount").GetInt32()).IsEqualTo(0);
+            var declaredFiles = metadata.GetProperty("declaredGitHubFiles");
+            await Assert.That(declaredFiles.GetProperty("targetCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(declaredFiles.GetProperty("githubRequestCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(declaredFiles.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(declaredFiles.GetProperty("cacheMissCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(declaredFiles.GetProperty("documentCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(declaredFiles.GetProperty("matchedCount").GetInt32()).IsEqualTo(4);
+            await Assert.That(declaredFiles.GetProperty("fetchErrorCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(metadata.GetProperty("packageMetadata").GetProperty("cacheHitCount").GetInt32()).IsEqualTo(4);
+
+            foreach (var format in new[] { "text", "markdown" })
+            {
+                var human = await RunOlAsync(
+                    repositoryRoot,
+                    "scan", "--input", assetsPath,
+                    "--input-format", "nuget-assets",
+                    "--cache-dir", cacheRoot,
+                    "--format", format,
+                    "--concurrency", "1",
+                    "--retry", "0");
+
+                await Assert.That(human.ExitCode).IsEqualTo(0).Because(human.Stderr);
+                for (var index = 0; index < packages.Length; index++)
+                {
+                    await Assert.That(human.Stdout).Contains(packages[index].Name);
+                }
+
+                await Assert.That(human.Stderr).Contains("  Package artifacts (full scan): 4 targets; 0 documents; 0 matched");
+                await Assert.That(human.Stderr).Contains("  Declared GitHub files (full scan): 1 targets; 0 GitHub requests; 1 cache hits; 0 cache misses; 1 documents; 4 matched; 0 fetch errors");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory)) Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_JsonReport_SeparatesUncollectedExternalEvidenceFromNothingToCollect()
     {
         var root = FindRepositoryRoot();

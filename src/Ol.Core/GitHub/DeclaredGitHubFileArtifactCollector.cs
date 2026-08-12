@@ -10,6 +10,8 @@ namespace Ol.Core.GitHub;
 public readonly record struct DeclaredGitHubFileArtifactCollectionSummary(
     int TargetCount,
     int GitHubRequestCount,
+    int CacheHitCount,
+    int CacheMissCount,
     int DocumentCount,
     int MatchedCount,
     int FetchErrorCount);
@@ -28,6 +30,8 @@ public sealed class DeclaredGitHubFileArtifactCollector
     private readonly SpdxLicenseTextMatcher matcher;
     private readonly SpdxLicenseIndex spdxLicenseIndex;
     private readonly int retryCount;
+    private readonly DeclaredGitHubFileCache? cache;
+    private readonly bool refresh;
 
     /// <summary>Creates a collector using the process-wide HTTP client and dedicated Ol GitHub token.</summary>
     public DeclaredGitHubFileArtifactCollector(
@@ -36,6 +40,15 @@ public sealed class DeclaredGitHubFileArtifactCollector
         int retryCount)
         : this(matcher, spdxLicenseIndex, retryCount, SharedHttpClient, GitHubAuthentication.FromEnvironment()) { }
 
+    /// <summary>Creates a collector with persistent raw-content caching.</summary>
+    public DeclaredGitHubFileArtifactCollector(
+        SpdxLicenseTextMatcher matcher,
+        SpdxLicenseIndex spdxLicenseIndex,
+        int retryCount,
+        DeclaredGitHubFileCache cache,
+        bool refresh)
+        : this(matcher, spdxLicenseIndex, retryCount, SharedHttpClient, GitHubAuthentication.FromEnvironment(), cache: cache, refresh: refresh) { }
+
     /// <summary>Creates a collector using the shared GitHub authentication and retry boundary.</summary>
     public DeclaredGitHubFileArtifactCollector(
         SpdxLicenseTextMatcher matcher,
@@ -43,7 +56,9 @@ public sealed class DeclaredGitHubFileArtifactCollector
         int retryCount,
         HttpClient httpClient,
         GitHubAuthentication authentication,
-        Uri? apiBaseUri = null)
+        Uri? apiBaseUri = null,
+        DeclaredGitHubFileCache? cache = null,
+        bool refresh = false)
     {
         ArgumentNullException.ThrowIfNull(matcher);
         ArgumentNullException.ThrowIfNull(spdxLicenseIndex);
@@ -52,6 +67,8 @@ public sealed class DeclaredGitHubFileArtifactCollector
         this.matcher = matcher;
         this.spdxLicenseIndex = spdxLicenseIndex;
         this.retryCount = retryCount;
+        this.cache = cache;
+        this.refresh = refresh;
         client = new GitHubLicenseApiClient(httpClient, authentication, apiBaseUri);
     }
 
@@ -100,6 +117,8 @@ public sealed class DeclaredGitHubFileArtifactCollector
             new DeclaredGitHubFileArtifactCollectionSummary(
                 1,
                 lookup.Requested ? 1 : 0,
+                lookup.CacheHit ? 1 : 0,
+                lookup.CacheMiss ? 1 : 0,
                 lookup.HasDocument ? 1 : 0,
                 matched,
                 lookup.FetchError ? 1 : 0));
@@ -146,16 +165,20 @@ public sealed class DeclaredGitHubFileArtifactCollector
             var requests = 0;
             var documents = 0;
             var errors = 0;
+            var hits = 0;
+            var misses = 0;
             for (var targetIndex = 0; targetIndex < targetCount; targetIndex++)
             {
                 requests += results[targetIndex].Requested ? 1 : 0;
                 documents += results[targetIndex].HasDocument ? 1 : 0;
                 errors += results[targetIndex].FetchError ? 1 : 0;
+                hits += results[targetIndex].CacheHit ? 1 : 0;
+                misses += results[targetIndex].CacheMiss ? 1 : 0;
             }
 
             return new DeclaredGitHubFileArtifactCollection(
                 components,
-                new DeclaredGitHubFileArtifactCollectionSummary(targetCount, requests, documents, matchedCount, errors));
+                new DeclaredGitHubFileArtifactCollectionSummary(targetCount, requests, hits, misses, documents, matchedCount, errors));
         }
         finally
         {
@@ -255,17 +278,43 @@ public sealed class DeclaredGitHubFileArtifactCollector
         return true;
     }
 
-    private async Task<FileLookupResult> FetchAsync(DeclaredGitHubFileTarget target, CancellationToken cancellationToken)
+    private ValueTask<FileLookupResult> FetchAsync(DeclaredGitHubFileTarget target, CancellationToken cancellationToken)
+    {
+        var cacheMiss = false;
+        if (cache is not null && !refresh)
+        {
+            var cached = cache.Read(target, matcher);
+            if (cached.Status == DeclaredGitHubFileCacheReadStatus.Hit)
+            {
+                return ValueTask.FromResult(new FileLookupResult(
+                    cached.Result,
+                    Requested: false,
+                    HasDocument: cached.Result.StatusCode == HttpStatusCode.OK,
+                    FetchError: false,
+                    CacheHit: true,
+                    CacheMiss: false));
+            }
+
+            cacheMiss = true;
+        }
+
+        return FetchNetworkAsync(target, cacheMiss, cancellationToken);
+    }
+
+    private async ValueTask<FileLookupResult> FetchNetworkAsync(
+        DeclaredGitHubFileTarget target,
+        bool cacheMiss,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var result = await GitHubLicenseFetchScheduler.FetchFileAsync(client, target, matcher, retryCount, cancellationToken).ConfigureAwait(false);
-            return new FileLookupResult(result, Requested: true, HasDocument: result.StatusCode == HttpStatusCode.OK, FetchError: false);
+            var result = await GitHubLicenseFetchScheduler.FetchFileAsync(client, target, matcher, retryCount, cache, cancellationToken).ConfigureAwait(false);
+            return new FileLookupResult(result, Requested: true, HasDocument: result.StatusCode == HttpStatusCode.OK, FetchError: false, CacheHit: false, CacheMiss: cacheMiss);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception exception) when (exception is OperationCanceledException or SourceRepositoryFetchException or HttpRequestException or IOException)
         {
-            return new FileLookupResult(default, Requested: true, HasDocument: false, FetchError: true);
+            return new FileLookupResult(default, Requested: true, HasDocument: false, FetchError: true, CacheHit: false, CacheMiss: cacheMiss);
         }
     }
 
@@ -308,5 +357,7 @@ public sealed class DeclaredGitHubFileArtifactCollector
         DeclaredGitHubFileResult Result,
         bool Requested,
         bool HasDocument,
-        bool FetchError);
+        bool FetchError,
+        bool CacheHit,
+        bool CacheMiss);
 }

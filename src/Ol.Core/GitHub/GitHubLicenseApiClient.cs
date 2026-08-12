@@ -58,6 +58,7 @@ public sealed class GitHubLicenseApiClient
     public async Task<DeclaredGitHubFileResult> FetchFileAsync(
         DeclaredGitHubFileTarget target,
         Ol.Core.Spdx.SpdxLicenseTextMatcher matcher,
+        DeclaredGitHubFileCache? cache = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(matcher);
@@ -88,9 +89,13 @@ public sealed class GitHubLicenseApiClient
                     : CreateRateLimitException(Reach(response.StatusCode, rateLimitDecision));
             }
 
-            if (response.StatusCode == HttpStatusCode.NotFound) return new(response.StatusCode, null, string.Empty);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                TryWriteFileCache(cache, target, response.StatusCode, []);
+                return new(response.StatusCode, null, string.Empty);
+            }
             if (!response.IsSuccessStatusCode) throw new SourceRepositoryFetchException(response.StatusCode);
-            return await ReadDeclaredFileAsync(response.Content, matcher, cancellationToken).ConfigureAwait(false);
+            return await ReadDeclaredFileAsync(response.Content, target, matcher, cache, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -230,7 +235,9 @@ public sealed class GitHubLicenseApiClient
 
     private static async Task<DeclaredGitHubFileResult> ReadDeclaredFileAsync(
         HttpContent content,
+        DeclaredGitHubFileTarget target,
         Ol.Core.Spdx.SpdxLicenseTextMatcher matcher,
+        DeclaredGitHubFileCache? cache,
         CancellationToken cancellationToken)
     {
         const int maximumGitHubContentsBytes = 1024 * 1024;
@@ -295,6 +302,7 @@ public sealed class GitHubLicenseApiClient
             Span<byte> hash = stackalloc byte[32];
             SHA256.HashData(bytes, hash);
             var licenseId = matcher.TryMatch(SkipUtf8Bom(bytes), out var matched) ? matched : null;
+            TryWriteFileCache(cache, target, HttpStatusCode.OK, bytes);
             return new DeclaredGitHubFileResult(HttpStatusCode.OK, licenseId, Convert.ToHexStringLower(hash));
         }
         catch (JsonException exception)
@@ -306,6 +314,23 @@ public sealed class GitHubLicenseApiClient
             ArrayPool<char>.Shared.Return(base64Characters);
             ArrayPool<byte>.Shared.Return(document);
             ArrayPool<byte>.Shared.Return(payload);
+        }
+    }
+
+    private static void TryWriteFileCache(
+        DeclaredGitHubFileCache? cache,
+        DeclaredGitHubFileTarget target,
+        HttpStatusCode statusCode,
+        ReadOnlySpan<byte> document)
+    {
+        if (cache is null) return;
+        try
+        {
+            cache.Write(target, statusCode, document);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // Cache persistence is best effort; the fetched evidence remains usable for this scan.
         }
     }
 

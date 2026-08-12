@@ -149,6 +149,48 @@ public sealed class ScanExecutionArtifactTests
         }
     }
 
+    [Test]
+    public async Task Execute_NormalScan_UsesPersistentDeclaredGitHubFileCache()
+    {
+        var root = CreateTemporaryRoot();
+        var inputPath = Path.Combine(root, "bom.json");
+        var cacheRoot = Path.Combine(root, "cache");
+        const string location = "https://github.com/dotnet/corefx/blob/master/LICENSE.TXT";
+        await File.WriteAllTextAsync(inputPath, $$"""
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                {
+                  "bom-ref": "example",
+                  "type": "library",
+                  "name": "Example",
+                  "version": "1.0.0",
+                  "purl": "pkg:generic/Example@1.0.0",
+                  "licenses": [ { "license": { "name": "See URL", "url": "{{location}}" } } ]
+                }
+              ]
+            }
+            """, Encoding.UTF8);
+        DeclaredGitHubFileTarget.TryCreate(location, out var target);
+        new DeclaredGitHubFileCache(Path.Combine(cacheRoot, "github-file")).Write(target, HttpStatusCode.OK, Encoding.UTF8.GetBytes(MitLicense));
+
+        try
+        {
+            var prepared = ScanExecution.TryPrepare([inputPath], "cyclonedx", null, cacheRoot, false, 1, 0, out var preparation, out var preparationError);
+            await Assert.That(prepared).IsTrue().Because(preparationError);
+
+            var executed = ScanExecution.TryExecute(preparation, refresh: false, noExternalEvidence: false, includeHash: false, out var completed, out var executionError);
+
+            await Assert.That(executed).IsTrue().Because(executionError);
+            await Assert.That(completed.Result.Components.Single().License.ToString()).IsEqualTo("MIT");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateTemporaryRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-scan-artifact-{Guid.NewGuid():N}");

@@ -15,14 +15,16 @@ public static class GitHubLicenseFetchScheduler
         DeclaredGitHubFileTarget target,
         Ol.Core.Spdx.SpdxLicenseTextMatcher matcher,
         int retryCount,
+        DeclaredGitHubFileCache? cache = null,
         CancellationToken cancellationToken = default)
-        => FetchFileAsync(client, target, matcher, retryCount, static (delay, token) => Task.Delay(delay, token), cancellationToken);
+        => FetchFileAsync(client, target, matcher, retryCount, cache, static (delay, token) => Task.Delay(delay, token), cancellationToken);
 
     internal static async Task<DeclaredGitHubFileResult> FetchFileAsync(
         GitHubLicenseApiClient client,
         DeclaredGitHubFileTarget target,
         Ol.Core.Spdx.SpdxLicenseTextMatcher matcher,
         int retryCount,
+        DeclaredGitHubFileCache? cache,
         Func<TimeSpan, CancellationToken, Task> delayAsync,
         CancellationToken cancellationToken = default)
     {
@@ -30,7 +32,7 @@ public static class GitHubLicenseFetchScheduler
         {
             try
             {
-                return await client.FetchFileAsync(target, matcher, cancellationToken).ConfigureAwait(false);
+                return await client.FetchFileAsync(target, matcher, cache, cancellationToken).ConfigureAwait(false);
             }
             catch (SourceRepositoryFetchException exception) when (attempt < retryCount && exception.IsTransient)
             {

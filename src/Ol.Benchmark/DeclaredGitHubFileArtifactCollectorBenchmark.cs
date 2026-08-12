@@ -14,8 +14,11 @@ public class DeclaredGitHubFileArtifactCollectorBenchmark : IDisposable
     private readonly ScanComponent[] existingArtifactComponents = new ScanComponent[1];
     private readonly ScanComponent[] unrelatedComponents = new ScanComponent[10_000];
     private readonly DeclaredGitHubFileArtifactCollector collector;
+    private readonly DeclaredGitHubFileArtifactCollector cachedCollector;
+    private readonly ScanComponent[] cachedComponents = new ScanComponent[1];
     private readonly GitHubContentsHandler handler;
     private readonly HttpClient httpClient;
+    private readonly string cacheRoot;
     private readonly ScanComponent template;
 
     public DeclaredGitHubFileArtifactCollectorBenchmark()
@@ -32,6 +35,18 @@ public class DeclaredGitHubFileArtifactCollectorBenchmark : IDisposable
             GitHubAuthentication.Create(),
             new Uri("https://api.github.test/"));
         template = CreateComponent(spdx, "https://github.com/dotnet/corefx/blob/master/LICENSE.TXT");
+        cacheRoot = Path.Combine(Path.GetTempPath(), $"ol-github-file-benchmark-{Guid.NewGuid():N}");
+        var cache = new DeclaredGitHubFileCache(cacheRoot);
+        DeclaredGitHubFileTarget.TryCreate("https://github.com/dotnet/corefx/blob/master/LICENSE.TXT", out var target);
+        cache.Write(target, HttpStatusCode.OK, "MIT License"u8);
+        cachedCollector = new DeclaredGitHubFileArtifactCollector(
+            matcher,
+            spdx,
+            retryCount: 0,
+            httpClient,
+            GitHubAuthentication.Create(),
+            new Uri("https://api.github.test/"),
+            cache);
         existingArtifactComponents[0] = LicenseReconciler.AddCandidate(template, LicenseCandidateFactory.Create(
             LicenseCandidateSource.PackageArtifact,
             LicenseCandidateKind.License,
@@ -58,6 +73,13 @@ public class DeclaredGitHubFileArtifactCollectorBenchmark : IDisposable
         => collector.EnrichAsync(existingArtifactComponents, concurrency: 1).Result.Summary.TargetCount;
 
     [Benchmark]
+    public int ReadOneCachedDocument()
+    {
+        cachedComponents[0] = template;
+        return cachedCollector.EnrichAsync(cachedComponents, concurrency: 1).Result.Summary.CacheHitCount;
+    }
+
+    [Benchmark]
     public int PlanTenThousandUnrelatedLocations()
         => collector.EnrichAsync(unrelatedComponents, concurrency: 8).Result.Summary.TargetCount;
 
@@ -65,6 +87,7 @@ public class DeclaredGitHubFileArtifactCollectorBenchmark : IDisposable
     {
         httpClient.Dispose();
         handler.Dispose();
+        if (Directory.Exists(cacheRoot)) Directory.Delete(cacheRoot, recursive: true);
     }
 
     private static ScanComponent CreateComponent(SpdxLicenseIndex spdx, string location)

@@ -2,6 +2,7 @@
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Ol.Core.GitHub;
 using Ol.Core.Licensing;
 
 namespace Ol.Tests;
@@ -1275,6 +1276,30 @@ public sealed class CliScanTests
         finally
         {
             if (Directory.Exists(sourceCacheRoot)) Directory.Delete(sourceCacheRoot, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheClear_GitHubFile_RemovesDeclaredFileCache()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var root = Path.Combine(Path.GetTempPath(), $"ol-github-file-clear-{Guid.NewGuid():N}");
+        var cacheRoot = Path.Combine(root, "github-file");
+        DeclaredGitHubFileTarget.TryCreate("https://github.com/dotnet/corefx/blob/master/LICENSE.TXT", out var target);
+        new DeclaredGitHubFileCache(cacheRoot).Write(target, System.Net.HttpStatusCode.OK, "MIT License"u8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(repositoryRoot, "cache", "clear", "github-file", "--cache-dir", root);
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stdout).Contains("github-file cache cleared");
+            await Assert.That(stderr).IsEmpty();
+            await Assert.That(Directory.Exists(cacheRoot)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
 

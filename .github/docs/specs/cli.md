@@ -194,7 +194,7 @@ When a GitHub rate limit stops source collection, `scan` writes a stderr notice 
 
 `--dependency root,direct,transitive,unknown` filters only the rendered view; analysis always uses the complete inventory. When filtering to `direct`, the stderr summary identifies excluded `unknown` relationships, and canonical JSON records the same counts in `metadata.view`. `--sort` accepts `name`, `version`, `license`, `ecosystem`, `dependency`, `status`, and `purl`; default order is `ecosystem,name,version`, ascending. `--group-by` accepts all of those except `purl`, adds `COUNT`, and produces a grouped view. Empty filter, sort, or group lists are invalid.
 
-The cache root is selected by `--cache-dir`, then `OL_CACHE_DIR`, then legacy category-specific roots, then the platform user-cache location. A supplied root is an isolation directory: Ol manages only its `package-metadata` and `source-repository` children. Cache paths never appear in reports. Cache schemas are specified in [cache_format.md](cache_format.md).
+The cache root is selected by `--cache-dir`, then `OL_CACHE_DIR`, then legacy category-specific roots, then the platform user-cache location. A supplied root is an isolation directory: Ol manages only its `package-metadata`, `source-repository`, and `github-file` children. Cache paths never appear in reports. Cache schemas are specified in [cache_format.md](cache_format.md).
 
 ### `ol check`
 
@@ -242,7 +242,7 @@ ol diff --previous <scan.json> --current <scan.json> [--format text|json]
 ### `ol cache clear`
 
 ```text
-ol cache clear [package-metadata|source-repository|all]
+ol cache clear [package-metadata|source-repository|github-file|all]
 ```
 
 The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root.

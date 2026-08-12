@@ -33,6 +33,123 @@ public sealed class DeclaredGitHubFileArtifactCollectorTests
     }
 
     [Test]
+    public async Task Enrich_SecondRun_ReadsCachedDocumentWithoutGitHubRequest()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-github-file-cache-{Guid.NewGuid():N}");
+        var handler = new GitHubContentsHandler("MIT License");
+        var (firstComponents, matcher, spdx) = CreateInputs("https://github.com/dotnet/corefx/blob/master/LICENSE.TXT");
+        var cache = new DeclaredGitHubFileCache(root);
+        var collector = new DeclaredGitHubFileArtifactCollector(matcher, spdx, retryCount: 0, new HttpClient(handler), GitHubAuthentication.Create(), new Uri("https://api.github.test/"), cache, refresh: false);
+
+        try
+        {
+            var first = await collector.EnrichAsync(firstComponents, concurrency: 1);
+            var (secondComponents, _, _) = CreateInputs("https://github.com/dotnet/corefx/blob/master/LICENSE.TXT");
+            var second = await collector.EnrichAsync(secondComponents, concurrency: 1);
+
+            await Assert.That(handler.CallCount).IsEqualTo(1);
+            await Assert.That(first.Summary.GitHubRequestCount).IsEqualTo(1);
+            await Assert.That(second.Summary.GitHubRequestCount).IsEqualTo(0);
+            await Assert.That(second.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(second.Components[0].License.ToString()).IsEqualTo("MIT");
+            await Assert.That(second.Components[0].GetCandidate(second.Components[0].CandidateCount - 1).Evidence.PackageArtifact!.ContentSha256)
+                .IsEqualTo(first.Components[0].GetCandidate(first.Components[0].CandidateCount - 1).Evidence.PackageArtifact!.ContentSha256);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Enrich_CachedDocumentWithMismatchedSha256_RefetchesFromGitHub()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-github-file-cache-{Guid.NewGuid():N}");
+        var location = "https://github.com/dotnet/corefx/blob/master/LICENSE.TXT";
+        var handler = new GitHubContentsHandler("MIT License");
+        var (components, matcher, spdx) = CreateInputs(location);
+        var cache = new DeclaredGitHubFileCache(root);
+        var collector = new DeclaredGitHubFileArtifactCollector(matcher, spdx, retryCount: 0, new HttpClient(handler), GitHubAuthentication.Create(), new Uri("https://api.github.test/"), cache, refresh: false);
+
+        try
+        {
+            await collector.EnrichAsync(components, concurrency: 1);
+            DeclaredGitHubFileTarget.TryCreate(location, out var target);
+            var path = cache.GetPath(target.CacheKey);
+            var json = await File.ReadAllTextAsync(path);
+            json = json.Replace(Convert.ToBase64String(Encoding.UTF8.GetBytes("MIT License")), Convert.ToBase64String(Encoding.UTF8.GetBytes("bad content")), StringComparison.Ordinal);
+            await File.WriteAllTextAsync(path, json);
+            var (secondComponents, _, _) = CreateInputs(location);
+
+            var second = await collector.EnrichAsync(secondComponents, concurrency: 1);
+
+            await Assert.That(handler.CallCount).IsEqualTo(2);
+            await Assert.That(second.Summary.CacheHitCount).IsEqualTo(0);
+            await Assert.That(second.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(second.Components[0].License.ToString()).IsEqualTo("MIT");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Enrich_RefreshBypassesValidCachedDocument()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-github-file-cache-{Guid.NewGuid():N}");
+        var location = "https://github.com/dotnet/corefx/blob/master/LICENSE.TXT";
+        var handler = new GitHubContentsHandler("MIT License");
+        var (components, matcher, spdx) = CreateInputs(location);
+        var cache = new DeclaredGitHubFileCache(root);
+        var cachedCollector = new DeclaredGitHubFileArtifactCollector(matcher, spdx, 0, new HttpClient(handler), GitHubAuthentication.Create(), new Uri("https://api.github.test/"), cache);
+
+        try
+        {
+            await cachedCollector.EnrichAsync(components, concurrency: 1);
+            var (refreshComponents, _, _) = CreateInputs(location);
+            var refreshCollector = new DeclaredGitHubFileArtifactCollector(matcher, spdx, 0, new HttpClient(handler), GitHubAuthentication.Create(), new Uri("https://api.github.test/"), cache, refresh: true);
+
+            var result = await refreshCollector.EnrichAsync(refreshComponents, concurrency: 1);
+
+            await Assert.That(handler.CallCount).IsEqualTo(2);
+            await Assert.That(result.Summary.CacheHitCount).IsEqualTo(0);
+            await Assert.That(result.Summary.CacheMissCount).IsEqualTo(0);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Enrich_SecondNotFoundRun_UsesCachedOutcome()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-github-file-cache-{Guid.NewGuid():N}");
+        var location = "https://github.com/example/project/blob/v1/LICENSE";
+        var handler = new GitHubContentsHandler("", HttpStatusCode.NotFound);
+        var (components, matcher, spdx) = CreateInputs(location);
+        var cache = new DeclaredGitHubFileCache(root);
+        var collector = new DeclaredGitHubFileArtifactCollector(matcher, spdx, 0, new HttpClient(handler), GitHubAuthentication.Create(), new Uri("https://api.github.test/"), cache);
+
+        try
+        {
+            await collector.EnrichAsync(components, concurrency: 1);
+            var (secondComponents, _, _) = CreateInputs(location);
+            var result = await collector.EnrichAsync(secondComponents, concurrency: 1);
+
+            await Assert.That(handler.CallCount).IsEqualTo(1);
+            await Assert.That(result.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(result.Summary.DocumentCount).IsEqualTo(0);
+            await Assert.That(result.Components[0].CandidateCount).IsEqualTo(1);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Enrich_PackageArtifactAlreadyCollected_DoesNotFetchDeclaredUrl()
     {
         var handler = new GitHubContentsHandler("MIT License");

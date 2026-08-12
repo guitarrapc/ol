@@ -92,9 +92,11 @@ For NuGet packages, the package-metadata boundary may derive this repository/ref
 
 An independent declared-file artifact collector can read the exact GitHub file URL after local package-artifact collection produced no document. It accepts only HTTPS `github.com/{owner}/{repository}/blob/{ref}/{path}` and equivalent `raw.githubusercontent.com` or legacy `raw.github.com` URLs with no credentials, custom port, query, fragment, percent escapes, backslashes, or dot segments. The ref must occupy one path segment; a URL whose branch/path boundary is ambiguous is not guessed. The named path may be nested because the publisher, rather than Ol, selected it.
 
-The collector uses the GitHub Contents API with the dedicated Ol token, shared retry and rate-limit rules, bounded concurrency, and operation-local target deduplication. Both the JSON envelope and decoded file are capped, pooled, and released before the result crosses the I/O boundary. A fetched document is classified by the caller-supplied versioned SPDX template matcher and contributes package-artifact evidence containing the component artifact identity, repository-relative path, exact content SHA-256, matcher name, and corpus version. Unrecognized content retains the same hashed evidence as unknown. HTTP 404 retains the original declared reference without inventing artifact evidence; transport and server failures are counted as fetch errors.
+The collector uses the GitHub Contents API with the dedicated Ol token, shared retry and rate-limit rules, bounded concurrency, operation-local target deduplication, and the dedicated `github-file` persistent cache. Both the JSON envelope and decoded file are capped and pooled. A fetched document is classified by the caller-supplied versioned SPDX template matcher and contributes package-artifact evidence containing the component artifact identity, repository-relative path, exact content SHA-256, matcher name, and corpus version. Unrecognized content retains the same hashed evidence as unknown. HTTP 404 retains the original declared reference without inventing artifact evidence; transport and server failures are counted as fetch errors.
 
-A normal `scan` invokes this collector after local package-artifact collection and package-metadata enrichment, so a registry-supplied declared URL is available, and before repository-level collection. The active scan's single SPDX matcher instance is shared with the local collectors. `--no-external-evidence` does not schedule the request. Results remain operation-local rather than being stored in the repository-license cache, whose target identity and schema describe a different evidence source.
+A normal `scan` invokes this collector after local package-artifact collection and package-metadata enrichment, so a registry-supplied declared URL is available, and before repository-level collection. The active scan's single SPDX matcher instance is shared with the local collectors. `--no-external-evidence` does not schedule the request, and `--refresh` bypasses cache reads. The cache stores the bounded raw public document rather than a license conclusion; every hit validates the target identity and content SHA-256, then reruns the active matcher. Invalid, corrupt, mismatched, or oversized entries are misses and are replaced after a successful fetch.
+
+SHA-256 detects corruption, truncation, entry substitution, and edits that do not also rewrite the digest. It is not an authenticity proof against a process that can rewrite both the cache body and its digest. Cache-directory permissions remain the security boundary against an actor with write access; users who do not trust that boundary must clear the category, use `--refresh`, or isolate the scan with `--cache-dir`.
 
 Report examples must not include token values or absolute local paths.
 
@@ -158,6 +160,8 @@ Source-cache entries carry a resolver capability version independently of the ca
 A source-cache write failure records `source_repository_cache_write_failed` but does not discard successfully fetched license evidence or fail the whole scan.
 
 `ol cache clear source-repository` removes source repository evidence cache.
+
+`ol cache clear github-file` removes exact declared-file content cache.
 
 <a id="contract-source-best-effort"></a>
 ## Best-Effort Execution

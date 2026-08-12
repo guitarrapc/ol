@@ -90,6 +90,10 @@ internal static class CacheFile
     /// <param name="length">The number of valid bytes in <paramref name="content"/>.</param>
     /// <returns><see langword="false"/> only when no entry exists; an unreadable entry reads as zero bytes.</returns>
     public static bool TryRentContent(string path, out byte[] content, out int length)
+        => TryRentContent(path, int.MaxValue, out content, out length);
+
+    /// <summary>Reads a cache entry only when its file length is within the caller's bound.</summary>
+    public static bool TryRentContent(string path, int maximumLength, out byte[] content, out int length)
     {
         using var handle = TryOpen(path);
         if (handle is null)
@@ -99,7 +103,7 @@ internal static class CacheFile
             return false;
         }
 
-        if (!TryRent(handle, out content, out var fileLength))
+        if (!TryRent(handle, maximumLength, out content, out var fileLength))
         {
             length = 0;
             return true;
@@ -133,7 +137,7 @@ internal static class CacheFile
             return ([], -1);
         }
 
-        if (!TryRent(handle, out var content, out var fileLength))
+        if (!TryRent(handle, int.MaxValue, out var content, out var fileLength))
         {
             return ([], 0);
         }
@@ -188,10 +192,10 @@ internal static class CacheFile
         }
     }
 
-    private static bool TryRent(SafeFileHandle handle, out byte[] content, out int length)
+    private static bool TryRent(SafeFileHandle handle, int maximumLength, out byte[] content, out int length)
     {
         var fileLength = RandomAccess.GetLength(handle);
-        if (fileLength <= 0 || fileLength > Array.MaxLength)
+        if (fileLength <= 0 || fileLength > maximumLength || fileLength > Array.MaxLength)
         {
             content = [];
             length = 0;

@@ -21,7 +21,8 @@ internal readonly record struct ResolvedPackageArtifactInput(string Path, Packag
 internal readonly record struct ScanInputIngestionResult(
     DependencyInventory Inventory,
     ResolvedPackageArtifactInput[] PackageArtifactInputs,
-    int PackageArtifactInputCount);
+    int PackageArtifactInputCount,
+    InputCandidateDiagnostics InputCandidateDiagnostics);
 
 /// <summary>
 /// Turns named input paths into one combined dependency inventory.
@@ -79,7 +80,7 @@ internal static class ScanInputIngestion
         bool includeHash,
         bool collectPackageArtifacts)
     {
-        var files = CollectInputFiles(selection);
+        var files = CollectInputFiles(selection, out var inputCandidateDiagnostics);
         var inventories = new DependencyInventory[files.Length];
         var handlers = new DependencyInputHandler[files.Length];
         var packageArtifactInputs = collectPackageArtifacts ? new ResolvedPackageArtifactInput[files.Length] : [];
@@ -137,7 +138,14 @@ internal static class ScanInputIngestion
                 else
                 {
                     var inputBytes = loadedInputs?[i] ?? File.ReadAllBytes(files[i].Path);
-                    inventory = DependencyInputScanner.Scan(inputBytes, spdx, expectedFormat: expectedFormat);
+                    try
+                    {
+                        inventory = DependencyInputScanner.Scan(inputBytes, spdx, expectedFormat: expectedFormat);
+                    }
+                    catch (Exception exception) when (KnownUnsupportedInputCandidates.TryGetDirectInputError(files[i].Path, exception, out var inputError))
+                    {
+                        throw new InvalidOperationException(inputError, exception);
+                    }
                     consumed[i] = true;
                     if (!DependencyInputRegistry.Default.TryGetInputFormat(inventory.Input.Format.Name, out handler))
                     {
@@ -150,6 +158,8 @@ internal static class ScanInputIngestion
                         packageArtifactInputs[packageArtifactInputCount++] = new ResolvedPackageArtifactInput(files[i].Path, artifactHandler.Collector);
                     }
                 }
+
+                KnownUnsupportedInputCandidates.ObserveScannedInput(inventory, handler, ref inputCandidateDiagnostics);
 
                 // A repository-wide SBOM and per-project package-manager inputs describe one resolution at two
                 // granularities, so they combine. Two repository-wide documents are a contradiction in the input
@@ -206,7 +216,8 @@ internal static class ScanInputIngestion
             return new ScanInputIngestionResult(
                 DependencyInventoryCombiner.Combine(inventories.AsSpan(0, inventoryCount), handlers.AsSpan(0, inventoryCount), descriptor),
                 packageArtifactInputs,
-                packageArtifactInputCount);
+                packageArtifactInputCount,
+                inputCandidateDiagnostics);
         }
         finally
         {
@@ -273,8 +284,9 @@ internal static class ScanInputIngestion
         return false;
     }
 
-    private static CollectedInputFile[] CollectInputFiles(ScanInputSelection selection)
+    private static CollectedInputFile[] CollectInputFiles(ScanInputSelection selection, out InputCandidateDiagnostics inputCandidateDiagnostics)
     {
+        inputCandidateDiagnostics = default;
         var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         var collectedByPath = new Dictionary<string, CollectedInputFile>(pathComparer);
         var enumerationOptions = new EnumerationOptions
@@ -295,6 +307,8 @@ internal static class ScanInputIngestion
             }
 
             var rootName = new DirectoryInfo(inputPath).Name;
+            KnownUnsupportedInputCandidates.DetectDirectory(inputPath, enumerationOptions, ref inputCandidateDiagnostics);
+
             if (selection.HasExpectedFormat)
             {
                 DiscoverDirectoryFiles(inputPath, rootName, selection.ExpectedHandler, enumerationOptions, collectedByPath);
@@ -310,6 +324,11 @@ internal static class ScanInputIngestion
 
         if (collectedByPath.Count == 0)
         {
+            if (KnownUnsupportedInputCandidates.TryGetUnscannedInputError(inputCandidateDiagnostics, out var inputError))
+            {
+                throw new InvalidOperationException(inputError);
+            }
+
             throw new InvalidOperationException("No registered dependency input files were found in the input directories.");
         }
 

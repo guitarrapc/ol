@@ -412,6 +412,68 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithUnsupportedResolvedInputName_ReturnsActionableError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-unsupported-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        var cases = new[]
+        {
+            (
+                FileName: "Cargo.lock",
+                Content: "version = 3\n",
+                Message: "Cargo.lock is not a supported input. Run 'cargo metadata --format-version 1 --locked > cargo-metadata.json', then scan cargo-metadata.json."),
+            (
+                FileName: "Example.csproj",
+                Content: "<Project Sdk=\"Microsoft.NET.Sdk\" />",
+                Message: ".csproj is not a resolved dependency input. Run 'dotnet restore', then scan obj/project.assets.json."),
+        };
+
+        try
+        {
+            foreach (var item in cases)
+            {
+                var inputPath = Path.Combine(temporaryDirectory, item.FileName);
+                await File.WriteAllTextAsync(inputPath, item.Content, Encoding.UTF8);
+                var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence");
+
+                await Assert.That(exitCode).IsEqualTo(1);
+                await Assert.That(stdout).IsEmpty();
+                await Assert.That(stderr.Trim()).IsEqualTo($"Unable to scan input: {item.Message}");
+                File.Delete(inputPath);
+            }
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithSupportedContentNamedCargoLock_UsesContentDetection()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-supported-cargo-name-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        var inputPath = Path.Combine(temporaryDirectory, "Cargo.lock");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "components": [] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cyclonedx");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithExplicitCycloneDxInput_EmitsGenericAndLegacyInputMetadata()
     {
         var root = FindRepositoryRoot();
@@ -1813,6 +1875,97 @@ public sealed class CliScanTests
             await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
             await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(12);
             await Assert.That(inventory.GetProperty("edges").GetArrayLength()).IsEqualTo(10);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoLock_WarnsThatRustWasNotScanned()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-lock-directory-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence",
+                "--format",
+                "json",
+                "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(stderr.Trim()).IsEqualTo("Warning: Rust dependencies were not scanned: Cargo.lock is not a supported input. Run 'cargo metadata --format-version 1 --locked > cargo-metadata.json', then scan cargo-metadata.json.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoMetadata_DoesNotWarnForCargoLock()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-metadata-directory-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "cargo-metadata.json"),
+            Path.Combine(temporaryDirectory, "cargo-metadata.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence",
+                "--format",
+                "json",
+                "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cargo-metadata");
+            await Assert.That(stderr).IsEmpty();
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryContainingOnlyCargoLock_ReturnsActionableError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-lock-only-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Rust dependencies were not scanned: Cargo.lock is not a supported input. Run 'cargo metadata --format-version 1 --locked > cargo-metadata.json', then scan cargo-metadata.json.");
         }
         finally
         {

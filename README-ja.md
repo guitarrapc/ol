@@ -24,7 +24,7 @@ olは法的助言を提供せず、ライセンスの法的な確実性は主張
 ol自身は依存関係を解決しません。これは各言語の依存解決結果が最も確度が高く、解決済みの依存関係に焦点を当てるためです。このため、`package.json`、`*.csproj`、`Cargo.toml`のようなマニフェストではなく、次のいずれかを入力にします。
 
 - CycloneDXまたはSPDX形式のJSON SBOM
-- npm/Cargo/NuGetなどのパッケージマネージャーが解決したロックファイル（`package-lock.json`、`Cargo.lock`、`project.assets.json`など）
+- npm/Cargo/NuGetなどのパッケージマネージャーによる解決済み入力（`package-lock.json`、`cargo-metadata.json`、`project.assets.json`など）
 
 ## クイックスタート
 
@@ -473,7 +473,7 @@ stdoutの判定結果は変わらず、同じ違反集合をSARIF 2.1.0として
 
 ### `package.json`、`*.csproj`、`Cargo.toml`を直接渡せますか
 
-渡せません。これらは要求された依存関係を示すマニフェストであり、実際に解決されたバージョンや推移的依存関係を確定しません。SBOMを生成するか、対応する解決済み入力を渡してください。
+渡せません。これらは要求された依存関係を示すマニフェストであり、実際に解決されたバージョンや推移的依存関係を確定しません。SBOMを生成するか、対応する解決済み入力を渡してください。.NETでは`dotnet restore`を実行して`obj/project.assets.json`を指定します。Rustでは`cargo metadata --format-version 1 --locked > cargo-metadata.json`を実行して`cargo-metadata.json`を指定します。`Cargo.lock`は直接指定できません。
 
 ### SBOMとパッケージマネジャー入力のどちらを使うべきですか
 

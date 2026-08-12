@@ -90,6 +90,8 @@ internal sealed class ScanCommands
         var packageMetadataSummary = completed.PackageMetadataSummary;
         var sourceRepositorySummary = completed.SourceRepositorySummary;
 
+        KnownUnsupportedInputCandidates.WriteWarnings(completed.InputCandidateDiagnostics, Console.Error);
+
         // A reached rate limit means source evidence is missing for reasons the run can act on, so it is
         // reported even under --quiet, where the counters that would otherwise hint at it are suppressed.
         if (completed.GitHubRateLimit is { } gitHubRateLimit)

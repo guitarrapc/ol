@@ -1,7 +1,6 @@
 ﻿using Ol.Update;
 
-const string licensesUrl = "https://raw.githubusercontent.com/spdx/license-list-data/main/json/licenses.json";
-const string exceptionsUrl = "https://raw.githubusercontent.com/spdx/license-list-data/main/json/exceptions.json";
+const string archiveUrl = "https://github.com/spdx/license-list-data/archive/refs/heads/main.zip";
 
 if (args is not ["generate"])
 {
@@ -12,10 +11,16 @@ if (args is not ["generate"])
 var repositoryRoot = FindRepositoryRoot(AppContext.BaseDirectory);
 var outputPath = Path.Combine(repositoryRoot, "src", "Ol.Core", "Generated", "SpdxGeneratedLicenseData.g.cs");
 using var http = new HttpClient();
-var licenses = await http.GetByteArrayAsync(licensesUrl);
-var exceptions = await http.GetByteArrayAsync(exceptionsUrl);
+var archive = await http.GetByteArrayAsync(archiveUrl);
 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-await File.WriteAllTextAsync(outputPath, SpdxCodeGenerator.Generate(licenses, exceptions));
+using (var archiveStream = new MemoryStream(archive, writable: false))
+{
+    var data = Ol.Core.Spdx.SpdxLicenseTextCorpus.LoadLicenseListArchive(archiveStream);
+    await File.WriteAllTextAsync(outputPath, SpdxCodeGenerator.Generate(data.LicensesJson, data.ExceptionsJson));
+    var corpusPath = Path.Combine(repositoryRoot, "src", "Ol.Core", "Generated", Ol.Core.Spdx.SpdxLicenseTextCorpus.FileName);
+    await File.WriteAllBytesAsync(corpusPath, data.LicenseTextCorpus);
+    Console.WriteLine($"generated: {corpusPath}");
+}
 Console.WriteLine($"generated: {outputPath}");
 return 0;
 

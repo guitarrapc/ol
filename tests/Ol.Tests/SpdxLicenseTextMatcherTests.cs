@@ -92,4 +92,22 @@ public sealed class SpdxLicenseTextMatcherTests
 
         await Assert.That(matcher.TryMatch("sametext"u8, out _)).IsFalse();
     }
+
+    [Test]
+    public async Task Match_LiteralLessThanBeforeOptionalEnd_ParsesNextRule()
+    {
+        var matcher = new SpdxLicenseTextMatcher("test", [new("Example", "a<<beginOptional>>b<<<endOptional>>c")]);
+
+        await Assert.That(matcher.TryMatch("ab<c"u8, out var id)).IsTrue();
+        await Assert.That(id).IsEqualTo("Example");
+    }
+
+    [Test]
+    public async Task Match_LiteralWordAdjacentToVariable_DoesNotUseUnsafeWordAnchor()
+    {
+        var matcher = new SpdxLicenseTextMatcher("test", [new("Example", "license<<var;name=\"holder\";original=\"holder\";match=\"holder\">>")]);
+
+        await Assert.That(matcher.TryMatch("licenseholder"u8, out var id)).IsTrue();
+        await Assert.That(id).IsEqualTo("Example");
+    }
 }

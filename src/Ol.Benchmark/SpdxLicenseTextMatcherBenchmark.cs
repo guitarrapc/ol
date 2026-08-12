@@ -57,7 +57,28 @@ public class SpdxLicenseTextMatcherBenchmark
         "benchmark",
         [new SpdxLicenseTextTemplate("MIT", MitTemplate)]);
     private readonly byte[] licenseText = Encoding.UTF8.GetBytes(MitText);
+    private readonly byte[] bundledCorpus;
+    private readonly SpdxLicenseTextMatcher bundledMatcher;
+
+    public SpdxLicenseTextMatcherBenchmark()
+    {
+        using var stream = typeof(SpdxLicenseTextCorpus).Assembly.GetManifestResourceStream(SpdxLicenseTextCorpus.EmbeddedResourceName)!;
+        using var output = new MemoryStream();
+        stream.CopyTo(output);
+        bundledCorpus = output.ToArray();
+        bundledMatcher = SpdxData.Load(null).Matcher;
+    }
 
     [Benchmark]
     public bool Match() => matcher.TryMatch(licenseText, out _);
+
+    [Benchmark]
+    public bool MatchBundledCorpus() => bundledMatcher.TryMatch(licenseText, out _);
+
+    [Benchmark]
+    public int ConstructBundledCorpus()
+    {
+        var corpus = SpdxLicenseTextCorpus.Load(bundledCorpus);
+        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates).CorpusVersion.Length;
+    }
 }

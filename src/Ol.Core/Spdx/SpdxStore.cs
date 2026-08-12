@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Ol.Core.Generated;
+using System.Buffers;
 
 namespace Ol.Core.Spdx;
 
@@ -8,8 +9,7 @@ namespace Ol.Core.Spdx;
 /// </summary>
 public static class SpdxStore
 {
-    private const string LicensesUrl = "https://raw.githubusercontent.com/spdx/license-list-data/main/json/licenses.json";
-    private const string ExceptionsUrl = "https://raw.githubusercontent.com/spdx/license-list-data/main/json/exceptions.json";
+    private const string ArchiveUrl = "https://github.com/spdx/license-list-data/archive/refs/heads/main.zip";
 
     /// <summary>Gets the default user data directory.</summary>
     public static string DefaultRoot { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ol", "spdx");
@@ -21,12 +21,16 @@ public static class SpdxStore
     public static async Task<string> UpdateAsync(CancellationToken cancellationToken = default)
     {
         using var http = new HttpClient();
-        var licenses = await http.GetByteArrayAsync(LicensesUrl, cancellationToken).ConfigureAwait(false);
-        var exceptions = await http.GetByteArrayAsync(ExceptionsUrl, cancellationToken).ConfigureAwait(false);
-        return await InstallAsync(DefaultRoot, licenses, exceptions, cancellationToken).ConfigureAwait(false);
+        var archive = await DownloadBoundedAsync(http, ArchiveUrl, 64 * 1024 * 1024, cancellationToken).ConfigureAwait(false);
+        using var archiveStream = new MemoryStream(archive, writable: false);
+        var data = SpdxLicenseTextCorpus.LoadLicenseListArchive(archiveStream);
+        return await InstallAsync(DefaultRoot, data.LicensesJson, data.ExceptionsJson, data.LicenseTextCorpus, cancellationToken).ConfigureAwait(false);
     }
 
     internal static async Task<string> InstallAsync(string root, byte[] licenses, byte[] exceptions, CancellationToken cancellationToken = default)
+        => await InstallAsync(root, licenses, exceptions, null, cancellationToken).ConfigureAwait(false);
+
+    internal static async Task<string> InstallAsync(string root, byte[] licenses, byte[] exceptions, byte[]? corpus, CancellationToken cancellationToken = default)
     {
         var version = ReadLicenseListVersion(licenses);
         if (!IsVersionName(version))
@@ -38,6 +42,10 @@ public static class SpdxStore
         Directory.CreateDirectory(versionDirectory);
         await File.WriteAllBytesAsync(Path.Combine(versionDirectory, "licenses.json"), licenses, cancellationToken).ConfigureAwait(false);
         await File.WriteAllBytesAsync(Path.Combine(versionDirectory, "exceptions.json"), exceptions, cancellationToken).ConfigureAwait(false);
+        if (corpus is not null)
+        {
+            await File.WriteAllBytesAsync(Path.Combine(versionDirectory, SpdxLicenseTextCorpus.FileName), corpus, cancellationToken).ConfigureAwait(false);
+        }
         return version;
     }
 
@@ -175,6 +183,51 @@ public static class SpdxStore
         }
 
         return version;
+    }
+
+    private static async Task<byte[]> DownloadBoundedAsync(HttpClient http, string url, int maximumBytes, CancellationToken cancellationToken)
+    {
+        using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var contentLength = response.Content.Headers.ContentLength;
+        if (contentLength > maximumBytes)
+        {
+            throw new InvalidDataException("SPDX license-list archive exceeds the download limit.");
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        if (contentLength is > 0)
+        {
+            var owned = new byte[checked((int)contentLength.Value)];
+            await stream.ReadExactlyAsync(owned, cancellationToken).ConfigureAwait(false);
+            if (await stream.ReadAsync(new byte[1], cancellationToken).ConfigureAwait(false) != 0)
+            {
+                throw new InvalidDataException("SPDX license-list archive exceeds its declared length.");
+            }
+
+            return owned;
+        }
+
+        using var output = new MemoryStream(contentLength is > 0 ? checked((int)contentLength.Value) : 0);
+        var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
+        {
+            var total = 0;
+            while (true)
+            {
+                var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                if (read == 0) break;
+                if (total > maximumBytes - read) throw new InvalidDataException("SPDX license-list archive exceeds the download limit.");
+                output.Write(buffer, 0, read);
+                total += read;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+
+        return output.ToArray();
     }
 
     private static bool IsInstalledVersionDirectory(string directory, string version)

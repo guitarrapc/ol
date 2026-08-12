@@ -40,6 +40,7 @@ public sealed class SpdxLicenseTextMatcher
         this.maximumTextBytes = maximumTextBytes;
         patterns = new TemplatePattern[templates.Length];
         var anchorGroups = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+        var licenseIds = new HashSet<string>(templates.Length, StringComparer.Ordinal);
         var unanchored = new List<int>();
         for (var i = 0; i < templates.Length; i++)
         {
@@ -47,6 +48,10 @@ public sealed class SpdxLicenseTextMatcher
             if (string.IsNullOrWhiteSpace(template.LicenseId) || string.IsNullOrWhiteSpace(template.Template))
             {
                 throw new ArgumentException("SPDX license text templates require an identifier and template text.", nameof(templates));
+            }
+            if (!licenseIds.Add(template.LicenseId))
+            {
+                throw new ArgumentException($"SPDX license text templates contain duplicate identifier: {template.LicenseId}", nameof(templates));
             }
 
             try
@@ -222,18 +227,18 @@ public sealed class SpdxLicenseTextMatcher
             }
 
             var rule = template.AsSpan(ruleStart + 2, ruleEnd - ruleStart - 2).Trim();
-            if (rule.StartsWith("beginOptional", StringComparison.Ordinal))
+            if (rule.SequenceEqual("beginOptional".AsSpan()))
             {
                 pattern.Append("(?:");
                 optionalDepth++;
             }
-            else if (rule.StartsWith("endOptional", StringComparison.Ordinal))
+            else if (rule.SequenceEqual("endOptional".AsSpan()))
             {
                 if (optionalDepth == 0) throw new ArgumentException("SPDX license template closes an optional rule that was not opened.", nameof(template));
                 pattern.Append(")?");
                 optionalDepth--;
             }
-            else if (rule.StartsWith("var", StringComparison.Ordinal))
+            else if (rule.StartsWith("var;".AsSpan(), StringComparison.Ordinal))
             {
                 pattern.Append("(?:").Append(ReadVariableMatch(rule)).Append(')');
             }
@@ -280,16 +285,16 @@ public sealed class SpdxLicenseTextMatcher
             var ruleEnd = template.IndexOf(">>", ruleStart + 2, StringComparison.Ordinal);
             if (ruleEnd < 0) throw new ArgumentException("SPDX license template contains an unterminated rule.", nameof(template));
             var rule = template.AsSpan(ruleStart + 2, ruleEnd - ruleStart - 2).Trim();
-            if (rule.StartsWith("beginOptional", StringComparison.Ordinal))
+            if (rule.SequenceEqual("beginOptional".AsSpan()))
             {
                 optionalDepth++;
             }
-            else if (rule.StartsWith("endOptional", StringComparison.Ordinal))
+            else if (rule.SequenceEqual("endOptional".AsSpan()))
             {
                 if (optionalDepth == 0) throw new ArgumentException("SPDX license template closes an optional rule that was not opened.", nameof(template));
                 optionalDepth--;
             }
-            else if (rule.StartsWith("var", StringComparison.Ordinal))
+            else if (rule.StartsWith("var;".AsSpan(), StringComparison.Ordinal))
             {
                 _ = ReadVariableMatch(rule);
             }
@@ -381,7 +386,7 @@ public sealed class SpdxLicenseTextMatcher
     {
         const string marker = "match=\"";
         var start = rule.IndexOf(marker, StringComparison.Ordinal);
-        if (start < 0) return @".{0,5000}";
+        if (start < 0) throw new ArgumentException("SPDX variable rule has no match expression.", nameof(rule));
         start += marker.Length;
         for (var i = start; i < rule.Length; i++)
         {

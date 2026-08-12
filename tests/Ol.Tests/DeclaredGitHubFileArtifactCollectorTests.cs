@@ -202,6 +202,27 @@ public sealed class DeclaredGitHubFileArtifactCollectorTests
     }
 
     [Test]
+    public async Task Enrich_RepositoryIdentityWithDifferentCasing_FetchesOnce()
+    {
+        var handler = new GitHubContentsHandler("MIT License");
+        var spdx = new SpdxLicenseIndex(["MIT"], []);
+        var matcher = new SpdxLicenseTextMatcher("test-corpus", [new("MIT", "MIT License")]);
+        var components = new[]
+        {
+            CreateComponent(spdx, "System.Buffers", "4.5.1", "https://github.com/dotnet/corefx/blob/master/LICENSE.TXT"),
+            CreateComponent(spdx, "System.Memory", "4.5.4", "https://github.com/DotNet/CoreFx/blob/master/LICENSE.TXT"),
+        };
+        var collector = new DeclaredGitHubFileArtifactCollector(matcher, spdx, 0, new HttpClient(handler), GitHubAuthentication.Create(), new Uri("https://api.github.test/"));
+
+        var result = await collector.EnrichAsync(components, concurrency: 2);
+
+        await Assert.That(result.Summary.TargetCount).IsEqualTo(1);
+        await Assert.That(result.Summary.GitHubRequestCount).IsEqualTo(1);
+        await Assert.That(result.Summary.MatchedCount).IsEqualTo(2);
+        await Assert.That(handler.CallCount).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Enrich_UnrecognizedDocument_RetainsUnknownHashedEvidence()
     {
         var handler = new GitHubContentsHandler("custom terms");

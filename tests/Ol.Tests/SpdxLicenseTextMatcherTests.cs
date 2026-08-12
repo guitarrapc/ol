@@ -41,6 +41,24 @@ public sealed class SpdxLicenseTextMatcherTests
         """;
 
     [Test]
+    public async Task CorpusCreate_DuplicateLicenseIdentifier_RejectsAmbiguousCorpus()
+    {
+        await Assert.That(() => SpdxLicenseTextCorpus.Create(
+            "test",
+            [new("MIT", "first"), new("MIT", "second")]))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task Constructor_DuplicateLicenseIdentifier_RejectsBroadenedMatcher()
+    {
+        await Assert.That(() => new SpdxLicenseTextMatcher(
+            "test",
+            [new("MIT", "MIT License"), new("MIT", "unrelated terms")]))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task Match_CoreFxMitText_ResolvesMitFromSpdxTemplate()
     {
         var matcher = new SpdxLicenseTextMatcher("3.28.0", [new("MIT", MitTemplate)]);
@@ -109,5 +127,14 @@ public sealed class SpdxLicenseTextMatcherTests
 
         await Assert.That(matcher.TryMatch("licenseholder"u8, out var id)).IsTrue();
         await Assert.That(id).IsEqualTo("Example");
+    }
+
+    [Test]
+    [Arguments("<<beginOptionalExtra>>terms<<endOptionalExtra>>")]
+    [Arguments("<<var;name=\"holder\";original=\"holder\">>")]
+    public async Task Constructor_MalformedRuleThatOnlySharesAValidPrefix_RejectsTemplate(string template)
+    {
+        await Assert.That(() => new SpdxLicenseTextMatcher("test", [new("Example", template)]))
+            .Throws<ArgumentException>();
     }
 }

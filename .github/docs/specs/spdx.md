@@ -50,7 +50,7 @@ The exact platform-specific user data root is not part of this spec. Reports mus
 
 ### `ol spdx update`
 
-Downloads the latest `licenses.json`, `exceptions.json`, and standard license templates into the user-managed SPDX data store. The template archive download is bounded, and the installed corpus records the same License List version as `licenses.json`. Installation does not change the active selection; `ol spdx use <version>` activates the installed version explicitly.
+Downloads the latest `licenses.json`, `exceptions.json`, and standard license templates into the user-managed SPDX data store. The template archive download is bounded; every license listed in `licenses.json` must have exactly one detail template, and the installed corpus must record the same License List version as `licenses.json`. Validation completes before an invalid snapshot creates its version directory. Installation does not change the active selection; `ol spdx use <version>` activates the installed version explicitly.
 
 ```text
 installed: 3.27.0

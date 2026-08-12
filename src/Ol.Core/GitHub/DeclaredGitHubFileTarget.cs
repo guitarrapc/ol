@@ -4,7 +4,7 @@ namespace Ol.Core.GitHub;
 public readonly record struct DeclaredGitHubFileTarget(string Owner, string Name, string Ref, string Path)
 {
     /// <summary>Gets the operation-local deduplication identity.</summary>
-    public string CacheKey { get; } = string.Concat("github-file:", Owner, "/", Name, "@", Ref, "/", Path);
+    public string CacheKey { get; } = CreateCacheKey(Owner, Name, Ref, Path);
 
     /// <summary>Parses GitHub blob and raw-content URLs whose ref occupies one unambiguous path segment.</summary>
     public static bool TryCreate(string value, out DeclaredGitHubFileTarget target)
@@ -104,6 +104,37 @@ public readonly record struct DeclaredGitHubFileTarget(string Owner, string Name
             if ((rejectEmpty && segment.IsEmpty) || segment.SequenceEqual(".".AsSpan()) || segment.SequenceEqual("..".AsSpan())) return true;
             if (separator < 0) return false;
             path = path[(separator + 1)..];
+        }
+    }
+
+    private static string CreateCacheKey(string owner, string name, string reference, string path)
+    {
+        const string prefix = "github-file:";
+        return string.Create(
+            prefix.Length + owner.Length + name.Length + reference.Length + path.Length + 3,
+            (owner, name, reference, path),
+            static (destination, state) =>
+            {
+                prefix.CopyTo(destination);
+                var offset = prefix.Length;
+                CopyLowerInvariant(state.owner, destination[offset..]);
+                offset += state.owner.Length;
+                destination[offset++] = '/';
+                CopyLowerInvariant(state.name, destination[offset..]);
+                offset += state.name.Length;
+                destination[offset++] = '@';
+                state.reference.CopyTo(destination[offset..]);
+                offset += state.reference.Length;
+                destination[offset++] = '/';
+                state.path.CopyTo(destination[offset..]);
+            });
+    }
+
+    private static void CopyLowerInvariant(ReadOnlySpan<char> value, Span<char> destination)
+    {
+        for (var index = 0; index < value.Length; index++)
+        {
+            destination[index] = char.ToLowerInvariant(value[index]);
         }
     }
 }

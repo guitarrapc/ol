@@ -38,6 +38,15 @@ public static class SpdxStore
             throw new InvalidDataException($"SPDX License List version is not a valid version name: {version}");
         }
 
+        if (corpus is not null)
+        {
+            var corpusData = SpdxLicenseTextCorpus.Load(corpus);
+            if (!string.Equals(corpusData.CorpusVersion, version, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("SPDX license-text corpus version does not match licenses.json.");
+            }
+        }
+
         var versionDirectory = Path.Combine(root, version);
         Directory.CreateDirectory(versionDirectory);
         await File.WriteAllBytesAsync(Path.Combine(versionDirectory, "licenses.json"), licenses, cancellationToken).ConfigureAwait(false);

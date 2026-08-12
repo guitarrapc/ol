@@ -42,6 +42,14 @@ public static class SpdxLicenseTextCorpus
 
         var ordered = templates.ToArray();
         Array.Sort(ordered, static (left, right) => StringComparer.Ordinal.Compare(left.LicenseId, right.LicenseId));
+        for (var index = 1; index < ordered.Length; index++)
+        {
+            if (string.Equals(ordered[index - 1].LicenseId, ordered[index].LicenseId, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"SPDX template corpus contains duplicate identifier: {ordered[index].LicenseId}");
+            }
+        }
+
         using var output = new MemoryStream();
         using (var brotli = new BrotliStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
         using (var writer = new BinaryWriter(brotli, StrictUtf8, leaveOpen: false))
@@ -88,7 +96,9 @@ public static class SpdxLicenseTextCorpus
             ? value.GetString()
             : null;
         if (string.IsNullOrWhiteSpace(version)) throw new InvalidDataException("SPDX licenses.json has no licenseListVersion.");
-        return new SpdxLicenseListArchiveData(licenses, exceptions, CreateFromLicenseListArchive(version, zip));
+        var corpus = CreateFromLicenseListArchive(version, zip);
+        ValidateLicenseCoverage(document.RootElement, Load(corpus).Templates);
+        return new SpdxLicenseListArchiveData(licenses, exceptions, corpus);
     }
 
     private static byte[] CreateFromLicenseListArchive(string corpusVersion, ZipArchive zip)
@@ -143,6 +153,28 @@ public static class SpdxLicenseTextCorpus
         using var stream = match.Open();
         stream.ReadExactly(result);
         return result;
+    }
+
+    private static void ValidateLicenseCoverage(JsonElement licenses, ReadOnlySpan<SpdxLicenseTextTemplate> templates)
+    {
+        var values = licenses.GetProperty("licenses");
+        if (values.GetArrayLength() != templates.Length)
+        {
+            throw new InvalidDataException("SPDX archive license details do not cover licenses.json.");
+        }
+
+        var identifiers = new HashSet<string>(templates.Length, StringComparer.Ordinal);
+        for (var index = 0; index < templates.Length; index++) identifiers.Add(templates[index].LicenseId);
+        foreach (var license in values.EnumerateArray())
+        {
+            var identifier = license.GetProperty("licenseId").GetString();
+            if (identifier is null || !identifiers.Remove(identifier))
+            {
+                throw new InvalidDataException("SPDX archive license details do not cover licenses.json.");
+            }
+        }
+
+        if (identifiers.Count != 0) throw new InvalidDataException("SPDX archive license details do not cover licenses.json.");
     }
 
     /// <summary>Loads a bounded compressed corpus from owned bytes.</summary>

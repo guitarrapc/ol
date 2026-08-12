@@ -233,6 +233,26 @@ public sealed class SpdxStoreTests
     }
 
     [Test]
+    public async Task Install_WithMismatchedCorpusVersion_RejectsBeforePersistingSnapshot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-corpus-{Guid.NewGuid():N}");
+        var licenses = """{ "licenseListVersion": "3.27.0", "licenses": [] }"""u8.ToArray();
+        var exceptions = """{ "exceptions": [] }"""u8.ToArray();
+        var corpus = SpdxLicenseTextCorpus.Create("3.28.0", [new("MIT", "MIT License")]);
+
+        try
+        {
+            await Assert.That(async () => await SpdxStore.InstallAsync(root, licenses, exceptions, corpus))
+                .Throws<InvalidDataException>();
+            await Assert.That(Directory.Exists(Path.Combine(root, "3.27.0"))).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Use_WithInstalledVersion_SelectsVersion()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");

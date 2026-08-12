@@ -168,7 +168,7 @@ HTTP 404 and a successful response with no identified license are cacheable unkn
 <a id="contract-github-file-cache-v1"></a>
 ## Declared GitHub File Entry — Schema Version 1
 
-The `github-file` category stores the bounded raw bytes returned for one exact declared GitHub file. Its `CacheKey` is `github-file:<owner>/<repo>@<ref>/<path>`. In addition to the common identity and provenance fields, an entry carries:
+The `github-file` category stores the bounded raw bytes returned for one exact declared GitHub file. Its `CacheKey` is `github-file:<owner>/<repo>@<ref>/<path>` with the case-insensitive GitHub owner and repository normalized to lowercase; ref and path retain their declared casing. In addition to the common identity and provenance fields, an entry carries:
 
 | Property | Type | Required | Meaning |
 |---|---|---:|---|

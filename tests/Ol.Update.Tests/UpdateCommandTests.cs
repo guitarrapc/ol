@@ -23,6 +23,23 @@ public sealed class UpdateCommandTests
     }
 
     [Test]
+    public async Task LicenseListArchive_MissingLicenseDetail_RejectsIncompleteCorpus()
+    {
+        using var archiveBytes = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(archiveBytes, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            WriteEntry(archive, "snapshot/json/licenses.json", """{ "licenseListVersion": "snapshot", "licenses": [ { "licenseId": "MIT" }, { "licenseId": "Apache-2.0" } ] }""");
+            WriteEntry(archive, "snapshot/json/exceptions.json", """{ "exceptions": [] }""");
+            WriteEntry(archive, "snapshot/json/details/MIT.json", """{ "licenseId": "MIT", "standardLicenseTemplate": "MIT License" }""");
+        }
+
+        archiveBytes.Position = 0;
+
+        await Assert.That(() => Ol.Core.Spdx.SpdxLicenseTextCorpus.LoadLicenseListArchive(archiveBytes))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
     public async Task Generate_SpdxJson_ProducesCoreGeneratedLicenseData()
     {
         var generated = SpdxCodeGenerator.Generate(

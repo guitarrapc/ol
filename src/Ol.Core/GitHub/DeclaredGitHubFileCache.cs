@@ -63,12 +63,10 @@ public sealed class DeclaredGitHubFileCache(string root)
         }
     }
 
-    /// <summary>Atomically writes one successful document or not-found response.</summary>
+    /// <summary>Atomically writes one successful document.</summary>
     public void Write(DeclaredGitHubFileTarget target, HttpStatusCode statusCode, ReadOnlySpan<byte> document)
     {
-        if (statusCode is not (HttpStatusCode.OK or HttpStatusCode.NotFound)
-            || (statusCode == HttpStatusCode.OK && (document.IsEmpty || document.Length > MaximumDocumentBytes))
-            || (statusCode == HttpStatusCode.NotFound && !document.IsEmpty))
+        if (statusCode != HttpStatusCode.OK || document.IsEmpty || document.Length > MaximumDocumentBytes)
         {
             throw new ArgumentException("The declared GitHub file cache record is invalid.", nameof(document));
         }
@@ -151,7 +149,7 @@ public sealed class DeclaredGitHubFileCache(string root)
             else if (reader.ValueTextEquals("HttpStatus"u8))
             {
                 if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out var status)
-                    || status is not ((int)HttpStatusCode.OK) and not ((int)HttpStatusCode.NotFound)) return false;
+                    || status != (int)HttpStatusCode.OK) return false;
                 statusCode = (HttpStatusCode)status;
                 fields |= CacheField.HttpStatus;
             }
@@ -180,13 +178,6 @@ public sealed class DeclaredGitHubFileCache(string root)
         }
 
         if (fields != CacheField.Required) return false;
-        if (statusCode == HttpStatusCode.NotFound)
-        {
-            if (!persistedSha256.IsEmpty || !encodedContent.IsEmpty) return false;
-            result = new DeclaredGitHubFileResult(HttpStatusCode.NotFound, null, string.Empty);
-            return true;
-        }
-
         if (encodedContent.Length == 0 || (encodedContent.Length & 3) != 0 || persistedSha256.Length != 64) return false;
         var decodedLength = Base64.GetMaxDecodedFromUtf8Length(encodedContent.Length);
         if (encodedContent[^1] == (byte)'=') decodedLength--;

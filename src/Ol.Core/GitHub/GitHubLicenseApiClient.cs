@@ -91,7 +91,6 @@ public sealed class GitHubLicenseApiClient
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                TryWriteFileCache(cache, target, response.StatusCode, []);
                 return new(response.StatusCode, null, string.Empty);
             }
             if (!response.IsSuccessStatusCode) throw new SourceRepositoryFetchException(response.StatusCode);

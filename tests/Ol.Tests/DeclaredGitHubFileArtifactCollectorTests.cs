@@ -123,7 +123,7 @@ public sealed class DeclaredGitHubFileArtifactCollectorTests
     }
 
     [Test]
-    public async Task Enrich_SecondNotFoundRun_UsesCachedOutcome()
+    public async Task Enrich_SecondNotFoundRun_RequestsGitHubAgain()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-github-file-cache-{Guid.NewGuid():N}");
         var location = "https://github.com/example/project/blob/v1/LICENSE";
@@ -138,8 +138,9 @@ public sealed class DeclaredGitHubFileArtifactCollectorTests
             var (secondComponents, _, _) = CreateInputs(location);
             var result = await collector.EnrichAsync(secondComponents, concurrency: 1);
 
-            await Assert.That(handler.CallCount).IsEqualTo(1);
-            await Assert.That(result.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(handler.CallCount).IsEqualTo(2);
+            await Assert.That(result.Summary.CacheHitCount).IsEqualTo(0);
+            await Assert.That(Directory.Exists(root)).IsFalse();
             await Assert.That(result.Summary.DocumentCount).IsEqualTo(0);
             await Assert.That(result.Components[0].CandidateCount).IsEqualTo(1);
         }

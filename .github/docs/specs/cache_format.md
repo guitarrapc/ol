@@ -172,11 +172,11 @@ The `github-file` category stores the bounded raw bytes returned for one exact d
 
 | Property | Type | Required | Meaning |
 |---|---|---:|---|
-| `HttpStatus` | integer | yes | `200` or `404`; other responses are not persisted. |
-| `ContentSha256` | string | yes | Lowercase SHA-256 of decoded `Content`, or empty for `404`. |
-| `Content` | string | yes | Base64-encoded raw document bytes, or empty for `404`. |
+| `HttpStatus` | integer | yes | Always `200`; negative and error responses are not persisted. |
+| `ContentSha256` | string | yes | Lowercase SHA-256 of decoded `Content`. |
+| `Content` | string | yes | Base64-encoded raw document bytes. |
 
-The decoded content is capped at 1 MiB and the complete entry is bounded before rental or parsing. A reader validates schema, logical key, key digest, source, UTC fetch time, status/content consistency, Base64 encoding, and the recomputed content SHA-256. Any failure makes the entry unusable and causes recollection when network access is enabled. A hit is reclassified with the active SPDX corpus; the cache never persists `MIT` or another final matcher conclusion.
+The decoded content is capped at 1 MiB and the complete entry is bounded before rental or parsing. A reader validates schema, logical key, key digest, source, UTC fetch time, status/content consistency, Base64 encoding, and the recomputed content SHA-256. Any failure makes the entry unusable and causes recollection when network access is enabled. A hit is reclassified with the active SPDX corpus; the cache never persists `MIT` or another final matcher conclusion. HTTP `404` remains deduplicated within one scan but is not persisted because evidence caches have no automatic TTL and GitHub may also use `404` for visibility or authorization changes.
 
 The content digest is an integrity check, not a signature or MAC. It detects accidental corruption and unsynchronized edits but cannot authenticate an entry against an actor able to rewrite both content and digest. Filesystem access control is the trust boundary for intentional local modification; `--refresh`, `cache clear github-file`, and an isolated `--cache-dir` let callers decline existing entries.
 

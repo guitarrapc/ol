@@ -49,6 +49,9 @@ public sealed class SpdxLicenseTextMatcher
     /// <summary>Gets the SPDX corpus version whose templates this matcher uses.</summary>
     public string CorpusVersion { get; }
 
+    /// <summary>Gets the maximum document size this matcher accepts.</summary>
+    public int MaximumTextBytes => maximumTextBytes;
+
     /// <summary>Attempts to identify exactly one SPDX license from a UTF-8 document.</summary>
     public bool TryMatch(ReadOnlySpan<byte> licenseTextUtf8, out string licenseId)
     {

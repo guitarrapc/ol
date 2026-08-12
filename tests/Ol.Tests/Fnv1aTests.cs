@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Ol.Core;
 
 namespace Ol.Tests;
@@ -39,5 +39,21 @@ public sealed class Fnv1aTests
     {
         // "あ" is three bytes; the hash must consume all of them.
         await Assert.That(Fnv1a.Hash(Encoding.UTF8.GetBytes("あ"))).IsEqualTo(Fnv1a.Hash([0xE3, 0x81, 0x82]));
+    }
+
+    [Test]
+    public async Task HashAsciiIgnoreCase_WithAsciiCaseVariants_ProducesSameHash()
+    {
+        await Assert.That(Fnv1a.HashAsciiIgnoreCase("System.Buffers"u8)).IsEqualTo(Fnv1a.HashAsciiIgnoreCase("system.buffers"u8));
+        await Assert.That(Fnv1a.HashAsciiIgnoreCase("system.buffers"u8)).IsEqualTo(Fnv1a.Hash("system.buffers"u8));
+    }
+
+    [Test]
+    public async Task HashUInt32_WithSeed_MatchesLittleEndianBytes()
+    {
+        const uint value = 0x12345678;
+        var seeded = Fnv1a.HashSeparator(Fnv1a.Hash("edge"u8));
+
+        await Assert.That(Fnv1a.HashUInt32(value, seeded)).IsEqualTo(Fnv1a.Hash([0x78, 0x56, 0x34, 0x12], seeded));
     }
 }

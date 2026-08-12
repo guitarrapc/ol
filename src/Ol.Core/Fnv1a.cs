@@ -1,4 +1,4 @@
-namespace Ol.Core;
+﻿namespace Ol.Core;
 
 /// <summary>
 /// Calculates the 32-bit FNV-1a hash the resolved-input parsers key their node-index tables with.
@@ -22,10 +22,33 @@ internal static class Fnv1a
     {
         for (var index = 0; index < value.Length; index++)
         {
-            hash = (hash ^ value[index]) * Prime;
+            hash = Mix(value[index], hash);
         }
 
         return hash;
+    }
+
+    /// <summary>Hashes UTF-8 ASCII bytes case-insensitively, optionally continuing an earlier hash.</summary>
+    /// <remarks>Non-ASCII bytes are hashed unchanged; callers must use this only with an ASCII comparison contract.</remarks>
+    public static uint HashAsciiIgnoreCase(ReadOnlySpan<byte> value, uint hash = OffsetBasis)
+    {
+        for (var index = 0; index < value.Length; index++)
+        {
+            var current = value[index];
+            if (current is >= (byte)'A' and <= (byte)'Z') current += 32;
+            hash = Mix(current, hash);
+        }
+
+        return hash;
+    }
+
+    /// <summary>Hashes one unsigned 32-bit value as four little-endian bytes, optionally continuing an earlier hash.</summary>
+    public static uint HashUInt32(uint value, uint hash = OffsetBasis)
+    {
+        hash = Mix((byte)value, hash);
+        hash = Mix((byte)(value >> 8), hash);
+        hash = Mix((byte)(value >> 16), hash);
+        return Mix((byte)(value >> 24), hash);
     }
 
     /// <summary>Mixes a part boundary into a composite key's hash.</summary>
@@ -34,5 +57,7 @@ internal static class Fnv1a
     /// <c>("a", "b")</c> would land in the same bucket. 0xFF cannot occur in valid UTF-8, so no part
     /// content can reproduce the boundary.
     /// </remarks>
-    public static uint HashSeparator(uint hash) => (hash ^ 0xff) * Prime;
+    public static uint HashSeparator(uint hash) => Mix(0xff, hash);
+
+    private static uint Mix(byte value, uint hash) => (hash ^ value) * Prime;
 }

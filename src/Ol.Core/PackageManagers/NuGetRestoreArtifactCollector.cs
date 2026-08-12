@@ -296,13 +296,9 @@ public static class NuGetRestoreArtifactCollector
 
     private static uint HashIdentity(ReadOnlySpan<byte> name, ReadOnlySpan<byte> version)
     {
-        const uint offset = 2166136261;
-        const uint prime = 16777619;
-        var hash = offset;
-        for (var i = 0; i < name.Length; i++) hash = (hash ^ ToLowerAscii(name[i])) * prime;
-        hash = (hash ^ (byte)'/') * prime;
-        for (var i = 0; i < version.Length; i++) hash = (hash ^ ToLowerAscii(version[i])) * prime;
-        return hash;
+        var hash = Fnv1a.HashAsciiIgnoreCase(name);
+        hash = Fnv1a.HashSeparator(hash);
+        return Fnv1a.HashAsciiIgnoreCase(version, hash);
     }
 
     private static bool AsciiEqualsIgnoreCase(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)

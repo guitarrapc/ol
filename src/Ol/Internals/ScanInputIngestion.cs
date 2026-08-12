@@ -22,6 +22,7 @@ internal readonly record struct ScanInputIngestionResult(
     DependencyInventory Inventory,
     ResolvedPackageArtifactInput[] PackageArtifactInputs,
     int PackageArtifactInputCount,
+    int DetectedInputFileCount,
     InputCandidateDiagnostics InputCandidateDiagnostics);
 
 /// <summary>
@@ -217,6 +218,7 @@ internal static class ScanInputIngestion
                 DependencyInventoryCombiner.Combine(inventories.AsSpan(0, inventoryCount), handlers.AsSpan(0, inventoryCount), descriptor),
                 packageArtifactInputs,
                 packageArtifactInputCount,
+                files.Length,
                 inputCandidateDiagnostics);
         }
         finally

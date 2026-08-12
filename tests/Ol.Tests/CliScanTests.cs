@@ -1040,6 +1040,7 @@ public sealed class CliScanTests
                 await Assert.That(stderr).Contains("  Declared GitHub files (full scan): 0 targets; 0 GitHub requests; 0 cache hits; 0 cache misses; 0 documents; 0 matched; 0 fetch errors");
                 await Assert.That(stderr).Contains("  Package metadata (full scan):");
                 await Assert.That(stderr).Contains("  Source repositories (full scan):");
+                await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; ecosystems none");
                 await Assert.That(stderr).Contains("  Input:");
             }
 
@@ -1918,6 +1919,36 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithDirectoryContainingIgnoredCandidate_SummarizesInputDiscovery()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-input-summary-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 1 ignored candidate (Cargo.lock); ecosystems nuget");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithDirectoryContainingCargoMetadata_DoesNotWarnForCargoLock()
     {
         var root = FindRepositoryRoot();
@@ -1944,6 +1975,40 @@ public sealed class CliScanTests
             using var report = JsonDocument.Parse(stdout);
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cargo-metadata");
             await Assert.That(stderr).IsEmpty();
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithMultipleEcosystems_SummarizesEveryDetectedInputInStableOrder()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-mixed-input-summary-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "cargo-metadata.json"),
+            Path.Combine(temporaryDirectory, "cargo-metadata.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; ecosystems cargo, nuget");
+            await Assert.That(stderr).DoesNotContain("Warning: Rust dependencies were not scanned");
         }
         finally
         {

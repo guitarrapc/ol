@@ -163,6 +163,30 @@ internal static class KnownUnsupportedInputCandidates
         }
     }
 
+    public static int GetUnresolvedCount(in InputCandidateDiagnostics diagnostics)
+        => System.Numerics.BitOperations.PopCount(diagnostics.Unresolved);
+
+    public static void WriteUnresolvedNames(in InputCandidateDiagnostics diagnostics, TextWriter writer)
+    {
+        var unresolved = diagnostics.Unresolved;
+        var written = 0;
+        for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
+        {
+            ref readonly var rule = ref Rules[ruleIndex];
+            if ((unresolved & rule.Bit) == 0)
+            {
+                continue;
+            }
+
+            if (written++ > 0)
+            {
+                writer.Write(", ");
+            }
+
+            writer.Write(rule.FileName ?? string.Concat("*", rule.Extension));
+        }
+    }
+
     private readonly record struct CandidateRule(
         ulong Bit,
         string? FileName,

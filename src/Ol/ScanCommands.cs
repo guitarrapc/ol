@@ -198,6 +198,11 @@ internal sealed class ScanCommands
                 Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
             }
 
+            WriteInputDiscoverySummary(
+                completed.DetectedInputFileCount,
+                completed.InputCandidateDiagnostics,
+                scanResult.Inventory.Components,
+                Console.Error);
             Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
             if (dependency is not null and not "")
             {
@@ -206,6 +211,58 @@ internal sealed class ScanCommands
         }
 
         return 0;
+    }
+
+    private static void WriteInputDiscoverySummary(
+        int detectedInputFileCount,
+        in InputCandidateDiagnostics candidateDiagnostics,
+        ReadOnlySpan<ScanComponent> components,
+        TextWriter writer)
+    {
+        var ignoredCandidateCount = KnownUnsupportedInputCandidates.GetUnresolvedCount(candidateDiagnostics);
+        writer.Write("  Input discovery: ");
+        writer.Write(detectedInputFileCount);
+        writer.Write(detectedInputFileCount == 1 ? " detected file; " : " detected files; ");
+        writer.Write(ignoredCandidateCount);
+        writer.Write(ignoredCandidateCount == 1 ? " ignored candidate" : " ignored candidates");
+        if (ignoredCandidateCount > 0)
+        {
+            writer.Write(" (");
+            KnownUnsupportedInputCandidates.WriteUnresolvedNames(candidateDiagnostics, writer);
+            writer.Write(')');
+        }
+
+        writer.Write("; ecosystems ");
+        var ecosystems = new HashSet<string>(StringComparer.Ordinal);
+        for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)
+        {
+            var ecosystem = components[componentIndex].Ecosystem;
+            if (!string.IsNullOrEmpty(ecosystem) && ecosystem != "-")
+            {
+                ecosystems.Add(ecosystem);
+            }
+        }
+
+        if (ecosystems.Count == 0)
+        {
+            writer.WriteLine("none");
+            return;
+        }
+
+        var sortedEcosystems = new string[ecosystems.Count];
+        ecosystems.CopyTo(sortedEcosystems);
+        Array.Sort(sortedEcosystems, StringComparer.Ordinal);
+        for (var ecosystemIndex = 0; ecosystemIndex < sortedEcosystems.Length; ecosystemIndex++)
+        {
+            if (ecosystemIndex > 0)
+            {
+                writer.Write(", ");
+            }
+
+            writer.Write(sortedEcosystems[ecosystemIndex]);
+        }
+
+        writer.WriteLine();
     }
 
     private static void WriteText(

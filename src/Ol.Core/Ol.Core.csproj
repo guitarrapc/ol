@@ -12,4 +12,8 @@
     <PackageReference Include="NuGet.Versioning" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Generated\license-texts.bin.br" LogicalName="Ol.Core.Generated.license-texts.bin.br" WithCulture="false" />
+  </ItemGroup>
+
 </Project>

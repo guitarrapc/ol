@@ -4,10 +4,12 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Buffers;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Ol.Core.GitHub;
 
-/// <summary>Retrieves GitHub's detected repository license without parsing license bodies.</summary>
+/// <summary>Retrieves GitHub's detected repository license and bounded exact declared files.</summary>
 public sealed class GitHubLicenseApiClient
 {
     private static readonly Uri ApiBaseUri = new("https://api.github.com/");
@@ -51,6 +53,50 @@ public sealed class GitHubLicenseApiClient
     /// a lower concurrency rather than silently losing source evidence.
     /// </remarks>
     public GitHubRateLimitStatus? RateLimit => Volatile.Read(ref rateLimit);
+
+    /// <summary>Fetches and classifies one exact declared GitHub file through the Contents API.</summary>
+    public async Task<DeclaredGitHubFileResult> FetchFileAsync(
+        DeclaredGitHubFileTarget target,
+        Ol.Core.Spdx.SpdxLicenseTextMatcher matcher,
+        DeclaredGitHubFileCache? cache = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(matcher);
+        var endpoint = new Uri(apiBaseUri, string.Concat(
+            "repos/", Uri.EscapeDataString(target.Owner), "/", Uri.EscapeDataString(target.Name),
+            "/contents/", EscapePath(target.Path), "?ref=", Uri.EscapeDataString(target.Ref)));
+        HttpResponseMessage? response = null;
+        RateLimitDecision rateLimitDecision;
+        try
+        {
+            response = await SendFollowingRedirectsAsync(endpoint, cancellationToken).ConfigureAwait(false);
+            rateLimitDecision = await ClassifyRateLimitAsync(response, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            response?.Dispose();
+            throw;
+        }
+
+        using (response)
+        {
+            if (rateLimitDecision.Kind != GitHubRateLimitKind.None)
+            {
+                throw rateLimitDecision.Kind == GitHubRateLimitKind.Secondary
+                    && rateLimitDecision.RetryAfter is { } retryAfter
+                    && retryAfter <= MaximumWait
+                    ? new SourceRepositoryFetchException(response.StatusCode, retryAfter)
+                    : CreateRateLimitException(Reach(response.StatusCode, rateLimitDecision));
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return new(response.StatusCode, null, string.Empty);
+            }
+            if (!response.IsSuccessStatusCode) throw new SourceRepositoryFetchException(response.StatusCode);
+            return await ReadDeclaredFileAsync(response.Content, target, matcher, cache, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>Fetches one GitHub License API response.</summary>
     /// <remarks>
@@ -185,6 +231,125 @@ public sealed class GitHubLicenseApiClient
 
         return await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
     }
+
+    private static async Task<DeclaredGitHubFileResult> ReadDeclaredFileAsync(
+        HttpContent content,
+        DeclaredGitHubFileTarget target,
+        Ol.Core.Spdx.SpdxLicenseTextMatcher matcher,
+        DeclaredGitHubFileCache? cache,
+        CancellationToken cancellationToken)
+    {
+        const int maximumGitHubContentsBytes = 1024 * 1024;
+        var maximumDocumentBytes = Math.Min(matcher.MaximumTextBytes, maximumGitHubContentsBytes);
+        var maximumPayloadBytes = ((maximumDocumentBytes + 2) / 3 * 4) + 64 * 1024;
+        if (content.Headers.ContentLength is > 0 and var contentLength && contentLength > maximumPayloadBytes)
+        {
+            throw new SourceRepositoryFetchException(HttpStatusCode.RequestEntityTooLarge);
+        }
+
+        var payload = ArrayPool<byte>.Shared.Rent(maximumPayloadBytes + 1);
+        var document = ArrayPool<byte>.Shared.Rent(maximumDocumentBytes);
+        var base64Characters = ArrayPool<char>.Shared.Rent(maximumPayloadBytes);
+        try
+        {
+            await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            var payloadLength = 0;
+            while (payloadLength <= maximumPayloadBytes)
+            {
+                var read = await stream.ReadAsync(payload.AsMemory(payloadLength, maximumPayloadBytes + 1 - payloadLength), cancellationToken).ConfigureAwait(false);
+                if (read == 0) break;
+                payloadLength += read;
+            }
+
+            if (payloadLength > maximumPayloadBytes) throw new SourceRepositoryFetchException(HttpStatusCode.RequestEntityTooLarge);
+            var reader = new Utf8JsonReader(payload.AsSpan(0, payloadLength));
+            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) throw new SourceRepositoryFetchException(null);
+            var base64 = false;
+            var foundContent = false;
+            var documentLength = 0;
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName) throw new SourceRepositoryFetchException(null);
+                if (reader.ValueTextEquals("encoding"u8))
+                {
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.String) throw new SourceRepositoryFetchException(null);
+                    base64 = reader.ValueTextEquals("base64"u8);
+                }
+                else if (reader.ValueTextEquals("content"u8))
+                {
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.String) throw new SourceRepositoryFetchException(null);
+                    var characterCount = reader.CopyString(base64Characters);
+                    if (!Convert.TryFromBase64Chars(base64Characters.AsSpan(0, characterCount), document, out documentLength))
+                    {
+                        throw new SourceRepositoryFetchException(null);
+                    }
+                    foundContent = true;
+                }
+                else
+                {
+                    if (!reader.Read()) throw new SourceRepositoryFetchException(null);
+                    reader.Skip();
+                }
+            }
+
+            if (!base64 || !foundContent || documentLength == 0 || documentLength > maximumDocumentBytes)
+            {
+                throw new SourceRepositoryFetchException(null);
+            }
+
+            var bytes = document.AsSpan(0, documentLength);
+            Span<byte> hash = stackalloc byte[32];
+            SHA256.HashData(bytes, hash);
+            var licenseId = matcher.TryMatch(SkipUtf8Bom(bytes), out var matched) ? matched : null;
+            TryWriteFileCache(cache, target, HttpStatusCode.OK, bytes);
+            return new DeclaredGitHubFileResult(HttpStatusCode.OK, licenseId, Convert.ToHexStringLower(hash));
+        }
+        catch (JsonException exception)
+        {
+            throw new SourceRepositoryFetchException(null, exception);
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(base64Characters);
+            ArrayPool<byte>.Shared.Return(document);
+            ArrayPool<byte>.Shared.Return(payload);
+        }
+    }
+
+    private static void TryWriteFileCache(
+        DeclaredGitHubFileCache? cache,
+        DeclaredGitHubFileTarget target,
+        HttpStatusCode statusCode,
+        ReadOnlySpan<byte> document)
+    {
+        if (cache is null) return;
+        try
+        {
+            cache.Write(target, statusCode, document);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // Cache persistence is best effort; the fetched evidence remains usable for this scan.
+        }
+    }
+
+    private static string EscapePath(string path)
+    {
+        var builder = new StringBuilder(path.Length + 16);
+        var remaining = path.AsSpan();
+        while (true)
+        {
+            var separator = remaining.IndexOf('/');
+            var segment = separator < 0 ? remaining : remaining[..separator];
+            if (builder.Length != 0) builder.Append('/');
+            builder.Append(Uri.EscapeDataString(segment));
+            if (separator < 0) return builder.ToString();
+            remaining = remaining[(separator + 1)..];
+        }
+    }
+
+    private static ReadOnlySpan<byte> SkipUtf8Bom(ReadOnlySpan<byte> value)
+        => value.Length >= 3 && value[0] == 0xef && value[1] == 0xbb && value[2] == 0xbf ? value[3..] : value;
 
     private static bool IsGitHubApi(Uri uri)
         => string.Equals(uri.Host, "api.github.com", StringComparison.OrdinalIgnoreCase)
@@ -379,6 +544,9 @@ public sealed class GitHubLicenseApiClient
     private readonly record struct RateLimitDecision(GitHubRateLimitKind Kind, TimeSpan? RetryAfter, DateTimeOffset? ResetsAt, int? Limit = null);
     private readonly record struct LicenseResponse(HttpStatusCode StatusCode, GitHubLicenseResult? License);
 }
+
+/// <summary>Contains the bounded result of reading one declared GitHub file.</summary>
+public readonly record struct DeclaredGitHubFileResult(HttpStatusCode StatusCode, string? LicenseId, string ContentSha256);
 
 /// <summary>Identifies which GitHub rate limit a response reported.</summary>
 public enum GitHubRateLimitKind : byte

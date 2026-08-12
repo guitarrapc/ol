@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using Ol.Core;
+using Ol.Core.GitHub;
 using Ol.Core.Licensing;
 using Ol.Core.PackageManagers;
 using Ol.Core.Reporting;
@@ -540,10 +541,10 @@ internal static class ReportRenderer
         WriteEmptyInventoryMarkdown(writer, emptyInventory);
     }
 
-    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
-        => WriteJson(writer, inventory, components, default, spdx, metadataSummary, sourceSummary, scope);
+    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, SpdxData spdx, PackageArtifactCollectionSummary packageArtifactSummary, DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFileSummary, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
+        => WriteJson(writer, inventory, components, default, spdx, packageArtifactSummary, declaredGitHubFileSummary, metadataSummary, sourceSummary, scope);
 
-    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, ReadOnlySpan<DependencyUsage> componentUsages, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
+    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, ReadOnlySpan<ScanComponent> components, ReadOnlySpan<DependencyUsage> componentUsages, SpdxData spdx, PackageArtifactCollectionSummary packageArtifactSummary, DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFileSummary, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
     {
         writer.WriteStartObject();
         writer.WriteNumber("schemaVersion", JsonSchemaVersion);
@@ -551,6 +552,8 @@ internal static class ReportRenderer
         WriteToolMetadata(writer);
         WriteInputMetadata(writer, inventory.Input);
         WriteSpdxMetadata(writer, spdx);
+        WritePackageArtifactMetadata(writer, packageArtifactSummary);
+        WriteDeclaredGitHubFileMetadata(writer, declaredGitHubFileSummary);
         WritePackageMetadata(writer, metadataSummary);
         WriteSourceRepositoryMetadata(writer, sourceSummary);
         WriteScopeMetadata(writer, scope);
@@ -589,7 +592,7 @@ internal static class ReportRenderer
         writer.WriteEndObject();
     }
 
-    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, GroupRow[] groups, string groupBy, SpdxData spdx, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
+    public static void WriteJson(Utf8JsonWriter writer, DependencyInventory inventory, GroupRow[] groups, string groupBy, SpdxData spdx, PackageArtifactCollectionSummary packageArtifactSummary, DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFileSummary, PackageMetadataSummary metadataSummary, SourceRepositorySummary sourceSummary, ScanReportScope scope)
     {
         writer.WriteStartObject();
         writer.WriteNumber("schemaVersion", JsonSchemaVersion);
@@ -597,6 +600,8 @@ internal static class ReportRenderer
         WriteToolMetadata(writer);
         WriteInputMetadata(writer, inventory.Input);
         WriteSpdxMetadata(writer, spdx);
+        WritePackageArtifactMetadata(writer, packageArtifactSummary);
+        WriteDeclaredGitHubFileMetadata(writer, declaredGitHubFileSummary);
         WritePackageMetadata(writer, metadataSummary);
         WriteSourceRepositoryMetadata(writer, sourceSummary);
         WriteScopeMetadata(writer, scope);
@@ -885,6 +890,28 @@ internal static class ReportRenderer
         writer.WriteEndObject();
     }
 
+    private static void WritePackageArtifactMetadata(Utf8JsonWriter writer, PackageArtifactCollectionSummary summary)
+    {
+        writer.WriteStartObject("packageArtifacts");
+        writer.WriteNumber("targetCount", summary.TargetCount);
+        writer.WriteNumber("documentCount", summary.DocumentCount);
+        writer.WriteNumber("matchedCount", summary.MatchedCount);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteDeclaredGitHubFileMetadata(Utf8JsonWriter writer, DeclaredGitHubFileArtifactCollectionSummary summary)
+    {
+        writer.WriteStartObject("declaredGitHubFiles");
+        writer.WriteNumber("targetCount", summary.TargetCount);
+        writer.WriteNumber("githubRequestCount", summary.GitHubRequestCount);
+        writer.WriteNumber("cacheHitCount", summary.CacheHitCount);
+        writer.WriteNumber("cacheMissCount", summary.CacheMissCount);
+        writer.WriteNumber("documentCount", summary.DocumentCount);
+        writer.WriteNumber("matchedCount", summary.MatchedCount);
+        writer.WriteNumber("fetchErrorCount", summary.FetchErrorCount);
+        writer.WriteEndObject();
+    }
+
     private static void WriteSourceRepositoryMetadata(Utf8JsonWriter writer, SourceRepositorySummary summary)
     {
         writer.WriteStartObject("sourceRepository");
@@ -1018,6 +1045,18 @@ internal static class ReportRenderer
                 if (evidence.SourceRepository is { } sourceRepository)
                 {
                     WriteSourceRepositoryEvidence(writer, sourceRepository);
+                }
+
+                break;
+            case LicenseEvidenceKind.PackageArtifact:
+                writer.WriteString("type", "package-artifact");
+                if (evidence.PackageArtifact is { } artifact)
+                {
+                    writer.WriteString("artifact", artifact.Artifact);
+                    writer.WriteString("path", artifact.Path);
+                    writer.WriteString("contentSha256", artifact.ContentSha256);
+                    writer.WriteString("matcher", artifact.Matcher);
+                    writer.WriteString("corpusVersion", artifact.CorpusVersion);
                 }
 
                 break;

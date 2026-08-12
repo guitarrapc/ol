@@ -116,7 +116,7 @@ The section is part of the primary result, so `--quiet` does not suppress it. Gr
 <a id="contract-output-formats"></a>
 <a id="contract-json-report"></a>
 
-`scan` supports `text`, `markdown`, and canonical `json`; the default is `text`. Canonical JSON has a top-level `schemaVersion` and contains producer, input, SPDX, cache/network metadata, collection mode, view scope, the complete inventory and graph, component results or grouped results, summary, and warnings. `metadata.collection.externalEvidence` is `collected` or `not-collected`; a run with `--no-external-evidence` and a run that collected and had nothing to fetch are otherwise indistinguishable, because both leave every collection counter at zero. `metadata.view` records the applied `dependencyFilter` and the `excludedCount` and `excludedUnknownCount` it removed, so a filtered report cannot be read as a complete one. Both are present in component and grouped reports. Consumers must reject or explicitly migrate unsupported schema versions.
+`scan` supports `text`, `markdown`, and canonical `json`; the default is `text`. Canonical JSON has a top-level `schemaVersion` and contains producer, input, SPDX, cache/network metadata, collection mode, view scope, the complete inventory and graph, component results or grouped results, summary, and warnings. `metadata.packageArtifacts` records restored-artifact targets, documents, and SPDX matches. `metadata.declaredGitHubFiles` records exact declared-file targets, GitHub requests, cache hits and misses, documents, SPDX matches, and fetch errors. Text and Markdown expose the same full-scan counters in their stderr summary. `metadata.collection.externalEvidence` is `collected` or `not-collected`; a run with `--no-external-evidence` and a run that collected and had nothing to fetch are otherwise indistinguishable, because both leave every collection counter at zero. `metadata.view` records the applied `dependencyFilter` and the `excludedCount` and `excludedUnknownCount` it removed, so a filtered report cannot be read as a complete one. Both are present in component and grouped reports. Consumers must reject or explicitly migrate unsupported schema versions.
 
 The complete inventory is independent of sorted, filtered, or grouped views. Occurrence indexes address `inventory.components`, never displayed component or group indexes. The report identifies inputs with logical references and content hashes. It accepts input and SPDX JSON with an optional UTF-8 BOM.
 
@@ -194,7 +194,7 @@ When a GitHub rate limit stops source collection, `scan` writes a stderr notice 
 
 `--dependency root,direct,transitive,unknown` filters only the rendered view; analysis always uses the complete inventory. When filtering to `direct`, the stderr summary identifies excluded `unknown` relationships, and canonical JSON records the same counts in `metadata.view`. `--sort` accepts `name`, `version`, `license`, `ecosystem`, `dependency`, `status`, and `purl`; default order is `ecosystem,name,version`, ascending. `--group-by` accepts all of those except `purl`, adds `COUNT`, and produces a grouped view. Empty filter, sort, or group lists are invalid.
 
-The cache root is selected by `--cache-dir`, then `OL_CACHE_DIR`, then legacy category-specific roots, then the platform user-cache location. A supplied root is an isolation directory: Ol manages only its `package-metadata` and `source-repository` children. Cache paths never appear in reports. Cache schemas are specified in [cache_format.md](cache_format.md).
+The cache root is selected by `--cache-dir`, then `OL_CACHE_DIR`, then legacy category-specific roots, then the platform user-cache location. A supplied root is an isolation directory: Ol manages only its `package-metadata`, `source-repository`, and `github-file` children. Cache paths never appear in reports. Cache schemas are specified in [cache_format.md](cache_format.md).
 
 ### `ol check`
 
@@ -242,7 +242,7 @@ ol diff --previous <scan.json> --current <scan.json> [--format text|json]
 ### `ol cache clear`
 
 ```text
-ol cache clear [package-metadata|source-repository|all]
+ol cache clear [package-metadata|source-repository|github-file|all]
 ```
 
 The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root.

@@ -1,6 +1,6 @@
 ﻿namespace Ol.Internals;
 
-internal readonly record struct CacheDirectories(string PackageMetadata, string SourceRepository);
+internal readonly record struct CacheDirectories(string PackageMetadata, string SourceRepository, string GitHubFile);
 
 internal static class CachePaths
 {
@@ -17,7 +17,7 @@ internal static class CachePaths
             return ResolveUnifiedRoot(environmentRoot);
         }
 
-        return new CacheDirectories(PackageMetadataPaths.DefaultRoot, SourceRepositoryPaths.DefaultRoot);
+        return new CacheDirectories(PackageMetadataPaths.DefaultRoot, SourceRepositoryPaths.DefaultRoot, GitHubFilePaths.DefaultRoot);
     }
 
     private static CacheDirectories ResolveUnifiedRoot(string root)
@@ -35,6 +35,13 @@ internal static class CachePaths
 
         return new CacheDirectories(
             Path.Combine(fullPath, "package-metadata"),
-            Path.Combine(fullPath, "source-repository"));
+            Path.Combine(fullPath, "source-repository"),
+            Path.Combine(fullPath, "github-file"));
     }
+}
+
+internal static class GitHubFilePaths
+{
+    public static string DefaultRoot => Environment.GetEnvironmentVariable("OL_GITHUB_FILE_CACHE_ROOT")
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ol", "cache", "github-file");
 }

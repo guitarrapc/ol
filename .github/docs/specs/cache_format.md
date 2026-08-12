@@ -40,6 +40,7 @@ The categories are:
 
 - `package-metadata`
 - `source-repository`
+- `github-file`
 
 The platform-specific cache root is not part of this format contract. The hash-named entry prevents package and private repository identities from appearing in directory listings. The plain `CacheKey` remains inside the entry so the evidence is auditable by a user who can already read the cache content.
 
@@ -163,6 +164,21 @@ Example:
 Resolver version `3` revisits entries whose `Ref` is not `default` and whose `HttpStatus` is `404`. An earlier resolver stopped at that answer, while the current one repeats the lookup at the repository default ref before concluding that no license file exists; see the [ref fallback contract](source.md#contract-source-ref-fallback). Recollection writes the current version, so each affected entry is refetched once rather than on every scan.
 
 HTTP 404 and a successful response with no identified license are cacheable unknown outcomes, not malformed entries. Retry-exhausted or non-retryable source failures may also be retained when needed for audit, but cache use must continue to follow the best-effort and refresh behavior defined by the source specification.
+
+<a id="contract-github-file-cache-v1"></a>
+## Declared GitHub File Entry — Schema Version 1
+
+The `github-file` category stores the bounded raw bytes returned for one exact declared GitHub file. Its `CacheKey` is `github-file:<owner>/<repo>@<ref>/<path>` with the case-insensitive GitHub owner and repository normalized to lowercase; ref and path retain their declared casing. In addition to the common identity and provenance fields, an entry carries:
+
+| Property | Type | Required | Meaning |
+|---|---|---:|---|
+| `HttpStatus` | integer | yes | Always `200`; negative and error responses are not persisted. |
+| `ContentSha256` | string | yes | Lowercase SHA-256 of decoded `Content`. |
+| `Content` | string | yes | Base64-encoded raw document bytes. |
+
+The decoded content is capped at 1 MiB and the complete entry is bounded before rental or parsing. A reader validates schema, logical key, key digest, source, UTC fetch time, status/content consistency, Base64 encoding, and the recomputed content SHA-256. Any failure makes the entry unusable and causes recollection when network access is enabled. A hit is reclassified with the active SPDX corpus; the cache never persists `MIT` or another final matcher conclusion. HTTP `404` remains deduplicated within one scan but is not persisted because evidence caches have no automatic TTL and GitHub may also use `404` for visibility or authorization changes.
+
+The content digest is an integrity check, not a signature or MAC. It detects accidental corruption and unsynchronized edits but cannot authenticate an entry against an actor able to rewrite both content and digest. Filesystem access control is the trust boundary for intentional local modification; `--refresh`, `cache clear github-file`, and an isolated `--cache-dir` let callers decline existing entries.
 
 ## Evolution and Migration
 

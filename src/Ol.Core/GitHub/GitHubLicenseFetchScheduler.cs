@@ -9,6 +9,43 @@ public static class GitHubLicenseFetchScheduler
     public static Task<SourceRepositoryRecord> FetchAsync(GitHubLicenseApiClient client, SourceRepositoryTarget target, int retryCount, CancellationToken cancellationToken = default)
         => FetchAsync(client, target, retryCount, static (delay, token) => Task.Delay(delay, token), cancellationToken);
 
+    /// <summary>Fetches one declared file, retrying only transient GitHub failures.</summary>
+    public static Task<DeclaredGitHubFileResult> FetchFileAsync(
+        GitHubLicenseApiClient client,
+        DeclaredGitHubFileTarget target,
+        Ol.Core.Spdx.SpdxLicenseTextMatcher matcher,
+        int retryCount,
+        DeclaredGitHubFileCache? cache = null,
+        CancellationToken cancellationToken = default)
+        => FetchFileAsync(client, target, matcher, retryCount, cache, static (delay, token) => Task.Delay(delay, token), cancellationToken);
+
+    internal static async Task<DeclaredGitHubFileResult> FetchFileAsync(
+        GitHubLicenseApiClient client,
+        DeclaredGitHubFileTarget target,
+        Ol.Core.Spdx.SpdxLicenseTextMatcher matcher,
+        int retryCount,
+        DeclaredGitHubFileCache? cache,
+        Func<TimeSpan, CancellationToken, Task> delayAsync,
+        CancellationToken cancellationToken = default)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await client.FetchFileAsync(target, matcher, cache, cancellationToken).ConfigureAwait(false);
+            }
+            catch (SourceRepositoryFetchException exception) when (attempt < retryCount && exception.IsTransient)
+            {
+                if (exception.RetryAfter is { } retryAfter && retryAfter > TimeSpan.Zero)
+                {
+                    await delayAsync(retryAfter, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (HttpRequestException) when (attempt < retryCount) { }
+            catch (TaskCanceledException) when (attempt < retryCount && !cancellationToken.IsCancellationRequested) { }
+        }
+    }
+
     internal static async Task<SourceRepositoryRecord> FetchAsync(
         GitHubLicenseApiClient client,
         SourceRepositoryTarget target,

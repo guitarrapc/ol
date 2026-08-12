@@ -2,11 +2,106 @@
 using System.Text;
 using Ol.Core.Generated;
 using Ol.Core.Spdx;
+using Ol.Internals;
 
 namespace Ol.Tests;
 
 public sealed class SpdxStoreTests
 {
+    private const string CoreFxMit = """
+        The MIT License (MIT)
+
+        Copyright (c) .NET Foundation and Contributors
+
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+        """;
+
+    [Test]
+    public async Task Data_Bundled_ConstructsMatcherFromBundledCorpus()
+    {
+        var data = SpdxData.Load(null);
+
+        await Assert.That(data.Matcher.CorpusVersion).IsEqualTo(data.LicenseListVersion);
+        await Assert.That(data.Matcher.UnanchoredTemplateCount).IsLessThanOrEqualTo(10);
+        await Assert.That(data.Matcher.TryMatch(Encoding.UTF8.GetBytes(CoreFxMit), out var id)).IsTrue();
+        await Assert.That(id).IsEqualTo("MIT");
+    }
+
+    [Test]
+    public async Task ScanPreparation_NormalScanCarriesBundledMatcher()
+    {
+        var input = Path.GetTempFileName();
+        try
+        {
+            var prepared = ScanExecution.TryPrepare([input], "cyclonedx", null, null, noExternalEvidence: true, concurrency: 1, retry: 0, out var preparation, out var error);
+
+            await Assert.That(prepared).IsTrue().Because(error);
+            await Assert.That(preparation.Spdx.Matcher.CorpusVersion).IsEqualTo(preparation.Spdx.LicenseListVersion);
+        }
+        finally
+        {
+            File.Delete(input);
+        }
+    }
+
+    [Test]
+    public async Task Data_UserDirectoryWithCorpus_ConstructsVersionMatchedMatcher()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-corpus-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(Path.Combine(root, "licenses.json"), """{ "licenseListVersion": "test", "licenses": [ { "licenseId": "Example" } ] }""");
+        await File.WriteAllTextAsync(Path.Combine(root, "exceptions.json"), """{ "exceptions": [] }""");
+        var corpus = SpdxLicenseTextCorpus.Create("test", [new("Example", "example terms")]);
+        await File.WriteAllBytesAsync(Path.Combine(root, SpdxLicenseTextCorpus.FileName), corpus);
+
+        try
+        {
+            var data = SpdxData.Load(root);
+
+            await Assert.That(data.Matcher.TryMatch("example terms"u8, out var id)).IsTrue();
+            await Assert.That(id).IsEqualTo("Example");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Data_UserDirectoryWithMismatchedCorpus_RejectsSnapshot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-corpus-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(Path.Combine(root, "licenses.json"), """{ "licenseListVersion": "list", "licenses": [] }""");
+        await File.WriteAllTextAsync(Path.Combine(root, "exceptions.json"), """{ "exceptions": [] }""");
+        await File.WriteAllBytesAsync(Path.Combine(root, SpdxLicenseTextCorpus.FileName), SpdxLicenseTextCorpus.Create("other", [new("Example", "terms")]));
+
+        try
+        {
+            await Assert.That(() => SpdxData.Load(root)).Throws<InvalidDataException>();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Test]
     // The licenses digest covers names as well as identifiers, because both decide what a value
     // resolves to and the file digest used for installed data already distinguishes them.
@@ -114,6 +209,46 @@ public sealed class SpdxStoreTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Install_WithCorpus_PersistsVersionMatchedCorpus()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");
+        var licenses = """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "MIT" } ] }"""u8.ToArray();
+        var exceptions = """{ "exceptions": [] }"""u8.ToArray();
+        var corpus = SpdxLicenseTextCorpus.Create("3.27.0", [new("MIT", "MIT License")]);
+
+        try
+        {
+            await SpdxStore.InstallAsync(root, licenses, exceptions, corpus);
+
+            await Assert.That(File.Exists(Path.Combine(root, "3.27.0", SpdxLicenseTextCorpus.FileName))).IsTrue();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Install_WithMismatchedCorpusVersion_RejectsBeforePersistingSnapshot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-corpus-{Guid.NewGuid():N}");
+        var licenses = """{ "licenseListVersion": "3.27.0", "licenses": [] }"""u8.ToArray();
+        var exceptions = """{ "exceptions": [] }"""u8.ToArray();
+        var corpus = SpdxLicenseTextCorpus.Create("3.28.0", [new("MIT", "MIT License")]);
+
+        try
+        {
+            await Assert.That(async () => await SpdxStore.InstallAsync(root, licenses, exceptions, corpus))
+                .Throws<InvalidDataException>();
+            await Assert.That(Directory.Exists(Path.Combine(root, "3.27.0"))).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
 

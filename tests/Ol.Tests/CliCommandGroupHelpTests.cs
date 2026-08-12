@@ -63,7 +63,7 @@ public sealed class CliCommandGroupHelpTests
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(result.Stdout).Contains("Usage: cache clear [arguments...]");
         await Assert.That(result.Stdout).Contains("Arguments:");
-        await Assert.That(result.Stdout).Contains("[0] <string>    Cache category: package-metadata, source-repository, or all. [Default: all]");
+        await Assert.That(result.Stdout).Contains("[0] <string>    Cache category: package-metadata, source-repository, github-file, or all. [Default: all]");
         await Assert.That(result.Stdout).DoesNotContain("--category");
         await Assert.That(result.Stderr).IsEmpty();
     }

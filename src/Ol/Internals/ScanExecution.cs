@@ -2,6 +2,7 @@
 using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.PackageMetadata;
+using Ol.Core.PackageManagers;
 using Ol.Core.SourceRepository;
 
 namespace Ol.Internals;
@@ -16,6 +17,8 @@ internal readonly record struct ScanPreparation(
 
 internal readonly record struct CompletedScanExecution(
     ScanResult Result,
+    PackageArtifactCollectionSummary PackageArtifactSummary,
+    DeclaredGitHubFileArtifactCollectionSummary DeclaredGitHubFileSummary,
     PackageMetadataSummary PackageMetadataSummary,
     SourceRepositorySummary SourceRepositorySummary,
     GitHubRateLimitStatus? GitHubRateLimit = null);
@@ -137,13 +140,15 @@ internal static class ScanExecution
         bool noExternalEvidence,
         bool includeHash,
         out CompletedScanExecution completed,
-        out string error)
+        out string error,
+        DeclaredGitHubFileArtifactCollector? declaredGitHubFileCollector = null)
     {
         ScanResult scanResult;
+        ScanInputIngestionResult ingestion;
         try
         {
-            var inventory = ScanInputIngestion.Ingest(preparation.Input, preparation.Spdx.Index, includeHash);
-            scanResult = ScanResult.FromInventory(inventory);
+            ingestion = ScanInputIngestion.Ingest(preparation.Input, preparation.Spdx.Index, includeHash, collectPackageArtifacts: !noExternalEvidence);
+            scanResult = ScanResult.FromInventory(ingestion.Inventory);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
@@ -155,6 +160,8 @@ internal static class ScanExecution
         try
         {
             var enrichedComponents = scanResult.Components;
+            var packageArtifactSummary = default(PackageArtifactCollectionSummary);
+            var declaredGitHubFileSummary = default(DeclaredGitHubFileArtifactCollectionSummary);
             PackageMetadataSummary packageMetadataSummary;
             SourceRepositorySummary sourceRepositorySummary;
             GitHubRateLimitStatus? gitHubRateLimit = null;
@@ -165,19 +172,39 @@ internal static class ScanExecution
             }
             else
             {
+                for (var inputIndex = 0; inputIndex < ingestion.PackageArtifactInputCount; inputIndex++)
+                {
+                    ref readonly var input = ref ingestion.PackageArtifactInputs[inputIndex];
+                    var collection = input.Collector(input.Path, enrichedComponents, preparation.Spdx.Matcher, preparation.Spdx.Index);
+                    enrichedComponents = collection.Components;
+                    packageArtifactSummary = new PackageArtifactCollectionSummary(
+                        packageArtifactSummary.TargetCount + collection.Summary.TargetCount,
+                        packageArtifactSummary.DocumentCount + collection.Summary.DocumentCount,
+                        packageArtifactSummary.MatchedCount + collection.Summary.MatchedCount);
+                }
+
                 var resolutions = new PackageMetadataResolution?[enrichedComponents.Length];
                 var metadataService = new PackageMetadataService(preparation.Spdx.Index, new PackageMetadataCache(preparation.CacheDirectories.PackageMetadata), refresh, preparation.Retry, preparation.UncollectedPackages);
                 var enrichment = metadataService.EnrichAsync(enrichedComponents, resolutions, preparation.Concurrency).GetAwaiter().GetResult();
                 enrichedComponents = enrichment.Components;
                 packageMetadataSummary = enrichment.Summary;
+                declaredGitHubFileCollector ??= new DeclaredGitHubFileArtifactCollector(
+                    preparation.Spdx.Matcher,
+                    preparation.Spdx.Index,
+                    preparation.Retry,
+                    new DeclaredGitHubFileCache(preparation.CacheDirectories.GitHubFile),
+                    refresh);
+                var declaredFileEnrichment = declaredGitHubFileCollector.EnrichAsync(enrichedComponents, preparation.Concurrency).GetAwaiter().GetResult();
+                enrichedComponents = declaredFileEnrichment.Components;
+                declaredGitHubFileSummary = declaredFileEnrichment.Summary;
                 var sourceService = new SourceRepositoryService(preparation.Spdx.Index, new SourceRepositoryCache(preparation.CacheDirectories.SourceRepository), refresh, preparation.Retry, client: null, preparation.UncollectedPackages);
                 var sourceEnrichment = sourceService.EnrichAsync(enrichedComponents, resolutions, preparation.Concurrency).GetAwaiter().GetResult();
                 enrichedComponents = sourceEnrichment.Components;
                 sourceRepositorySummary = sourceEnrichment.Summary;
-                gitHubRateLimit = sourceService.RateLimit;
+                gitHubRateLimit = declaredGitHubFileCollector.RateLimit ?? sourceService.RateLimit;
             }
 
-            completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageMetadataSummary, sourceRepositorySummary, gitHubRateLimit);
+            completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, gitHubRateLimit);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or HttpRequestException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {

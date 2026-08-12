@@ -25,6 +25,20 @@
       "licensesSha256": "d987343e83283921d04e95161e6d27cdb69ca4019e0e93a021d769986772ee3f",
       "exceptionsSha256": "345ed515e4b5ca426ef04c96805b9aa5b3cc4ad35b5fb471e9488a5359e5e21b"
     },
+    "packageArtifacts": {
+      "targetCount": 0,
+      "documentCount": 0,
+      "matchedCount": 0
+    },
+    "declaredGitHubFiles": {
+      "targetCount": 0,
+      "githubRequestCount": 0,
+      "cacheHitCount": 0,
+      "cacheMissCount": 0,
+      "documentCount": 0,
+      "matchedCount": 0,
+      "fetchErrorCount": 0
+    },
     "packageMetadata": {
       "targetCount": 0,
       "supportedComponentCount": 0,

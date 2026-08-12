@@ -30,6 +30,17 @@ public sealed class SelfScanSnapshotTests
         + "If the only difference is metadata.spdx, check `ol spdx list`: user-installed SPDX data replaces the bundled data this snapshot records.";
 
     [Test]
+    public async Task SelfScan_CommittedSbom_UsesLfNewlines()
+    {
+        var root = FindRepositoryRoot();
+        var sbom = Path.Combine(root, "sandbox", "self", "ol.cdx.json");
+        var content = await File.ReadAllBytesAsync(sbom);
+
+        await Assert.That(content.AsSpan().IndexOf("\r\n"u8)).IsEqualTo(-1)
+            .Because("the self-scan input is hashed byte-for-byte and must match its LF checkout in Linux CI");
+    }
+
+    [Test]
     [Arguments("text", "txt")]
     [Arguments("markdown", "md")]
     [Arguments("json", "json")]

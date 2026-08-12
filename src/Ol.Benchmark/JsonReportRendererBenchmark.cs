@@ -1,5 +1,7 @@
 ﻿using BenchmarkDotNet.Attributes;
 using Ol.Core;
+using Ol.Core.GitHub;
+using Ol.Core.PackageManagers;
 using Ol.Internals;
 using System.Buffers;
 using System.Text;
@@ -12,6 +14,8 @@ public class JsonReportRendererBenchmark
     private readonly ScanComponent[] components;
     private readonly GroupRow[] groups;
     private readonly DependencyInventory inventory;
+    private readonly PackageArtifactCollectionSummary packageArtifactSummary = new(1, 1, 1);
+    private readonly DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFileSummary = new(1, 0, 1, 0, 1, 1, 0);
     private readonly PackageMetadataSummary packageMetadataSummary = new(0, 0, 0, 0, 0, 0, 0, 1, 0);
     private readonly SourceRepositorySummary sourceRepositorySummary = new(0, 0, 0, 0, 0, 0, "none", 1, 0);
     private readonly ScanReportScope scope = new(ExternalEvidenceCollected: true, DependencyFilter: null, ExcludedCount: 0, ExcludedUnknownCount: 0);
@@ -43,7 +47,7 @@ public class JsonReportRendererBenchmark
     {
         buffer.Clear();
         writer.Reset(buffer);
-        ReportRenderer.WriteJson(writer, inventory, components, spdx, packageMetadataSummary, sourceRepositorySummary, scope);
+        ReportRenderer.WriteJson(writer, inventory, components, spdx, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, scope);
         writer.Flush();
         return buffer.WrittenCount;
     }
@@ -53,7 +57,7 @@ public class JsonReportRendererBenchmark
     {
         buffer.Clear();
         writer.Reset(buffer);
-        ReportRenderer.WriteJson(writer, inventory, groups, "license", spdx, packageMetadataSummary, sourceRepositorySummary, scope);
+        ReportRenderer.WriteJson(writer, inventory, groups, "license", spdx, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, scope);
         writer.Flush();
         return buffer.WrittenCount;
     }

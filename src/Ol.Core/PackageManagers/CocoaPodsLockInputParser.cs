@@ -1,4 +1,4 @@
-using Ol.Core.Licensing;
+﻿using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -393,18 +393,10 @@ internal static class CocoaPodsLockInputParser
         capacity = expandedCapacity;
     }
 
-    private static uint HashName(ReadOnlySpan<byte> value)
-    {
-        var hash = 2166136261u;
-        for (var index = 0; index < value.Length; index++) hash = (hash ^ value[index]) * 16777619;
-        return hash;
-    }
-
     private static uint HashEdge(DependencyEdge edge)
     {
-        var hash = 2166136261u;
-        hash = (hash ^ (uint)edge.FromOccurrenceIndex) * 16777619;
-        return (hash ^ (uint)edge.ToOccurrenceIndex) * 16777619;
+        var hash = Fnv1a.HashUInt32(unchecked((uint)edge.FromOccurrenceIndex));
+        return Fnv1a.HashUInt32(unchecked((uint)edge.ToOccurrenceIndex), hash);
     }
 
     private static bool IsPublicRepo(ReadOnlySpan<byte> value)

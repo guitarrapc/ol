@@ -1,6 +1,8 @@
 ﻿using BenchmarkDotNet.Attributes;
 using Ol.Core;
+using Ol.Core.GitHub;
 using Ol.Core.Licensing;
+using Ol.Core.PackageManagers;
 using Ol.Internals;
 using System.Buffers;
 using System.Text;
@@ -20,6 +22,8 @@ using System.Text.Json;
 public class ScanReportScaleBenchmark
 {
     private readonly ArrayBufferWriter<byte> buffer = new(1024 * 1024);
+    private readonly PackageArtifactCollectionSummary packageArtifactSummary = new(1, 1, 1);
+    private readonly DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFileSummary = new(1, 0, 1, 0, 1, 1, 0);
     private readonly PackageMetadataSummary packageMetadataSummary = new(0, 0, 0, 0, 0, 0, 0, 1, 0);
     private readonly SourceRepositorySummary sourceRepositorySummary = new(0, 0, 0, 0, 0, 0, "none", 1, 0);
     private readonly ScanReportScope scope = new(ExternalEvidenceCollected: true, DependencyFilter: null, ExcludedCount: 0, ExcludedUnknownCount: 0);
@@ -169,7 +173,7 @@ public class ScanReportScaleBenchmark
     {
         buffer.Clear();
         writer.Reset(buffer);
-        ReportRenderer.WriteJson(writer, inventory, enriched, spdx, packageMetadataSummary, sourceRepositorySummary, scope);
+        ReportRenderer.WriteJson(writer, inventory, enriched, spdx, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, scope);
         writer.Flush();
         return buffer.WrittenCount;
     }
@@ -179,7 +183,7 @@ public class ScanReportScaleBenchmark
     {
         buffer.Clear();
         writer.Reset(buffer);
-        ReportRenderer.WriteJson(writer, inventory, groups, "license,ecosystem", spdx, packageMetadataSummary, sourceRepositorySummary, scope);
+        ReportRenderer.WriteJson(writer, inventory, groups, "license,ecosystem", spdx, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, scope);
         writer.Flush();
         return buffer.WrittenCount;
     }

@@ -14,7 +14,7 @@ Those decisions require normalization to be reproducible and explainable rather 
 
 `Ol.Update` is a development-time external generator, not an `ol` runtime dependency. Running `ol-update generate` refreshes the bundled SPDX snapshot used as the offline fallback. This keeps the published CLI independent from the generator and network while retaining versioned, reproducible data.
 
-The snapshot carries license identifiers, license [names](#contract-spdx-license-name), exception identifiers, and the deprecated set. Names are emitted as an array sharing its index with the identifier array, and a license that states no name keeps an empty entry so the two stay aligned; sorting them apart would give every license its neighbour's name. User-managed data supplies the same fields from `licenses.json`.
+The snapshot carries license identifiers, license [names](#contract-spdx-license-name), exception identifiers, the deprecated set, and the standard license-text templates. Names are emitted as an array sharing its index with the identifier array, and a license that states no name keeps an empty entry so the two stay aligned; sorting them apart would give every license its neighbour's name. Templates are emitted as a versioned, Brotli-compressed binary resource rather than C# string literals. User-managed data supplies identifier fields from `licenses.json` and, when installed by Ol, templates from `license-texts.bin.br`.
 
 `ol-update generate` reads the current upstream list and has no way to regenerate a snapshot at the version already bundled, so adding a field to the generated data necessarily advances the SPDX list version with it. Which licenses that upstream change adds, removes, or deprecates belongs in the same review as the field.
 
@@ -34,6 +34,7 @@ The active data source must be recorded in JSON reports.
 ```text
 licenses.json
 exceptions.json
+license-texts.bin.br  # optional for legacy/custom identifier-only directories
 ```
 
 These match the JSON files published by SPDX License List data. The `details/` and per-license JSON directories are not required for v1 validation.
@@ -49,7 +50,7 @@ The exact platform-specific user data root is not part of this spec. Reports mus
 
 ### `ol spdx update`
 
-Downloads the latest `licenses.json` and `exceptions.json` into the user-managed SPDX data store. Installation does not change the active selection; `ol spdx use <version>` activates the installed version explicitly.
+Downloads the latest `licenses.json`, `exceptions.json`, and standard license templates into the user-managed SPDX data store. The template archive download is bounded; every license listed in `licenses.json` must have exactly one detail template, and the installed corpus must record the same License List version as `licenses.json`. Validation completes before an invalid snapshot creates its version directory. Installation does not change the active selection; `ol spdx use <version>` activates the installed version explicitly.
 
 ```text
 installed: 3.27.0
@@ -238,6 +239,15 @@ These values are treated as `unknown`:
 
 The raw value should remain in JSON evidence.
 
+<a id="contract-spdx-license-text-matcher"></a>
+## SPDX License Text Matcher
+
+`Ol.Core` exposes an immutable matcher for a caller-supplied, versioned collection of SPDX standard license templates. Construction validates the SPDX `beginOptional`, `endOptional`, and `var` rules and indexes required literal anchors. After the index selects a candidate, its regex is parsed once on first use and retained thread-safely. Matching accepts UTF-8 document bytes, treats literal template whitespace as insignificant, applies each variable's SPDX `match` expression, and succeeds only when exactly one distinct SPDX identifier matches. No match, invalid UTF-8, more than one matching identifier, a document above the configured byte limit, or a matcher timeout resolves nothing rather than guessing or failing the scan.
+
+The template collection is trusted versioned data; the document is package-controlled input. The default document limit is 1 MiB and each template match has a bounded execution time. The matcher records no policy decision and performs no file or network I/O. A package-manager adapter added later supplies artifact bytes and chooses the template corpus; the current CLI scan pipeline does not yet inspect installed package artifacts.
+
+The normal scan preparation constructs one matcher from the active SPDX snapshot. Bundled data loads the embedded compressed corpus; `ol spdx update` installs a version-matched corpus; a custom or legacy directory without `license-texts.bin.br` remains valid for identifier and expression normalization but constructs an empty matcher. A present corpus whose version differs from `licenses.json` is rejected instead of combining two SPDX snapshots. Matcher construction happens once per active `SpdxData` instance and package-controlled document bytes are never retained by it.
+
 <a id="contract-deprecated-identifiers"></a>
 ## Deprecated Identifiers
 
@@ -275,6 +285,7 @@ Audit evidence is a traceable observation, not an independent license conclusion
 - SBOM evidence records the exact source field. CycloneDX license `acknowledgement` is retained only when explicitly present; SPDX `licenseDeclared` and `licenseConcluded` are identified by field and are not relabeled as CycloneDX acknowledgements.
 - Package registry evidence records the opaque cache-key hash and collection timestamp when known.
 - Source repository evidence records the logical repository/ref, collection status, opaque cache-key hash, and detected license-file metadata when known.
+- Package artifact evidence records the versioned logical artifact identity, logical path inside that artifact, SHA-256 of the exact document bytes, stable matcher identifier, and SPDX template corpus version. It never records an absolute local path or the document body.
 
 <a id="contract-declared-license-reference"></a>
 
@@ -290,7 +301,7 @@ Because the kind decides what a reviewer does next, an unresolved component's [r
 
 A reference is not a license and is not license text. Ol has not read what it names, so a reference is resolved by reading the thing it names, or it stays an unresolved declaration. Measuring the declared locations in three .NET repositories found that most lead to a licensing overview page or a redirector rather than to a license document, which is why the retained fact is where the publisher pointed and not what is there.
 
-The single exception reads no page: a `location` whose URL the SPDX license list itself publishes as one license's [`seeAlso`](#contract-spdx-license-see-also). That value is a URL spelling of an identifier rather than a pointer to unread text, so it resolves like a [name](#contract-spdx-license-name). Every other kind of reference, and every URL SPDX does not publish, still contributes no license value.
+The identifier-only exception reads no page: a `location` whose URL the SPDX license list itself publishes as one license's [`seeAlso`](#contract-spdx-license-see-also). That value is a URL spelling of an identifier rather than a pointer to unread text, so it resolves like a [name](#contract-spdx-license-name). Every other kind of reference, and every URL SPDX does not publish, contributes no license value by itself. Separately, the explicit [declared GitHub file collector](source.md) may read a narrowly validated exact file URL and match the returned bytes against a versioned SPDX template corpus; its conclusion is new package-artifact evidence, not trust in the URL declaration.
 
 `acknowledgement: declared|concluded` records the producer's assertion semantics. It is not a verified attestation. CycloneDX `declarations.attestations`, BOM signatures, SPDX annotations, and package verification codes have broader document, conformance, or identity semantics and must not be projected onto a license candidate without an explicit relationship and a recorded verification result. Ol does not emit an inferred `attested` boolean.
 

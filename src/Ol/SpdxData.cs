@@ -58,12 +58,13 @@ internal sealed class SpdxDataDigest
 /// </remarks>
 internal readonly record struct SpdxData(
     SpdxLicenseIndex Index,
+    SpdxLicenseTextMatcher Matcher,
     string Source,
     string LicenseListVersion,
     string DataRef,
     SpdxDataDigest Digest)
 {
-    private static readonly SpdxData Bundled = CreateBundled();
+    private static readonly Lazy<SpdxData> Bundled = new(CreateBundled, LazyThreadSafetyMode.ExecutionAndPublication);
 
     /// <summary>Calculates the active licenses digest. Named as a method because the calculation is not free.</summary>
     public string GetLicensesSha256() => Digest.GetLicensesSha256();
@@ -84,7 +85,7 @@ internal readonly record struct SpdxData(
             return LoadFromDirectory(activeDirectory, "user", $"ol/spdx/{version}");
         }
 
-        return Bundled;
+        return Bundled.Value;
     }
 
     private static SpdxData CreateBundled()
@@ -97,6 +98,7 @@ internal readonly record struct SpdxData(
                 SpdxGeneratedLicenseData.LicenseNames,
                 SpdxGeneratedLicenseData.SeeAlsoUrls,
                 SpdxGeneratedLicenseData.SeeAlsoLicenseIds),
+            LoadBundledMatcher(),
             "bundled",
             SpdxGeneratedLicenseData.LicenseListVersion,
             "bundled/spdx/builtin",
@@ -114,12 +116,41 @@ internal readonly record struct SpdxData(
 
         var licenses = ReadSpdxData(licensesPath, "licenses", "licenseId");
         var exceptions = ReadSpdxData(exceptionsPath, "exceptions", "licenseExceptionId");
+        var matcher = LoadMatcher(directory, licenses.Version);
         return new SpdxData(
             new SpdxLicenseIndex(licenses.Ids, exceptions.Ids, licenses.DeprecatedIds, licenses.Names, licenses.SeeAlsoUrls, licenses.SeeAlsoIds),
+            matcher,
             source,
             licenses.Version,
             dataRef,
             SpdxDataDigest.ForFiles(licensesPath, exceptionsPath));
+    }
+
+    private static SpdxLicenseTextMatcher LoadBundledMatcher()
+    {
+        using var stream = typeof(SpdxGeneratedLicenseData).Assembly.GetManifestResourceStream(SpdxLicenseTextCorpus.EmbeddedResourceName)
+            ?? throw new InvalidOperationException("Bundled SPDX license-text corpus is missing.");
+        var corpus = SpdxLicenseTextCorpus.Load(stream);
+        if (!string.Equals(corpus.CorpusVersion, SpdxGeneratedLicenseData.LicenseListVersion, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Bundled SPDX license-text corpus version does not match the generated license list.");
+        }
+
+        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates);
+    }
+
+    private static SpdxLicenseTextMatcher LoadMatcher(string directory, string version)
+    {
+        var path = Path.Combine(directory, SpdxLicenseTextCorpus.FileName);
+        if (!File.Exists(path)) return new SpdxLicenseTextMatcher(version, []);
+        using var stream = File.OpenRead(path);
+        var corpus = SpdxLicenseTextCorpus.Load(stream);
+        if (!string.Equals(corpus.CorpusVersion, version, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("SPDX license-text corpus version does not match licenses.json.");
+        }
+
+        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates);
     }
 
     /// <summary>Reads identifiers, their SPDX names, and the deprecated set from one SPDX document.</summary>

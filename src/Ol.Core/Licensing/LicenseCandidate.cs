@@ -68,6 +68,7 @@ public enum LicenseCandidateSource : byte
     GitHubLicenseApi,
     DependencyInput,
     DepsDev,
+    PackageArtifact,
 }
 
 /// <summary>Identifies the field type that produced a license candidate.</summary>
@@ -198,6 +199,7 @@ public static class LicenseCandidateIdentifiers
         var v when v.SequenceEqual("github-license-api"u8) => LicenseCandidateSource.GitHubLicenseApi,
         var v when v.SequenceEqual("dependency-input"u8) => LicenseCandidateSource.DependencyInput,
         var v when v.SequenceEqual("deps.dev"u8) => LicenseCandidateSource.DepsDev,
+        var v when v.SequenceEqual("package-artifact"u8) => LicenseCandidateSource.PackageArtifact,
         _ => LicenseCandidateSource.None,
     };
 
@@ -230,6 +232,7 @@ public static class LicenseCandidateIdentifiers
         LicenseCandidateSource.GitHubLicenseApi => "github-license-api"u8,
         LicenseCandidateSource.DependencyInput => "dependency-input"u8,
         LicenseCandidateSource.DepsDev => "deps.dev"u8,
+        LicenseCandidateSource.PackageArtifact => "package-artifact"u8,
         _ => default,
     };
 
@@ -263,6 +266,8 @@ public enum LicenseEvidenceKind : byte
     PackageRegistry,
     /// <summary>The claim came from source repository inspection.</summary>
     SourceRepository,
+    /// <summary>The claim was detected from a document inside a versioned package artifact.</summary>
+    PackageArtifact,
 }
 
 /// <summary>Identifies the exact SBOM field from which a license claim was read.</summary>
@@ -298,6 +303,7 @@ public enum LicenseAcknowledgement : byte
 /// <param name="PackageRegistry">Package-registry provenance, when applicable.</param>
 /// <param name="SourceRepository">Source-repository provenance, when applicable.</param>
 /// <param name="DependencyInput">Resolved dependency-input provenance, when applicable.</param>
+/// <param name="PackageArtifact">Package-artifact document provenance, when applicable.</param>
 public readonly record struct LicenseEvidence(
     LicenseEvidenceKind Kind,
     SbomLicenseField SbomField = SbomLicenseField.None,
@@ -305,7 +311,8 @@ public readonly record struct LicenseEvidence(
     PackageRegistryEvidence? PackageRegistry = null,
     SourceRepositoryEvidence? SourceRepository = null,
     DependencyInputEvidence? DependencyInput = null,
-    DeclaredLicenseReference? DeclaredReference = null);
+    DeclaredLicenseReference? DeclaredReference = null,
+    PackageArtifactEvidence? PackageArtifact = null);
 
 /// <summary>Contains structured provenance for a non-SBOM dependency-input candidate.</summary>
 /// <param name="Format">The stable dependency input format.</param>
@@ -326,3 +333,28 @@ public sealed record SourceRepositoryEvidence(
     string LicenseKey,
     string LicenseName,
     string LicenseUrl);
+
+/// <summary>Contains auditable provenance for a license document read from a package artifact.</summary>
+/// <param name="Artifact">The logical versioned artifact identity, normally a purl.</param>
+/// <param name="Path">The logical path inside the artifact, never an absolute local path.</param>
+/// <param name="ContentSha256">The lowercase SHA-256 of the exact document bytes.</param>
+/// <param name="Matcher">The stable matcher identifier.</param>
+/// <param name="CorpusVersion">The version of the SPDX template corpus used to classify the document.</param>
+public sealed record PackageArtifactEvidence(
+    string Artifact,
+    string Path,
+    string ContentSha256,
+    string Matcher,
+    string CorpusVersion)
+{
+    /// <summary>Creates provenance while hashing the exact document bytes once at the I/O boundary.</summary>
+    public static PackageArtifactEvidence Create(string artifact, string path, ReadOnlySpan<byte> content, string corpusVersion)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifact);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(corpusVersion);
+        Span<byte> hash = stackalloc byte[32];
+        System.Security.Cryptography.SHA256.HashData(content, hash);
+        return new PackageArtifactEvidence(artifact, path, Convert.ToHexStringLower(hash), "spdx-template", corpusVersion);
+    }
+}

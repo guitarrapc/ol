@@ -238,6 +238,15 @@ These values are treated as `unknown`:
 
 The raw value should remain in JSON evidence.
 
+<a id="contract-spdx-license-text-matcher"></a>
+## SPDX License Text Matcher
+
+`Ol.Core` exposes an immutable matcher for a caller-supplied, versioned collection of SPDX standard license templates. Construction parses the SPDX `beginOptional`, `endOptional`, and `var` rules once; matching accepts UTF-8 document bytes, treats literal template whitespace as insignificant, applies each variable's SPDX `match` expression, and succeeds only when exactly one distinct SPDX identifier matches. No match, invalid UTF-8, more than one matching identifier, a document above the configured byte limit, or a matcher timeout resolves nothing rather than guessing or failing the scan.
+
+The template collection is trusted versioned data; the document is package-controlled input. The default document limit is 1 MiB and each template match has a bounded execution time. The matcher records no policy decision and performs no file or network I/O. A package-manager adapter added later supplies artifact bytes and chooses the template corpus; the current CLI scan pipeline does not yet inspect installed package artifacts.
+
+The matcher corpus is passed explicitly rather than silently coupled to the identifier-only SPDX snapshot. Bundling or installing full template data changes the SPDX data and deployment contract and requires separate size, startup, and allocation measurements before the CLI adopts it.
+
 <a id="contract-deprecated-identifiers"></a>
 ## Deprecated Identifiers
 
@@ -275,6 +284,7 @@ Audit evidence is a traceable observation, not an independent license conclusion
 - SBOM evidence records the exact source field. CycloneDX license `acknowledgement` is retained only when explicitly present; SPDX `licenseDeclared` and `licenseConcluded` are identified by field and are not relabeled as CycloneDX acknowledgements.
 - Package registry evidence records the opaque cache-key hash and collection timestamp when known.
 - Source repository evidence records the logical repository/ref, collection status, opaque cache-key hash, and detected license-file metadata when known.
+- Package artifact evidence records the versioned logical artifact identity, logical path inside that artifact, SHA-256 of the exact document bytes, stable matcher identifier, and SPDX template corpus version. It never records an absolute local path or the document body.
 
 <a id="contract-declared-license-reference"></a>
 

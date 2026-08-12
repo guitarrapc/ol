@@ -1021,6 +1021,18 @@ internal static class ReportRenderer
                 }
 
                 break;
+            case LicenseEvidenceKind.PackageArtifact:
+                writer.WriteString("type", "package-artifact");
+                if (evidence.PackageArtifact is { } artifact)
+                {
+                    writer.WriteString("artifact", artifact.Artifact);
+                    writer.WriteString("path", artifact.Path);
+                    writer.WriteString("contentSha256", artifact.ContentSha256);
+                    writer.WriteString("matcher", artifact.Matcher);
+                    writer.WriteString("corpusVersion", artifact.CorpusVersion);
+                }
+
+                break;
         }
 
         writer.WriteEndObject();

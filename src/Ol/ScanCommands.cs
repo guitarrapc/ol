@@ -91,6 +91,7 @@ internal sealed class ScanCommands
         var sourceRepositorySummary = completed.SourceRepositorySummary;
 
         KnownUnsupportedInputCandidates.WriteWarnings(completed.InputCandidateDiagnostics, Console.Error);
+        WriteSkippedIncompleteInputWarnings(completed.SkippedIncompleteInputs, completed.SkippedIncompleteInputCount, Console.Error);
 
         // A reached rate limit means source evidence is missing for reasons the run can act on, so it is
         // reported even under --quiet, where the counters that would otherwise hint at it are suppressed.
@@ -201,6 +202,7 @@ internal sealed class ScanCommands
             WriteInputDiscoverySummary(
                 completed.DetectedInputFileCount,
                 completed.InputCandidateDiagnostics,
+                completed.SkippedIncompleteInputCount,
                 scanResult.Inventory.Components,
                 Console.Error);
             Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
@@ -213,9 +215,27 @@ internal sealed class ScanCommands
         return 0;
     }
 
+    // An incomplete companion set is reported rather than aborting the run, so the report is only trustworthy
+    // if the reader is told what it left out. That holds under --quiet, where the summary is suppressed.
+    private static void WriteSkippedIncompleteInputWarnings(SkippedIncompleteInput[] skipped, int skippedCount, TextWriter writer)
+    {
+        for (var skippedIndex = 0; skippedIndex < skippedCount; skippedIndex++)
+        {
+            ref readonly var input = ref skipped[skippedIndex];
+            writer.Write("Warning: ");
+            writer.Write(input.LogicalPath);
+            writer.Write(" was not scanned: input format ");
+            writer.Write(input.FormatName);
+            writer.Write(" requires companion file ");
+            writer.Write(input.MissingFileName);
+            writer.WriteLine(" in the same directory.");
+        }
+    }
+
     private static void WriteInputDiscoverySummary(
         int detectedInputFileCount,
         in InputCandidateDiagnostics candidateDiagnostics,
+        int skippedIncompleteInputCount,
         ReadOnlySpan<ScanComponent> components,
         TextWriter writer)
     {
@@ -232,6 +252,9 @@ internal sealed class ScanCommands
             writer.Write(')');
         }
 
+        writer.Write("; ");
+        writer.Write(skippedIncompleteInputCount);
+        writer.Write(skippedIncompleteInputCount == 1 ? " incomplete input set" : " incomplete input sets");
         writer.Write("; ecosystems ");
         var ecosystems = new HashSet<string>(StringComparer.Ordinal);
         for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)

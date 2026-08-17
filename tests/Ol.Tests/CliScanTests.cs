@@ -1040,7 +1040,7 @@ public sealed class CliScanTests
                 await Assert.That(stderr).Contains("  Declared GitHub files (full scan): 0 targets; 0 GitHub requests; 0 cache hits; 0 cache misses; 0 documents; 0 matched; 0 fetch errors");
                 await Assert.That(stderr).Contains("  Package metadata (full scan):");
                 await Assert.That(stderr).Contains("  Source repositories (full scan):");
-                await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; ecosystems none");
+                await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; 0 incomplete input sets; ecosystems none");
                 await Assert.That(stderr).Contains("  Input:");
             }
 
@@ -1704,6 +1704,141 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithUnreadableDiscoveredInput_NamesTheFileInTheFailure()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-unreadable-discovered-{Guid.NewGuid():N}");
+        var nestedDirectory = Path.Combine(temporaryDirectory, "vendored", "obj");
+        Directory.CreateDirectory(nestedDirectory);
+        await File.WriteAllTextAsync(Path.Combine(nestedDirectory, "project.assets.json"), """{ "targets": {} }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo($"Unable to scan input: {Path.GetFileName(temporaryDirectory)}/vendored/obj/project.assets.json: Unsupported dependency input format: no registered format signature matched.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDiscoveredIncompleteComposerSet_SkipsItAndScansTheRest()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-incomplete-composer-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        Directory.CreateDirectory(Path.Combine(temporaryDirectory, "vendored"));
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "composer.json"),
+            Path.Combine(temporaryDirectory, "vendored", "composer.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence",
+                "--format",
+                "json",
+                "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(4);
+            await Assert.That(stderr.Trim()).IsEqualTo($"Warning: {Path.GetFileName(temporaryDirectory)}/vendored/composer.json was not scanned: input format composer-lock requires companion file composer.lock in the same directory.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDiscoveredIncompleteComposerSet_CountsItInInputDiscovery()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-incomplete-composer-summary-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "composer.json"),
+            Path.Combine(temporaryDirectory, "composer.json"));
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 1 incomplete input set; ecosystems nuget");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectlyNamedIncompleteComposerSet_ReturnsCompanionError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-named-incomplete-composer-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        var composerJson = Path.Combine(temporaryDirectory, "composer.json");
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "composer.json"), composerJson);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", composerJson, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Input format composer-lock requires companion file composer.lock in the same directory.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitComposerFormatAndIncompleteSet_ReturnsCompanionError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-explicit-incomplete-composer-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "composer.json"),
+            Path.Combine(temporaryDirectory, "composer.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--input-format", "composer-lock", "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Input format composer-lock requires companion file composer.lock in the same directory.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithComposerResolvedPairDirectory_CombinesCompanionFilesAsOneInput()
     {
         var root = FindRepositoryRoot();
@@ -1940,7 +2075,7 @@ public sealed class CliScanTests
                 "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 1 ignored candidate (Cargo.lock); ecosystems nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 1 ignored candidate (Cargo.lock); 0 incomplete input sets; ecosystems nuget");
         }
         finally
         {
@@ -2007,7 +2142,7 @@ public sealed class CliScanTests
                 "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; ecosystems cargo, nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 0 incomplete input sets; ecosystems cargo, nuget");
             await Assert.That(stderr).DoesNotContain("Warning: Rust dependencies were not scanned");
         }
         finally

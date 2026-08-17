@@ -147,11 +147,12 @@ public static class NuGetRestoreArtifactCollector
                         var bytes = content.AsSpan(0, length);
                         var logicalPath = Path.GetRelativePath(packageDirectory, licensePath).Replace(Path.DirectorySeparatorChar, '/');
                         var artifact = components[componentIndex].Purl.ToString();
+                        var resolved = matcher.TryMatch(SkipUtf8Bom(bytes), out var licenseId, out var matchKind);
                         var evidence = new LicenseEvidence(
                             LicenseEvidenceKind.PackageArtifact,
-                            PackageArtifact: PackageArtifactEvidence.Create(artifact, logicalPath, bytes, matcher.CorpusVersion));
+                            PackageArtifact: PackageArtifactEvidence.Create(artifact, logicalPath, bytes, matcher.CorpusVersion, resolved ? matchKind.ToMatcherId() : "spdx-template"));
                         LicenseCandidate candidate;
-                        if (matcher.TryMatch(SkipUtf8Bom(bytes), out var licenseId))
+                        if (resolved)
                         {
                             candidate = LicenseCandidateFactory.Create(
                                 LicenseCandidateSource.PackageArtifact,

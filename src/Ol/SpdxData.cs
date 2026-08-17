@@ -90,15 +90,16 @@ internal readonly record struct SpdxData(
 
     private static SpdxData CreateBundled()
     {
+        var index = new SpdxLicenseIndex(
+            SpdxGeneratedLicenseData.LicenseIds,
+            SpdxGeneratedLicenseData.ExceptionIds,
+            SpdxGeneratedLicenseData.DeprecatedLicenseIds,
+            SpdxGeneratedLicenseData.LicenseNames,
+            SpdxGeneratedLicenseData.SeeAlsoUrls,
+            SpdxGeneratedLicenseData.SeeAlsoLicenseIds);
         return new SpdxData(
-            new SpdxLicenseIndex(
-                SpdxGeneratedLicenseData.LicenseIds,
-                SpdxGeneratedLicenseData.ExceptionIds,
-                SpdxGeneratedLicenseData.DeprecatedLicenseIds,
-                SpdxGeneratedLicenseData.LicenseNames,
-                SpdxGeneratedLicenseData.SeeAlsoUrls,
-                SpdxGeneratedLicenseData.SeeAlsoLicenseIds),
-            LoadBundledMatcher(),
+            index,
+            LoadBundledMatcher(index),
             "bundled",
             SpdxGeneratedLicenseData.LicenseListVersion,
             "bundled/spdx/builtin",
@@ -116,9 +117,10 @@ internal readonly record struct SpdxData(
 
         var licenses = ReadSpdxData(licensesPath, "licenses", "licenseId");
         var exceptions = ReadSpdxData(exceptionsPath, "exceptions", "licenseExceptionId");
-        var matcher = LoadMatcher(directory, licenses.Version);
+        var index = new SpdxLicenseIndex(licenses.Ids, exceptions.Ids, licenses.DeprecatedIds, licenses.Names, licenses.SeeAlsoUrls, licenses.SeeAlsoIds);
+        var matcher = LoadMatcher(directory, licenses.Version, index);
         return new SpdxData(
-            new SpdxLicenseIndex(licenses.Ids, exceptions.Ids, licenses.DeprecatedIds, licenses.Names, licenses.SeeAlsoUrls, licenses.SeeAlsoIds),
+            index,
             matcher,
             source,
             licenses.Version,
@@ -126,7 +128,7 @@ internal readonly record struct SpdxData(
             SpdxDataDigest.ForFiles(licensesPath, exceptionsPath));
     }
 
-    private static SpdxLicenseTextMatcher LoadBundledMatcher()
+    private static SpdxLicenseTextMatcher LoadBundledMatcher(SpdxLicenseIndex index)
     {
         using var stream = typeof(SpdxGeneratedLicenseData).Assembly.GetManifestResourceStream(SpdxLicenseTextCorpus.EmbeddedResourceName)
             ?? throw new InvalidOperationException("Bundled SPDX license-text corpus is missing.");
@@ -136,13 +138,13 @@ internal readonly record struct SpdxData(
             throw new InvalidDataException("Bundled SPDX license-text corpus version does not match the generated license list.");
         }
 
-        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates);
+        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates, licenseIndex: index);
     }
 
-    private static SpdxLicenseTextMatcher LoadMatcher(string directory, string version)
+    private static SpdxLicenseTextMatcher LoadMatcher(string directory, string version, SpdxLicenseIndex index)
     {
         var path = Path.Combine(directory, SpdxLicenseTextCorpus.FileName);
-        if (!File.Exists(path)) return new SpdxLicenseTextMatcher(version, []);
+        if (!File.Exists(path)) return new SpdxLicenseTextMatcher(version, [], licenseIndex: index);
         using var stream = File.OpenRead(path);
         var corpus = SpdxLicenseTextCorpus.Load(stream);
         if (!string.Equals(corpus.CorpusVersion, version, StringComparison.Ordinal))
@@ -150,7 +152,7 @@ internal readonly record struct SpdxData(
             throw new InvalidDataException("SPDX license-text corpus version does not match licenses.json.");
         }
 
-        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates);
+        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates, licenseIndex: index);
     }
 
     /// <summary>Reads identifiers, their SPDX names, and the deprecated set from one SPDX document.</summary>

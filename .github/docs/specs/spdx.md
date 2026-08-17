@@ -248,6 +248,14 @@ The template collection is trusted versioned data; the document is package-contr
 
 The normal scan preparation constructs one matcher from the active SPDX snapshot. Bundled data loads the embedded compressed corpus; `ol spdx update` installs a version-matched corpus; a custom or legacy directory without `license-texts.bin.br` remains valid for identifier and expression normalization but constructs an empty matcher. A present corpus whose version differs from `licenses.json` is rejected instead of combining two SPDX snapshots. Matcher construction happens once per active `SpdxData` instance and package-controlled document bytes are never retained by it.
 
+<a id="contract-spdx-license-text-declared-url"></a>
+
+A matcher constructed with the active license index also reads the license URLs the document itself contains, resolved by the same [`seeAlso`](#contract-spdx-license-see-also) rule a declared location uses, and subject to the same single-identifier requirement as the templates. A document that names one license by URL and no other resolves that license; a document whose URL names a license its reproduced text does not resolves nothing.
+
+This exists because reproducing a license text and pointing at it are both declarations, and recognizing only the first made the second invisible to the ambiguity rule rather than merely unrecognized. A `LICENSE` file that carries the Apache-2.0 notice paragraph and the canonical Apache URL states its license as plainly as one that reproduces the text. The reverse case is what makes it necessary: xunit 2.4.1 ships a `license.txt` that puts the project under Apache-2.0 in notice form and then quotes MIT in full for imported code in one subdirectory. Reading templates alone found exactly one identifier there and reported the package as MIT, which is both wrong and the failure mode the single-identifier requirement exists to prevent. GitHub's own license API answers `NOASSERTION` for that file.
+
+Only a URL SPDX publishes for exactly one license resolves anything, so a redirector, a project's own page, and a page SPDX shares between licenses stay unread and unresolved, and a document listing several licenses' URLs resolves nothing. A URL is read where prose ends it, apart from trailing sentence punctuation, and only the spellings [`seeAlso`](#contract-spdx-license-see-also) already ignores are normalized. Evidence records which reading produced the identifier: `spdx-template` for a reproduced text and `spdx-license-url` for a declared URL, so a reviewer knows whether to look in the document for a license body or for a link. A document that resolved nothing keeps `spdx-template`, because that is what was attempted.
+
 <a id="contract-deprecated-identifiers"></a>
 ## Deprecated Identifiers
 

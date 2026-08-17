@@ -178,11 +178,11 @@ internal static class PackageArtifactDocumentCollector
             var artifact = components[componentIndex].Purl.IsEmpty
                 ? components[componentIndex].SourceId.ToString()
                 : components[componentIndex].Purl.ToString();
+            matched = matcher.TryMatch(SkipUtf8Bom(bytes), out var licenseId, out var matchKind);
             var evidence = new LicenseEvidence(
                 LicenseEvidenceKind.PackageArtifact,
-                PackageArtifact: PackageArtifactEvidence.Create(artifact, logicalPath, bytes, matcher.CorpusVersion));
+                PackageArtifact: PackageArtifactEvidence.Create(artifact, logicalPath, bytes, matcher.CorpusVersion, matched ? matchKind.ToMatcherId() : "spdx-template"));
             LicenseCandidate candidate;
-            matched = matcher.TryMatch(SkipUtf8Bom(bytes), out var licenseId);
             if (matched)
             {
                 candidate = LicenseCandidateFactory.Create(

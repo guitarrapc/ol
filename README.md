@@ -299,6 +299,8 @@ Without external evidence, more components may remain unresolved and therefore f
 
 A publisher that states no SPDX expression often states a license URL instead, such as NuGet's legacy `licenseUrl` or CycloneDX's `license.url`. ol does not fetch those pages. It does recognize a URL the SPDX license list itself publishes as one license's `seeAlso` — `https://www.apache.org/licenses/LICENSE-2.0` is Apache-2.0 in the same record that defines the identifier — matching apart from scheme, case, a leading `www.`, and a trailing slash. A URL SPDX does not publish, or one it publishes for several licenses, stays an unresolved declaration, and a stated license is never overridden by one.
 
+The same rule applies to a license document ol does read, such as the `LICENSE` file inside a package. A document is identified by the SPDX license text it reproduces, and also by a license URL SPDX publishes that the document itself contains, so a `LICENSE` that only says `Licensed under the Apache License, Version 2.0` and links the canonical Apache page resolves to Apache-2.0. One document that names two licenses resolves neither: xunit 2.4.1 ships a `license.txt` that puts the project under Apache-2.0 in notice form and quotes MIT in full for imported code in one subdirectory, so ol reports it unresolved rather than picking the one it can read as a template. The report records which reading produced the answer, `spdx-template` or `spdx-license-url`.
+
 > [!TIP]
 > ol does not crawl arbitrary repository contents or guess a license from repository layout or license files.
 

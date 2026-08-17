@@ -348,13 +348,19 @@ public sealed record PackageArtifactEvidence(
     string CorpusVersion)
 {
     /// <summary>Creates provenance while hashing the exact document bytes once at the I/O boundary.</summary>
-    public static PackageArtifactEvidence Create(string artifact, string path, ReadOnlySpan<byte> content, string corpusVersion)
+    /// <remarks>
+    /// <paramref name="matcherId"/> records which reading of the document produced an identifier, so a
+    /// reviewer knows whether to look for a reproduced license text or for a declared license URL. A
+    /// document that resolved nothing keeps the template matcher, because that is what was attempted.
+    /// </remarks>
+    public static PackageArtifactEvidence Create(string artifact, string path, ReadOnlySpan<byte> content, string corpusVersion, string matcherId = "spdx-template")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(artifact);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentException.ThrowIfNullOrWhiteSpace(corpusVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(matcherId);
         Span<byte> hash = stackalloc byte[32];
         System.Security.Cryptography.SHA256.HashData(content, hash);
-        return new PackageArtifactEvidence(artifact, path, Convert.ToHexStringLower(hash), "spdx-template", corpusVersion);
+        return new PackageArtifactEvidence(artifact, path, Convert.ToHexStringLower(hash), matcherId, corpusVersion);
     }
 }

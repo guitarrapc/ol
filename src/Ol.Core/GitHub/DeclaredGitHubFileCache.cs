@@ -192,8 +192,8 @@ public sealed class DeclaredGitHubFileCache(string root)
             SHA256.HashData(document.AsSpan(0, written), actualHash);
             if (!HexEquals(persistedSha256, actualHash)) return false;
             var bytes = document.AsSpan(0, written);
-            var licenseId = matcher.TryMatch(SkipUtf8Bom(bytes), out var matched) ? matched : null;
-            result = new DeclaredGitHubFileResult(HttpStatusCode.OK, licenseId, Convert.ToHexStringLower(actualHash));
+            var resolved = matcher.TryMatch(SkipUtf8Bom(bytes), out var matched, out var matchKind);
+            result = new DeclaredGitHubFileResult(HttpStatusCode.OK, resolved ? matched : null, Convert.ToHexStringLower(actualHash), matchKind);
             return true;
         }
         finally

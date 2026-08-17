@@ -153,6 +153,24 @@ public sealed class SpdxLicenseIndex
     }
 
     /// <summary>
+    /// Attempts to resolve a decoded URL that SPDX publishes as one license's <c>seeAlso</c>.
+    /// </summary>
+    /// <param name="url">The URL to resolve, already decoded.</param>
+    /// <param name="licenseId">The identifier SPDX gives that URL, when the lookup succeeds.</param>
+    /// <returns><see langword="true" /> when the URL names exactly one license in the active SPDX data.</returns>
+    /// <remarks>
+    /// The same lookup as the UTF-8 overload, for callers that already hold characters. Scanning a
+    /// license document for declared URLs decodes the document once, so re-encoding each candidate
+    /// only to decode it again would be the sole reason to allocate.
+    /// </remarks>
+    public bool TryResolveLicenseUrl(ReadOnlySpan<char> url, out string licenseId)
+    {
+        if (licenseUrls.Count != 0 && licenseUrlSpanLookup.TryGetValue(TrimUrl(url), out licenseId!)) return true;
+        licenseId = string.Empty;
+        return false;
+    }
+
+    /// <summary>
     /// Attempts to normalize an UTF-8 SPDX exception identifier without materializing an input string.
     /// </summary>
     /// <param name="exceptionIdUtf8">The UTF-8 exception identifier.</param>

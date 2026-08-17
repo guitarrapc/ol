@@ -137,4 +137,154 @@ public sealed class SpdxLicenseTextMatcherTests
         await Assert.That(() => new SpdxLicenseTextMatcher("test", [new("Example", template)]))
             .Throws<ArgumentException>();
     }
+
+    private const string ApacheNotice = """
+        Copyright (c) .NET Foundation and Contributors
+
+        All rights reserved.
+
+        Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+        this file except in compliance with the License. You may obtain a copy of the
+        License at
+
+            http://www.apache.org/licenses/LICENSE-2.0
+
+        Unless required by applicable law or agreed to in writing, software distributed
+        under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+        CONDITIONS OF ANY KIND, either express or implied. See the License for the
+        specific language governing permissions and limitations under the License.
+        """;
+
+    private static SpdxLicenseIndex CreateUrlIndex() => new(
+        ["MIT", "Apache-2.0", "LGPL-2.1-only", "LGPL-2.1-or-later"],
+        [],
+        seeAlsoUrls:
+        [
+            "https://opensource.org/license/mit/",
+            "https://www.apache.org/licenses/LICENSE-2.0",
+            "https://opensource.org/licenses/LGPL-2.1",
+            "https://opensource.org/licenses/LGPL-2.1",
+        ],
+        seeAlsoLicenseIds: ["MIT", "Apache-2.0", "LGPL-2.1-only", "LGPL-2.1-or-later"]);
+
+    private static SpdxLicenseTextMatcher CreateUrlAwareMatcher()
+        => new("test", [new("MIT", MitTemplate)], licenseIndex: CreateUrlIndex());
+
+    [Test]
+    public async Task Match_DeclaredLicenseUrlWithoutTemplateText_ResolvesLicenseFromUrl()
+    {
+        var matcher = CreateUrlAwareMatcher();
+
+        var matched = matcher.TryMatch(Encoding.UTF8.GetBytes(ApacheNotice), out var licenseId);
+
+        await Assert.That(matched).IsTrue();
+        await Assert.That(licenseId).IsEqualTo("Apache-2.0");
+    }
+
+    [Test]
+    public async Task Match_TemplateTextAndDeclaredUrlNamingAnotherLicense_ResolvesNothing()
+    {
+        var matcher = CreateUrlAwareMatcher();
+        var mixed = $"""
+            Unless otherwise noted, the source code here is covered by the following license:
+
+            {ApacheNotice}
+
+            -----------------------
+
+            The imported code is covered by the following license:
+
+            {CoreFxMit}
+            """;
+
+        await Assert.That(matcher.TryMatch(Encoding.UTF8.GetBytes(mixed), out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task Match_TemplateTextAndDeclaredUrlNamingTheSameLicense_ResolvesLicense()
+    {
+        var matcher = CreateUrlAwareMatcher();
+        var corroborated = $"{CoreFxMit}\n\nSee https://opensource.org/license/mit/ for the full text.";
+
+        await Assert.That(matcher.TryMatch(Encoding.UTF8.GetBytes(corroborated), out var licenseId)).IsTrue();
+        await Assert.That(licenseId).IsEqualTo("MIT");
+    }
+
+    [Test]
+    public async Task Match_TwoDeclaredUrlsNamingDifferentLicenses_ResolvesNothing()
+    {
+        var matcher = CreateUrlAwareMatcher();
+        var listing = "This product is licensed under https://opensource.org/license/mit/ and https://www.apache.org/licenses/LICENSE-2.0 terms.";
+
+        await Assert.That(matcher.TryMatch(Encoding.UTF8.GetBytes(listing), out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task Match_DeclaredUrlSpdxPublishesForSeveralLicenses_ResolvesNothing()
+    {
+        var matcher = CreateUrlAwareMatcher();
+        var shared = "Licensed under the terms published at https://opensource.org/licenses/LGPL-2.1 only.";
+
+        await Assert.That(matcher.TryMatch(Encoding.UTF8.GetBytes(shared), out _)).IsFalse();
+    }
+
+    [Test]
+    [Arguments("HTTP://WWW.APACHE.ORG/licenses/LICENSE-2.0")]
+    [Arguments("https://apache.org/licenses/LICENSE-2.0/")]
+    [Arguments("(https://www.apache.org/licenses/LICENSE-2.0).")]
+    [Arguments("<https://www.apache.org/licenses/LICENSE-2.0>,")]
+    public async Task Match_DeclaredUrlSpelling_ResolvesTheSameLicense(string spelling)
+    {
+        var matcher = CreateUrlAwareMatcher();
+        var text = $"This component is licensed under the license published at {spelling}";
+
+        await Assert.That(matcher.TryMatch(Encoding.UTF8.GetBytes(text), out var licenseId)).IsTrue();
+        await Assert.That(licenseId).IsEqualTo("Apache-2.0");
+    }
+
+    [Test]
+    public async Task Match_UrlSpdxDoesNotPublish_ResolvesNothing()
+    {
+        var matcher = CreateUrlAwareMatcher();
+        var text = "See https://example.com/legal/terms for the license that governs this product.";
+
+        await Assert.That(matcher.TryMatch(Encoding.UTF8.GetBytes(text), out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task Match_WithoutLicenseIndex_IgnoresDeclaredUrl()
+    {
+        var matcher = new SpdxLicenseTextMatcher("test", [new("MIT", MitTemplate)]);
+
+        await Assert.That(matcher.TryMatch(Encoding.UTF8.GetBytes(ApacheNotice), out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task Match_TemplateText_ReportsTemplateAsTheMatcher()
+    {
+        var matcher = CreateUrlAwareMatcher();
+
+        await Assert.That(matcher.TryMatch(Encoding.UTF8.GetBytes(CoreFxMit), out _, out var kind)).IsTrue();
+        await Assert.That(kind).IsEqualTo(SpdxLicenseTextMatchKind.Template);
+        await Assert.That(kind.ToMatcherId()).IsEqualTo("spdx-template");
+    }
+
+    [Test]
+    public async Task Match_DeclaredLicenseUrlOnly_ReportsTheUrlAsTheMatcher()
+    {
+        var matcher = CreateUrlAwareMatcher();
+
+        await Assert.That(matcher.TryMatch(Encoding.UTF8.GetBytes(ApacheNotice), out _, out var kind)).IsTrue();
+        await Assert.That(kind).IsEqualTo(SpdxLicenseTextMatchKind.DeclaredUrl);
+        await Assert.That(kind.ToMatcherId()).IsEqualTo("spdx-license-url");
+    }
+
+    [Test]
+    public async Task Match_ResolvingNothing_ReportsNoMatcher()
+    {
+        var matcher = CreateUrlAwareMatcher();
+
+        await Assert.That(matcher.TryMatch("nothing here"u8, out _, out var kind)).IsFalse();
+        await Assert.That(kind).IsEqualTo(SpdxLicenseTextMatchKind.None);
+    }
 }

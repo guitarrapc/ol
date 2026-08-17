@@ -17,10 +17,37 @@ public readonly record struct SpdxLicenseTextTemplate(string LicenseId, string T
 /// parsed once on first use, after the anchor index selects it. Runtime matching bounds both document
 /// bytes and regex execution time, and more than one matching identifier is deliberately unresolved.
 /// </remarks>
+/// <summary>Names which observable evidence in a license document produced the identifier.</summary>
+public enum SpdxLicenseTextMatchKind : byte
+{
+    /// <summary>The document resolved nothing.</summary>
+    None = 0,
+
+    /// <summary>The document reproduces one SPDX license text.</summary>
+    Template = 1,
+
+    /// <summary>The document declares one license by a URL the SPDX license list publishes for it.</summary>
+    DeclaredUrl = 2,
+}
+
+/// <summary>Provides the stable matcher identifiers persisted as evidence provenance.</summary>
+public static class SpdxLicenseTextMatchKinds
+{
+    /// <summary>Gets the stable matcher identifier a report and a baseline record.</summary>
+    public static string ToMatcherId(this SpdxLicenseTextMatchKind value) => value switch
+    {
+        SpdxLicenseTextMatchKind.Template => "spdx-template",
+        SpdxLicenseTextMatchKind.DeclaredUrl => "spdx-license-url",
+        _ => "",
+    };
+}
+
 public sealed class SpdxLicenseTextMatcher
 {
     /// <summary>The default maximum document size accepted by the matcher.</summary>
     public const int DefaultMaximumTextBytes = 1024 * 1024;
+
+    private const int MaximumDeclaredUrlChars = 512;
 
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(1);
@@ -28,10 +55,23 @@ public sealed class SpdxLicenseTextMatcher
     private readonly FrozenDictionary<string, int[]> anchoredPatterns;
     private readonly int[] unanchoredPatternIndexes;
     private readonly int maximumTextBytes;
+    private readonly SpdxLicenseIndex? licenseIndex;
 
     /// <summary>Initializes an immutable matcher for one versioned SPDX template corpus.</summary>
-    public SpdxLicenseTextMatcher(string corpusVersion, SpdxLicenseTextTemplate[] templates, int maximumTextBytes = DefaultMaximumTextBytes)
+    /// <remarks>
+    /// Supplying <paramref name="licenseIndex"/> lets the matcher also read a license URL the SPDX
+    /// license list itself publishes as one license's <c>seeAlso</c>. A document that states
+    /// <c>Licensed under the Apache License, Version 2.0</c> and links the canonical Apache page
+    /// declares its license without reproducing the text, and the same reading makes a document that
+    /// quotes one license in full while linking another resolve to neither.
+    /// </remarks>
+    public SpdxLicenseTextMatcher(
+        string corpusVersion,
+        SpdxLicenseTextTemplate[] templates,
+        int maximumTextBytes = DefaultMaximumTextBytes,
+        SpdxLicenseIndex? licenseIndex = null)
     {
+        this.licenseIndex = licenseIndex;
         ArgumentException.ThrowIfNullOrWhiteSpace(corpusVersion);
         ArgumentNullException.ThrowIfNull(templates);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumTextBytes);
@@ -95,8 +135,17 @@ public sealed class SpdxLicenseTextMatcher
 
     /// <summary>Attempts to identify exactly one SPDX license from a UTF-8 document.</summary>
     public bool TryMatch(ReadOnlySpan<byte> licenseTextUtf8, out string licenseId)
+        => TryMatch(licenseTextUtf8, out licenseId, out _);
+
+    /// <summary>Attempts to identify exactly one SPDX license, reporting which evidence named it.</summary>
+    /// <param name="licenseTextUtf8">The UTF-8 license document.</param>
+    /// <param name="licenseId">The resolved SPDX license identifier.</param>
+    /// <param name="kind">The evidence that produced <paramref name="licenseId"/>, for provenance.</param>
+    /// <returns><see langword="true" /> when the document names exactly one license.</returns>
+    public bool TryMatch(ReadOnlySpan<byte> licenseTextUtf8, out string licenseId, out SpdxLicenseTextMatchKind kind)
     {
         licenseId = string.Empty;
+        kind = SpdxLicenseTextMatchKind.None;
         if (licenseTextUtf8.IsEmpty || licenseTextUtf8.Length > maximumTextBytes)
         {
             return false;
@@ -117,14 +166,14 @@ public sealed class SpdxLicenseTextMatcher
         {
             Span<char> characters = stackalloc char[characterCount];
             StrictUtf8.GetChars(licenseTextUtf8, characters);
-            return TryMatchCharacters(characters, out licenseId);
+            return TryMatchCharacters(characters, out licenseId, out kind);
         }
 
         var rented = System.Buffers.ArrayPool<char>.Shared.Rent(characterCount);
         try
         {
             var written = StrictUtf8.GetChars(licenseTextUtf8, rented);
-            return TryMatchCharacters(rented.AsSpan(0, written), out licenseId);
+            return TryMatchCharacters(rented.AsSpan(0, written), out licenseId, out kind);
         }
         finally
         {
@@ -132,10 +181,26 @@ public sealed class SpdxLicenseTextMatcher
         }
     }
 
-    private bool TryMatchCharacters(ReadOnlySpan<char> text, out string licenseId)
+    private bool TryMatchCharacters(ReadOnlySpan<char> text, out string licenseId, out SpdxLicenseTextMatchKind kind)
     {
         licenseId = string.Empty;
-        if (patterns.Length == 0) return false;
+        kind = SpdxLicenseTextMatchKind.None;
+        if (!TryMatchTemplates(text, ref licenseId)) return false;
+        if (licenseId.Length != 0) kind = SpdxLicenseTextMatchKind.Template;
+        if (licenseIndex is not null && !TryMatchDeclaredUrls(text, ref licenseId))
+        {
+            kind = SpdxLicenseTextMatchKind.None;
+            return false;
+        }
+
+        if (licenseId.Length == 0) return false;
+        if (kind == SpdxLicenseTextMatchKind.None) kind = SpdxLicenseTextMatchKind.DeclaredUrl;
+        return true;
+    }
+
+    private bool TryMatchTemplates(ReadOnlySpan<char> text, ref string licenseId)
+    {
+        if (patterns.Length == 0) return true;
         var visited = ArrayPool<bool>.Shared.Rent(patterns.Length);
         visited.AsSpan(0, patterns.Length).Clear();
         try
@@ -165,13 +230,76 @@ public sealed class SpdxLicenseTextMatcher
                 if (!TryMatchPattern(patterns[unanchoredPatternIndexes[index]], text, ref licenseId)) return false;
             }
 
-            return licenseId.Length != 0;
+            return true;
         }
         finally
         {
             ArrayPool<bool>.Shared.Return(visited);
         }
     }
+
+    /// <summary>Reads every SPDX-published license URL the document declares under the single-answer rule.</summary>
+    /// <remarks>
+    /// Only a URL the SPDX license list publishes for exactly one license resolves anything, so a
+    /// redirector, a project's own page, or a page SPDX shares between licenses contributes nothing.
+    /// A URL naming a license the templates did not name leaves the document unresolved, because
+    /// nothing observable says which of the two governs the work.
+    /// </remarks>
+    private bool TryMatchDeclaredUrls(ReadOnlySpan<char> text, ref string licenseId)
+    {
+        var offset = 0;
+        while (offset < text.Length)
+        {
+            var start = IndexOfUrlStart(text[offset..]);
+            if (start < 0) return true;
+            start += offset;
+            var url = TrimUrlBoundary(text[start..(start + UrlLength(text[start..]))]);
+            offset = start + Math.Max(url.Length, 1);
+            if (url.Length is 0 or > MaximumDeclaredUrlChars || !licenseIndex!.TryResolveLicenseUrl(url, out var resolved)) continue;
+            if (licenseId.Length != 0 && !string.Equals(licenseId, resolved, StringComparison.Ordinal))
+            {
+                licenseId = string.Empty;
+                return false;
+            }
+
+            licenseId = resolved;
+        }
+
+        return true;
+    }
+
+    /// <summary>Finds the next <c>http</c> scheme that begins a URL rather than continuing a word.</summary>
+    private static int IndexOfUrlStart(ReadOnlySpan<char> text)
+    {
+        var offset = 0;
+        while (true)
+        {
+            var index = text[offset..].IndexOf("http", StringComparison.OrdinalIgnoreCase);
+            if (index < 0) return -1;
+            index += offset;
+            var scheme = text[index..];
+            var isScheme = scheme.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || scheme.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            if (isScheme && (index == 0 || !char.IsLetterOrDigit(text[index - 1]))) return index;
+            offset = index + 4;
+            if (offset >= text.Length) return -1;
+        }
+    }
+
+    /// <summary>Measures the URL run, stopping at the characters prose uses to delimit a URL.</summary>
+    private static int UrlLength(ReadOnlySpan<char> text)
+    {
+        for (var index = 0; index < text.Length; index++)
+        {
+            var current = text[index];
+            if (char.IsWhiteSpace(current) || current is '"' or '\'' or '<' or '>' or '(' or ')' or '[' or ']' or '{' or '}' or ',' or ';' or '|' or '\\' or '`') return index;
+        }
+
+        return text.Length;
+    }
+
+    /// <summary>Removes the sentence punctuation a URL can pick up when prose ends on it.</summary>
+    private static ReadOnlySpan<char> TrimUrlBoundary(ReadOnlySpan<char> url) => url.TrimEnd('.').TrimEnd(':');
 
     private static bool TryMatchPattern(TemplatePattern pattern, ReadOnlySpan<char> text, ref string licenseId)
     {

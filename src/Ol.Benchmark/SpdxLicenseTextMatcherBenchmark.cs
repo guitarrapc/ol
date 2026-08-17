@@ -59,6 +59,7 @@ public class SpdxLicenseTextMatcherBenchmark
     private readonly byte[] licenseText = Encoding.UTF8.GetBytes(MitText);
     private readonly byte[] bundledCorpus;
     private readonly SpdxLicenseTextMatcher bundledMatcher;
+    private readonly SpdxLicenseTextMatcher bundledTemplateOnlyMatcher;
 
     public SpdxLicenseTextMatcherBenchmark()
     {
@@ -67,6 +68,8 @@ public class SpdxLicenseTextMatcherBenchmark
         stream.CopyTo(output);
         bundledCorpus = output.ToArray();
         bundledMatcher = SpdxData.Load(null).Matcher;
+        var corpus = SpdxLicenseTextCorpus.Load(bundledCorpus);
+        bundledTemplateOnlyMatcher = new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates);
     }
 
     [Benchmark]
@@ -74,6 +77,9 @@ public class SpdxLicenseTextMatcherBenchmark
 
     [Benchmark]
     public bool MatchBundledCorpus() => bundledMatcher.TryMatch(licenseText, out _);
+
+    [Benchmark]
+    public bool MatchBundledCorpusTemplateOnly() => bundledTemplateOnlyMatcher.TryMatch(licenseText, out _);
 
     [Benchmark]
     public int ConstructBundledCorpus()

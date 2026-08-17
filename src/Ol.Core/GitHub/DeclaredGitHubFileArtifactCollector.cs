@@ -330,7 +330,7 @@ public sealed class DeclaredGitHubFileArtifactCollector
                 artifact,
                 target.Path,
                 result.ContentSha256,
-                "spdx-template",
+                result.LicenseId is null ? "spdx-template" : result.MatchKind.ToMatcherId(),
                 matcher.CorpusVersion));
         if (result.LicenseId is { } licenseId)
         {

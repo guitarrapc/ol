@@ -300,9 +300,9 @@ public sealed class GitHubLicenseApiClient
             var bytes = document.AsSpan(0, documentLength);
             Span<byte> hash = stackalloc byte[32];
             SHA256.HashData(bytes, hash);
-            var licenseId = matcher.TryMatch(SkipUtf8Bom(bytes), out var matched) ? matched : null;
+            var resolved = matcher.TryMatch(SkipUtf8Bom(bytes), out var matched, out var matchKind);
             TryWriteFileCache(cache, target, HttpStatusCode.OK, bytes);
-            return new DeclaredGitHubFileResult(HttpStatusCode.OK, licenseId, Convert.ToHexStringLower(hash));
+            return new DeclaredGitHubFileResult(HttpStatusCode.OK, resolved ? matched : null, Convert.ToHexStringLower(hash), matchKind);
         }
         catch (JsonException exception)
         {
@@ -546,7 +546,7 @@ public sealed class GitHubLicenseApiClient
 }
 
 /// <summary>Contains the bounded result of reading one declared GitHub file.</summary>
-public readonly record struct DeclaredGitHubFileResult(HttpStatusCode StatusCode, string? LicenseId, string ContentSha256);
+public readonly record struct DeclaredGitHubFileResult(HttpStatusCode StatusCode, string? LicenseId, string ContentSha256, Ol.Core.Spdx.SpdxLicenseTextMatchKind MatchKind = Ol.Core.Spdx.SpdxLicenseTextMatchKind.None);
 
 /// <summary>Identifies which GitHub rate limit a response reported.</summary>
 public enum GitHubRateLimitKind : byte

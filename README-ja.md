@@ -300,6 +300,8 @@ ol scan --input bom.cdx.json --no-external-evidence
 
 SPDX式を書かない代わりに、NuGetの旧`licenseUrl`やCycloneDXの`license.url`のようにライセンスのURLだけを書くパッケージがあります。olはそのページを取得しません。ただしSPDXライセンスリスト自身が`seeAlso`として公開しているURLは識別子のURL表記として解決します（`https://www.apache.org/licenses/LICENSE-2.0`は識別子を定義しているレコードそのものがApache-2.0として公開しています）。照合はscheme、大文字小文字、先頭の`www.`、末尾のスラッシュだけを無視します。SPDXが公開していないURL、複数ライセンスで共有されているURLは未解決の宣言のまま残り、パッケージが明示したライセンスがURLで上書きされることもありません。
 
+同じ規則は、olが実際に読むライセンス文書（パッケージ同梱の`LICENSE`など）にも適用されます。文書はそこに再現されたSPDXライセンステキストで識別されるほか、文書自身が含んでいるSPDX公開URLでも識別されます。そのため`Licensed under the Apache License, Version 2.0`と書いて正典のApacheページを指しているだけの`LICENSE`もApache-2.0として解決します。1つの文書が2つのライセンスを名指している場合はどちらにも解決しません。xunit 2.4.1の`license.txt`はプロジェクト本体をApache-2.0として通知形式で宣言したうえで、1つのサブディレクトリに取り込んだコード向けにMITの全文を引用しています。olはテンプレートとして読めるほうを選ばず、未解決として報告します。どちらの読み方で判定したかは`spdx-template`と`spdx-license-url`としてレポートに記録されます。
+
 > [!TIP]
 > olは任意のリポジトリ内容をクロールしたり、ディレクトリ構成やライセンスファイルからライセンスを推測したりしません。
 

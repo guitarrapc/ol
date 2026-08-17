@@ -64,6 +64,9 @@ ol scan --input .
 ol scan --input package-lock.json
 ol scan --input src/MyProject/obj/project.assets.json
 
+# Scan an SBOM together with the resolved tree it describes (recommended when both exist)
+ol scan --input bom.cdx.json --input .
+
 # Write a reviewable Markdown report
 ol scan --input . --format markdown > ol-report.md
 
@@ -306,7 +309,7 @@ The same rule applies to a license document ol does read, such as the `LICENSE` 
 
 ## Resolving package dependencies
 
-For release and audit artifacts, prefer one CycloneDX or SPDX JSON SBOM covering the complete subject. For quick local feedback, use a supported lockfile or package-manager output directly.
+For release and audit artifacts, prefer one CycloneDX or SPDX JSON SBOM covering the complete subject. For quick local feedback, use a supported lockfile or package-manager output directly. When both are available, pass them together — see [Combine an SBOM with the resolved tree](#combine-an-sbom-with-the-resolved-tree).
 
 | Ecosystem | Resolved input for ol | How to prepare it |
 |---|---|---|
@@ -326,7 +329,28 @@ For release and audit artifacts, prefer one CycloneDX or SPDX JSON SBOM covering
 | CocoaPods | `Podfile.lock` | Run `pod install`. |
 
 > [!TIP]
-> ol detects formats from content, so `--input-format` is normally unnecessary. Repeat `--input A --input B` to combine inputs. One SBOM can be combined with package-manager inputs in a single report; a second SBOM cannot.
+> ol detects formats from content, so `--input-format` is normally unnecessary. Repeat `--input A --input B` to combine inputs.
+
+### Combine an SBOM with the resolved tree
+
+An SBOM records which packages a build resolved, but not where those packages are on disk. A package-manager input records both. Pass one SBOM and the resolved tree together, and each component is judged on the union of what the two inputs make available:
+
+```bash
+ol scan --input bom.cdx.json --input .
+```
+
+This is the recommended input for a project that publishes an SBOM. Two things come back that an SBOM alone cannot supply:
+
+- **License files from the packages the build actually consumed.** ol reads the `LICENSE` file inside a restored package only when an input tells it where that package is. This resolves publishers whose registry metadata states no license, and it is the difference between `matched` and `unresolved` for real packages — `Microsoft.DotNet.PlatformAbstractions` states no license in the NuGet registry and `NOASSERTION` on GitHub, but ships `LICENSE.TXT` in the package. The scan summary reports `Package artifacts (full scan): 0 targets` when no input pointed at a resolved tree.
+- **A dependency graph the resolver produced.** Whether an SBOM carries a usable graph is up to its generator. A generator that emits an incomplete one leaves components ol will not classify, and `dependency: unknown` disables `--dependency direct` and any `--allow-dev-licenses` allowance, which only applies where the resolver proves a component is development-only.
+
+The SBOM still contributes what only it knows: license claims its producer asserted, and components outside the package managers ol reads directly.
+
+One SBOM may be combined with any number of package-manager inputs. A second SBOM is an input failure, because two repository-wide documents describing one subject is a contradiction in the input rather than something ol can resolve:
+
+```text
+Unable to scan input: A collection accepts at most one SBOM document.
+```
 
 ## Common operations
 
@@ -491,7 +515,7 @@ No. These manifests describe requested dependencies, not the exact versions and 
 
 Prefer one SBOM for releases, audits, and repositories containing several ecosystems. Direct package-manager inputs are convenient for local feedback or when a resolved graph is already generated or committed.
 
-You can also pass both. ol matches them on package URL and combines their evidence, and the `SUPPLIED` column shows whether a component came from the SBOM, the package-manager input, or both. This is worth doing when the two inputs enumerate different sets — a lockfile often holds entries an SBOM omits — or when you want disagreements between them reported rather than hidden by scanning separately.
+Better still, pass both when both exist. ol matches them on package URL and combines their evidence, and the `SUPPLIED` column shows whether a component came from the SBOM, the package-manager input, or both. This is worth doing when the two inputs enumerate different sets — a lockfile often holds entries an SBOM omits — when you want disagreements between them reported rather than hidden by scanning separately, and because only a package-manager input lets ol read the license files inside the packages the build consumed. See [Combine an SBOM with the resolved tree](#combine-an-sbom-with-the-resolved-tree).
 
 ### Does ol require network access?
 

@@ -587,3 +587,144 @@ dotnet run --project src/Ol.Benchmark/Ol.Benchmark.csproj -c Release -- --filter
 **外部の権威が保留したときは、それを上書きする前に理由を疑う。** GitHub License API はこの `license.txt` に `NOASSERTION` を返していた。`ol` はより強い証跡 (テンプレート完全一致) を持っていたので上書きしたが、実際には GitHub のほうが正しかった。既存の candidate が保留しているのに自分だけが確定するときは、その差が本当に証跡の強さから来ているのかを確認する価値がある。
 
 **証跡のラベルは実装を変えたら必ず追随させる。** Round 2 の直後、URL から解決した結果に `matcher: "spdx-template"` が付いたままだった。テストは全部緑で、レポートの license 値も正しく、実害が出るのはレビュアが証跡を頼りに文書を開いた瞬間だけである。`ol` のように証跡が製品価値そのものである道具では、この種の不整合はバグと同じ重みで扱う。
+
+## 追試: baseline 運用で CI に載るか
+
+「Microsoft の .NET 基盤ライブラリは baseline に入れる」という実務判断を置いたうえで、CI と同じ形 (コールドキャッシュ、baseline 往復、再現性) で回した記録。
+
+### 違反の内訳は 2 種類に分かれる
+
+まず allow-list だけで検査すると 8 リポジトリ合計 353 violation が出た。理由別の内訳が重要である。
+
+```bash
+ALLOW="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MS-PL,Unlicense,CC0-1.0"
+for r in ...; do $OL check --report out3/$r.json --allow-licenses "$ALLOW"; done
+```
+
+```text
+    268 license is unresolved     <- baseline の対象
+     85 license is not allowed    <- baseline では消えない。ポリシー判断が要る
+```
+
+**baseline が受容できるのは「未解決」だけで、「解決できたが許可リストにない」は消えない。** これは正しい設計である。実際に出たのは `MPL-2.0` (lightningcss)、`CC-BY-4.0` (caniuse-lite)、`BlueOak-1.0.0`、`0BSD` で、いずれも `ol` は正しく確定している。許可するかどうかは組織の判断であり、`ol` が黙って通してはいけない。
+
+matched 全体のライセンス分布は次のとおりで、複合式も含まれる。
+
+```text
+2375 MIT / 252 Apache-2.0 / 96 ISC / 62 MIT-0 / 37 BSD-3-Clause / 35 BSD-2-Clause
+  11 MPL-2.0 / 4 BlueOak-1.0.0 / 4 0BSD / 3 CC0-1.0 / 2 Python-2.0 / 2 CC-BY-4.0
+   2 (WTFPL OR MIT) / 2 (MIT OR CC0-1.0) / 1 (MPL-2.0 OR Apache-2.0) / 1 (BSD-2-Clause OR MIT OR Apache-2.0)
+```
+
+`WTFPL` を許可リストへ入れると `(WTFPL OR MIT)` が違反から消え、`Apache-2.0` を許可した状態で `(MPL-2.0 OR Apache-2.0)` も消えた。OR 式は「どれか 1 つが許可されていれば可」として正しく評価されている。
+
+### `--allow-dev-licenses` は証明があるときだけ効く
+
+```bash
+$OL check --report out3/AIApiTracer.json --allow-licenses "$ALLOW" --allow-dev-licenses "MPL-2.0,CC-BY-4.0"
+```
+
+```text
+Allowed by development policy: 11 components.
+License check passed: 100 components satisfy the allow-list.
+```
+
+AIApiTracer の `lightningcss` は `usage: "development"` を持つ (`package-lock.json` の `dev: true` 由来) ため緩和された。一方 MagicOnion の `caniuse-lite` は Docusaurus の通常依存で `usage` が付かず、緩和されない。**同じライセンスでも入力が dev-only を証明できるかで結果が変わる。** 期待どおりだが、リポジトリごとに挙動が違う点は運用前に把握しておく必要がある。
+
+### baseline 適用後の結果
+
+```bash
+ALLOW="MIT,MIT-0,Apache-2.0,BSD-2-Clause,BSD-3-Clause,0BSD,ISC,CC0-1.0,Unlicense,BlueOak-1.0.0,Python-2.0,WTFPL"
+$OL check --report out3/$r.json --allow-licenses "$ALLOW" --allow-dev-licenses "MPL-2.0,CC-BY-4.0" \
+  --baseline baseline/$r.json --update-baseline
+```
+
+| Repository | baseline 件数 | exit | 備考 |
+|---|---:|---:|---|
+| AIApiTracer | 0 | 0 | baseline 不要。dev 緩和 11 件のみ |
+| DFrame | 83 | 0 | |
+| LogicLooper | 11 | 0 | |
+| MagicOnion | 73 | 2 → 0 | `caniuse-lite` CC-BY-4.0 を許可リストへ入れれば 0 |
+| NativeCompressions | 3 | 2 → 0 | 同上 |
+| UniTask | 94 | 0 | 141 中 94 が baseline。旧 .NET 依存が主 |
+| ZLinq | 3 | 0 | |
+| csbindgen | 1 | 0 | |
+
+MagicOnion / NativeCompressions の 1 件は `caniuse-lite` (CC-BY-4.0、browserslist のデータファイル) で、許可リストへ加えれば全 8 リポジトリが exit 0 になる。**Microsoft の旧 .NET 基盤ライブラリを baseline に入れる方針で、8 リポジトリすべてが CI で green にできる。**
+
+### CI で効く性質を 3 つ確認した
+
+**1. 再スキャンしても baseline が揺れない。** 新しくスキャンし直したレポートを既存 baseline で検査した。
+
+```bash
+$OL scan --input . --format json > rescan.json
+$OL check --report rescan.json --allow-licenses "$ALLOW" --baseline baseline/$r.json
+```
+
+```text
+DFrame       exit=0 | Acknowledged by baseline: 83 components.
+UniTask      exit=0 | Acknowledged by baseline: 94 components.
+ZLinq        exit=0 | Acknowledged by baseline: 3 components.
+csbindgen    exit=0 | Acknowledged by baseline: 1 component.
+LogicLooper  exit=0 | Acknowledged by baseline: 11 components.
+```
+
+fingerprint は `collectedAt` のようなスキャン時刻では変わらない。これがないと毎回 CI が赤くなるので、最も重要な性質である。
+
+**2. baseline は新しい未解決を吸収しない。** 修正前レポート (未解決 5 件) から作った baseline で、修正後レポート (未解決 11 件) を検査した。
+
+```text
+Acknowledged by baseline: 4 components.
+License check failed: 7 violations.
+xunit  2.4.0  nuget  unknown  license is unresolved  -
+...
+exit=2
+```
+
+新規の 7 件は素通りせず violation になった。さらに acknowledged が 5 → **4** に減っている。`xunit.analyzers@0.10.0` が未解決から Apache-2.0 に変わり、baseline が持つ evidence の fingerprint と一致しなくなったためである。**baseline は package 名ではなく evidence を覚えている。**
+
+**3. 一過性の収集失敗は baseline に焼き付かない。** `LicenseAllowPolicy.CanAcknowledge` (`src/Ol.Core/Licensing/LicenseAllowPolicy.cs:191`) は `Unknown / Ambiguous / Conflict / Invalid` だけを受容対象にしており、`LicenseStatus.Error` を明示的に除外している。timeout・429・5xx は `error` になり、`check` は violation が全て `Error` のとき exit 3 (inconclusive) を返す (`src/Ol/CheckCommands.cs:175`)。
+
+つまり **GitHub がレート制限を返した回で `--update-baseline` を走らせても、誰もレビューしていない package が「レビュー済み」として記録されることはない。** CI に載せるうえでここが一番怖い部分だったが、設計で塞がれている。
+
+### コールドキャッシュのコスト
+
+CI の実行環境はキャッシュが空である。`--cache-dir` を新しいディレクトリへ向けて実測した。
+
+```bash
+time $OL scan --input . --cache-dir ./coldcache --format json > report.json
+```
+
+| Repository | component 数 | 所要 | registry 要求 | GitHub 要求 | 結果 |
+|---|---:|---:|---:|---:|---|
+| ZLinq | 108 | 13 秒 | 108 | 28 | ウォームと完全一致 |
+| MagicOnion | 1590 | 2 分 08 秒 | 1590 | 822 | ウォームと完全一致 (1517/73) |
+| DFrame | 189 | — | 189 | 19 | 未認証でもウォームと一致 (106/83) |
+
+**GitHub API の消費量は npm 依存の量に比例する。** MagicOnion の 820 requests は Docusaurus の npm ツリー由来で、NuGet だけの DFrame は 19 requests しか使わない。DFrame は `OL_GITHUB_TOKEN` なし (未認証 60 req/h) でも認証時と同一の結果になった。.NET リポジトリでは package registry と nupkg 内 LICENSE が主戦力で、GitHub License API は補助である。
+
+注意が必要なのは npm を多く含むリポジトリである。GitHub Actions の `GITHUB_TOKEN` は 1 リポジトリあたり毎時 1,000 requests なので、MagicOnion の 822 は 1 回で 8 割を使う。matrix build や複数 job で回すならキャッシュ (`--cache-dir` を `actions/cache` に載せる) か PAT を検討する。レート制限に当たっても結果は `error` → exit 3 になるので、誤った green にはならない。
+
+### SARIF
+
+```bash
+$OL check --report report.json --allow-licenses "$ALLOW" --sarif ol.sarif
+```
+
+```json
+{"version":"2.1.0","rules":["OL0001","OL0002","OL0003","OL0004","OL0005","OL0006"],
+ "results":[{"ruleId":"OL0001","level":"error","msg":"pkg:nuget/Shouldly@4.3.0: license is not allowed (BSD-3-Clause)"},
+            {"ruleId":"OL0003","level":"error","msg":"pkg:nuget/Microsoft.NETCore.Platforms@1.1.0: license is unresolved. Introduced through pkg:nuget/NETStandard.Library@2.0.3 > pkg:nuget/Microsoft.NETCore.Platforms@1.1.0"}]}
+```
+
+理由が rule id で分かれており (`OL0001` = 許可外、`OL0003` = 未解決)、未解決側には依存経路が入る。code scanning に載せてトリアージできる形になっている。
+
+### 結論: 載る
+
+`ol scan` → `ol diff` → `ol check --baseline` の 3 段で CI に載せられる。CI 化にあたって決めるべきは `ol` の側ではなく、次の 3 点である。
+
+1. **許可リスト** — MPL-2.0 / CC-BY-4.0 / BlueOak-1.0.0 / 0BSD を許可するか。baseline では消えない。
+2. **baseline のコミット** — Microsoft 旧 .NET 基盤ライブラリが主。UniTask で 94 件、8 リポジトリ計 268 件。1 度レビューして commit すれば以後は差分だけ見る。
+3. **キャッシュと token** — npm 依存が多いリポジトリのみ `--cache-dir` の永続化を検討。NuGet だけなら不要。
+
+SBOM 単体を入力にすると package artifact 証跡を失うので ([SBOM-1](#sbom-1-sbom-経路では-package-artifact-証跡が完全に失われる))、CI では復元済みディレクトリを直接渡すか、SBOM と併用する。

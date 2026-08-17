@@ -1,3 +1,4 @@
+using System.Numerics;
 using Ol.Core;
 
 namespace Ol.Internals;
@@ -20,8 +21,6 @@ internal struct InputCandidateDiagnostics
 /// <summary>Detects known unsupported inputs and owns their actionable diagnostics.</summary>
 internal static class KnownUnsupportedInputCandidates
 {
-    private const string UnsupportedFormatMessage = "Unsupported dependency input format: no registered format signature matched.";
-
     private static readonly CandidateRule[] Rules =
     [
         new(
@@ -30,18 +29,18 @@ internal static class KnownUnsupportedInputCandidates
             Extension: null,
             DirectoryPattern: "Cargo.lock",
             Advice: "Cargo.lock is not a supported input. Run 'cargo metadata --format-version 1 --locked > cargo-metadata.json', then scan cargo-metadata.json.",
-            Warning: "Rust dependencies were not scanned: Cargo.lock is not a supported input. Run 'cargo metadata --format-version 1 --locked > cargo-metadata.json', then scan cargo-metadata.json.",
+            WarningSubject: "Rust",
             SatisfiedFormat: ScanInputFormat.CargoMetadata,
             SatisfiedEcosystem: "cargo"),
         new(
             Bit: 1UL << 1,
             FileName: null,
             Extension: ".csproj",
-            DirectoryPattern: null,
+            DirectoryPattern: "*.csproj",
             Advice: ".csproj is not a resolved dependency input. Run 'dotnet restore', then scan obj/project.assets.json.",
-            Warning: null,
-            SatisfiedFormat: default,
-            SatisfiedEcosystem: null),
+            WarningSubject: ".NET",
+            SatisfiedFormat: ScanInputFormat.NuGetAssets,
+            SatisfiedEcosystem: "nuget"),
     ];
 
     public static void DetectDirectory(string directory, EnumerationOptions options, ref InputCandidateDiagnostics diagnostics)
@@ -49,7 +48,7 @@ internal static class KnownUnsupportedInputCandidates
         for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
         {
             ref readonly var rule = ref Rules[ruleIndex];
-            if (diagnostics.IsDetected(rule.Bit) || rule.DirectoryPattern is null)
+            if (diagnostics.IsDetected(rule.Bit))
             {
                 continue;
             }
@@ -78,14 +77,9 @@ internal static class KnownUnsupportedInputCandidates
                 continue;
             }
 
-            if (!string.IsNullOrEmpty(rule.SatisfiedFormat.Name) && handler.Format == rule.SatisfiedFormat)
+            if (handler.Format == rule.SatisfiedFormat)
             {
                 diagnostics.MarkSatisfied(rule.Bit);
-                continue;
-            }
-
-            if (rule.SatisfiedEcosystem is null)
-            {
                 continue;
             }
 
@@ -102,7 +96,7 @@ internal static class KnownUnsupportedInputCandidates
 
     public static bool TryGetDirectInputError(string path, Exception exception, out string error)
     {
-        if (exception.Message != UnsupportedFormatMessage)
+        if (exception.Message != DependencyInputRegistry.UnsupportedFormatMessage)
         {
             error = string.Empty;
             return false;
@@ -113,8 +107,8 @@ internal static class KnownUnsupportedInputCandidates
         for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
         {
             ref readonly var rule = ref Rules[ruleIndex];
-            if (rule.FileName is not null && string.Equals(fileName, rule.FileName, StringComparison.OrdinalIgnoreCase)
-                || rule.Extension is not null && string.Equals(extension, rule.Extension, StringComparison.OrdinalIgnoreCase))
+            if ((rule.FileName is not null && string.Equals(fileName, rule.FileName, StringComparison.OrdinalIgnoreCase))
+                || (rule.Extension is not null && string.Equals(extension, rule.Extension, StringComparison.OrdinalIgnoreCase)))
             {
                 error = rule.Advice;
                 return true;
@@ -131,9 +125,11 @@ internal static class KnownUnsupportedInputCandidates
         for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
         {
             ref readonly var rule = ref Rules[ruleIndex];
-            if ((unresolved & rule.Bit) != 0 && rule.Warning is not null)
+            if ((unresolved & rule.Bit) != 0)
             {
-                error = rule.Warning;
+                // Nothing was scanned at all on this path, so the warning's "were not scanned" framing would
+                // misreport the failure. The advice alone is what the caller can act on.
+                error = rule.Advice;
                 return true;
             }
         }
@@ -153,18 +149,20 @@ internal static class KnownUnsupportedInputCandidates
         for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
         {
             ref readonly var rule = ref Rules[ruleIndex];
-            if ((unresolved & rule.Bit) == 0 || rule.Warning is null)
+            if ((unresolved & rule.Bit) == 0)
             {
                 continue;
             }
 
             writer.Write("Warning: ");
-            writer.WriteLine(rule.Warning);
+            writer.Write(rule.WarningSubject);
+            writer.Write(" dependencies were not scanned: ");
+            writer.WriteLine(rule.Advice);
         }
     }
 
     public static int GetUnresolvedCount(in InputCandidateDiagnostics diagnostics)
-        => System.Numerics.BitOperations.PopCount(diagnostics.Unresolved);
+        => BitOperations.PopCount(diagnostics.Unresolved);
 
     public static void WriteUnresolvedNames(in InputCandidateDiagnostics diagnostics, TextWriter writer)
     {
@@ -183,17 +181,26 @@ internal static class KnownUnsupportedInputCandidates
                 writer.Write(", ");
             }
 
-            writer.Write(rule.FileName ?? string.Concat("*", rule.Extension));
+            writer.Write(rule.DirectoryPattern);
         }
     }
 
+    /// <summary>One known dependency input Ol cannot consume, and the supported input that replaces it.</summary>
+    /// <param name="Bit">The rule's bit in <see cref="InputCandidateDiagnostics"/>.</param>
+    /// <param name="FileName">The exact file name identifying this candidate when it is named directly, when it has one.</param>
+    /// <param name="Extension">The file extension identifying this candidate when it is named directly, when it has one.</param>
+    /// <param name="DirectoryPattern">The pattern automatic directory discovery detects this candidate with.</param>
+    /// <param name="Advice">The supported input to produce, and how.</param>
+    /// <param name="WarningSubject">The ecosystem named by the directory-discovery warning.</param>
+    /// <param name="SatisfiedFormat">The input format whose presence proves the ecosystem was scanned.</param>
+    /// <param name="SatisfiedEcosystem">The component ecosystem whose presence proves the ecosystem was scanned.</param>
     private readonly record struct CandidateRule(
         ulong Bit,
         string? FileName,
         string? Extension,
-        string? DirectoryPattern,
+        string DirectoryPattern,
         string Advice,
-        string? Warning,
+        string WarningSubject,
         ScanInputFormat SatisfiedFormat,
-        string? SatisfiedEcosystem);
+        string SatisfiedEcosystem);
 }

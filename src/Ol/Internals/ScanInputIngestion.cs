@@ -309,13 +309,15 @@ internal static class ScanInputIngestion
             }
 
             var rootName = new DirectoryInfo(inputPath).Name;
-            KnownUnsupportedInputCandidates.DetectDirectory(inputPath, enumerationOptions, ref inputCandidateDiagnostics);
-
             if (selection.HasExpectedFormat)
             {
+                // An explicit format is an assertion about what to scan, so detecting the candidates it
+                // excludes would report a deliberate choice as an oversight.
                 DiscoverDirectoryFiles(inputPath, rootName, selection.ExpectedHandler, enumerationOptions, collectedByPath);
                 continue;
             }
+
+            KnownUnsupportedInputCandidates.DetectDirectory(inputPath, enumerationOptions, ref inputCandidateDiagnostics);
 
             var registeredHandlers = DependencyInputRegistry.Default.RegisteredHandlers;
             for (var handlerIndex = 0; handlerIndex < registeredHandlers.Length; handlerIndex++)

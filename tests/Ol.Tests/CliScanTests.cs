@@ -2030,7 +2030,113 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(1);
             await Assert.That(stdout).IsEmpty();
-            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Rust dependencies were not scanned: Cargo.lock is not a supported input. Run 'cargo metadata --format-version 1 --locked > cargo-metadata.json', then scan cargo-metadata.json.");
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Cargo.lock is not a supported input. Run 'cargo metadata --format-version 1 --locked > cargo-metadata.json', then scan cargo-metadata.json.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryContainingUnrestoredProject_WarnsThatNuGetWasNotScanned()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-unrestored-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />", Encoding.UTF8);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "cargo-metadata.json"),
+            Path.Combine(temporaryDirectory, "cargo-metadata.json"));
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr.Trim()).IsEqualTo("Warning: .NET dependencies were not scanned: .csproj is not a resolved dependency input. Run 'dotnet restore', then scan obj/project.assets.json.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryContainingOnlyProject_ReturnsActionableError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-project-only-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: .csproj is not a resolved dependency input. Run 'dotnet restore', then scan obj/project.assets.json.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryContainingRestoredProject_DoesNotWarnForProjectFile()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-restored-project-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project");
+        Directory.CreateDirectory(Path.Combine(projectDirectory, "obj"));
+        await File.WriteAllTextAsync(Path.Combine(projectDirectory, "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />", Encoding.UTF8);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "obj", "project.assets.json"));
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitInputFormat_DoesNotHintAtOtherEcosystems()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-explicit-format-hint-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--input-format",
+                "nuget-assets",
+                "--no-external-evidence",
+                "--format",
+                "json",
+                "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).IsEmpty();
         }
         finally
         {

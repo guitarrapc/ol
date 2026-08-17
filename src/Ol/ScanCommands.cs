@@ -90,6 +90,9 @@ internal sealed class ScanCommands
         var packageMetadataSummary = completed.PackageMetadataSummary;
         var sourceRepositorySummary = completed.SourceRepositorySummary;
 
+        KnownUnsupportedInputCandidates.WriteWarnings(completed.InputCandidateDiagnostics, Console.Error);
+        WriteSkippedIncompleteInputWarnings(completed.SkippedIncompleteInputs, completed.SkippedIncompleteInputCount, Console.Error);
+
         // A reached rate limit means source evidence is missing for reasons the run can act on, so it is
         // reported even under --quiet, where the counters that would otherwise hint at it are suppressed.
         if (completed.GitHubRateLimit is { } gitHubRateLimit)
@@ -196,6 +199,12 @@ internal sealed class ScanCommands
                 Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
             }
 
+            WriteInputDiscoverySummary(
+                completed.DetectedInputFileCount,
+                completed.InputCandidateDiagnostics,
+                completed.SkippedIncompleteInputCount,
+                scanResult.Inventory.Components,
+                Console.Error);
             Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
             if (dependency is not null and not "")
             {
@@ -204,6 +213,79 @@ internal sealed class ScanCommands
         }
 
         return 0;
+    }
+
+    // An incomplete companion set is reported rather than aborting the run, so the report is only trustworthy
+    // if the reader is told what it left out. That holds under --quiet, where the summary is suppressed.
+    private static void WriteSkippedIncompleteInputWarnings(SkippedIncompleteInput[] skipped, int skippedCount, TextWriter writer)
+    {
+        for (var skippedIndex = 0; skippedIndex < skippedCount; skippedIndex++)
+        {
+            ref readonly var input = ref skipped[skippedIndex];
+            writer.Write("Warning: ");
+            writer.Write(input.LogicalPath);
+            writer.Write(" was not scanned: input format ");
+            writer.Write(input.FormatName);
+            writer.Write(" requires companion file ");
+            writer.Write(input.MissingFileName);
+            writer.WriteLine(" in the same directory.");
+        }
+    }
+
+    private static void WriteInputDiscoverySummary(
+        int detectedInputFileCount,
+        in InputCandidateDiagnostics candidateDiagnostics,
+        int skippedIncompleteInputCount,
+        ReadOnlySpan<ScanComponent> components,
+        TextWriter writer)
+    {
+        var ignoredCandidateCount = KnownUnsupportedInputCandidates.GetUnresolvedCount(candidateDiagnostics);
+        writer.Write("  Input discovery: ");
+        writer.Write(detectedInputFileCount);
+        writer.Write(detectedInputFileCount == 1 ? " detected file; " : " detected files; ");
+        writer.Write(ignoredCandidateCount);
+        writer.Write(ignoredCandidateCount == 1 ? " ignored candidate" : " ignored candidates");
+        if (ignoredCandidateCount > 0)
+        {
+            writer.Write(" (");
+            KnownUnsupportedInputCandidates.WriteUnresolvedNames(candidateDiagnostics, writer);
+            writer.Write(')');
+        }
+
+        writer.Write("; ");
+        writer.Write(skippedIncompleteInputCount);
+        writer.Write(skippedIncompleteInputCount == 1 ? " incomplete input set" : " incomplete input sets");
+        writer.Write("; ecosystems ");
+        var ecosystems = new HashSet<string>(StringComparer.Ordinal);
+        for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)
+        {
+            var ecosystem = components[componentIndex].Ecosystem;
+            if (!string.IsNullOrEmpty(ecosystem) && ecosystem != "-")
+            {
+                ecosystems.Add(ecosystem);
+            }
+        }
+
+        if (ecosystems.Count == 0)
+        {
+            writer.WriteLine("none");
+            return;
+        }
+
+        var sortedEcosystems = new string[ecosystems.Count];
+        ecosystems.CopyTo(sortedEcosystems);
+        Array.Sort(sortedEcosystems, StringComparer.Ordinal);
+        for (var ecosystemIndex = 0; ecosystemIndex < sortedEcosystems.Length; ecosystemIndex++)
+        {
+            if (ecosystemIndex > 0)
+            {
+                writer.Write(", ");
+            }
+
+            writer.Write(sortedEcosystems[ecosystemIndex]);
+        }
+
+        writer.WriteLine();
     }
 
     private static void WriteText(

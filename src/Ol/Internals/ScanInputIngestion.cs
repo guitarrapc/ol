@@ -1,5 +1,6 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Ol.Core;
 using Ol.Core.PackageManagers;
 using Ol.Core.Spdx;
@@ -17,11 +18,21 @@ internal readonly record struct ScanInputSelection(string[] Paths, DependencyInp
 /// <summary>Identifies one physical dependency input that has a restored-artifact collector.</summary>
 internal readonly record struct ResolvedPackageArtifactInput(string Path, PackageArtifactCollector Collector);
 
+/// <summary>Identifies one discovered input left unscanned because its registered companion set was incomplete.</summary>
+/// <param name="LogicalPath">The discovered file, as the scan refers to it.</param>
+/// <param name="FormatName">The format the file belongs to.</param>
+/// <param name="MissingFileName">The companion file that was not beside it.</param>
+internal readonly record struct SkippedIncompleteInput(string LogicalPath, string FormatName, string MissingFileName);
+
 /// <summary>Contains the combined inventory and the bounded physical inputs needed by local artifact collection.</summary>
 internal readonly record struct ScanInputIngestionResult(
     DependencyInventory Inventory,
     ResolvedPackageArtifactInput[] PackageArtifactInputs,
-    int PackageArtifactInputCount);
+    int PackageArtifactInputCount,
+    int DetectedInputFileCount,
+    InputCandidateDiagnostics InputCandidateDiagnostics,
+    SkippedIncompleteInput[] SkippedIncompleteInputs,
+    int SkippedIncompleteInputCount);
 
 /// <summary>
 /// Turns named input paths into one combined dependency inventory.
@@ -79,11 +90,13 @@ internal static class ScanInputIngestion
         bool includeHash,
         bool collectPackageArtifacts)
     {
-        var files = CollectInputFiles(selection);
+        var files = CollectInputFiles(selection, out var inputCandidateDiagnostics);
         var inventories = new DependencyInventory[files.Length];
         var handlers = new DependencyInputHandler[files.Length];
         var packageArtifactInputs = collectPackageArtifacts ? new ResolvedPackageArtifactInput[files.Length] : [];
         var consumed = new bool[files.Length];
+        var skippedIncompleteInputs = new SkippedIncompleteInput[files.Length];
+        var skippedIncompleteInputCount = 0;
         var loadedInputs = includeHash ? new byte[files.Length][] : null;
         IncrementalHash? sourceHash = includeHash ? IncrementalHash.CreateHash(HashAlgorithmName.SHA256) : null;
         var expectedFormat = selection.HasExpectedFormat ? selection.ExpectedHandler.Format : default;
@@ -112,8 +125,30 @@ internal static class ScanInputIngestion
                 if (consumed[i]) continue;
                 DependencyInventory inventory;
                 DependencyInputHandler handler;
-                if (TryCollectInputBundle(files, i, consumed, out handler, out var bundleIndexes))
+                if (TryCollectInputBundle(files, i, consumed, out handler, out var bundleIndexes, out var missingCompanionName))
                 {
+                    if (missingCompanionName is not null)
+                    {
+                        // Naming a file is an assertion that Ol should read it, so an incomplete set there is a
+                        // failure. Directory discovery only proposes candidates, and aborting over one it proposed
+                        // would let a file the user never named decide whether every other input gets reported.
+                        if (!files[i].Discovered || selection.HasExpectedFormat)
+                        {
+                            throw new InvalidOperationException($"Input format {handler.Format.Name} requires companion file {missingCompanionName} in the same directory.");
+                        }
+
+                        for (var bundleIndex = 0; bundleIndex < bundleIndexes.Length; bundleIndex++)
+                        {
+                            if (bundleIndexes[bundleIndex] >= 0)
+                            {
+                                consumed[bundleIndexes[bundleIndex]] = true;
+                            }
+                        }
+
+                        skippedIncompleteInputs[skippedIncompleteInputCount++] = new SkippedIncompleteInput(files[i].LogicalPath, handler.Format.Name, missingCompanionName);
+                        continue;
+                    }
+
                     var bundleSources = new byte[bundleIndexes.Length][];
                     for (var bundleIndex = 0; bundleIndex < bundleIndexes.Length; bundleIndex++)
                     {
@@ -127,7 +162,15 @@ internal static class ScanInputIngestion
                         throw new InvalidOperationException($"Input format {expectedFormat.Name} does not match the detected {handler.Format.Name} format.");
                     }
 
-                    inventory = DependencyInputScanner.ScanBundle(bundleSources, spdx, handler.Format);
+                    try
+                    {
+                        inventory = DependencyInputScanner.ScanBundle(bundleSources, spdx, handler.Format);
+                    }
+                    catch (Exception exception) when (TryDescribeDiscoveredInputFailure(files[i], exception, out var discoveredError))
+                    {
+                        throw new InvalidOperationException(discoveredError, exception);
+                    }
+
                     if (collectPackageArtifacts
                         && PackageArtifactCollectorRegistry.Default.TryGet(handler.Format, out var artifactHandler))
                     {
@@ -137,7 +180,18 @@ internal static class ScanInputIngestion
                 else
                 {
                     var inputBytes = loadedInputs?[i] ?? File.ReadAllBytes(files[i].Path);
-                    inventory = DependencyInputScanner.Scan(inputBytes, spdx, expectedFormat: expectedFormat);
+                    try
+                    {
+                        inventory = DependencyInputScanner.Scan(inputBytes, spdx, expectedFormat: expectedFormat);
+                    }
+                    catch (Exception exception) when (KnownUnsupportedInputCandidates.TryGetDirectInputError(files[i].Path, exception, out var inputError))
+                    {
+                        throw new InvalidOperationException(inputError, exception);
+                    }
+                    catch (Exception exception) when (TryDescribeDiscoveredInputFailure(files[i], exception, out var discoveredError))
+                    {
+                        throw new InvalidOperationException(discoveredError, exception);
+                    }
                     consumed[i] = true;
                     if (!DependencyInputRegistry.Default.TryGetInputFormat(inventory.Input.Format.Name, out handler))
                     {
@@ -150,6 +204,8 @@ internal static class ScanInputIngestion
                         packageArtifactInputs[packageArtifactInputCount++] = new ResolvedPackageArtifactInput(files[i].Path, artifactHandler.Collector);
                     }
                 }
+
+                KnownUnsupportedInputCandidates.ObserveScannedInput(inventory, handler, ref inputCandidateDiagnostics);
 
                 // A repository-wide SBOM and per-project package-manager inputs describe one resolution at two
                 // granularities, so they combine. Two repository-wide documents are a contradiction in the input
@@ -193,6 +249,14 @@ internal static class ScanInputIngestion
                 inventoryCount++;
             }
 
+            // Skipping every discovered candidate leaves nothing to report, and an empty report reads as
+            // "this repository has no dependencies" rather than "Ol could not read them".
+            if (inventoryCount == 0 && skippedIncompleteInputCount > 0)
+            {
+                ref readonly var firstSkipped = ref skippedIncompleteInputs[0];
+                throw new InvalidOperationException($"No dependency input could be scanned: input format {firstSkipped.FormatName} requires companion file {firstSkipped.MissingFileName} in the same directory ({firstSkipped.LogicalPath}).");
+            }
+
             var descriptor = new ScanInputDescriptor(
                 kind,
                 format,
@@ -206,7 +270,11 @@ internal static class ScanInputIngestion
             return new ScanInputIngestionResult(
                 DependencyInventoryCombiner.Combine(inventories.AsSpan(0, inventoryCount), handlers.AsSpan(0, inventoryCount), descriptor),
                 packageArtifactInputs,
-                packageArtifactInputCount);
+                packageArtifactInputCount,
+                files.Length,
+                inputCandidateDiagnostics,
+                skippedIncompleteInputs,
+                skippedIncompleteInputCount);
         }
         finally
         {
@@ -214,13 +282,32 @@ internal static class ScanInputIngestion
         }
     }
 
+    /// <summary>
+    /// Names the file in a failure the user cannot otherwise place. A named input is already identified by the
+    /// command line, but a discovered one is a file the user never mentioned, so a bare parse failure gives them
+    /// nothing to act on.
+    /// </summary>
+    private static bool TryDescribeDiscoveredInputFailure(in CollectedInputFile file, Exception exception, out string error)
+    {
+        if (!file.Discovered || exception is not (JsonException or InvalidOperationException or NotSupportedException or ArgumentException))
+        {
+            error = string.Empty;
+            return false;
+        }
+
+        error = string.Concat(file.LogicalPath, ": ", exception.Message);
+        return true;
+    }
+
     private static bool TryCollectInputBundle(
         ReadOnlySpan<CollectedInputFile> files,
         int candidateIndex,
         ReadOnlySpan<bool> consumed,
         out DependencyInputHandler handler,
-        out int[] bundleIndexes)
+        out int[] bundleIndexes,
+        out string? missingCompanionName)
     {
+        missingCompanionName = null;
         var candidateName = Path.GetFileName(files[candidateIndex].Path);
         var candidateDirectory = Path.GetDirectoryName(files[candidateIndex].Path) ?? string.Empty;
         var fileNameComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -260,7 +347,8 @@ internal static class ScanInputIngestion
 
                 if (bundleIndexes[requiredIndex] < 0)
                 {
-                    throw new InvalidOperationException($"Input format {candidateHandler.Format.Name} requires companion file {requiredNames[requiredIndex]} in the same directory.");
+                    missingCompanionName = requiredNames[requiredIndex];
+                    break;
                 }
             }
 
@@ -273,8 +361,9 @@ internal static class ScanInputIngestion
         return false;
     }
 
-    private static CollectedInputFile[] CollectInputFiles(ScanInputSelection selection)
+    private static CollectedInputFile[] CollectInputFiles(ScanInputSelection selection, out InputCandidateDiagnostics inputCandidateDiagnostics)
     {
+        inputCandidateDiagnostics = default;
         var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         var collectedByPath = new Dictionary<string, CollectedInputFile>(pathComparer);
         var enumerationOptions = new EnumerationOptions
@@ -290,16 +379,20 @@ internal static class ScanInputIngestion
             var inputPath = Path.GetFullPath(selection.Paths[inputIndex]);
             if (File.Exists(inputPath))
             {
-                AddCollectedFile(collectedByPath, inputPath, Path.GetFileName(inputPath));
+                AddCollectedFile(collectedByPath, inputPath, Path.GetFileName(inputPath), discovered: false);
                 continue;
             }
 
             var rootName = new DirectoryInfo(inputPath).Name;
             if (selection.HasExpectedFormat)
             {
+                // An explicit format is an assertion about what to scan, so detecting the candidates it
+                // excludes would report a deliberate choice as an oversight.
                 DiscoverDirectoryFiles(inputPath, rootName, selection.ExpectedHandler, enumerationOptions, collectedByPath);
                 continue;
             }
+
+            KnownUnsupportedInputCandidates.DetectDirectory(inputPath, enumerationOptions, ref inputCandidateDiagnostics);
 
             var registeredHandlers = DependencyInputRegistry.Default.RegisteredHandlers;
             for (var handlerIndex = 0; handlerIndex < registeredHandlers.Length; handlerIndex++)
@@ -310,6 +403,11 @@ internal static class ScanInputIngestion
 
         if (collectedByPath.Count == 0)
         {
+            if (KnownUnsupportedInputCandidates.TryGetUnscannedInputError(inputCandidateDiagnostics, out var inputError))
+            {
+                throw new InvalidOperationException(inputError);
+            }
+
             throw new InvalidOperationException("No registered dependency input files were found in the input directories.");
         }
 
@@ -339,18 +437,25 @@ internal static class ScanInputIngestion
             {
                 var fullPath = Path.GetFullPath(paths[pathIndex]);
                 var relativePath = Path.GetRelativePath(directory, fullPath).Replace('\\', '/');
-                AddCollectedFile(collectedByPath, fullPath, string.Concat(rootName, "/", relativePath));
+                AddCollectedFile(collectedByPath, fullPath, string.Concat(rootName, "/", relativePath), discovered: true);
             }
         }
     }
 
-    private static void AddCollectedFile(Dictionary<string, CollectedInputFile> collectedByPath, string path, string logicalPath)
+    private static void AddCollectedFile(Dictionary<string, CollectedInputFile> collectedByPath, string path, string logicalPath, bool discovered)
     {
-        var candidate = new CollectedInputFile(path, logicalPath);
-        if (!collectedByPath.TryGetValue(path, out var existing) || string.CompareOrdinal(candidate.LogicalPath, existing.LogicalPath) < 0)
+        if (collectedByPath.TryGetValue(path, out var existing))
         {
-            collectedByPath[path] = candidate;
+            // Naming a file directly is an assertion about it, and it stays one when a directory input happens
+            // to discover the same file too.
+            discovered &= existing.Discovered;
+            if (string.CompareOrdinal(logicalPath, existing.LogicalPath) >= 0)
+            {
+                logicalPath = existing.LogicalPath;
+            }
         }
+
+        collectedByPath[path] = new CollectedInputFile(path, logicalPath, discovered);
     }
 
     private static string GetInputSourceReference(string[] inputPaths)
@@ -364,7 +469,8 @@ internal static class ScanInputIngestion
         return Path.GetFileName(path);
     }
 
-    private readonly record struct CollectedInputFile(string Path, string LogicalPath);
+    /// <summary>One physical input file, and whether directory discovery proposed it rather than the user naming it.</summary>
+    private readonly record struct CollectedInputFile(string Path, string LogicalPath, bool Discovered);
 
     private sealed class CollectedInputFileComparer : IComparer<CollectedInputFile>
     {

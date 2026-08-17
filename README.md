@@ -483,7 +483,7 @@ The stdout verdict remains unchanged. SARIF 2.1.0 contains the same violations a
 
 ### Can I pass `package.json`, `*.csproj`, or `Cargo.toml` directly?
 
-No. These manifests describe requested dependencies, not the exact versions and transitive graph selected by the build. Generate an SBOM or use a supported resolved input.
+No. These manifests describe requested dependencies, not the exact versions and transitive graph selected by the build. Generate an SBOM or use a supported resolved input. For .NET, run `dotnet restore` and scan `obj/project.assets.json`. For Rust, run `cargo metadata --format-version 1 --locked > cargo-metadata.json` and scan `cargo-metadata.json`; `Cargo.lock` is not accepted directly.
 
 ### Should I use an SBOM or package-manager input?
 

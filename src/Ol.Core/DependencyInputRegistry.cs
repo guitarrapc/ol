@@ -96,6 +96,12 @@ public readonly record struct DependencyInputHandler(
 /// </summary>
 public sealed class DependencyInputRegistry
 {
+    /// <summary>
+    /// The failure message reported when no registered format signature matched the input content. Callers that
+    /// turn this failure into more specific guidance match on it, so it is part of the registry contract.
+    /// </summary>
+    public const string UnsupportedFormatMessage = "Unsupported dependency input format: no registered format signature matched.";
+
     private readonly DependencyInputHandler[] handlers;
 
     /// <summary>
@@ -393,7 +399,7 @@ public static class DependencyInputScanner
         {
             if (selected < 0)
             {
-                throw new InvalidOperationException("Unsupported dependency input format: no registered format signature matched.");
+                throw new InvalidOperationException(DependencyInputRegistry.UnsupportedFormatMessage);
             }
 
             return handlers[selected];
@@ -496,7 +502,7 @@ public static class DependencyInputScanner
 
             if (selected < 0)
             {
-                throw new JsonException("Unsupported dependency input format: no registered format signature matched.");
+                throw new JsonException(DependencyInputRegistry.UnsupportedFormatMessage);
             }
 
             return handlers[selected];

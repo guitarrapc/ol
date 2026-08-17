@@ -21,6 +21,10 @@ internal readonly record struct CompletedScanExecution(
     DeclaredGitHubFileArtifactCollectionSummary DeclaredGitHubFileSummary,
     PackageMetadataSummary PackageMetadataSummary,
     SourceRepositorySummary SourceRepositorySummary,
+    int DetectedInputFileCount,
+    InputCandidateDiagnostics InputCandidateDiagnostics,
+    SkippedIncompleteInput[] SkippedIncompleteInputs,
+    int SkippedIncompleteInputCount,
     GitHubRateLimitStatus? GitHubRateLimit = null);
 
 internal static class ScanExecution
@@ -204,7 +208,7 @@ internal static class ScanExecution
                 gitHubRateLimit = declaredGitHubFileCollector.RateLimit ?? sourceService.RateLimit;
             }
 
-            completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, gitHubRateLimit);
+            completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, ingestion.DetectedInputFileCount, ingestion.InputCandidateDiagnostics, ingestion.SkippedIncompleteInputs, ingestion.SkippedIncompleteInputCount, gitHubRateLimit);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or HttpRequestException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {

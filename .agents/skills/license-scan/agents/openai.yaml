@@ -1,0 +1,4 @@
+interface:
+  display_name: "ol License Scan"
+  short_description: "Scan and enforce polyglot dependency license policy"
+  default_prompt: "Use $license-scan to inventory every in-scope ecosystem, scan this repository with ol, apply the intended SPDX policy, and manage any reviewed baseline for CI."

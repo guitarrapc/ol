@@ -142,15 +142,17 @@ $ ol --help
 Usage: [command] [-h|--help] [--version]
 
 Commands:
-  cache clear     Clears cached evidence for the specified category.
-  check           Check a canonical JSON scan report against allowed SPDX licenses.
-  diff            Compare two persisted JSON scan reports and report license-relevant changes.
-  scan            Scan a resolved dependency input.
-  spdx clear      Clear user-managed SPDX data.
-  spdx list       List installed SPDX data versions.
-  spdx update     Download SPDX data into the user data directory.
-  spdx use        Switch active SPDX data version.
-  spdx version    Show the active SPDX data source.
+  cache clear            Clears cached evidence for the specified category.
+  check                  Check a canonical JSON scan report against allowed SPDX licenses.
+  diff                   Compare two persisted JSON scan reports and report license-relevant changes.
+  scan                   Scan a resolved dependency input.
+  skill export-plugin    Export a portable Agent Plugin package.
+  skill install          Install the skill into the current workspace.
+  spdx clear             Clear user-managed SPDX data.
+  spdx list              List installed SPDX data versions.
+  spdx update            Download SPDX data into the user data directory.
+  spdx use               Switch active SPDX data version.
+  spdx version           Show the active SPDX data source.
 ```
 
 | コマンド | 役割 |
@@ -158,6 +160,8 @@ Commands:
 | `ol scan` | 解決済み依存関係からライセンス証拠を収集し、レポートを生成する。 |
 | `ol check` | canonical JSONレポートを許可リストで評価する。 |
 | `ol diff` | 2つのcanonical JSONレポートを比較する。 |
+| `ol skill install` | 同梱されたlicense-scan Agent SkillをCodexまたはClaude向けにインストールする。 |
+| `ol skill export-plugin` | SkillをポータブルなAgent Pluginとして出力する。 |
 | `ol cache clear` | olが管理する証拠キャッシュを削除する。 |
 | `ol spdx version` | 使用中のSPDXデータを表示する。 |
 | `ol spdx list` | インストール済みSPDXデータを一覧表示する。 |
@@ -253,6 +257,17 @@ Manage locally cached scan evidence.
 Commands:
   clear    Clears cached evidence for the specified category.
 ```
+
+olには、解決済み入力の選択、SBOMとパッケージマネジャー証拠の併用、scan結果の解釈をcoding agentへ案内するAgent Skillが同梱されています。現在のworkspaceへインストールするか、ポータブルな[Agent Plugin](https://agent-plugins.org/)として出力できます。
+
+```bash
+ol skill install --target codex
+ol skill install --target claude
+ol skill export-plugin --output ./ol-plugin
+ol skill export-plugin --output ./ol-plugin --with-claude
+```
+
+Codexは`.agents/skills/license-scan`、Claudeは`.claude/skills/license-scan`へインストールします。`--output`で出力先を変更できます。既存ディレクトリは`--force`を指定しない限り保持されます。`--with-claude`は同じ`skills/license-scan`を共有したままClaude Code用manifest adapterを追加します。
 
 ### 終了コード
 

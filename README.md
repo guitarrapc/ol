@@ -143,15 +143,17 @@ $ ol --help
 Usage: [command] [-h|--help] [--version]
 
 Commands:
-  cache clear     Clears cached evidence for the specified category.
-  check           Check a canonical JSON scan report against allowed SPDX licenses.
-  diff            Compare two persisted JSON scan reports and report license-relevant changes.
-  scan            Scan a resolved dependency input.
-  spdx clear      Clear user-managed SPDX data.
-  spdx list       List installed SPDX data versions.
-  spdx update     Download SPDX data into the user data directory.
-  spdx use        Switch active SPDX data version.
-  spdx version    Show the active SPDX data source.
+  cache clear            Clears cached evidence for the specified category.
+  check                  Check a canonical JSON scan report against allowed SPDX licenses.
+  diff                   Compare two persisted JSON scan reports and report license-relevant changes.
+  scan                   Scan a resolved dependency input.
+  skill export-plugin    Export a portable Agent Plugin package.
+  skill install          Install the skill into the current workspace.
+  spdx clear             Clear user-managed SPDX data.
+  spdx list              List installed SPDX data versions.
+  spdx update            Download SPDX data into the user data directory.
+  spdx use               Switch active SPDX data version.
+  spdx version           Show the active SPDX data source.
 ```
 
 | Command | Purpose |
@@ -159,6 +161,8 @@ Commands:
 | `ol scan` | Collect license evidence from resolved dependencies and produce a report. |
 | `ol check` | Evaluate a canonical JSON report against an allow-list. |
 | `ol diff` | Compare two canonical JSON reports. |
+| `ol skill install` | Install the bundled license-scan Agent Skill for Codex or Claude. |
+| `ol skill export-plugin` | Export the skill as a portable Agent Plugin package. |
 | `ol cache clear` | Clear evidence caches managed by ol. |
 | `ol spdx version` | Show the active SPDX data source. |
 | `ol spdx list` | List installed SPDX data versions. |
@@ -252,6 +256,17 @@ Manage locally cached scan evidence.
 Commands:
   clear    Clears cached evidence for the specified category.
 ```
+
+ol bundles an Agent Skill that teaches coding agents how to select resolved inputs, combine an SBOM with package-manager evidence, and interpret scan results. Install it into the current workspace or export a portable [Agent Plugin](https://agent-plugins.org/):
+
+```bash
+ol skill install --target codex
+ol skill install --target claude
+ol skill export-plugin --output ./ol-plugin
+ol skill export-plugin --output ./ol-plugin --with-claude
+```
+
+Codex installs to `.agents/skills/license-scan`; Claude installs to `.claude/skills/license-scan`. `--output` overrides the destination. Existing directories are preserved unless `--force` is supplied. `--with-claude` adds a Claude Code manifest adapter while sharing the same `skills/license-scan` content.
 
 ### Exit codes
 

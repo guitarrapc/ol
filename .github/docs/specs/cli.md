@@ -143,6 +143,8 @@ A namespace written the way its ecosystem spells it is accepted: an `@` that sta
 | `ol scan` | Resolve license evidence from one or more dependency inputs. | Text, Markdown, or canonical JSON report. |
 | `ol check` | Evaluate a canonical JSON report against an allow-list. | Deterministic pass result or complete violation list. |
 | `ol diff` | Compare two canonical JSON reports for license-relevant changes. | Text or JSON diff. |
+| `ol skill install` | Install the bundled license-scan Agent Skill into a workspace. | Written file location. |
+| `ol skill export-plugin` | Export the skill as a portable Agent Plugin package. | Written plugin location. |
 | `ol cache clear` | Clear Ol-managed evidence caches. | Cleared categories. |
 | `ol spdx version` | Show the active SPDX data source. | Active version and user-data location. |
 | `ol spdx list` | List installed SPDX data versions. | Installed versions with the active version marked. |
@@ -252,6 +254,19 @@ ol cache clear [package-metadata|source-repository|github-file|all]
 ```
 
 The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root.
+
+### `ol skill`
+
+```text
+ol skill install [--target codex|claude] [--output <directory>] [--force]
+ol skill export-plugin --output <directory> [--with-claude] [--force]
+```
+
+`install` writes the bundled `license-scan` Agent Skill. The default target is `codex`, which resolves to `.agents/skills/license-scan` under the current directory; `claude` resolves to `.claude/skills/license-scan`. `--output` overrides the target-specific destination but does not permit an unknown target value.
+
+`export-plugin` writes an Agent Plugins v1.0.0 package with root `plugin.json` and the shared skill under `skills/license-scan`. `--with-claude` additionally writes `.claude-plugin/plugin.json`; it does not duplicate the skill. The export command requires `--output` and performs no network access.
+
+Both commands stage a complete package beside the destination before moving it into place. An existing file is always an error. An existing directory is preserved unless `--force` is supplied; forced replacement removes stale files from the previous package. Embedded relative paths must remain inside the staged package. I/O, invalid target, and incomplete-command failures exit `1`. Once the staged package has been committed to the destination, staging and backup cleanup is best-effort and does not change the successful exit; a backup is preserved if replacement rollback itself cannot complete.
 
 ### `ol spdx`
 

@@ -27,6 +27,15 @@ public sealed class CliCommandGroupHelpTests
           use        Switch active SPDX data version.
           version    Show the active SPDX data source.
         """)]
+    [Arguments("skill", """
+        Usage: skill [command] [-h|--help] [--version]
+
+        Install or export the bundled license-scan agent skill.
+
+        Commands:
+          export-plugin    Export a portable Agent Plugin package.
+          install          Install the skill into the current workspace.
+        """)]
     public async Task CommandGroup_Help_ShowsOnlyDirectSubcommands(string commandGroup, string expected)
     {
         var root = FindRepositoryRoot();
@@ -41,6 +50,7 @@ public sealed class CliCommandGroupHelpTests
     [Test]
     [Arguments("cache")]
     [Arguments("spdx")]
+    [Arguments("skill")]
     public async Task CommandGroup_ShortHelp_MatchesLongHelp(string commandGroup)
     {
         var root = FindRepositoryRoot();

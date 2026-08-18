@@ -3,11 +3,13 @@ namespace Ol.Tests;
 public sealed class SkillMirrorSyncTests
 {
     [Test]
-    public async Task LicenseScanSkill_ProjectMirror_MatchesEmbeddedSource()
+    [Arguments(".agents")]
+    [Arguments(".claude")]
+    public async Task LicenseScanSkill_ProjectMirror_MatchesEmbeddedSource(string agentDirectory)
     {
         var repositoryRoot = FindRepositoryRoot();
         var sourceRoot = Path.Combine(repositoryRoot, "src", "Ol", "Skills", "license-scan");
-        var mirrorRoot = Path.Combine(repositoryRoot, ".agents", "skills", "license-scan");
+        var mirrorRoot = Path.Combine(repositoryRoot, agentDirectory, "skills", "license-scan");
 
         var sourceFiles = GetRelativeFiles(sourceRoot);
         var mirrorFiles = GetRelativeFiles(mirrorRoot);

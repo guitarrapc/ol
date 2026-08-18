@@ -1,63 +1,79 @@
 ---
 name: license-scan
-description: Run and evaluate ol license-compliance scans against repositories and resolved dependency artifacts. Use when an agent needs to discover supported SBOM or package-manager inputs, combine a CycloneDX/SPDX SBOM with resolver outputs, collect registry and GitHub license evidence, diagnose unresolved results, produce canonical JSON reports, or apply an SPDX allow-list with ol check.
+description: Scan dependency licenses with ol by combining a CycloneDX/SPDX SBOM with resolved package-manager inputs, then enforce the intended SPDX policy with check, reviewed baselines, and CI. Supports single-language, polyglot, and monorepo builds, including input alignment, evidence collection, unresolved-result diagnosis, baseline updates, and license-regression detection.
 ---
 
 # ol License Scan
 
-Scan dependencies the build actually resolved. Prefer one SBOM plus package-manager inputs for the same build scope; fall back to either input alone only when the other cannot be produced reliably.
+Scan the dependencies the audited build actually resolved. Treat repositories as potentially polyglot: discover every in-scope ecosystem before selecting inputs.
+
+## Run the compliance lifecycle
+
+Use ol as a review loop, not as a one-time inventory:
+
+1. **Scan:** generate a canonical JSON report from the aligned SBOM and resolved package-manager inputs.
+2. **Review facts:** confirm coverage, then inspect detected licenses and unresolved evidence. Scan results describe evidence; they do not decide organizational intent.
+3. **Define policy:** obtain the intended SPDX allow-list and any separately approved development-only licenses.
+4. **Check:** run `ol check` without a baseline first so every policy violation is visible.
+5. **Decide:** for each violation, fix bad evidence or dependencies; add a resolved license to the allow-list only after approval; consider a baseline only for reviewed evidence that remains unresolved.
+6. **Adopt a baseline:** generate `baseline.json` once from the reviewed unresolved set, inspect its contents, and commit it.
+7. **Verify:** rerun `check` without `--update-baseline`; it must pass with the committed policy and baseline.
+8. **Enforce in CI:** regenerate the report, then run the same `check`. New or changed evidence must fail until reviewed.
+9. **Update deliberately:** when dependencies or evidence change, review the violation and baseline diff before replacing the complete baseline snapshot.
+
+```text
+ol scan --input <sbom> --input <aligned-resolved-inputs> --format json > ol-report.json
+ol check --report ol-report.json --allow-licenses <approved-SPDX-ids>
+ol check --report ol-report.json --allow-licenses <approved-SPDX-ids> --baseline baseline.json --update-baseline
+ol check --report ol-report.json --allow-licenses <approved-SPDX-ids> --baseline baseline.json
+```
+
+Read [references/policy-workflow.md](references/policy-workflow.md) before creating or updating a baseline. Never use a baseline to absorb a resolved but unapproved license or a collection error.
 
 ## Establish the executable and scope
 
-1. Run `ol scan --help` and use it as the version-specific option reference.
-2. Identify the intended audit scope: release projects, one solution, or the whole repository. Ask when this changes the compliance meaning.
-3. Find existing SBOMs and resolved inputs, including ignored build directories. Do not rely on `rg --files` alone because it normally omits `obj/`.
-4. Never pass unresolved manifests such as `*.csproj`, `package.json`, or `Cargo.toml` to ol. Generate an SBOM or ecosystem-specific resolved input first.
+1. Run `ol scan --help`; use it as the version-specific option reference.
+2. Define the auditable subject: a release artifact, application, workspace, subtree, or whole repository. Ask when the choice changes compliance meaning.
+3. Inventory manifests, workspaces, existing SBOMs, lockfiles, and generated resolver outputs across the entire subject, including ignored build directories.
+4. Map each in-scope component to its package manager and build context. Do not stop after finding the first ecosystem.
+5. Read [references/ecosystem-inputs.md](references/ecosystem-inputs.md) for supported inputs and preparation commands relevant to the ecosystems found.
 
-For .NET, locate relevant `obj/project.assets.json` files with `Get-ChildItem -Recurse -Filter project.assets.json` or `find ... -name project.assets.json`. Check timestamps and solution/project membership. Run `dotnet restore` only when assets are missing or stale, and state that it can update build artifacts and contact configured feeds.
+Do not pass unresolved manifests such as `package.json`, `Cargo.toml`, project files, `go.mod`, or requirements files by themselves. They state requests, not necessarily the versions and transitive graph selected by the build. Generate a supported SBOM or resolved input first.
 
-## Select inputs
+## Select and align inputs
 
-Use this order:
+Prefer inputs in this order:
 
-1. **SBOM plus package-manager input:** Repeat `--input` when both describe the same resolved build.
-2. **SBOM only:** Use when package-manager output is unavailable, non-portable, or cannot be aligned with the SBOM scope.
-3. **Package-manager input only:** Use when no trustworthy SBOM can be generated.
+1. **One SBOM plus aligned package-manager inputs:** use one CycloneDX/SPDX JSON SBOM for the auditable subject and the resolved outputs for every in-scope ecosystem.
+2. **One SBOM:** use it alone only when aligned resolver outputs cannot be produced reliably.
+3. **Resolved package-manager inputs:** use all in-scope ecosystem outputs together when no trustworthy subject-wide SBOM can be generated.
 
-Do not silently fall back. Attempt the companion input or record the exact blocker. Merely finding no pre-existing SBOM is not a blocker; attempt generation.
+Do not silently fall back. Attempt the companion input or record its exact blocker. Validate that generated inputs are current for the same commit, configuration, platform, feature set, and production/development scope. A file's presence does not prove freshness.
 
-Align both input sets. Do not combine a solution-level SBOM with a repository root containing unrelated samples, tests, performance projects, target frameworks, or old builds. In a large mono-repository, prefer an explicit solution/subtree or repeat the exact resolver files that produced the SBOM. Compare component counts and `suppliedBy`; a large package-manager-only remainder usually indicates scope or identity mismatch.
-
-```text
-ol scan --input bom.cdx.json --input path/to/aligned-scope --format json
-```
-
-## Generate a .NET SBOM when needed
-
-Prefer the official CycloneDX .NET tool and write outside the target repository unless the user requests a committed SBOM:
+Pass a directory when it contains only aligned supported inputs. Otherwise repeat explicit paths. ol accepts at most one SBOM per input collection.
 
 ```text
-dotnet tool install CycloneDX --tool-path <temporary-tool-directory>
-dotnet-CycloneDX <solution-or-project> --output <temporary-output-directory> --filename bom.cdx.json --output-format Json --disable-package-restore
+ol scan --input bom.cdx.json \
+  --input path/to/ecosystem-a/resolved-input \
+  --input path/to/ecosystem-b/resolved-input \
+  --format json
 ```
 
-Use `--disable-package-restore` only when current assets exist. It disables restore, not all NuGet access: CycloneDX may still query feeds for nuspec metadata. Before scanning a private repository or contacting a feed, explain that dependency coordinates may be sent to that service and obtain required approval.
+For a monorepo, do not mix a repository-wide SBOM with resolver files from unrelated samples, tests, tools, old builds, or excluded release units. For separate independently shipped products, scan and report each auditable subject separately instead of manufacturing one repository-wide result.
 
-When target files must remain untouched and assets are stale, restore into isolated artifacts/packages directories. Point CycloneDX at them with its version-appropriate custom intermediate-output option. Read its log and verify the assets paths it actually opened; an accepted option may not redirect a particular layout. If it read stale assets, regenerate safely or compare old/fresh package name-version identities and report the caveat.
-
-In sandboxed Windows environments, read `packageFolders` from `project.assets.json` and set `NUGET_PACKAGES` to an existing cache for the command. Do not assume a fixed user path or print environment values.
+When resolution or SBOM generation can mutate the target repository, write outputs and caches outside it where the ecosystem permits. Before contacting private feeds or external services, explain that dependency coordinates may leave the environment and obtain any required approval.
 
 ## Run the evidence scan
 
-Keep external evidence enabled for the primary result so ol combines input claims with package artifacts, registries, declared GitHub files, and source repositories.
+Keep external evidence enabled for the primary result so ol can combine input claims with available package artifacts, registries, declared GitHub files, and source repositories.
 
 ```text
-ol scan --input <sbom> --input <aligned-resolved-input> --format json
+ol scan --input <sbom-or-resolved-input> --format json
 ```
 
-Use an isolated `--cache-dir` for reproducibility experiments. For ordinary use, retain the normal cache. Use `--refresh` only when stale evidence is suspected and lower `--concurrency` when a service rate-limits requests.
+Preserve the canonical JSON report. Use an isolated `--cache-dir` for reproducibility experiments; retain the normal cache for ordinary use. Use `--refresh` only when stale evidence is suspected, and reduce `--concurrency` when a service rate-limits requests.
 
-Do not make `--no-external-evidence` the default. It also prevents package-artifact collection and can turn NuGet resolver input into entirely unknown results. Use it only for an explicitly offline/input-only comparison and label that report incomplete.
+Do not make `--no-external-evidence` the default. Use it only for an explicitly offline/input-only comparison and label the result incomplete. Its impact varies by ecosystem and available local artifacts.
 
 ### Apply GitHub authentication safely
 
@@ -73,33 +89,35 @@ Remove-Item Env:OL_GITHUB_TOKEN
 OL_GITHUB_TOKEN="$(gh auth token)" ol scan ...
 ```
 
-ol does not implicitly read `GITHUB_TOKEN`. Never echo, log, store, or place the token on the command line. If authentication is invalid, ask the user to re-authenticate or clearly report the lower unauthenticated rate limit.
+ol does not implicitly read `GITHUB_TOKEN`. Never echo, log, store, or place the token on the command line. If authentication is invalid, request re-authentication or report the unauthenticated limitation.
 
-## Judge the result
+## Judge coverage before license status
 
-Treat scan exit code zero as successful execution, not a clean compliance result. Read:
+Treat exit code zero as successful execution, not a clean compliance result. Read:
 
-- `summary` and every component `status`.
-- `metadata.input` to confirm parser, input count, and source.
-- `metadata.packageArtifacts` for local document matches.
-- `metadata.packageMetadata`, `metadata.declaredGitHubFiles`, and `metadata.sourceRepository` for cache, request, fetch-error, and unknown counts.
-- `metadata.network.githubAuth` to confirm authentication.
-- component `suppliedBy`, `dependency`, `licenseCandidates`, and `warnings` to diagnose merge coverage.
+- `metadata.input`: confirm every expected parser, file, and build context is represented.
+- inventory and dependency counts: compare them with each ecosystem's resolver and with the SBOM.
+- `suppliedBy`: confirm expected identities merged across the SBOM and resolver inputs.
+- `metadata.packageArtifacts`, `metadata.packageMetadata`, `metadata.declaredGitHubFiles`, and `metadata.sourceRepository`: separate collector coverage and fetch failures from component status.
+- `metadata.network.githubAuth`: confirm the intended authentication mode.
+- every component's `status`, `dependency`, `licenseCandidates`, and `warnings`.
 
-If a combined scan has unexpectedly many unresolved statuses, rerun SBOM-only and package-manager-only against the identical scope and cache. Look for placeholders such as `Unknown`, `NOASSERTION`, or `Unknown - See URL` competing with stronger evidence. Preserve the combined report and identify the input introducing ambiguity rather than silently discarding it.
+In a polyglot scan, group coverage diagnostics by ecosystem and input context. One healthy ecosystem must not hide a missing, stale, or unsupported graph in another. A large resolver-only remainder, duplicate-looking identities, or unexpected `dependency: unknown` usually indicates scope, identity, or graph mismatch.
 
-Evaluate collector fetch-error counters separately from component statuses. A weak SBOM claim can change a component from `error` to `ambiguous` without restoring missing evidence.
+If a combined scan has unexpected unresolved or ambiguous results, rerun the same scope as SBOM-only and resolved-input-only, then isolate individual ecosystem inputs when needed. Preserve the combined result and identify which input changes the evidence; do not discard inconvenient evidence silently.
 
-If network access fails, do not present the degraded run as definitive. Retry after explicit network/auth approval or report exactly which collectors failed.
+Evaluate fetch-error counters separately from statuses. If network collection fails, do not present the degraded run as definitive.
 
-Use `ol check` only after producing canonical JSON and obtaining the intended SPDX policy:
+## Apply policy only after assessment
+
+Run `ol check` only after producing canonical JSON and obtaining the intended SPDX policy:
 
 ```text
 ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
 ```
 
-Do not invent an allow-list. `unknown`, `ambiguous`, and `error` require evidence review or an explicit baseline/policy decision.
+Do not invent an allow-list. Review `unknown`, `ambiguous`, `conflict`, and `invalid` before any baseline decision; repair `error` and scan again. Apply development-only allowances only where resolver evidence proves the dependency classification.
 
 ## Report the assessment
 
-State the executable/version, scope, inputs, scan mode, component/status/dependency counts, collector health, limitations, and next action. Preserve a full canonical JSON report before producing filtered or grouped human views. Remember that `--dependency` filters the view, not the underlying analysis.
+State the ol executable/version, auditable subject, languages/ecosystems found, included and excluded build contexts, input-generation commands, scan mode, component/status/dependency counts by ecosystem where useful, collector health, limitations, and next action. For policy onboarding or maintenance, also state the allow-list source, initial violations, baseline path and acknowledged count, steady-state exit code, and exact CI command. Preserve the full canonical JSON report before producing filtered views. Remember that `--dependency` filters presentation, not analysis.

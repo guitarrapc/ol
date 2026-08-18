@@ -30,6 +30,82 @@ public sealed class CliSkillTests
     }
 
     [Test]
+    public async Task SkillInstall_CodexTarget_IncludesPolyglotWorkflowAndEcosystemReference()
+    {
+        var directory = CreateTempDirectory();
+        try
+        {
+            var result = await RunOlAsync(directory, "skill", "install", "--target", "codex");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            var skillDirectory = Path.Combine(directory, ".agents", "skills", "license-scan");
+            var skill = await File.ReadAllTextAsync(Path.Combine(skillDirectory, "SKILL.md"));
+            var referencePath = Path.Combine(skillDirectory, "references", "ecosystem-inputs.md");
+            await Assert.That(skill).Contains("polyglot");
+            await Assert.That(File.Exists(referencePath)).IsTrue();
+
+            var reference = await File.ReadAllTextAsync(referencePath);
+            foreach (var ecosystem in new[] { "NuGet", "npm", "pnpm", "Yarn", "Cargo", "Go", "Python", "Composer", "Bundler", "Maven", "Gradle", "SwiftPM", "CocoaPods" })
+            {
+                await Assert.That(reference).Contains(ecosystem);
+            }
+        }
+        finally
+        {
+            DeleteTempDirectory(directory);
+        }
+    }
+
+    [Test]
+    public async Task SkillInstall_CodexTarget_DescribesHowOlScansDependencyLicenses()
+    {
+        var directory = CreateTempDirectory();
+        try
+        {
+            var result = await RunOlAsync(directory, "skill", "install", "--target", "codex");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            var skill = await File.ReadAllTextAsync(Path.Combine(directory, ".agents", "skills", "license-scan", "SKILL.md"));
+            await Assert.That(skill).Contains("description: Scan dependency licenses with ol by combining a CycloneDX/SPDX SBOM with resolved package-manager inputs, then enforce the intended SPDX policy with check, reviewed baselines, and CI.");
+            await Assert.That(skill).DoesNotContain("Use when");
+        }
+        finally
+        {
+            DeleteTempDirectory(directory);
+        }
+    }
+
+    [Test]
+    public async Task SkillInstall_CodexTarget_IncludesScanCheckBaselineCiLifecycle()
+    {
+        var directory = CreateTempDirectory();
+        try
+        {
+            var result = await RunOlAsync(directory, "skill", "install", "--target", "codex");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            var skillDirectory = Path.Combine(directory, ".agents", "skills", "license-scan");
+            var skill = await File.ReadAllTextAsync(Path.Combine(skillDirectory, "SKILL.md"));
+            await Assert.That(skill).Contains("## Run the compliance lifecycle");
+            await Assert.That(skill).Contains("--baseline baseline.json --update-baseline");
+            await Assert.That(skill).Contains("--baseline baseline.json");
+            await Assert.That(skill).Contains("references/policy-workflow.md");
+
+            var referencePath = Path.Combine(skillDirectory, "references", "policy-workflow.md");
+            await Assert.That(File.Exists(referencePath)).IsTrue();
+            var reference = await File.ReadAllTextAsync(referencePath);
+            await Assert.That(reference).Contains("matched");
+            await Assert.That(reference).Contains("unknown");
+            await Assert.That(reference).Contains("error");
+            await Assert.That(reference).Contains("Never update a baseline automatically in CI");
+        }
+        finally
+        {
+            DeleteTempDirectory(directory);
+        }
+    }
+
+    [Test]
     public async Task SkillExportPlugin_Default_WritesPortableAgentPlugin()
     {
         var directory = CreateTempDirectory();

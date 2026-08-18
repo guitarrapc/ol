@@ -266,7 +266,7 @@ ol skill export-plugin --output <directory> [--with-claude] [--force]
 
 `export-plugin` writes an Agent Plugins v1.0.0 package with root `plugin.json` and the shared skill under `skills/license-scan`. `--with-claude` additionally writes `.claude-plugin/plugin.json`; it does not duplicate the skill. The export command requires `--output` and performs no network access.
 
-Both commands stage a complete package beside the destination before moving it into place. An existing file is always an error. An existing directory is preserved unless `--force` is supplied; forced replacement removes stale files from the previous package. Embedded relative paths must remain inside the staged package. I/O, invalid target, and incomplete-command failures exit `1`.
+Both commands stage a complete package beside the destination before moving it into place. An existing file is always an error. An existing directory is preserved unless `--force` is supplied; forced replacement removes stale files from the previous package. Embedded relative paths must remain inside the staged package. I/O, invalid target, and incomplete-command failures exit `1`. Once the staged package has been committed to the destination, staging and backup cleanup is best-effort and does not change the successful exit; a backup is preserved if replacement rollback itself cannot complete.
 
 ### `ol spdx`
 

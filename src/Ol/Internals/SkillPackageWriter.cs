@@ -23,7 +23,10 @@ internal static class SkillPackageWriter
         """);
 
     public static void Install(string destination, bool force)
-        => WriteAtomically(destination, force, static staging => WriteSkill(staging));
+        => Install(destination, force, Directory.Delete);
+
+    internal static void Install(string destination, bool force, Action<string, bool> deleteDirectory)
+        => WriteAtomically(destination, force, static staging => WriteSkill(staging), deleteDirectory);
 
     public static void ExportPlugin(string destination, bool withClaude, bool force)
         => WriteAtomically(destination, force, staging =>
@@ -34,7 +37,7 @@ internal static class SkillPackageWriter
             {
                 WriteFile(staging, ".claude-plugin/plugin.json", ClaudePluginManifest);
             }
-        });
+        }, Directory.Delete);
 
     private static void WriteSkill(string destination)
     {
@@ -50,8 +53,9 @@ internal static class SkillPackageWriter
         }
     }
 
-    private static void WriteAtomically(string destination, bool force, Action<string> write)
+    private static void WriteAtomically(string destination, bool force, Action<string> write, Action<string, bool> deleteDirectory)
     {
+        ArgumentNullException.ThrowIfNull(deleteDirectory);
         var fullDestination = Path.GetFullPath(destination);
         if (File.Exists(fullDestination))
         {
@@ -69,6 +73,7 @@ internal static class SkillPackageWriter
         var suffix = Guid.NewGuid().ToString("N");
         var staging = Path.Combine(parent, $".{name}.{suffix}.tmp");
         var backup = Path.Combine(parent, $".{name}.{suffix}.bak");
+        var committed = false;
 
         try
         {
@@ -78,24 +83,42 @@ internal static class SkillPackageWriter
             {
                 Directory.Move(fullDestination, backup);
             }
-            Directory.Move(staging, fullDestination);
-            if (Directory.Exists(backup))
+            try
             {
-                Directory.Delete(backup, recursive: true);
+                Directory.Move(staging, fullDestination);
+                committed = true;
             }
-        }
-        catch
-        {
-            if (!Directory.Exists(fullDestination) && Directory.Exists(backup))
+            catch
             {
-                Directory.Move(backup, fullDestination);
+                if (!Directory.Exists(fullDestination) && Directory.Exists(backup))
+                {
+                    Directory.Move(backup, fullDestination);
+                }
+                throw;
             }
-            throw;
         }
         finally
         {
-            if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
-            if (Directory.Exists(backup)) Directory.Delete(backup, recursive: true);
+            TryDeleteDirectory(staging, deleteDirectory);
+            if (committed)
+            {
+                TryDeleteDirectory(backup, deleteDirectory);
+            }
+        }
+    }
+
+    private static void TryDeleteDirectory(string path, Action<string, bool> deleteDirectory)
+    {
+        if (!Directory.Exists(path)) return;
+        try
+        {
+            deleteDirectory(path, true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 

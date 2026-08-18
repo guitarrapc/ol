@@ -516,19 +516,29 @@ public sealed class SpdxLicenseTextMatcher
         {
             Span<char> characters = stackalloc char[maximumStackCharacters];
             var written = StrictUtf8.GetChars(template, characters);
-            return FindRequiredAnchors(characters[..written]);
+            return FindRequiredAnchorsValidated(characters[..written]);
         }
 
         var rented = ArrayPool<char>.Shared.Rent(characterCount);
         try
         {
             var written = StrictUtf8.GetChars(template, rented);
-            return FindRequiredAnchors(rented.AsSpan(0, written));
+            return FindRequiredAnchorsValidated(rented.AsSpan(0, written));
         }
         finally
         {
             ArrayPool<char>.Shared.Return(rented);
         }
+    }
+
+    private static RequiredAnchors FindRequiredAnchorsValidated(ReadOnlySpan<char> template)
+    {
+        for (var index = 0; index < template.Length; index++)
+        {
+            if (!char.IsWhiteSpace(template[index])) return FindRequiredAnchors(template);
+        }
+
+        throw new ArgumentException("SPDX license text templates require template text.", nameof(template));
     }
 
     private static Regex CreateRegexUtf8(ReadOnlySpan<byte> template)

@@ -108,6 +108,30 @@ public sealed class SpdxLicenseTextMatcherTests
     }
 
     [Test]
+    public async Task CorpusLoadMatcher_WhitespaceOnlyTemplate_RejectsCorpus()
+    {
+        var bytes = RewriteDecompressed(
+            SpdxLicenseTextCorpus.Create("test", [new("Example", "terms")]),
+            static value => value.AsSpan(value.Length - 5).Fill((byte)' '));
+        using var stream = new MemoryStream(bytes, writable: false);
+
+        await Assert.That(() => SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], [])))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task CorpusLoadMatcher_UnicodeWhitespaceOnlyTemplate_RejectsCorpus()
+    {
+        var bytes = RewriteDecompressed(
+            SpdxLicenseTextCorpus.Create("test", [new("Example", "abc")]),
+            static value => "　"u8.CopyTo(value.AsSpan(value.Length - 3)));
+        using var stream = new MemoryStream(bytes, writable: false);
+
+        await Assert.That(() => SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], [])))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task CorpusLoadMatcher_NonSeekableStream_PreservesMatcherBehavior()
     {
         var bytes = SpdxLicenseTextCorpus.Create("test", [new("Example", "example terms")]);

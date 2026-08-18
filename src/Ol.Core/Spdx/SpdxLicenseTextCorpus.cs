@@ -202,6 +202,7 @@ public static class SpdxLicenseTextCorpus
     internal static string Validate(byte[] corpus)
     {
         ArgumentNullException.ThrowIfNull(corpus);
+        ValidateCompressedCorpusSize(corpus.LongLength);
         using var input = new MemoryStream(corpus, writable: false);
         return Validate(input);
     }
@@ -262,9 +263,9 @@ public static class SpdxLicenseTextCorpus
         ArgumentNullException.ThrowIfNull(corpus);
         ArgumentNullException.ThrowIfNull(licenseIndex);
 
-        if (corpus.CanSeek && corpus.Length - corpus.Position > MaximumCompressedCorpusBytes)
+        if (corpus.CanSeek)
         {
-            throw new InvalidDataException("SPDX template corpus exceeds its compressed size limit.");
+            ValidateCompressedCorpusSize(corpus.Length - corpus.Position);
         }
 
         MemoryStream? ownedInput = null;
@@ -454,6 +455,14 @@ public static class SpdxLicenseTextCorpus
     private static void EnsureEndOfCorpus(Stream corpus)
     {
         if (corpus.ReadByte() >= 0) throw new InvalidDataException("SPDX template corpus contains trailing data.");
+    }
+
+    private static void ValidateCompressedCorpusSize(long length)
+    {
+        if (length < 0 || length > MaximumCompressedCorpusBytes)
+        {
+            throw new InvalidDataException("SPDX template corpus exceeds its compressed size limit.");
+        }
     }
 
     private static void CopyBounded(Stream source, Stream destination, int maximumBytes)

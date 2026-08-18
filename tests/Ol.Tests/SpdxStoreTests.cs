@@ -62,6 +62,20 @@ public sealed class SpdxStoreTests
     }
 
     [Test]
+    public async Task Data_Bundled_IndexKeepsEveryGeneratedUtf8IdentifierAligned()
+    {
+        var index = SpdxData.Load(null).Index;
+        for (var i = 0; i < SpdxGeneratedLicenseData.LicenseIds.Length; i++)
+        {
+            var expected = SpdxGeneratedLicenseData.LicenseIds[i];
+            var bytes = Encoding.UTF8.GetBytes(expected);
+
+            await Assert.That(index.TryNormalizeLicenseIdUtf8Slice(bytes, out var actual)).IsTrue();
+            await Assert.That(actual.ToString()).IsEqualTo(expected);
+        }
+    }
+
+    [Test]
     public async Task ScanPreparation_NormalScanCarriesBundledMatcher()
     {
         var input = Path.GetTempFileName();

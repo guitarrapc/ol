@@ -50,6 +50,7 @@ public sealed class UpdateCommandTests
         await Assert.That(generated).Contains("\"3.27.0\"");
         await Assert.That(generated).Contains("\"MIT\"");
         await Assert.That(generated).Contains("\"Classpath-exception-2.0\"");
+        await Assert.That(generated).Contains("LicenseIdsUtf8 => \"Apache-2.0\\nMIT\"u8;");
     }
 
     // The name array is read by index against the identifier array, so the two must stay aligned

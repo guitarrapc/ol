@@ -5,6 +5,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Ol" />
+    <InternalsVisibleTo Include="Ol.Benchmark" />
     <InternalsVisibleTo Include="Ol.Tests" />
   </ItemGroup>
 

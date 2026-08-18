@@ -61,6 +61,19 @@ public sealed class SpdxLicenseTextMatcherTests
     }
 
     [Test]
+    public async Task CorpusLoadMatcher_LegacyVersionOneCorpus_PreservesMatcherBehavior()
+    {
+        var bytes = Convert.FromBase64String("Gy0A+IfAdr/JaOCBJt5dUKCBlouwYlEG0AVF8561A4k/A4Vd1HiMAA==");
+        using var stream = new MemoryStream(bytes, writable: false);
+
+        var matcher = SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], []));
+
+        await Assert.That(matcher.CorpusVersion).IsEqualTo("v1");
+        await Assert.That(matcher.TryMatch("example terms"u8, out var licenseId)).IsTrue();
+        await Assert.That(licenseId).IsEqualTo("Example");
+    }
+
+    [Test]
     public async Task Constructor_DuplicateLicenseIdentifier_RejectsBroadenedMatcher()
     {
         await Assert.That(() => new SpdxLicenseTextMatcher(

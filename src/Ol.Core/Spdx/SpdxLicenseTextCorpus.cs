@@ -10,6 +10,16 @@ public readonly record struct SpdxLicenseTextCorpusData(
     string CorpusVersion,
     SpdxLicenseTextTemplate[] Templates);
 
+internal readonly record struct SpdxLicenseTextTemplateUtf8(
+    string LicenseId,
+    int Offset,
+    int Length);
+
+internal readonly record struct SpdxLicenseTextCorpusUtf8Data(
+    string CorpusVersion,
+    byte[] TemplateBytes,
+    SpdxLicenseTextTemplateUtf8[] Templates);
+
 /// <summary>Contains one coherent SPDX repository archive snapshot.</summary>
 public readonly record struct SpdxLicenseListArchiveData(
     byte[] LicensesJson,
@@ -25,7 +35,8 @@ public static class SpdxLicenseTextCorpus
     /// <summary>The manifest resource name used by the bundled corpus.</summary>
     public const string EmbeddedResourceName = "Ol.Core.Generated.license-texts.bin.br";
     private const int Magic = 0x4f4c5354;
-    private const int FormatVersion = 1;
+    private const int LegacyFormatVersion = 1;
+    private const int FormatVersion = 2;
     private const int MaximumTemplateCount = 10_000;
     private const int MaximumVersionBytes = 128;
     private const int MaximumIdentifierBytes = 256;
@@ -42,6 +53,23 @@ public static class SpdxLicenseTextCorpus
 
         var ordered = templates.ToArray();
         Array.Sort(ordered, static (left, right) => StringComparer.Ordinal.Compare(left.LicenseId, right.LicenseId));
+        var templateByteCount = 0;
+        for (var index = 0; index < ordered.Length; index++)
+        {
+            var template = ordered[index];
+            if (string.IsNullOrWhiteSpace(template.LicenseId) || string.IsNullOrWhiteSpace(template.Template))
+            {
+                throw new InvalidDataException("SPDX template corpus entries require an identifier and template.");
+            }
+
+            var length = StrictUtf8.GetByteCount(template.Template);
+            if (length > MaximumTemplateBytes || templateByteCount > MaximumCorpusBytes - length)
+            {
+                throw new InvalidDataException("SPDX template corpus string length is invalid.");
+            }
+
+            templateByteCount += length;
+        }
         for (var index = 1; index < ordered.Length; index++)
         {
             if (string.Equals(ordered[index - 1].LicenseId, ordered[index].LicenseId, StringComparison.Ordinal))
@@ -56,16 +84,12 @@ public static class SpdxLicenseTextCorpus
         {
             writer.Write(Magic);
             writer.Write(FormatVersion);
+            writer.Write(templateByteCount);
             WriteString(writer, corpusVersion, MaximumVersionBytes);
             writer.Write(ordered.Length);
             for (var index = 0; index < ordered.Length; index++)
             {
                 var template = ordered[index];
-                if (string.IsNullOrWhiteSpace(template.LicenseId) || string.IsNullOrWhiteSpace(template.Template))
-                {
-                    throw new InvalidDataException("SPDX template corpus entries require an identifier and template.");
-                }
-
                 WriteString(writer, template.LicenseId, MaximumIdentifierBytes);
                 WriteString(writer, template.Template, MaximumTemplateBytes);
             }
@@ -200,10 +224,7 @@ public static class SpdxLicenseTextCorpus
         using var reader = new BinaryReader(brotli, StrictUtf8, leaveOpen: false);
         try
         {
-            if (reader.ReadInt32() != Magic || reader.ReadInt32() != FormatVersion)
-            {
-                throw new InvalidDataException("SPDX template corpus header is invalid.");
-            }
+            _ = ReadHeader(reader);
 
             var consumed = 0;
             var version = ReadString(reader, MaximumVersionBytes, ref consumed);
@@ -230,6 +251,187 @@ public static class SpdxLicenseTextCorpus
         }
     }
 
+    internal static SpdxLicenseTextMatcher LoadMatcher(
+        Stream corpus,
+        SpdxLicenseIndex licenseIndex,
+        int maximumTextBytes = SpdxLicenseTextMatcher.DefaultMaximumTextBytes)
+    {
+        ArgumentNullException.ThrowIfNull(corpus);
+        ArgumentNullException.ThrowIfNull(licenseIndex);
+
+        MemoryStream? ownedInput = null;
+        if (!corpus.CanSeek)
+        {
+            using var output = new MemoryStream();
+            corpus.CopyTo(output);
+            ownedInput = new MemoryStream(output.ToArray(), writable: false);
+            corpus = ownedInput;
+        }
+
+        try
+        {
+            var start = corpus.Position;
+            var templateBytes = MeasureTemplateBytes(corpus);
+            corpus.Position = start;
+            var data = LoadUtf8(corpus, licenseIndex, templateBytes);
+            return new SpdxLicenseTextMatcher(data, maximumTextBytes, licenseIndex);
+        }
+        finally
+        {
+            ownedInput?.Dispose();
+        }
+    }
+
+    private static int MeasureTemplateBytes(Stream corpus)
+    {
+        using var brotli = new BrotliStream(corpus, CompressionMode.Decompress, leaveOpen: true);
+        using var reader = new BinaryReader(brotli, StrictUtf8, leaveOpen: false);
+        byte[]? rented = null;
+        try
+        {
+            var declaredTemplateBytes = ReadHeader(reader);
+            if (declaredTemplateBytes >= 0) return declaredTemplateBytes;
+            rented = ArrayPool<byte>.Shared.Rent(81920);
+            var consumed = 0;
+            SkipString(reader, MaximumVersionBytes, ref consumed, rented);
+            var count = reader.ReadInt32();
+            if (count < 0 || count > MaximumTemplateCount) throw new InvalidDataException("SPDX template corpus entry count is invalid.");
+            var templateBytes = 0;
+            for (var index = 0; index < count; index++)
+            {
+                SkipString(reader, MaximumIdentifierBytes, ref consumed, rented);
+                var length = ReadStringLength(reader, MaximumTemplateBytes, ref consumed);
+                templateBytes = checked(templateBytes + length);
+                SkipBytes(reader, length, rented);
+            }
+
+            return templateBytes;
+        }
+        catch (EndOfStreamException exception)
+        {
+            throw new InvalidDataException("SPDX template corpus is truncated.", exception);
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private static SpdxLicenseTextCorpusUtf8Data LoadUtf8(Stream corpus, SpdxLicenseIndex licenseIndex, int templateByteCount)
+    {
+        using var brotli = new BrotliStream(corpus, CompressionMode.Decompress, leaveOpen: true);
+        using var reader = new BinaryReader(brotli, StrictUtf8, leaveOpen: false);
+        try
+        {
+            var declaredTemplateBytes = ReadHeader(reader);
+            if (declaredTemplateBytes >= 0 && declaredTemplateBytes != templateByteCount)
+            {
+                throw new InvalidDataException("SPDX template corpus payload length is invalid.");
+            }
+            var consumed = 0;
+            var version = ReadString(reader, MaximumVersionBytes, ref consumed);
+            var count = reader.ReadInt32();
+            if (count < 0 || count > MaximumTemplateCount) throw new InvalidDataException("SPDX template corpus entry count is invalid.");
+            var templateBytes = new byte[templateByteCount];
+            var templates = new SpdxLicenseTextTemplateUtf8[count];
+            Span<byte> identifierBytes = stackalloc byte[MaximumIdentifierBytes];
+            var offset = 0;
+            for (var index = 0; index < count; index++)
+            {
+                var identifierLength = ReadStringBytes(reader, MaximumIdentifierBytes, ref consumed, identifierBytes);
+                var identifier = licenseIndex.TryNormalizeLicenseIdUtf8(identifierBytes[..identifierLength], out var canonical)
+                    ? canonical
+                    : StrictUtf8.GetString(identifierBytes[..identifierLength]);
+                var templateLength = ReadStringLength(reader, MaximumTemplateBytes, ref consumed);
+                if (templateLength > templateBytes.Length - offset)
+                {
+                    throw new InvalidDataException("SPDX template corpus payload length is invalid.");
+                }
+                ReadExactly(reader, templateBytes.AsSpan(offset, templateLength));
+                _ = StrictUtf8.GetCharCount(templateBytes.AsSpan(offset, templateLength));
+                templates[index] = new SpdxLicenseTextTemplateUtf8(identifier, offset, templateLength);
+                offset += templateLength;
+            }
+
+            if (offset != templateBytes.Length) throw new InvalidDataException("SPDX template corpus payload length is invalid.");
+
+            return new SpdxLicenseTextCorpusUtf8Data(version, templateBytes, templates);
+        }
+        catch (EndOfStreamException exception)
+        {
+            throw new InvalidDataException("SPDX template corpus is truncated.", exception);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new InvalidDataException("SPDX template corpus contains invalid UTF-8.", exception);
+        }
+    }
+
+    private static int ReadHeader(BinaryReader reader)
+    {
+        if (reader.ReadInt32() != Magic)
+        {
+            throw new InvalidDataException("SPDX template corpus header is invalid.");
+        }
+
+        var formatVersion = reader.ReadInt32();
+        if (formatVersion == LegacyFormatVersion) return -1;
+        if (formatVersion != FormatVersion) throw new InvalidDataException("SPDX template corpus header is invalid.");
+        var templateByteCount = reader.ReadInt32();
+        if (templateByteCount < 0 || templateByteCount > MaximumCorpusBytes)
+        {
+            throw new InvalidDataException("SPDX template corpus payload length is invalid.");
+        }
+
+        return templateByteCount;
+    }
+
+    private static int ReadStringLength(BinaryReader reader, int maximumBytes, ref int consumed)
+    {
+        var length = reader.ReadInt32();
+        if (length <= 0 || length > maximumBytes || consumed > MaximumCorpusBytes - length)
+        {
+            throw new InvalidDataException("SPDX template corpus string length is invalid.");
+        }
+
+        consumed += length;
+        return length;
+    }
+
+    private static int ReadStringBytes(BinaryReader reader, int maximumBytes, ref int consumed, Span<byte> destination)
+    {
+        var length = ReadStringLength(reader, maximumBytes, ref consumed);
+        ReadExactly(reader, destination[..length]);
+        _ = StrictUtf8.GetCharCount(destination[..length]);
+        return length;
+    }
+
+    private static void SkipString(BinaryReader reader, int maximumBytes, ref int consumed, byte[] buffer)
+    {
+        var length = ReadStringLength(reader, maximumBytes, ref consumed);
+        SkipBytes(reader, length, buffer);
+    }
+
+    private static void SkipBytes(BinaryReader reader, int length, byte[] buffer)
+    {
+        while (length > 0)
+        {
+            var read = reader.Read(buffer, 0, Math.Min(length, buffer.Length));
+            if (read == 0) throw new EndOfStreamException();
+            length -= read;
+        }
+    }
+
+    private static void ReadExactly(BinaryReader reader, Span<byte> destination)
+    {
+        while (!destination.IsEmpty)
+        {
+            var read = reader.Read(destination);
+            if (read == 0) throw new EndOfStreamException();
+            destination = destination[read..];
+        }
+    }
+
     private static void WriteString(BinaryWriter writer, string value, int maximumBytes)
     {
         var byteCount = StrictUtf8.GetByteCount(value);
@@ -249,13 +451,7 @@ public static class SpdxLicenseTextCorpus
 
     private static string ReadString(BinaryReader reader, int maximumBytes, ref int consumed)
     {
-        var length = reader.ReadInt32();
-        if (length <= 0 || length > maximumBytes || consumed > MaximumCorpusBytes - length)
-        {
-            throw new InvalidDataException("SPDX template corpus string length is invalid.");
-        }
-
-        consumed += length;
+        var length = ReadStringLength(reader, maximumBytes, ref consumed);
         var rented = ArrayPool<byte>.Shared.Rent(length);
         try
         {

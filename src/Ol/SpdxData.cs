@@ -96,7 +96,8 @@ internal readonly record struct SpdxData(
             SpdxGeneratedLicenseData.DeprecatedLicenseIds,
             SpdxGeneratedLicenseData.LicenseNames,
             SpdxGeneratedLicenseData.SeeAlsoUrls,
-            SpdxGeneratedLicenseData.SeeAlsoLicenseIds);
+            SpdxGeneratedLicenseData.SeeAlsoLicenseIds,
+            SpdxGeneratedLicenseData.LicenseIdsUtf8);
         return new SpdxData(
             index,
             LoadBundledMatcher(index),
@@ -132,13 +133,13 @@ internal readonly record struct SpdxData(
     {
         using var stream = typeof(SpdxGeneratedLicenseData).Assembly.GetManifestResourceStream(SpdxLicenseTextCorpus.EmbeddedResourceName)
             ?? throw new InvalidOperationException("Bundled SPDX license-text corpus is missing.");
-        var corpus = SpdxLicenseTextCorpus.Load(stream);
-        if (!string.Equals(corpus.CorpusVersion, SpdxGeneratedLicenseData.LicenseListVersion, StringComparison.Ordinal))
+        var matcher = SpdxLicenseTextCorpus.LoadMatcher(stream, index);
+        if (!string.Equals(matcher.CorpusVersion, SpdxGeneratedLicenseData.LicenseListVersion, StringComparison.Ordinal))
         {
             throw new InvalidDataException("Bundled SPDX license-text corpus version does not match the generated license list.");
         }
 
-        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates, licenseIndex: index);
+        return matcher;
     }
 
     private static SpdxLicenseTextMatcher LoadMatcher(string directory, string version, SpdxLicenseIndex index)
@@ -146,13 +147,13 @@ internal readonly record struct SpdxData(
         var path = Path.Combine(directory, SpdxLicenseTextCorpus.FileName);
         if (!File.Exists(path)) return new SpdxLicenseTextMatcher(version, [], licenseIndex: index);
         using var stream = File.OpenRead(path);
-        var corpus = SpdxLicenseTextCorpus.Load(stream);
-        if (!string.Equals(corpus.CorpusVersion, version, StringComparison.Ordinal))
+        var matcher = SpdxLicenseTextCorpus.LoadMatcher(stream, index);
+        if (!string.Equals(matcher.CorpusVersion, version, StringComparison.Ordinal))
         {
             throw new InvalidDataException("SPDX license-text corpus version does not match licenses.json.");
         }
 
-        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates, licenseIndex: index);
+        return matcher;
     }
 
     /// <summary>Reads identifiers, their SPDX names, and the deprecated set from one SPDX document.</summary>

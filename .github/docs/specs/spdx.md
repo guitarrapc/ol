@@ -248,6 +248,8 @@ The template collection is trusted versioned data; the document is package-contr
 
 The normal scan preparation constructs one matcher from the active SPDX snapshot. Bundled data loads the embedded compressed corpus; `ol spdx update` installs a version-matched corpus; a custom or legacy directory without `license-texts.bin.br` remains valid for identifier and expression normalization but constructs an empty matcher. A present corpus whose version differs from `licenses.json` is rejected instead of combining two SPDX snapshots. Corpus format version 2 records the total UTF-8 template byte length so runtime loading can retain all templates in one exactly sized owned buffer; format version 1 remains readable for installed-data compatibility. Matcher construction happens once per active `SpdxData` instance and package-controlled document bytes are never retained by it.
 
+Corpus decoding bounds both compressed input and decompressed strings, validates declared lengths and UTF-8, and rejects truncation or trailing decompressed data. Non-seekable input is copied only through the same compressed-size bound before decoding.
+
 <a id="contract-spdx-license-text-declared-url"></a>
 
 A matcher constructed with the active license index also reads the license URLs the document itself contains, resolved by the same [`seeAlso`](#contract-spdx-license-see-also) rule a declared location uses, and subject to the same single-identifier requirement as the templates. A document that names one license by URL and no other resolves that license; a document whose URL names a license its reproduced text does not resolves nothing.

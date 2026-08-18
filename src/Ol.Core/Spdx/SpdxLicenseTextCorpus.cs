@@ -37,6 +37,8 @@ public static class SpdxLicenseTextCorpus
     private const int MaximumIdentifierBytes = 256;
     private const int MaximumTemplateBytes = 2 * 1024 * 1024;
     private const int MaximumCorpusBytes = 128 * 1024 * 1024;
+    private static readonly int MaximumCompressedCorpusBytes = BrotliEncoder.GetMaxCompressedLength(
+        MaximumCorpusBytes + MaximumTemplateCount * 8 + 20);
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     /// <summary>Creates a deterministic compressed corpus.</summary>
@@ -233,6 +235,7 @@ public static class SpdxLicenseTextCorpus
             {
                 throw new InvalidDataException("SPDX template corpus payload length is invalid.");
             }
+            EnsureEndOfCorpus(brotli);
 
             return version;
         }
@@ -259,12 +262,17 @@ public static class SpdxLicenseTextCorpus
         ArgumentNullException.ThrowIfNull(corpus);
         ArgumentNullException.ThrowIfNull(licenseIndex);
 
+        if (corpus.CanSeek && corpus.Length - corpus.Position > MaximumCompressedCorpusBytes)
+        {
+            throw new InvalidDataException("SPDX template corpus exceeds its compressed size limit.");
+        }
+
         MemoryStream? ownedInput = null;
         if (!corpus.CanSeek)
         {
-            using var output = new MemoryStream();
-            corpus.CopyTo(output);
-            ownedInput = new MemoryStream(output.ToArray(), writable: false);
+            ownedInput = new MemoryStream();
+            CopyBounded(corpus, ownedInput, MaximumCompressedCorpusBytes);
+            ownedInput.Position = 0;
             corpus = ownedInput;
         }
 
@@ -354,6 +362,7 @@ public static class SpdxLicenseTextCorpus
             }
 
             if (offset != templateBytes.Length) throw new InvalidDataException("SPDX template corpus payload length is invalid.");
+            EnsureEndOfCorpus(brotli);
 
             return new SpdxLicenseTextCorpusUtf8Data(version, templateBytes, templates);
         }
@@ -439,6 +448,36 @@ public static class SpdxLicenseTextCorpus
             var read = reader.Read(buffer, 0, Math.Min(length, buffer.Length));
             if (read == 0) throw new EndOfStreamException();
             length -= read;
+        }
+    }
+
+    private static void EnsureEndOfCorpus(Stream corpus)
+    {
+        if (corpus.ReadByte() >= 0) throw new InvalidDataException("SPDX template corpus contains trailing data.");
+    }
+
+    private static void CopyBounded(Stream source, Stream destination, int maximumBytes)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(81920);
+        try
+        {
+            var total = 0;
+            while (true)
+            {
+                var read = source.Read(buffer, 0, buffer.Length);
+                if (read == 0) return;
+                if (total > maximumBytes - read)
+                {
+                    throw new InvalidDataException("SPDX template corpus exceeds its compressed size limit.");
+                }
+
+                destination.Write(buffer, 0, read);
+                total += read;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 

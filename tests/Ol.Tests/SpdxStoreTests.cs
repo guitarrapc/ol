@@ -326,6 +326,26 @@ public sealed class SpdxStoreTests
     }
 
     [Test]
+    public async Task Install_WithTrailingCorpusData_RejectsBeforePersistingSnapshot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-corpus-{Guid.NewGuid():N}");
+        var licenses = """{ "licenseListVersion": "3.27.0", "licenses": [ { "licenseId": "MIT" } ] }"""u8.ToArray();
+        var exceptions = """{ "exceptions": [] }"""u8.ToArray();
+        var corpus = AppendDecompressedByte(SpdxLicenseTextCorpus.Create("3.27.0", [new("MIT", "MIT License")]));
+
+        try
+        {
+            await Assert.That(async () => await SpdxStore.InstallAsync(root, licenses, exceptions, corpus))
+                .Throws<InvalidDataException>();
+            await Assert.That(Directory.Exists(Path.Combine(root, "3.27.0"))).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Use_WithInstalledVersion_SelectsVersion()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-store-{Guid.NewGuid():N}");
@@ -419,6 +439,18 @@ public sealed class SpdxStoreTests
 
         using var output = new MemoryStream();
         using (var brotli = new BrotliStream(output, CompressionLevel.SmallestSize, leaveOpen: true)) brotli.Write(bytes);
+        return output.ToArray();
+    }
+
+    private static byte[] AppendDecompressedByte(byte[] corpus)
+    {
+        using var input = new MemoryStream(corpus, writable: false);
+        using var decompressed = new MemoryStream();
+        using (var brotli = new BrotliStream(input, CompressionMode.Decompress, leaveOpen: true)) brotli.CopyTo(decompressed);
+        decompressed.WriteByte(0);
+
+        using var output = new MemoryStream();
+        using (var brotli = new BrotliStream(output, CompressionLevel.SmallestSize, leaveOpen: true)) decompressed.WriteTo(brotli);
         return output.ToArray();
     }
 }

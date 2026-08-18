@@ -10,6 +10,7 @@ public sealed class CliRoutingTests
     [Arguments("not-a-command", "Command 'not-a-command' is not recognized.")]
     [Arguments("spdx not-a-command", "Command 'spdx not-a-command' is not recognized.")]
     [Arguments("cache not-a-command", "Command 'cache not-a-command' is not recognized.")]
+    [Arguments("skill not-a-command", "Command 'skill not-a-command' is not recognized.")]
     public async Task Route_WithUnknownCommand_WritesDiagnosticToStderr(string commandLine, string expected)
     {
         var root = FindRepositoryRoot();
@@ -27,6 +28,8 @@ public sealed class CliRoutingTests
     [Arguments("diff", "Command 'diff' requires arguments. Use 'ol diff --help' for usage.")]
     [Arguments("spdx", "Command 'spdx' requires a subcommand. Use 'ol spdx --help' for usage.")]
     [Arguments("cache", "Command 'cache' requires a subcommand. Use 'ol cache --help' for usage.")]
+    [Arguments("skill", "Command 'skill' requires a subcommand. Use 'ol skill --help' for usage.")]
+    [Arguments("skill export-plugin", "Command 'skill export-plugin' requires --output. Use 'ol skill export-plugin --help' for usage.")]
     [Arguments("spdx use", "Command 'spdx use' requires an argument. Use 'ol spdx use --help' for usage.")]
     public async Task Route_WithIncompleteCommand_WritesDiagnosticToStderr(string commandLine, string expected)
     {

@@ -20,6 +20,8 @@ internal static class CommandLineRouting
                 return ValidateSpdx(args, out error);
             case "cache":
                 return ValidateCache(args, out error);
+            case "skill":
+                return ValidateSkill(args, out error);
             default:
                 error = $"Command '{args[0]}' is not recognized.";
                 return false;
@@ -87,6 +89,44 @@ internal static class CommandLineRouting
         }
 
         error = $"Command 'cache {args[1]}' is not recognized.";
+        return false;
+    }
+
+    private static bool ValidateSkill(ReadOnlySpan<string> args, out string error)
+    {
+        if (args.Length == 1)
+        {
+            error = "Command 'skill' requires a subcommand. Use 'ol skill --help' for usage.";
+            return false;
+        }
+
+        if (IsFrameworkOutput(args[1]) || args[1] == "install")
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        if (args[1] == "export-plugin")
+        {
+            if (args.Length > 2 && IsFrameworkOutput(args[2]))
+            {
+                error = string.Empty;
+                return true;
+            }
+            for (var i = 2; i + 1 < args.Length; i++)
+            {
+                if (args[i] == "--output")
+                {
+                    error = string.Empty;
+                    return true;
+                }
+            }
+
+            error = "Command 'skill export-plugin' requires --output. Use 'ol skill export-plugin --help' for usage.";
+            return false;
+        }
+
+        error = $"Command 'skill {args[1]}' is not recognized.";
         return false;
     }
 

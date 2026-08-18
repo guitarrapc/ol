@@ -26,6 +26,16 @@ internal static class CommandGroupHelp
           version    Show the active SPDX data source.
         """;
 
+    private const string Skill = """
+        Usage: skill [command] [-h|--help] [--version]
+
+        Install or export the bundled license-scan agent skill.
+
+        Commands:
+          export-plugin    Export a portable Agent Plugin package.
+          install          Install the skill into the current workspace.
+        """;
+
     public static bool TryShow(string[] args)
     {
         if (args is not [var commandGroup, "--help" or "-h"])
@@ -36,6 +46,7 @@ internal static class CommandGroupHelp
         var help = commandGroup switch
         {
             "cache" => Cache,
+            "skill" => Skill,
             "spdx" => Spdx,
             _ => null,
         };

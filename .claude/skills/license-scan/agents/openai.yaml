@@ -1,0 +1,4 @@
+interface:
+  display_name: "ol License Scan"
+  short_description: "Scan resolved dependencies and evaluate license evidence"
+  default_prompt: "Use $license-scan to scan this repository with ol and explain the license findings."

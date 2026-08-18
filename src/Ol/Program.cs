@@ -24,4 +24,5 @@ app.Add<CheckCommands>();
 app.Add<DiffCommands>();
 app.Add<SpdxCommands>("spdx");
 app.Add<CacheCommands>("cache");
+app.Add<SkillCommands>("skill");
 app.Run(args);

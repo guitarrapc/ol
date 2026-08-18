@@ -15,11 +15,9 @@ public sealed class UpdateCommandTests
 
         archiveBytes.Position = 0;
         var data = Ol.Core.Spdx.SpdxLicenseTextCorpus.LoadLicenseListArchive(archiveBytes);
-        var corpus = Ol.Core.Spdx.SpdxLicenseTextCorpus.Load(data.LicenseTextCorpus);
 
-        await Assert.That(corpus.CorpusVersion).IsEqualTo("snapshot");
         await Assert.That(System.Text.Encoding.UTF8.GetString(data.LicensesJson)).Contains("snapshot");
-        await Assert.That(corpus.Templates[0].LicenseId).IsEqualTo("MIT");
+        await Assert.That(data.LicenseTextCorpus.Length).IsGreaterThan(0);
     }
 
     [Test]

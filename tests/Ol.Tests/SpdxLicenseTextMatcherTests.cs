@@ -50,11 +50,11 @@ public sealed class SpdxLicenseTextMatcherTests
     }
 
     [Test]
-    public async Task CorpusLoad_UnicodeTemplate_PreservesMatcherBehavior()
+    public async Task CorpusLoadMatcher_UnicodeTemplate_PreservesMatcherBehavior()
     {
         var bytes = SpdxLicenseTextCorpus.Create("test", [new("Unicode", "許可条件 <<var;name=\"owner\";original=\"著作権者\";match=\".+\">>")]);
-        var corpus = SpdxLicenseTextCorpus.Load(bytes);
-        var matcher = new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates);
+        using var stream = new MemoryStream(bytes, writable: false);
+        var matcher = SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Unicode"], []));
 
         await Assert.That(matcher.TryMatch("許可条件 開発者"u8, out var licenseId)).IsTrue();
         await Assert.That(licenseId).IsEqualTo("Unicode");

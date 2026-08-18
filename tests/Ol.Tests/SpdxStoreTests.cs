@@ -44,6 +44,24 @@ public sealed class SpdxStoreTests
     }
 
     [Test]
+    public async Task Data_Bundled_IndexPreservesUtf8LookupBehavior()
+    {
+        var index = SpdxData.Load(null).Index;
+
+        await Assert.That(index.TryNormalizeLicenseIdUtf8("mit"u8, out var licenseId)).IsTrue();
+        await Assert.That(licenseId).IsEqualTo("MIT");
+        await Assert.That(index.TryNormalizeLicenseIdUtf8Slice("mit"u8, out var licenseUtf8, out var deprecated)).IsTrue();
+        await Assert.That(licenseUtf8.ToString()).IsEqualTo("MIT");
+        await Assert.That(deprecated).IsFalse();
+        await Assert.That(index.TryNormalizeExceptionIdUtf8("classpath-exception-2.0"u8, out var exceptionId)).IsTrue();
+        await Assert.That(exceptionId).IsEqualTo("Classpath-exception-2.0");
+        await Assert.That(index.TryNormalizeLicenseNameUtf8Slice("MIT License"u8, out var nameLicenseId, out _)).IsTrue();
+        await Assert.That(nameLicenseId.ToString()).IsEqualTo("MIT");
+        await Assert.That(index.TryResolveLicenseUrl("https://www.apache.org/licenses/LICENSE-2.0"u8, out var urlLicenseId, out _)).IsTrue();
+        await Assert.That(urlLicenseId.ToString()).IsEqualTo("Apache-2.0");
+    }
+
+    [Test]
     public async Task ScanPreparation_NormalScanCarriesBundledMatcher()
     {
         var input = Path.GetTempFileName();
@@ -95,6 +113,26 @@ public sealed class SpdxStoreTests
         try
         {
             await Assert.That(() => SpdxData.Load(root)).Throws<InvalidDataException>();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Data_UserDirectoryWithMalformedTemplate_RejectsSnapshot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-spdx-corpus-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(Path.Combine(root, "licenses.json"), """{ "licenseListVersion": "test", "licenses": [ { "licenseId": "Example" } ] }""");
+        await File.WriteAllTextAsync(Path.Combine(root, "exceptions.json"), """{ "exceptions": [] }""");
+        var corpus = SpdxLicenseTextCorpus.Create("test", [new("Example", "<<beginOptional>>unclosed")]);
+        await File.WriteAllBytesAsync(Path.Combine(root, SpdxLicenseTextCorpus.FileName), corpus);
+
+        try
+        {
+            await Assert.That(() => SpdxData.Load(root)).Throws<ArgumentException>();
         }
         finally
         {

@@ -36,9 +36,21 @@ public sealed class SpdxLicenseIndex
         string[]? licenseNames = null,
         string[]? seeAlsoUrls = null,
         string[]? seeAlsoLicenseIds = null)
+        : this(licenses, exceptions, deprecatedLicenses, licenseNames, seeAlsoUrls, seeAlsoLicenseIds, default)
+    {
+    }
+
+    internal SpdxLicenseIndex(
+        string[] licenses,
+        string[] exceptions,
+        string[]? deprecatedLicenses,
+        string[]? licenseNames,
+        string[]? seeAlsoUrls,
+        string[]? seeAlsoLicenseIds,
+        ReadOnlySpan<byte> licenseIdsUtf8)
     {
         this.licenses = CreateLookup(licenses);
-        licenseUtf8 = CreateUtf8Lookup(licenses);
+        licenseUtf8 = licenseIdsUtf8.IsEmpty ? CreateUtf8Lookup(licenses) : CreateUtf8Lookup(licenses, licenseIdsUtf8);
         this.exceptions = CreateLookup(exceptions);
         this.deprecatedLicenses = (deprecatedLicenses ?? []).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         this.licenseNames = CreateNameLookup(licenses, licenseNames, this.deprecatedLicenses);
@@ -366,6 +378,47 @@ public sealed class SpdxLicenseIndex
         {
             var identifier = identifiers[i];
             dictionary[identifier] = Utf8Slice.FromString(identifier);
+        }
+
+        return dictionary.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static FrozenDictionary<string, Utf8Slice> CreateUtf8Lookup(string[] identifiers, ReadOnlySpan<byte> generatedUtf8)
+    {
+        var owned = generatedUtf8.ToArray();
+        var dictionary = new Dictionary<string, Utf8Slice>(identifiers.Length, StringComparer.OrdinalIgnoreCase);
+        var offset = 0;
+        for (var i = 0; i < identifiers.Length; i++)
+        {
+            var remaining = owned.AsSpan(offset);
+            var separator = remaining.IndexOf((byte)'\n');
+            var length = separator >= 0 ? separator : remaining.Length;
+            if (length == 0 || (i < identifiers.Length - 1 && separator < 0))
+            {
+                throw new InvalidDataException("Generated SPDX UTF-8 identifiers do not align with the identifier array.");
+            }
+
+            var identifier = identifiers[i];
+            if (identifier.Length != length)
+            {
+                throw new InvalidDataException("Generated SPDX UTF-8 identifiers do not align with the identifier array.");
+            }
+            for (var characterIndex = 0; characterIndex < identifier.Length; characterIndex++)
+            {
+                var character = identifier[characterIndex];
+                if (character > 0x7f || owned[offset + characterIndex] != (byte)character)
+                {
+                    throw new InvalidDataException("Generated SPDX UTF-8 identifiers do not align with the identifier array.");
+                }
+            }
+
+            dictionary[identifier] = new Utf8Slice(owned, offset, length);
+            offset += length + (separator >= 0 ? 1 : 0);
+        }
+
+        if (offset != owned.Length)
+        {
+            throw new InvalidDataException("Generated SPDX UTF-8 identifiers do not align with the identifier array.");
         }
 
         return dictionary.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);

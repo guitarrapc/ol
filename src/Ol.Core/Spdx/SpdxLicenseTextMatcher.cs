@@ -51,6 +51,7 @@ public sealed class SpdxLicenseTextMatcher
 
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(1);
+    private readonly byte[]? templateBytes;
     private readonly TemplatePattern[] patterns;
     private readonly FrozenDictionary<string, int[]> anchoredPatterns;
     private readonly int[] unanchoredPatternIndexes;
@@ -78,6 +79,7 @@ public sealed class SpdxLicenseTextMatcher
 
         CorpusVersion = corpusVersion;
         this.maximumTextBytes = maximumTextBytes;
+        templateBytes = null;
         patterns = new TemplatePattern[templates.Length];
         var anchorGroups = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
         var licenseIds = new HashSet<string>(templates.Length, StringComparer.Ordinal);
@@ -116,6 +118,68 @@ public sealed class SpdxLicenseTextMatcher
             catch (ArgumentException exception)
             {
                 throw new ArgumentException($"SPDX license template is invalid: {template.LicenseId}", nameof(templates), exception);
+            }
+        }
+
+        var frozenInput = new Dictionary<string, int[]>(anchorGroups.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in anchorGroups) frozenInput.Add(pair.Key, [.. pair.Value]);
+        anchoredPatterns = frozenInput.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+        unanchoredPatternIndexes = [.. unanchored];
+    }
+
+    internal SpdxLicenseTextMatcher(
+        SpdxLicenseTextCorpusUtf8Data corpus,
+        int maximumTextBytes,
+        SpdxLicenseIndex licenseIndex)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(corpus.CorpusVersion);
+        ArgumentNullException.ThrowIfNull(corpus.TemplateBytes);
+        ArgumentNullException.ThrowIfNull(corpus.Templates);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumTextBytes);
+        ArgumentNullException.ThrowIfNull(licenseIndex);
+
+        CorpusVersion = corpus.CorpusVersion;
+        this.maximumTextBytes = maximumTextBytes;
+        this.licenseIndex = licenseIndex;
+        templateBytes = corpus.TemplateBytes;
+        patterns = new TemplatePattern[corpus.Templates.Length];
+        var anchorGroups = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+        var licenseIds = new HashSet<string>(corpus.Templates.Length, StringComparer.Ordinal);
+        var unanchored = new List<int>();
+        for (var i = 0; i < corpus.Templates.Length; i++)
+        {
+            var template = corpus.Templates[i];
+            if (string.IsNullOrWhiteSpace(template.LicenseId) || template.Length == 0)
+            {
+                throw new ArgumentException("SPDX license text templates require an identifier and template text.", nameof(corpus));
+            }
+            if (!licenseIds.Add(template.LicenseId))
+            {
+                throw new ArgumentException($"SPDX license text templates contain duplicate identifier: {template.LicenseId}", nameof(corpus));
+            }
+
+            try
+            {
+                var anchors = FindRequiredAnchorsUtf8(templateBytes.AsSpan(template.Offset, template.Length));
+                patterns[i] = new TemplatePattern(template.LicenseId, template.Offset, template.Length, anchors.Primary, anchors.Secondary);
+                if (patterns[i].Anchor.Length == 0)
+                {
+                    unanchored.Add(i);
+                }
+                else
+                {
+                    if (!anchorGroups.TryGetValue(patterns[i].Anchor, out var indexes))
+                    {
+                        indexes = [];
+                        anchorGroups.Add(patterns[i].Anchor, indexes);
+                    }
+
+                    indexes.Add(i);
+                }
+            }
+            catch (ArgumentException exception)
+            {
+                throw new ArgumentException($"SPDX license template is invalid: {template.LicenseId}", nameof(corpus), exception);
             }
         }
 
@@ -301,12 +365,12 @@ public sealed class SpdxLicenseTextMatcher
     /// <summary>Removes the sentence punctuation a URL can pick up when prose ends on it.</summary>
     private static ReadOnlySpan<char> TrimUrlBoundary(ReadOnlySpan<char> url) => url.TrimEnd('.').TrimEnd(':');
 
-    private static bool TryMatchPattern(TemplatePattern pattern, ReadOnlySpan<char> text, ref string licenseId)
+    private bool TryMatchPattern(TemplatePattern pattern, ReadOnlySpan<char> text, ref string licenseId)
     {
         bool matched;
         try
         {
-            matched = pattern.IsMatch(text);
+            matched = pattern.IsMatch(text, templateBytes);
         }
         catch (RegexMatchTimeoutException)
         {
@@ -325,7 +389,7 @@ public sealed class SpdxLicenseTextMatcher
         return true;
     }
 
-    private static Regex CreateRegex(string template)
+    private static Regex CreateRegex(ReadOnlySpan<char> template)
     {
         var pattern = new StringBuilder(template.Length * 2);
         pattern.Append(@"\A\s*");
@@ -333,14 +397,15 @@ public sealed class SpdxLicenseTextMatcher
         var optionalDepth = 0;
         while (position < template.Length)
         {
-            var ruleStart = template.IndexOf("<<", position, StringComparison.Ordinal);
+            var ruleStart = template[position..].IndexOf("<<", StringComparison.Ordinal);
             if (ruleStart < 0)
             {
-                AppendLiteral(pattern, template.AsSpan(position));
+                AppendLiteral(pattern, template[position..]);
                 break;
             }
+            ruleStart += position;
 
-            AppendLiteral(pattern, template.AsSpan(position, ruleStart - position));
+            AppendLiteral(pattern, template.Slice(position, ruleStart - position));
             if (ruleStart + 2 < template.Length && template[ruleStart + 2] == '<')
             {
                 AppendLiteral(pattern, "<".AsSpan());
@@ -348,13 +413,14 @@ public sealed class SpdxLicenseTextMatcher
                 continue;
             }
 
-            var ruleEnd = template.IndexOf(">>", ruleStart + 2, StringComparison.Ordinal);
+            var ruleEnd = template[(ruleStart + 2)..].IndexOf(">>", StringComparison.Ordinal);
             if (ruleEnd < 0)
             {
                 throw new ArgumentException("SPDX license template contains an unterminated rule.", nameof(template));
             }
+            ruleEnd += ruleStart + 2;
 
-            var rule = template.AsSpan(ruleStart + 2, ruleEnd - ruleStart - 2).Trim();
+            var rule = template.Slice(ruleStart + 2, ruleEnd - ruleStart - 2).Trim();
             if (rule.SequenceEqual("beginOptional".AsSpan()))
             {
                 pattern.Append("(?:");
@@ -386,7 +452,7 @@ public sealed class SpdxLicenseTextMatcher
             MatchTimeout);
     }
 
-    private static RequiredAnchors FindRequiredAnchors(string template)
+    private static RequiredAnchors FindRequiredAnchors(ReadOnlySpan<char> template)
     {
         var position = 0;
         var optionalDepth = 0;
@@ -396,12 +462,13 @@ public sealed class SpdxLicenseTextMatcher
         var secondLength = 0;
         while (position < template.Length)
         {
-            var ruleStart = template.IndexOf("<<", position, StringComparison.Ordinal);
+            var ruleStart = template[position..].IndexOf("<<", StringComparison.Ordinal);
             if (ruleStart < 0)
             {
                 if (optionalDepth == 0) ConsiderAnchors(template, position, template.Length - position, ref bestStart, ref bestLength, ref secondStart, ref secondLength);
                 break;
             }
+            ruleStart += position;
 
             if (optionalDepth == 0) ConsiderAnchors(template, position, ruleStart - position, ref bestStart, ref bestLength, ref secondStart, ref secondLength);
             if (ruleStart + 2 < template.Length && template[ruleStart + 2] == '<')
@@ -410,9 +477,10 @@ public sealed class SpdxLicenseTextMatcher
                 continue;
             }
 
-            var ruleEnd = template.IndexOf(">>", ruleStart + 2, StringComparison.Ordinal);
+            var ruleEnd = template[(ruleStart + 2)..].IndexOf(">>", StringComparison.Ordinal);
             if (ruleEnd < 0) throw new ArgumentException("SPDX license template contains an unterminated rule.", nameof(template));
-            var rule = template.AsSpan(ruleStart + 2, ruleEnd - ruleStart - 2).Trim();
+            ruleEnd += ruleStart + 2;
+            var rule = template.Slice(ruleStart + 2, ruleEnd - ruleStart - 2).Trim();
             if (rule.SequenceEqual("beginOptional".AsSpan()))
             {
                 optionalDepth++;
@@ -436,12 +504,68 @@ public sealed class SpdxLicenseTextMatcher
 
         if (optionalDepth != 0) throw new ArgumentException("SPDX license template contains an unclosed optional rule.", nameof(template));
         return new RequiredAnchors(
-            bestLength >= 4 ? template.Substring(bestStart, bestLength) : string.Empty,
-            secondLength >= 4 ? template.Substring(secondStart, secondLength) : string.Empty);
+            bestLength >= 4 ? new string(template.Slice(bestStart, bestLength)) : string.Empty,
+            secondLength >= 4 ? new string(template.Slice(secondStart, secondLength)) : string.Empty);
+    }
+
+    private static RequiredAnchors FindRequiredAnchorsUtf8(ReadOnlySpan<byte> template)
+    {
+        const int maximumStackCharacters = 128;
+        var characterCount = StrictUtf8.GetCharCount(template);
+        if (characterCount <= maximumStackCharacters)
+        {
+            Span<char> characters = stackalloc char[maximumStackCharacters];
+            var written = StrictUtf8.GetChars(template, characters);
+            return FindRequiredAnchorsValidated(characters[..written]);
+        }
+
+        var rented = ArrayPool<char>.Shared.Rent(characterCount);
+        try
+        {
+            var written = StrictUtf8.GetChars(template, rented);
+            return FindRequiredAnchorsValidated(rented.AsSpan(0, written));
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(rented);
+        }
+    }
+
+    private static RequiredAnchors FindRequiredAnchorsValidated(ReadOnlySpan<char> template)
+    {
+        for (var index = 0; index < template.Length; index++)
+        {
+            if (!char.IsWhiteSpace(template[index])) return FindRequiredAnchors(template);
+        }
+
+        throw new ArgumentException("SPDX license text templates require template text.", nameof(template));
+    }
+
+    private static Regex CreateRegexUtf8(ReadOnlySpan<byte> template)
+    {
+        const int maximumStackCharacters = 128;
+        var characterCount = StrictUtf8.GetCharCount(template);
+        if (characterCount <= maximumStackCharacters)
+        {
+            Span<char> characters = stackalloc char[maximumStackCharacters];
+            var written = StrictUtf8.GetChars(template, characters);
+            return CreateRegex(characters[..written]);
+        }
+
+        var rented = ArrayPool<char>.Shared.Rent(characterCount);
+        try
+        {
+            var written = StrictUtf8.GetChars(template, rented);
+            return CreateRegex(rented.AsSpan(0, written));
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(rented);
+        }
     }
 
     private static void ConsiderAnchors(
-        string template,
+        ReadOnlySpan<char> template,
         int start,
         int length,
         ref int bestStart,
@@ -471,7 +595,7 @@ public sealed class SpdxLicenseTextMatcher
                 bestLength = wordLength;
             }
             else if (wordLength > secondLength
-                && !template.AsSpan(wordStart, wordLength).Equals(template.AsSpan(bestStart, bestLength), StringComparison.OrdinalIgnoreCase))
+                && !template.Slice(wordStart, wordLength).Equals(template.Slice(bestStart, bestLength), StringComparison.OrdinalIgnoreCase))
             {
                 secondStart = wordStart;
                 secondLength = wordLength;
@@ -529,20 +653,43 @@ public sealed class SpdxLicenseTextMatcher
 
     private readonly record struct RequiredAnchors(string Primary, string Secondary);
 
-    private sealed class TemplatePattern(string licenseId, string template, string anchor, string secondaryAnchor)
+    private sealed class TemplatePattern
     {
+        private readonly string? template;
+        private readonly int templateOffset;
+        private readonly int templateLength;
+        private readonly string secondaryAnchor;
         private Regex? regex;
 
-        public string LicenseId { get; } = licenseId;
-        public string Anchor { get; } = anchor;
+        public TemplatePattern(string licenseId, string template, string anchor, string secondaryAnchor)
+        {
+            LicenseId = licenseId;
+            this.template = template;
+            Anchor = anchor;
+            this.secondaryAnchor = secondaryAnchor;
+        }
 
-        public bool IsMatch(ReadOnlySpan<char> text)
+        public TemplatePattern(string licenseId, int templateOffset, int templateLength, string anchor, string secondaryAnchor)
+        {
+            LicenseId = licenseId;
+            this.templateOffset = templateOffset;
+            this.templateLength = templateLength;
+            Anchor = anchor;
+            this.secondaryAnchor = secondaryAnchor;
+        }
+
+        public string LicenseId { get; }
+        public string Anchor { get; }
+
+        public bool IsMatch(ReadOnlySpan<char> text, byte[]? templateBytes)
         {
             if (secondaryAnchor.Length != 0 && !text.Contains(secondaryAnchor, StringComparison.OrdinalIgnoreCase)) return false;
             var current = Volatile.Read(ref regex);
             if (current is null)
             {
-                var created = CreateRegex(template);
+                var created = template is not null
+                    ? CreateRegex(template)
+                    : CreateRegexUtf8(templateBytes!.AsSpan(templateOffset, templateLength));
                 current = Interlocked.CompareExchange(ref regex, created, null) ?? created;
             }
 

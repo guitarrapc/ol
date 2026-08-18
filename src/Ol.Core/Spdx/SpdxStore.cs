@@ -40,8 +40,8 @@ public static class SpdxStore
 
         if (corpus is not null)
         {
-            var corpusData = SpdxLicenseTextCorpus.Load(corpus);
-            if (!string.Equals(corpusData.CorpusVersion, version, StringComparison.Ordinal))
+            var corpusVersion = SpdxLicenseTextCorpus.Validate(corpus);
+            if (!string.Equals(corpusVersion, version, StringComparison.Ordinal))
             {
                 throw new InvalidDataException("SPDX license-text corpus version does not match licenses.json.");
             }

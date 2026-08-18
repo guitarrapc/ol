@@ -1,4 +1,5 @@
 ﻿using BenchmarkDotNet.Attributes;
+using Ol.Core.Generated;
 using Ol.Core.Spdx;
 using System.Text;
 
@@ -58,8 +59,8 @@ public class SpdxLicenseTextMatcherBenchmark
         [new SpdxLicenseTextTemplate("MIT", MitTemplate)]);
     private readonly byte[] licenseText = Encoding.UTF8.GetBytes(MitText);
     private readonly byte[] bundledCorpus;
+    private readonly SpdxLicenseIndex bundledIndex;
     private readonly SpdxLicenseTextMatcher bundledMatcher;
-    private readonly SpdxLicenseTextMatcher bundledTemplateOnlyMatcher;
 
     public SpdxLicenseTextMatcherBenchmark()
     {
@@ -67,9 +68,9 @@ public class SpdxLicenseTextMatcherBenchmark
         using var output = new MemoryStream();
         stream.CopyTo(output);
         bundledCorpus = output.ToArray();
-        bundledMatcher = SpdxData.Load(null).Matcher;
-        var corpus = SpdxLicenseTextCorpus.Load(bundledCorpus);
-        bundledTemplateOnlyMatcher = new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates);
+        var spdx = SpdxData.Load(null);
+        bundledIndex = spdx.Index;
+        bundledMatcher = spdx.Matcher;
     }
 
     [Benchmark]
@@ -79,12 +80,24 @@ public class SpdxLicenseTextMatcherBenchmark
     public bool MatchBundledCorpus() => bundledMatcher.TryMatch(licenseText, out _);
 
     [Benchmark]
-    public bool MatchBundledCorpusTemplateOnly() => bundledTemplateOnlyMatcher.TryMatch(licenseText, out _);
+    public string ValidateBundledCorpus()
+        => SpdxLicenseTextCorpus.Validate(bundledCorpus);
 
     [Benchmark]
-    public int ConstructBundledCorpus()
+    public SpdxLicenseIndex ConstructBundledIndex()
+        => new(
+            SpdxGeneratedLicenseData.LicenseIds,
+            SpdxGeneratedLicenseData.ExceptionIds,
+            SpdxGeneratedLicenseData.DeprecatedLicenseIds,
+            SpdxGeneratedLicenseData.LicenseNames,
+            SpdxGeneratedLicenseData.SeeAlsoUrls,
+            SpdxGeneratedLicenseData.SeeAlsoLicenseIds,
+            SpdxGeneratedLicenseData.LicenseIdsUtf8);
+
+    [Benchmark]
+    public SpdxLicenseTextMatcher ConstructBundledCorpus()
     {
-        var corpus = SpdxLicenseTextCorpus.Load(bundledCorpus);
-        return new SpdxLicenseTextMatcher(corpus.CorpusVersion, corpus.Templates).CorpusVersion.Length;
+        using var stream = new MemoryStream(bundledCorpus, writable: false);
+        return SpdxLicenseTextCorpus.LoadMatcher(stream, bundledIndex);
     }
 }

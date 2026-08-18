@@ -1,4 +1,6 @@
-﻿using System.Text;
+﻿using System.Buffers.Binary;
+using System.IO.Compression;
+using System.Text;
 using Ol.Core.Spdx;
 
 namespace Ol.Tests;
@@ -47,6 +49,98 @@ public sealed class SpdxLicenseTextMatcherTests
             "test",
             [new("MIT", "first"), new("MIT", "second")]))
             .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task CorpusLoadMatcher_UnicodeTemplate_PreservesMatcherBehavior()
+    {
+        var bytes = SpdxLicenseTextCorpus.Create("test", [new("Unicode", "許可条件 <<var;name=\"owner\";original=\"著作権者\";match=\".+\">>")]);
+        using var stream = new MemoryStream(bytes, writable: false);
+        var matcher = SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Unicode"], []));
+
+        await Assert.That(matcher.TryMatch("許可条件 開発者"u8, out var licenseId)).IsTrue();
+        await Assert.That(licenseId).IsEqualTo("Unicode");
+    }
+
+    [Test]
+    public async Task CorpusLoadMatcher_LegacyVersionOneCorpus_PreservesMatcherBehavior()
+    {
+        var bytes = Convert.FromBase64String("Gy0A+IfAdr/JaOCBJt5dUKCBlouwYlEG0AVF8561A4k/A4Vd1HiMAA==");
+        using var stream = new MemoryStream(bytes, writable: false);
+
+        var matcher = SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], []));
+
+        await Assert.That(matcher.CorpusVersion).IsEqualTo("v1");
+        await Assert.That(matcher.TryMatch("example terms"u8, out var licenseId)).IsTrue();
+        await Assert.That(licenseId).IsEqualTo("Example");
+    }
+
+    [Test]
+    public async Task CorpusLoadMatcher_TrailingDecompressedData_RejectsCorpus()
+    {
+        var bytes = AppendDecompressedByte(SpdxLicenseTextCorpus.Create("test", [new("Example", "example terms")]));
+        using var stream = new MemoryStream(bytes, writable: false);
+
+        await Assert.That(() => SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], [])))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task CorpusLoadMatcher_TruncatedCompressedData_RejectsCorpus()
+    {
+        var bytes = SpdxLicenseTextCorpus.Create("test", [new("Example", "example terms")]);
+        using var stream = new MemoryStream(bytes[..^1], writable: false);
+
+        await Assert.That(() => SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], [])))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task CorpusLoadMatcher_DeclaredTemplateLengthMismatch_RejectsCorpus()
+    {
+        var bytes = RewriteDecompressed(
+            SpdxLicenseTextCorpus.Create("test", [new("Example", "example terms")]),
+            static value => BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(8), 1));
+        using var stream = new MemoryStream(bytes, writable: false);
+
+        await Assert.That(() => SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], [])))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task CorpusLoadMatcher_WhitespaceOnlyTemplate_RejectsCorpus()
+    {
+        var bytes = RewriteDecompressed(
+            SpdxLicenseTextCorpus.Create("test", [new("Example", "terms")]),
+            static value => value.AsSpan(value.Length - 5).Fill((byte)' '));
+        using var stream = new MemoryStream(bytes, writable: false);
+
+        await Assert.That(() => SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], [])))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task CorpusLoadMatcher_UnicodeWhitespaceOnlyTemplate_RejectsCorpus()
+    {
+        var bytes = RewriteDecompressed(
+            SpdxLicenseTextCorpus.Create("test", [new("Example", "abc")]),
+            static value => "　"u8.CopyTo(value.AsSpan(value.Length - 3)));
+        using var stream = new MemoryStream(bytes, writable: false);
+
+        await Assert.That(() => SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], [])))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task CorpusLoadMatcher_NonSeekableStream_PreservesMatcherBehavior()
+    {
+        var bytes = SpdxLicenseTextCorpus.Create("test", [new("Example", "example terms")]);
+        using var stream = new NonSeekableReadStream(bytes);
+
+        var matcher = SpdxLicenseTextCorpus.LoadMatcher(stream, new SpdxLicenseIndex(["Example"], []));
+
+        await Assert.That(matcher.TryMatch("example terms"u8, out var licenseId)).IsTrue();
+        await Assert.That(licenseId).IsEqualTo("Example");
     }
 
     [Test]
@@ -286,5 +380,50 @@ public sealed class SpdxLicenseTextMatcherTests
 
         await Assert.That(matcher.TryMatch("nothing here"u8, out _, out var kind)).IsFalse();
         await Assert.That(kind).IsEqualTo(SpdxLicenseTextMatchKind.None);
+    }
+
+    private static byte[] AppendDecompressedByte(byte[] corpus)
+        => RewriteDecompressed(corpus, static value => value[^1] = 0xff, appendByte: true);
+
+    private static byte[] RewriteDecompressed(byte[] corpus, Action<byte[]> rewrite, bool appendByte = false)
+    {
+        using var input = new MemoryStream(corpus, writable: false);
+        using var decompressed = new MemoryStream();
+        using (var brotli = new BrotliStream(input, CompressionMode.Decompress, leaveOpen: true)) brotli.CopyTo(decompressed);
+        var bytes = decompressed.ToArray();
+        if (appendByte) Array.Resize(ref bytes, bytes.Length + 1);
+        rewrite(bytes);
+
+        using var output = new MemoryStream();
+        using (var brotli = new BrotliStream(output, CompressionLevel.SmallestSize, leaveOpen: true)) brotli.Write(bytes);
+        return output.ToArray();
+    }
+
+    private sealed class NonSeekableReadStream(byte[] bytes) : Stream
+    {
+        private readonly MemoryStream inner = new(bytes, writable: false);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+        public override int Read(Span<byte> buffer) => inner.Read(buffer);
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) inner.Dispose();
+            base.Dispose(disposing);
+        }
     }
 }

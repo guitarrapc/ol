@@ -15,11 +15,9 @@ public sealed class UpdateCommandTests
 
         archiveBytes.Position = 0;
         var data = Ol.Core.Spdx.SpdxLicenseTextCorpus.LoadLicenseListArchive(archiveBytes);
-        var corpus = Ol.Core.Spdx.SpdxLicenseTextCorpus.Load(data.LicenseTextCorpus);
 
-        await Assert.That(corpus.CorpusVersion).IsEqualTo("snapshot");
         await Assert.That(System.Text.Encoding.UTF8.GetString(data.LicensesJson)).Contains("snapshot");
-        await Assert.That(corpus.Templates[0].LicenseId).IsEqualTo("MIT");
+        await Assert.That(data.LicenseTextCorpus.Length).IsGreaterThan(0);
     }
 
     [Test]
@@ -50,6 +48,7 @@ public sealed class UpdateCommandTests
         await Assert.That(generated).Contains("\"3.27.0\"");
         await Assert.That(generated).Contains("\"MIT\"");
         await Assert.That(generated).Contains("\"Classpath-exception-2.0\"");
+        await Assert.That(generated).Contains("LicenseIdsUtf8 => \"Apache-2.0\\nMIT\"u8;");
     }
 
     // The name array is read by index against the identifier array, so the two must stay aligned

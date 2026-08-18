@@ -45,6 +45,8 @@ public static class SpdxCodeGenerator
         builder.Append("    public const string LicenseListVersion = \"").Append(Escape(version)).AppendLine("\";");
         AppendArray(builder, "LicenseIds", licenseIds);
         builder.AppendLine();
+        AppendUtf8(builder, "LicenseIdsUtf8", licenseIds);
+        builder.AppendLine();
         AppendArray(builder, "LicenseNames", licenseNames);
         builder.AppendLine();
         AppendArray(builder, "ExceptionIds", exceptionIds);
@@ -68,6 +70,18 @@ public static class SpdxCodeGenerator
         }
 
         builder.AppendLine("    ];");
+    }
+
+    private static void AppendUtf8(StringBuilder builder, string name, string[] values)
+    {
+        builder.Append("    public static ReadOnlySpan<byte> ").Append(name).Append(" => \"");
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (i != 0) builder.Append("\\n");
+            builder.Append(Escape(values[i]));
+        }
+
+        builder.AppendLine("\"u8;");
     }
 
     /// <summary>Reads license identifiers and their SPDX names as two arrays sharing one index.</summary>

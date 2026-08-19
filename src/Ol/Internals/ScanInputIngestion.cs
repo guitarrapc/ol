@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using System.IO.Enumeration;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Ol.Core;
@@ -47,7 +48,6 @@ internal readonly record struct ScanInputIngestionResult(
 /// </remarks>
 internal static class ScanInputIngestion
 {
-    private static readonly StringComparison PathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     /// <summary>Validates the named input paths and format, without touching the file system.</summary>
     public static bool TryResolve(string[]? input, string? inputFormat, out ScanInputSelection selection, out string error)
@@ -108,7 +108,7 @@ internal static class ScanInputIngestion
         bool includeHash,
         bool collectPackageArtifacts)
     {
-        var files = CollectInputFiles(selection, out var inputCandidateDiagnostics, out var excludedInputPaths);
+        var files = CollectInputFiles(selection, out var inputCandidateDiagnostics, out var excludedInputPaths, out var resolvedInputPaths);
         var inventories = new DependencyInventory[files.Length];
         var handlers = new DependencyInputHandler[files.Length];
         var packageArtifactInputs = collectPackageArtifacts ? new ResolvedPackageArtifactInput[files.Length] : [];
@@ -278,7 +278,7 @@ internal static class ScanInputIngestion
             var descriptor = new ScanInputDescriptor(
                 kind,
                 format,
-                GetInputSourceReference(selection.Paths),
+                GetInputSourceReference(resolvedInputPaths),
                 sourceHash is null ? string.Empty : Convert.ToHexString(sourceHash.GetHashAndReset()).ToLowerInvariant(),
                 specificationVersion);
             // One input goes through the same combiner as several. A registered format declares what makes two
@@ -383,12 +383,17 @@ internal static class ScanInputIngestion
     private static CollectedInputFile[] CollectInputFiles(
         ScanInputSelection selection,
         out InputCandidateDiagnostics inputCandidateDiagnostics,
-        out string[] excludedInputPaths)
+        out string[] excludedInputPaths,
+        out string[] resolvedInputPaths)
     {
         inputCandidateDiagnostics = default;
-        var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var resolvedPaths = ResolveActualPaths(selection);
+        resolvedInputPaths = resolvedPaths.InputPaths;
+        var pathComparer = selection.ExcludedPaths.Length == 0 && OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
         var collectedByPath = new Dictionary<string, CollectedInputFile>(pathComparer);
-        var exclusions = ResolveExcludedInputPaths(selection, pathComparer);
+        var exclusions = ResolveExcludedInputPaths(selection, resolvedPaths);
         excludedInputPaths = exclusions.LogicalPaths;
         var enumerationOptions = new EnumerationOptions
         {
@@ -400,10 +405,12 @@ internal static class ScanInputIngestion
 
         for (var inputIndex = 0; inputIndex < selection.Paths.Length; inputIndex++)
         {
-            var inputPath = Path.GetFullPath(selection.Paths[inputIndex]);
+            var inputPath = selection.ExcludedPaths.Length == 0
+                ? Path.GetFullPath(resolvedInputPaths[inputIndex])
+                : resolvedInputPaths[inputIndex];
             if (File.Exists(inputPath))
             {
-                if (IsExcluded(inputPath, exclusions.FullPaths, pathComparer))
+                if (IsExcluded(inputPath, exclusions.FullPaths))
                 {
                     throw new InvalidOperationException($"Explicit input file is inside an excluded input path: {selection.Paths[inputIndex]}");
                 }
@@ -417,11 +424,11 @@ internal static class ScanInputIngestion
             {
                 // An explicit format is an assertion about what to scan, so detecting the candidates it
                 // excludes would report a deliberate choice as an oversight.
-                DiscoverDirectoryFiles(inputPath, rootName, [selection.ExpectedHandler], enumerationOptions, exclusions.FullPaths, pathComparer, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: false);
+                DiscoverDirectoryFiles(inputPath, rootName, [selection.ExpectedHandler], enumerationOptions, exclusions.FullPaths, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: false);
                 continue;
             }
 
-            DiscoverDirectoryFiles(inputPath, rootName, DependencyInputRegistry.Default.RegisteredHandlers, enumerationOptions, exclusions.FullPaths, pathComparer, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: true);
+            DiscoverDirectoryFiles(inputPath, rootName, DependencyInputRegistry.Default.RegisteredHandlers, enumerationOptions, exclusions.FullPaths, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: true);
         }
 
         if (collectedByPath.Count == 0)
@@ -451,7 +458,6 @@ internal static class ScanInputIngestion
         ReadOnlySpan<DependencyInputHandler> handlers,
         EnumerationOptions options,
         string[] excludedPaths,
-        StringComparer pathComparer,
         Dictionary<string, CollectedInputFile> collectedByPath,
         ref InputCandidateDiagnostics inputCandidateDiagnostics,
         bool detectUnsupportedCandidates)
@@ -464,7 +470,7 @@ internal static class ScanInputIngestion
             foreach (var path in Directory.EnumerateFiles(currentDirectory, "*", options))
             {
                 var fullPath = Path.GetFullPath(path);
-                if (IsExcluded(fullPath, excludedPaths, pathComparer))
+                if (IsExcluded(fullPath, excludedPaths))
                 {
                     continue;
                 }
@@ -483,7 +489,7 @@ internal static class ScanInputIngestion
             foreach (var path in Directory.EnumerateDirectories(currentDirectory, "*", options))
             {
                 var fullPath = Path.GetFullPath(path);
-                if (!IsExcluded(fullPath, excludedPaths, pathComparer))
+                if (!IsExcluded(fullPath, excludedPaths))
                 {
                     pendingDirectories.Push(fullPath);
                 }
@@ -508,16 +514,19 @@ internal static class ScanInputIngestion
         return false;
     }
 
-    private static ResolvedInputExclusions ResolveExcludedInputPaths(ScanInputSelection selection, StringComparer pathComparer)
+    private static ResolvedScanPaths ResolveActualPaths(ScanInputSelection selection)
     {
         if (selection.ExcludedPaths.Length == 0)
         {
-            return new ResolvedInputExclusions([], []);
+            return new ResolvedScanPaths(selection.Paths, []);
         }
 
-        var fullPaths = new List<string>(selection.ExcludedPaths.Length);
-        var fullPathSet = new HashSet<string>(pathComparer);
-        var logicalPaths = new List<string>(selection.ExcludedPaths.Length);
+        var fullPaths = new string[selection.Paths.Length + selection.ExcludedPaths.Length];
+        for (var inputIndex = 0; inputIndex < selection.Paths.Length; inputIndex++)
+        {
+            fullPaths[inputIndex] = Path.TrimEndingDirectorySeparator(Path.GetFullPath(selection.Paths[inputIndex]));
+        }
+
         for (var excludedIndex = 0; excludedIndex < selection.ExcludedPaths.Length; excludedIndex++)
         {
             var excludedPath = selection.ExcludedPaths[excludedIndex];
@@ -527,17 +536,236 @@ internal static class ScanInputIngestion
                 throw new InvalidOperationException($"Excluded input path not found: {excludedPath}");
             }
 
+            fullPaths[selection.Paths.Length + excludedIndex] = fullExcludedPath;
+        }
+
+        var resolutionRoot = TryGetCommonResolutionRoot(fullPaths);
+        var requests = new PendingPathResolution[fullPaths.Length];
+        for (var requestIndex = 0; requestIndex < requests.Length; requestIndex++)
+        {
+            requests[requestIndex] = CreatePathResolution(
+                fullPaths[requestIndex],
+                resolutionRoot ?? Path.GetPathRoot(fullPaths[requestIndex])!);
+        }
+
+        ResolvePathSegments(requests);
+        var inputPaths = new string[selection.Paths.Length];
+        for (var inputIndex = 0; inputIndex < inputPaths.Length; inputIndex++)
+        {
+            inputPaths[inputIndex] = requests[inputIndex].ResolvedPath;
+        }
+
+        var excludedPaths = new string[selection.ExcludedPaths.Length];
+        for (var excludedIndex = 0; excludedIndex < excludedPaths.Length; excludedIndex++)
+        {
+            excludedPaths[excludedIndex] = requests[selection.Paths.Length + excludedIndex].ResolvedPath;
+        }
+
+        return new ResolvedScanPaths(inputPaths, excludedPaths);
+    }
+
+    private static string? TryGetCommonResolutionRoot(string[] fullPaths)
+    {
+        var pathRoot = Path.GetPathRoot(fullPaths[0]);
+        var rootsMatchOrdinally = true;
+        for (var pathIndex = 1; pathIndex < fullPaths.Length; pathIndex++)
+        {
+            var otherRoot = Path.GetPathRoot(fullPaths[pathIndex]);
+            if (string.Equals(pathRoot, otherRoot, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            rootsMatchOrdinally = false;
+            if (!OperatingSystem.IsWindows()
+                || !string.Equals(pathRoot, otherRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+        }
+
+        if (!rootsMatchOrdinally)
+        {
+            return pathRoot;
+        }
+
+        var resolutionRoot = Path.GetDirectoryName(fullPaths[0]) ?? Path.GetPathRoot(fullPaths[0])!;
+        while (true)
+        {
+            var containsEveryPath = true;
+            for (var pathIndex = 1; pathIndex < fullPaths.Length; pathIndex++)
+            {
+                if (string.Equals(fullPaths[pathIndex], resolutionRoot, StringComparison.Ordinal)
+                    || IsDescendant(fullPaths[pathIndex], resolutionRoot))
+                {
+                    continue;
+                }
+
+                containsEveryPath = false;
+                break;
+            }
+
+            if (containsEveryPath)
+            {
+                return resolutionRoot;
+            }
+
+            var parent = Path.GetDirectoryName(resolutionRoot);
+            if (parent is null)
+            {
+                return resolutionRoot;
+            }
+
+            resolutionRoot = parent;
+        }
+    }
+
+    private static PendingPathResolution CreatePathResolution(string fullPath, string resolutionRoot)
+    {
+        var relativePath = fullPath.AsSpan(resolutionRoot.Length);
+        var segments = relativePath.IsEmpty
+            ? []
+            : relativePath.ToString().Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+        return new PendingPathResolution(resolutionRoot, segments);
+    }
+
+    private static void ResolvePathSegments(PendingPathResolution[] requests)
+    {
+        var unresolvedCount = requests.Length;
+        while (unresolvedCount > 0)
+        {
+            var requestsByParent = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+            for (var requestIndex = 0; requestIndex < requests.Length; requestIndex++)
+            {
+                ref var request = ref requests[requestIndex];
+                if (request.SegmentIndex == request.Segments.Length)
+                {
+                    unresolvedCount--;
+                    request.SegmentIndex++;
+                    continue;
+                }
+
+                if (request.SegmentIndex > request.Segments.Length)
+                {
+                    continue;
+                }
+
+                if (!requestsByParent.TryGetValue(request.ResolvedPath, out var indexes))
+                {
+                    indexes = [];
+                    requestsByParent.Add(request.ResolvedPath, indexes);
+                }
+
+                indexes.Add(requestIndex);
+            }
+
+            foreach (var group in requestsByParent)
+            {
+                ResolveChildSegments(group.Key, group.Value, requests);
+            }
+        }
+    }
+
+    private static void ResolveChildSegments(string parentPath, List<int> requestIndexes, PendingPathResolution[] requests)
+    {
+        var matcher = new RequestedPathSegmentMatcher(requests, requestIndexes);
+        var entries = new FileSystemEnumerable<ResolvedFileSystemEntry>(
+            parentPath,
+            static (ref FileSystemEntry entry) => new ResolvedFileSystemEntry(entry.ToFullPath(), entry.IsDirectory),
+            new EnumerationOptions
+            {
+                RecurseSubdirectories = false,
+                AttributesToSkip = 0,
+                IgnoreInaccessible = false,
+            })
+        {
+            ShouldIncludePredicate = matcher.ShouldInclude,
+        };
+
+        foreach (var entry in entries)
+        {
+            var actualName = Path.GetFileName(entry.FullPath.AsSpan());
+            for (var index = 0; index < requestIndexes.Count; index++)
+            {
+                ref var request = ref requests[requestIndexes[index]];
+                var requestedName = request.Segments[request.SegmentIndex];
+                if (actualName.Equals(requestedName, StringComparison.Ordinal))
+                {
+                    request.ExactMatch = entry;
+                }
+                else if (actualName.Equals(requestedName, StringComparison.OrdinalIgnoreCase))
+                {
+                    request.CaseInsensitiveMatch = entry;
+                    request.CaseInsensitiveMatchCount++;
+                }
+            }
+
+            if (AllSegmentsHaveExactMatch(requestIndexes, requests))
+            {
+                break;
+            }
+        }
+
+        for (var index = 0; index < requestIndexes.Count; index++)
+        {
+            ref var request = ref requests[requestIndexes[index]];
+            var match = request.ExactMatch.FullPath is not null
+                ? request.ExactMatch
+                : request.CaseInsensitiveMatchCount == 1
+                    ? request.CaseInsensitiveMatch
+                    : throw new InvalidOperationException($"Unable to resolve the file-system casing of path: {Path.Combine(request.ResolvedPath, request.Segments[request.SegmentIndex])}");
+            if (request.SegmentIndex + 1 < request.Segments.Length && !match.IsDirectory)
+            {
+                throw new InvalidOperationException($"A path segment is not a directory: {match.FullPath}");
+            }
+
+            request.ResolvedPath = match.FullPath!;
+            request.SegmentIndex++;
+            request.ExactMatch = default;
+            request.CaseInsensitiveMatch = default;
+            request.CaseInsensitiveMatchCount = 0;
+        }
+    }
+
+    private static bool AllSegmentsHaveExactMatch(List<int> requestIndexes, PendingPathResolution[] requests)
+    {
+        for (var index = 0; index < requestIndexes.Count; index++)
+        {
+            if (requests[requestIndexes[index]].ExactMatch.FullPath is null)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static ResolvedInputExclusions ResolveExcludedInputPaths(ScanInputSelection selection, ResolvedScanPaths resolvedPaths)
+    {
+        if (selection.ExcludedPaths.Length == 0)
+        {
+            return new ResolvedInputExclusions([], []);
+        }
+
+        var fullPaths = new List<string>(selection.ExcludedPaths.Length);
+        var fullPathSet = new HashSet<string>(StringComparer.Ordinal);
+        var logicalPaths = new List<string>(selection.ExcludedPaths.Length);
+        for (var excludedIndex = 0; excludedIndex < selection.ExcludedPaths.Length; excludedIndex++)
+        {
+            var excludedPath = selection.ExcludedPaths[excludedIndex];
+            var fullExcludedPath = resolvedPaths.ExcludedPaths[excludedIndex];
+
             var matchedDirectoryInput = false;
             string? logicalPath = null;
             for (var inputIndex = 0; inputIndex < selection.Paths.Length; inputIndex++)
             {
-                var inputRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(selection.Paths[inputIndex]));
+                var inputRoot = resolvedPaths.InputPaths[inputIndex];
                 if (!Directory.Exists(inputRoot))
                 {
                     continue;
                 }
 
-                if (pathComparer.Equals(inputRoot, fullExcludedPath))
+                if (string.Equals(inputRoot, fullExcludedPath, StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException($"An input directory cannot exclude itself: {excludedPath}");
                 }
@@ -568,11 +796,11 @@ internal static class ScanInputIngestion
         return new ResolvedInputExclusions(fullPaths.ToArray(), logicalPaths.ToArray());
     }
 
-    private static bool IsExcluded(string path, string[] excludedPaths, StringComparer pathComparer)
+    private static bool IsExcluded(string path, string[] excludedPaths)
     {
         for (var excludedIndex = 0; excludedIndex < excludedPaths.Length; excludedIndex++)
         {
-            if (pathComparer.Equals(path, excludedPaths[excludedIndex]) || IsDescendant(path, excludedPaths[excludedIndex]))
+            if (string.Equals(path, excludedPaths[excludedIndex], StringComparison.Ordinal) || IsDescendant(path, excludedPaths[excludedIndex]))
             {
                 return true;
             }
@@ -583,7 +811,7 @@ internal static class ScanInputIngestion
 
     private static bool IsDescendant(string path, string directory)
     {
-        if (path.Length <= directory.Length || !path.AsSpan(0, directory.Length).Equals(directory, PathComparison))
+        if (path.Length <= directory.Length || !path.AsSpan(0, directory.Length).Equals(directory, StringComparison.Ordinal))
         {
             return false;
         }
@@ -624,6 +852,39 @@ internal static class ScanInputIngestion
 
     /// <summary>Canonical paths used for pruning and logical paths persisted in the report.</summary>
     private readonly record struct ResolvedInputExclusions(string[] FullPaths, string[] LogicalPaths);
+
+    /// <summary>Actual file-system paths for named inputs and exclusions, preserving the casing returned by enumeration.</summary>
+    private readonly record struct ResolvedScanPaths(string[] InputPaths, string[] ExcludedPaths);
+
+    private struct PendingPathResolution(string root, string[] segments)
+    {
+        public string[] Segments { get; } = segments;
+        public string ResolvedPath { get; set; } = root;
+        public int SegmentIndex { get; set; }
+        public ResolvedFileSystemEntry ExactMatch { get; set; }
+        public ResolvedFileSystemEntry CaseInsensitiveMatch { get; set; }
+        public int CaseInsensitiveMatchCount { get; set; }
+    }
+
+    private readonly record struct ResolvedFileSystemEntry(string? FullPath, bool IsDirectory);
+
+    private sealed class RequestedPathSegmentMatcher(PendingPathResolution[] requests, List<int> requestIndexes)
+    {
+        public bool ShouldInclude(ref FileSystemEntry entry)
+        {
+            var actualName = entry.FileName;
+            for (var index = 0; index < requestIndexes.Count; index++)
+            {
+                ref var request = ref requests[requestIndexes[index]];
+                if (actualName.Equals(request.Segments[request.SegmentIndex], StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
 
     private sealed class CollectedInputFileComparer : IComparer<CollectedInputFile>
     {

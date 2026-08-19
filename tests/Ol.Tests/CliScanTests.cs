@@ -2577,6 +2577,106 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithCaseInsensitiveInputAndExclusion_RecordsFileSystemCasing()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-input-casing-{Guid.NewGuid():N}");
+        var productDirectory = Path.Combine(temporaryDirectory, "Product-A");
+        var serverDirectory = Path.Combine(productDirectory, "Server");
+        var documentsDirectory = Path.Combine(productDirectory, "Docs");
+        Directory.CreateDirectory(serverDirectory);
+        Directory.CreateDirectory(documentsDirectory);
+        await File.WriteAllTextAsync(Path.Combine(serverDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(documentsDirectory, "package-lock.json"), CreatePackageLock("docs", "docs-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var differentlyCasedInput = Path.Combine(temporaryDirectory, "product-a");
+            if (!Directory.Exists(differentlyCasedInput))
+            {
+                return;
+            }
+
+            var (exitCode, stdout, stderr) = await RunOlInDirectoryAsync(
+                root,
+                temporaryDirectory,
+                "scan",
+                "--input",
+                "product-a",
+                "--exclude-input-path",
+                Path.Combine("product-a", "docs"),
+                "--exclude-input-path",
+                Path.Combine("Product-A", "DOCS"),
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo("Product-A");
+            var inputScope = report.RootElement.GetProperty("metadata").GetProperty("inputScope");
+            await Assert.That(inputScope.GetProperty("excludedPathCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(inputScope.GetProperty("excludedPaths")[0].GetString()).IsEqualTo("Product-A/Docs");
+            var components = report.RootElement.GetProperty("components");
+            await Assert.That(components.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("server-dependency");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithCaseDistinctDirectories_ExcludesOrdinalMatch_WhenSupported()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-case-distinct-input-{Guid.NewGuid():N}");
+        var upperDirectory = Path.Combine(temporaryDirectory, "Docs");
+        var lowerDirectory = Path.Combine(temporaryDirectory, "docs");
+        Directory.CreateDirectory(upperDirectory);
+        Directory.CreateDirectory(lowerDirectory);
+
+        try
+        {
+            var distinctNames = Directory.EnumerateDirectories(temporaryDirectory)
+                .Select(Path.GetFileName)
+                .Count(static name => string.Equals(name, "Docs", StringComparison.Ordinal) || string.Equals(name, "docs", StringComparison.Ordinal));
+            if (distinctNames != 2)
+            {
+                return;
+            }
+
+            await File.WriteAllTextAsync(Path.Combine(upperDirectory, "package-lock.json"), CreatePackageLock("upper", "included-dependency"), Encoding.UTF8);
+            await File.WriteAllTextAsync(Path.Combine(lowerDirectory, "package-lock.json"), CreatePackageLock("lower", "excluded-dependency"), Encoding.UTF8);
+
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                lowerDirectory,
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            var components = report.RootElement.GetProperty("components");
+            await Assert.That(components.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("included-dependency");
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("inputScope").GetProperty("excludedPaths")[0].GetString()).IsEqualTo("docs");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithMissingExcludedPath_ReturnsInputError()
     {
         var root = FindRepositoryRoot();

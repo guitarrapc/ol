@@ -92,6 +92,111 @@ public sealed class MixedInputScanTests
         await Assert.That(supply.GetProperty("both").GetInt32()).IsEqualTo(3);
     }
 
+    /// <summary>
+    /// The totals say whether the second input earned its place; only the per-ecosystem split says where.
+    /// A repository whose SBOM covers one ecosystem and not another reads as a half-useless input in the
+    /// totals and as an exact statement here, and the rows must sum to the totals so both can be trusted.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithVerboseCombinedInputs_ReportsSupplyPerEcosystem()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("nuget-project.assets.json"),
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence",
+            "--verbose");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).Contains("  Supplied by: 2 sbom only; 8 package-manager only; 3 both");
+        await Assert.That(stderr).Contains("    -: 1 sbom only; 0 package-manager only; 0 both");
+        await Assert.That(stderr).Contains("    npm: 1 sbom only; 4 package-manager only; 3 both");
+        await Assert.That(stderr).Contains("    nuget: 0 sbom only; 4 package-manager only; 0 both");
+    }
+
+    /// <summary>
+    /// Ordinal order, so two runs over one report print the same block and a diff of two runs shows only
+    /// what changed.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithVerboseCombinedInputs_OrdersEcosystemsOrdinally()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("nuget-project.assets.json"),
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence",
+            "--verbose");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr.IndexOf("    -: ", StringComparison.Ordinal))
+            .IsLessThan(stderr.IndexOf("    npm: ", StringComparison.Ordinal));
+        await Assert.That(stderr.IndexOf("    npm: ", StringComparison.Ordinal))
+            .IsLessThan(stderr.IndexOf("    nuget: ", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The default summary already runs to eight lines; one row per ecosystem belongs behind the option
+    /// whose job is extra diagnostics.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithoutVerbose_OmitsSupplyPerEcosystem()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("nuget-project.assets.json"),
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).Contains("  Supplied by: 2 sbom only; 8 package-manager only; 3 both");
+        await Assert.That(stderr).DoesNotContain("    npm: ");
+        await Assert.That(stderr).DoesNotContain("    nuget: ");
+    }
+
+    /// <summary>A single-input scan states one row that repeats the totals, rather than none.</summary>
+    [Test]
+    public async Task Scan_WithVerboseSingleInput_StillReportsOneEcosystemRow()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("package-lock.json"),
+            "--no-external-evidence",
+            "--verbose");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).Contains("    npm: 0 sbom only; 7 package-manager only; 0 both");
+    }
+
+    /// <summary>The rows are part of the summary, so <c>--quiet</c> suppresses them with it.</summary>
+    [Test]
+    public async Task Scan_WithVerboseAndQuiet_OmitsTheWholeSummary()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("package-lock.json"),
+            "--no-external-evidence",
+            "--verbose",
+            "--quiet");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).DoesNotContain("Supplied by:");
+        await Assert.That(stderr).DoesNotContain("    npm: ");
+    }
+
     /// <summary>The stderr summary must state what the JSON document states, or the JSON exemption breaks.</summary>
     [Test]
     public async Task Scan_WithCombinedInputs_ReportsSupplyTallyInTextSummary()

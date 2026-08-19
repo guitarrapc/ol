@@ -190,6 +190,10 @@ internal sealed class ScanCommands
             // that says whether the second input earned its place. Per component the report already says it;
             // only the totals say it about the run.
             Console.Error.WriteLine($"  Supplied by: {summary.SbomOnlyCount} sbom only; {summary.PackageManagerOnlyCount} package-manager only; {summary.BothSuppliedCount} both");
+            if (verbose)
+            {
+                WriteSupplyByEcosystem(components, Console.Error);
+            }
 
             // Zeroed collection counters read as "nothing was needed" rather than "nothing was attempted",
             // which is the whole point of this mode, so state the absence instead of printing the counters.
@@ -238,6 +242,78 @@ internal sealed class ScanCommands
             writer.Write(input.MissingFileName);
             writer.WriteLine(" in the same directory.");
         }
+    }
+
+    /// <summary>
+    /// States, per ecosystem, which input kinds supplied its components.
+    /// </summary>
+    /// <remarks>
+    /// The totals say whether a second input earned its place in the collection; this says where. One
+    /// ecosystem supplied by both inputs and another by only one is the ordinary shape of a polyglot
+    /// scan rather than a defect — a source-tree SBOM generator reads npm lockfiles and does not read
+    /// NuGet restore output — and the split is what lets a reader see which case they are in.
+    ///
+    /// Ol prints the counts and draws no conclusion from them. A threshold that called a one-sided
+    /// ecosystem a scope mismatch was considered and rejected: measured across eight polyglot
+    /// repositories it would have fired on every one of them, all correctly configured, because the
+    /// NuGet population is package-manager-only in all of them. A hint that always fires is one readers
+    /// learn to skip, which costs more than the missed hint.
+    ///
+    /// It is a verbose diagnostic rather than a summary fact because the report already carries
+    /// <c>ecosystem</c> and <c>suppliedBy</c> per component, so a consumer of the canonical JSON can
+    /// compute exactly this. Only the human reading a text or Markdown run cannot, and the default
+    /// summary is long enough already.
+    /// </remarks>
+    private static void WriteSupplyByEcosystem(ReadOnlySpan<ScanComponent> components, TextWriter writer)
+    {
+        var counts = new Dictionary<string, SupplyCounts>(StringComparer.Ordinal);
+        for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)
+        {
+            // An empty ecosystem is displayed as "-" everywhere else in the report, and the generator's
+            // own root component is the usual one, so the rows keep summing to the totals line.
+            var ecosystem = components[componentIndex].Ecosystem;
+            if (string.IsNullOrEmpty(ecosystem)) ecosystem = "-";
+
+            counts.TryGetValue(ecosystem, out var entry);
+            switch (components[componentIndex].SuppliedBy)
+            {
+                case ComponentSupply.Sbom: entry.SbomOnly++; break;
+                case ComponentSupply.PackageManager: entry.PackageManagerOnly++; break;
+                case ComponentSupply.Sbom | ComponentSupply.PackageManager: entry.Both++; break;
+            }
+
+            counts[ecosystem] = entry;
+        }
+
+        if (counts.Count == 0)
+        {
+            return;
+        }
+
+        var ecosystems = new string[counts.Count];
+        counts.Keys.CopyTo(ecosystems, 0);
+        Array.Sort(ecosystems, StringComparer.Ordinal);
+        for (var ecosystemIndex = 0; ecosystemIndex < ecosystems.Length; ecosystemIndex++)
+        {
+            var entry = counts[ecosystems[ecosystemIndex]];
+            writer.Write("    ");
+            writer.Write(ecosystems[ecosystemIndex]);
+            writer.Write(": ");
+            writer.Write(entry.SbomOnly);
+            writer.Write(" sbom only; ");
+            writer.Write(entry.PackageManagerOnly);
+            writer.Write(" package-manager only; ");
+            writer.Write(entry.Both);
+            writer.WriteLine(" both");
+        }
+    }
+
+    /// <summary>How many components of one ecosystem each input kind supplied.</summary>
+    private struct SupplyCounts
+    {
+        public int SbomOnly;
+        public int PackageManagerOnly;
+        public int Both;
     }
 
     private static void WriteInputDiscoverySummary(

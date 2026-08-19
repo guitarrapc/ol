@@ -317,8 +317,32 @@ dependency path は同じ理由で `check` に持ち込まれた。`REASON` と 
 前計画 Phase 3 の項目だが、実測すると**これが最も費用対効果の高い診断**である。`suppliedBy` の 3 分割を数えるだけで、測定 2 の結論（Syft が 129 個の phantom を足して 0 個を解決した）は試行時点で出ていた。
 
 - [x] scan summary（stderr / JSON `summary`）に `sbom-only` / `package-manager-only` / `both` の件数を出す。
-- [ ] `--verbose` では ecosystem 別に出す。
-- [ ] 片方の入力にしか現れない component が支配的な場合、scope mismatch の可能性を 1 行で述べる。
+- [x] `--verbose` では ecosystem 別に出す。
+- [x] ~~片方の入力にしか現れない component が支配的な場合、scope mismatch の可能性を 1 行で述べる。~~ **設計して却下した**（下記）。
+
+#### scope mismatch ヒントを却下した理由
+
+実装前に 8 リポジトリの ecosystem 別内訳を測った。
+
+| Repository | 内訳 |
+|---|---|
+| MagicOnion | `npm: both 1292` / `nuget: pmOnly 298` |
+| NativeCompressions | `cargo: both 36` / `nuget: pmOnly 130` |
+| AIApiTracer | `npm: sbomOnly 1, both 78` / `nuget: pmOnly 22` |
+| DFrame / LogicLooper / UniTask / ZLinq / csbindgen | `nuget: pmOnly N, both 0` |
+
+**`nuget` が package-manager 片側だけになるのは 8/8 で発生する。** Syft の `declared` cataloger が `project.assets.json` を読まないためで、正しく構成された状態そのものである。閾値ヒントはこの 8 件すべてで発火し、[cli.md](../specs/cli.md) が detected-candidate の scope を決めた際の理由——「既にそのエコシステムをスキャンしているリポジトリで発火するヒントは、読者に無視することを学習させる。見逃すコストより高くつく」——にそのまま抵触する。
+
+ecosystem 別内訳はこの意図を閾値なしで満たす。読者は `both 0` の行を見て自分で判断でき、`ol` は数を述べるだけで意図を推測しない。
+
+```text
+  Supplied by: 2 sbom only; 8 package-manager only; 3 both
+    -: 1 sbom only; 0 package-manager only; 0 both
+    npm: 1 sbom only; 4 package-manager only; 3 both
+    nuget: 0 sbom only; 4 package-manager only; 0 both
+```
+
+canonical JSON は変更していない。component ごとに `ecosystem` と `suppliedBy` を持つため、JSON の消費者はこれを正確に計算できる。計算できないのは text/markdown を読む人間だけであり、既定 summary は既に十分長い。よって `--verbose` の診断とした。
 
 `metadata.input` は collection のとき `"sourceRef": "2 inputs"` と 1 つのハッシュしか持たないため、入力ごとの内訳は現状 component を全走査しないと得られない。
 
@@ -429,7 +453,7 @@ Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-m
 
 ### 残る差分
 
-再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 2 の ecosystem 別集計と scope mismatch 診断、および優先度 3・4・6・7 は未着手である。
+再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 3・4・6・7 は未着手である。
 
 ## 推奨する運用
 

@@ -16,6 +16,7 @@ internal enum UnresolvedMechanismKind : byte
     LicenseNotDetected,
     DeclaredLicenseLocationNotCollected,
     LicenseClassifierNotSpecific,
+    PackageMetadataNoPurl,
     PackageMetadataUnversionedPurl,
     UnsupportedPackageMetadata,
     UnsupportedSourceRepository,
@@ -61,6 +62,7 @@ internal static class UnresolvedMechanism
         UnresolvedMechanismKind.LicenseNotDetected => "license_not_detected"u8,
         UnresolvedMechanismKind.DeclaredLicenseLocationNotCollected => "declared_license_location_not_collected"u8,
         UnresolvedMechanismKind.LicenseClassifierNotSpecific => "license_classifier_not_specific"u8,
+        UnresolvedMechanismKind.PackageMetadataNoPurl => "package_metadata_no_purl"u8,
         UnresolvedMechanismKind.PackageMetadataUnversionedPurl => "package_metadata_unversioned_purl"u8,
         UnresolvedMechanismKind.UnsupportedPackageMetadata => "unsupported_package_metadata"u8,
         UnresolvedMechanismKind.UnsupportedSourceRepository => "unsupported_source_repository"u8,
@@ -82,7 +84,12 @@ internal static class UnresolvedMechanism
     /// </remarks>
     private static Evidence CollectEvidence(in ScanComponent component)
     {
-        var evidence = default(Evidence);
+        // Derived rather than recorded, because the report already carries it in typed form: a warning
+        // restating a field would be the same mistake the three retired NuGet license warnings were. It
+        // also makes the mechanism independent of whether the run collected anything, which the two
+        // failures it replaces were not — collection invented a repository outcome for it, and
+        // --no-external-evidence left it with nothing said at all.
+        var evidence = new Evidence { NoPurl = component.Purl.IsEmpty };
         for (var i = 0; i < component.CandidateCount; i++)
         {
             var candidate = component.GetCandidate(i);
@@ -122,6 +129,9 @@ internal static class UnresolvedMechanism
 
         // A component no registry could be asked about also has no repository, because nothing produced one. Naming
         // the repository would report the consequence and send the reader hunting for something never sought.
+        // No identity at all comes first in this family: the other two have a purl that could not be used, while
+        // this one has nothing to use, and no evidence any source could add would change that.
+        if (evidence.NoPurl) return UnresolvedMechanismKind.PackageMetadataNoPurl;
         if (evidence.Has(LicenseCandidateWarnings.PackageMetadataUnversionedPurl)) return UnresolvedMechanismKind.PackageMetadataUnversionedPurl;
         if (evidence.Has(LicenseCandidateWarnings.UnsupportedPackageMetadata)) return UnresolvedMechanismKind.UnsupportedPackageMetadata;
 
@@ -143,6 +153,7 @@ internal static class UnresolvedMechanism
         public bool DeclaredText;
         public bool DeclaredLocation;
         public bool FamilyClassifier;
+        public bool NoPurl;
 
         public readonly bool Has(LicenseCandidateWarnings warning) => (Warnings & warning) != 0;
     }

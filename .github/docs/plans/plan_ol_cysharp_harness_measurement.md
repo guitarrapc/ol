@@ -346,15 +346,52 @@ canonical JSON は変更していない。component ごとに `ecosystem` と `s
 
 `metadata.input` は collection のとき `"sourceRef": "2 inputs"` と 1 つのハッシュしか持たないため、入力ごとの内訳は現状 component を全走査しないと得られない。
 
-### 優先度 3: purl を持たない component の扱い
+### 優先度 3 (実装済み): purl を持たない component の扱い
 
-generator は package でないもの（実行ファイル、path 依存、workspace member）を purl なしの component として出す。現状これは policy 対象になり、`--exclude-packages` では除去できず、baseline に入れるしかない。名前が `\unity-sandbox\Assets\csbindgen_tests` のように OS 依存の path 断片になることもあり、Windows で生成した baseline が Linux CI で一致しない懸念もある。
+generator は package でないもの（実行ファイル、path 依存、workspace member）を purl なしの component として出す。現状これは policy 対象になり、`--exclude-packages` では除去できず、baseline に入れるしかない。
 
-`ol` が名前から推測して落とすのは fail-open なので採るべきでない。可視性で解く。
+#### 当初の記述は前提を誤っていた
 
-- [ ] purl を持たない component の violation に、`component_has_no_package_identity` 相当の独立した reason を与える。「registry に問えない」ことは status ではなく identity の性質であり、reviewer の行動（generator 設定を直す）が他と異なる。
-- [ ] その件数を常に集計行に出す。
-- [ ] 除外手段を与えるかは別途判断する。与えるなら prefix ではなく「identity のない component」という機構名で指定させる。
+「機構が出ない」と書いたが、実測は**誤った機構が出る**だった。
+
+```text
+\sandbox\Assets\thing  UNKNOWN  -  -  unknown  license is unresolved  source_repository_unavailable  -  -
+```
+
+`sourceRepository.targetCount` は 0。**一度も探されていないリポジトリについて「利用できなかった」という収集結果が合成されていた。** `source_repository_unavailable` は「後の実行で変わりうる」群に分類される機構なので、永久に変わらない条件に対して再試行を示唆していた。
+
+`--no-external-evidence` では逆に機構が一切出ず、component は unresolved section にすら現れなかった。同じ条件が収集モードによって「偽」と「無言」に分かれていた。
+
+8 リポジトリの実測: `source_repository_unavailable` を持つ component 146 件のうち、purl なしは 11 件で、**purl なしの 11 件は全部これを持っていた**。
+
+#### 実装した内容
+
+- [x] **enrichment が偽の証拠を作るのをやめた。** identity を持たない component には source-repository の記録を付けない。purl を持つ component の同じ記録（146 − 11 = 135 件）は残す。あちらは対象があり、問い合わせ、リポジトリを知り得なかったという正当な結果である。
+- [x] **機構 `package_metadata_no_purl` を派生させた。** warning bit ではなく `component.Purl.IsEmpty` からの派生。理由はビット数ではなく規則で、「レポートが型付きで既に述べている事実の言い換えは警告ではない」——引退した 3 つの NuGet license 警告と同じ形になるため。派生にしたことで**収集モードに依存しなくなり**、偽と無言の両方が同時に解消した。順位は `package_metadata_unversioned_purl` / `unsupported_package_metadata` と同じ「問い合わせる先が無い」一族の先頭。宣言された文書（`declared_license_file_not_collected` 等）には負ける——文書を開くのは行動だが「identity が無い」は行動ではないため。
+- [x] **`metadata.packageMetadata.noPurlCount` を追加した。** 従来この母集団はどのカウンタにも現れなかった（`targetCount` にも `unversionedPurlCount` にも `unsupportedEcosystemCount` にも入らない）。解決済みの component も数える。「入力のどれだけを enrichment が対象にできなかったか」を測るもので、policy に落ちる前に generator の品質を見るための数だからである。
+- [x] **除外オプションは足さない。** 推奨 cataloger 構成で残るのは 8 リポジトリで 3 件（NativeCompressions 自身の workspace crate）。かつ purl なし ≠ ノイズで、宣言ライセンスを持つ purl なし component は正常に `matched` する。オプションは、SBOM が purl を書き漏らした実在の依存を fail-open させる道になる。
+
+#### 実データでの確認
+
+```text
+$ ol scan --input <NativeCompressions の Syft SBOM>
+Unresolved components
+  liblz4 0.1.0 package_metadata_no_purl
+  libopenzl 0.1.0 package_metadata_no_purl
+  libzstd 0.1.0 package_metadata_no_purl
+
+metadata.packageMetadata: {"targetCount":36,"noPurlCount":4,"unversionedPurlCount":0,"unsupportedEcosystemCount":0}
+```
+
+改修前はこの 3 件が `source_repository_unavailable` で、レビュアーを存在しないリポジトリ探しに送っていた。
+
+#### 移行コスト
+
+evidence を変えるので baseline の fingerprint も変わる。実測で失効するのは **policy 対象の 3 件のみ**（残り 8 件は root で policy 対象外）。もともと真でなかった証拠に対する承認なので、失効するのが正しい。
+
+#### やらないこと: 名前の正規化
+
+baseline は purl なし component を名前だけで識別する（`purl: null`、`ecosystem: "-"`）。Windows で生成した `\sandbox\Assets\thing` は Linux CI の `/sandbox/...` と一致せず、review 済みの承認が失効する。しかし [cli.md](../specs/cli.md) の report-privacy 契約が「入力自身の記述を書き換えない」と定めているため、区切り文字の正規化は契約違反になる。cataloger 構成でこの母集団ごと消すのが正しい対処である。
 
 ### 優先度 4: `--baseline` の重複指定が無言で last-wins
 
@@ -453,7 +490,7 @@ Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-m
 
 ### 残る差分
 
-再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 3・4・6・7 は未着手である。
+再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 4・6・7 は未着手である。
 
 ## 推奨する運用
 

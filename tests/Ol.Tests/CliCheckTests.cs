@@ -286,6 +286,40 @@ public sealed class CliCheckTests
         }
     }
 
+    /// <summary>
+    /// A component the generator emitted without a package identity used to reach the violation table
+    /// saying a repository was unavailable, which is the one mechanism a reviewer cannot act on: no
+    /// repository was ever sought, and no rerun can produce one. The action is to fix the generator.
+    /// </summary>
+    [Test]
+    public async Task Check_WithComponentLackingPurl_NamesTheMissingIdentity()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        const string Json = """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "bare", "version": "1.0.0" } ] }
+            """;
+        await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            var row = Array.Find(result.Stdout.Split('\n'), line => line.StartsWith("bare\t", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            var columns = row!.TrimEnd('\r').Split('\t');
+            await Assert.That(columns[3]).IsEqualTo("-");
+            await Assert.That(columns[6]).IsEqualTo("package_metadata_no_purl");
+            await Assert.That(columns[7]).IsEqualTo("-");
+            await Assert.That(result.Stdout).Contains("  package_metadata_no_purl: 1");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
     /// <summary>A resolved license the allow-list rejects has no collection mechanism to explain.</summary>
     [Test]
     public async Task Check_WithNotAllowedLicense_ReportsNoMechanismAndNoTally()

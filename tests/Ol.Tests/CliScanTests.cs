@@ -136,6 +136,217 @@ public sealed class CliScanTests
     /// reported as an unsupported ecosystem and counted as one. Only a multi-component input reaches the
     /// planner at all, which is why the single-component tests above never showed it.
     /// </remarks>
+    /// <summary>
+    /// A component with no package identity was never a lookup subject, so no collection outcome is true
+    /// of it. Recording one asserted that a repository had been sought and not found, which named a place
+    /// nothing produced and implied a retry that can never help.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithComponentLackingPurl_RecordsNoSourceRepositoryOutcome()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteIdentitylessComponentsAsync();
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(SelectWarnings(report, "bare")).DoesNotContain("source_repository_unavailable");
+            await Assert.That(SelectCandidateSources(report, "bare")).IsEmpty();
+
+            // A declared license still reaches a component with no identity, so the SBOM's own claim stays.
+            await Assert.That(SelectCandidateSources(report, "resolved")).IsEquivalentTo(new[] { "sbom" });
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// The mechanism is derived from the empty purl rather than recorded as a warning, so it is stated
+    /// whether or not the run collected anything. Both modes used to fail differently: collection invented
+    /// a repository outcome, and <c>--no-external-evidence</c> left the component with nothing said at all.
+    /// </summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Scan_WithComponentLackingPurl_NamesTheMechanismInEitherCollectionMode(bool collectExternalEvidence)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteIdentitylessComponentsAsync();
+        var arguments = collectExternalEvidence
+            ? new[] { "scan", "--input", inputPath, "--format", "text", "--quiet" }
+            : ["scan", "--input", inputPath, "--format", "text", "--quiet", "--no-external-evidence"];
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, arguments);
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stdout).Contains("bare 1.0.0 package_metadata_no_purl");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A document the publisher named outranks the structural fact, because opening it is an action and
+    /// "this has no identity" is not.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithComponentLackingPurlButDeclaringLocation_PrefersTheDeclaredLocation()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteIdentitylessComponentsAsync();
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stdout).Contains("with-location 1.0.0 declared_license_location_not_collected https://example.com/LICENSE");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// The population is invisible in every counter today: a component with no purl is not a metadata
+    /// target, and is neither an unsupported ecosystem nor an unversioned purl.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithComponentsLackingPurl_CountsThemInPackageMetadata()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteIdentitylessComponentsAsync();
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            var packageMetadata = report.RootElement.GetProperty("metadata").GetProperty("packageMetadata");
+
+            // All three components in the document lack a purl, including the one that resolved.
+            await Assert.That(packageMetadata.GetProperty("noPurlCount").GetInt32()).IsEqualTo(3);
+            await Assert.That(packageMetadata.GetProperty("targetCount").GetInt32()).IsEqualTo(0);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A component that did have an identity keeps its repository outcome: Ol had a subject, asked, and
+    /// learned no repository, which is a true record of where it looked.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithComponentHavingPurl_KeepsItsSourceRepositoryOutcome()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "name": "bare", "version": "1.0.0" },
+                { "type": "library", "name": "absent", "version": "1.0.0", "purl": "pkg:nuget/Ol.Test.Package.That.Does.Not.Exist@1.0.0" }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(SelectCandidateSources(report, "absent")).Contains("source-repository");
+            await Assert.That(SelectCandidateSources(report, "bare")).IsEmpty();
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A purl that exists but cannot be queried keeps its own mechanism. The three members of this family
+    /// state different things — nothing to ask with, a version missing, an ecosystem Ol cannot ask — and
+    /// collapsing them would send the reader to the wrong fix.
+    /// </summary>
+    [Test]
+    [Arguments("Versionless", "pkg:nuget/NoVersion", "package_metadata_unversioned_purl")]
+    [Arguments("Unsupported", "pkg:generic/thing@1.0.0", "unsupported_package_metadata")]
+    public async Task Scan_WithUnqueryablePurl_KeepsItsOwnMechanism(string name, string purl, string mechanism)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            $$"""
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [ { "type": "library", "name": "{{name}}", "version": "1.0.0", "purl": "{{purl}}" } ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stdout).Contains($"{name} 1.0.0 {mechanism}");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>Three components with no purl, covering resolved, declared-location, and bare evidence.</summary>
+    private static async Task<string> WriteIdentitylessComponentsAsync()
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "name": "bare", "version": "1.0.0" },
+                { "type": "library", "name": "with-location", "version": "1.0.0", "licenses": [{ "license": { "url": "https://example.com/LICENSE" } }] },
+                { "type": "library", "name": "resolved", "version": "1.0.0", "licenses": [{ "expression": "MIT" }] }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+        return inputPath;
+    }
+
+    private static string[] SelectCandidateSources(JsonDocument report, string name)
+    {
+        foreach (var component in report.RootElement.GetProperty("components").EnumerateArray())
+        {
+            if (component.GetProperty("name").GetString() != name) continue;
+            return [.. component.GetProperty("licenseCandidates").EnumerateArray().Select(c => c.GetProperty("source").GetString() ?? string.Empty)];
+        }
+
+        throw new InvalidOperationException($"Component '{name}' was not found in the report.");
+    }
+
     [Test]
     public async Task Scan_WithSeveralUnqueryableComponents_KeepsEachOutcomeDistinct()
     {
@@ -903,7 +1114,9 @@ public sealed class CliScanTests
             using var report = JsonDocument.Parse(stdout);
             var component = report.RootElement.GetProperty("components")[0];
             var candidates = component.GetProperty("licenseCandidates");
-            await Assert.That(candidates.GetArrayLength()).IsEqualTo(3);
+            // Two, not three: this package declares no purl, so no source-repository lookup ever had a
+            // subject and no "unavailable" outcome is recorded for it.
+            await Assert.That(candidates.GetArrayLength()).IsEqualTo(2);
             var declared = candidates[0];
             await Assert.That(declared.GetProperty("source").GetString()).IsEqualTo("sbom");
             await Assert.That(declared.GetProperty("kind").GetString()).IsEqualTo("declared");
@@ -920,7 +1133,8 @@ public sealed class CliScanTests
             var concludedEvidence = candidates[1].GetProperty("evidence");
             await Assert.That(concludedEvidence.GetProperty("field").GetString()).IsEqualTo("licenseConcluded");
             await Assert.That(concludedEvidence.TryGetProperty("acknowledgement", out _)).IsFalse();
-            await Assert.That(candidates[2].GetProperty("kind").GetString()).IsEqualTo("unavailable");
+            await Assert.That(component.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()))
+                .DoesNotContain("source_repository_unavailable");
             await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
             await Assert.That(stderr).IsEmpty();
         }

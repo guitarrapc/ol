@@ -831,7 +831,7 @@ public sealed class PackageMetadataTests
                 SpdxData.Load(null),
                 default,
                 default,
-                new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, 1, 0),
+                new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, 0, 1, 0),
                 new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", 1, 0),
                 new ScanReportScope(ExternalEvidenceCollected: true, DependencyFilter: null, ExcludedCount: 0, ExcludedUnknownCount: 0));
         }

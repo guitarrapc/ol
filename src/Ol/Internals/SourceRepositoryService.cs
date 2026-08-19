@@ -527,8 +527,21 @@ internal sealed class SourceRepositoryService
             new LicenseEvidence(LicenseEvidenceKind.SourceRepository)));
     }
 
+    /// <summary>Records that no repository was learned for a component Ol could have looked one up for.</summary>
+    /// <remarks>
+    /// A component with no package identity is not that case. Nothing ever named a repository for it and
+    /// nothing ever could, so "unavailable" would assert an outcome for a lookup that had no subject —
+    /// naming a place never sought and implying a rerun that cannot help. It is left with no
+    /// source-repository record at all, and the empty purl the report already carries is what the
+    /// unresolved mechanism is derived from instead.
+    /// </remarks>
     private static ScanComponent AddUnavailableCandidate(ScanComponent component)
     {
+        if (component.Purl.IsEmpty)
+        {
+            return component;
+        }
+
         return LicenseReconciler.AddCandidate(component, new LicenseCandidate(
             LicenseCandidateSource.SourceRepository,
             LicenseCandidateKind.Unavailable,

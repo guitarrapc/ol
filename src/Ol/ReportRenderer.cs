@@ -750,6 +750,7 @@ internal static class ReportRenderer
         writer.WriteNumber("fetchErrorCount", summary.FetchErrorCount);
         writer.WriteNumber("unsupportedEcosystemCount", summary.UnsupportedEcosystemCount);
         writer.WriteNumber("unversionedPurlCount", summary.UnversionedPurlCount);
+        writer.WriteNumber("noPurlCount", summary.NoPurlCount);
         writer.WriteNumber("concurrency", summary.Concurrency);
         writer.WriteNumber("retryCount", summary.RetryCount);
         writer.WriteEndObject();

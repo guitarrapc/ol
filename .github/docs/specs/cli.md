@@ -109,7 +109,9 @@ Most reasons are the warning identifier the JSON report already uses, so one voc
 
 These are ecosystem-neutral by construction: what a reviewer does next follows from the kind of place named and not from which registry answered. A named file or embedded text outranks a repository outcome because it is a document that certainly answers the question, while a URL ranks below one because it may lead anywhere. When several sources declare different kinds for one component, the strongest kind present decides.
 
-A fourth reason is derived the same way. `license_classifier_not_specific` says the value is a [PyPI license classifier that names a license family](spdx.md#contract-license-family-classifier) rather than a license, so it can never resolve however much evidence is collected. It ranks below every reason above because it names no document: it is worth stating only when nothing points somewhere a reviewer could read, which is why `sortedcontainers` reports it while `python-dateutil`, whose repository holds a license file GitHub could not classify, still reports `license_not_recognized`.
+Two more reasons are derived the same way. [`package_metadata_no_purl`](packagemanager.md#contract-unqueryable-purl) says the component carries no package identity, so no source could ever be asked about it; it is derived from the empty purl the report already carries, and therefore stated whether or not the run collected external evidence.
+
+`license_classifier_not_specific` says the value is a [PyPI license classifier that names a license family](spdx.md#contract-license-family-classifier) rather than a license, so it can never resolve however much evidence is collected. It ranks below every reason above because it names no document: it is worth stating only when nothing points somewhere a reviewer could read, which is why `sortedcontainers` reports it while `python-dateutil`, whose repository holds a license file GitHub could not classify, still reports `license_not_recognized`.
 
 <a id="contract-dependency-path"></a>
 

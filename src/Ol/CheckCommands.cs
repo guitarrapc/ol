@@ -162,7 +162,8 @@ internal sealed class CheckCommands
                 baselinePath is null ? -1 : acknowledgedCount,
                 developmentAllowedCount,
                 excludePackages is null ? -1 : excludedCount,
-                ambiguityAllowedCount);
+                ambiguityAllowedCount,
+                persisted.ExcludedInputPaths);
         }
         catch (IOException exception)
         {
@@ -293,8 +294,10 @@ internal static class CheckRenderer
         int acknowledgedCount = -1,
         int developmentAllowedCount = -1,
         int excludedCount = -1,
-        int ambiguityAllowedCount = 0)
+        int ambiguityAllowedCount = 0,
+        string[]? excludedInputPaths = null)
     {
+        WriteExcludedInputPaths(writer, excludedInputPaths);
         WriteOptionalCount(writer, "Excluded from evaluation: "u8, excludedCount, includeZero: true);
         WriteOptionalCount(writer, "Acknowledged by baseline: "u8, acknowledgedCount, includeZero: true);
         WriteOptionalCount(writer, "Allowed by development policy: "u8, developmentAllowedCount, includeZero: true);
@@ -358,6 +361,20 @@ internal static class CheckRenderer
         }
 
         mechanismTally.Write(writer);
+    }
+
+    private static void WriteExcludedInputPaths(IBufferWriter<byte> writer, string[]? excludedInputPaths)
+    {
+        if (excludedInputPaths is not { Length: > 0 }) return;
+
+        WriteUtf8(writer, "Excluded input paths: "u8);
+        for (var i = 0; i < excludedInputPaths.Length; i++)
+        {
+            if (i != 0) WriteUtf8(writer, ", "u8);
+            WriteUtf8(writer, excludedInputPaths[i]);
+        }
+        WriteUtf8(writer, "."u8);
+        WriteNewLine(writer);
     }
 
     /// <summary>

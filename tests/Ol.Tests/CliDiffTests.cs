@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Ol.Tests;
 
@@ -216,6 +217,81 @@ public sealed class CliDiffTests
             await Assert.That(first.Stdout).IsEqualTo(second.Stdout);
             await Assert.That(first.Stdout).Contains("\"kind\": \"license-changed\"");
             await Assert.That(first.Stdout).Contains("\"schemaVersion\": 1");
+            using var document = JsonDocument.Parse(first.Stdout);
+            await Assert.That(document.RootElement.GetProperty("inputScope").GetProperty("changed").GetBoolean()).IsFalse();
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WithSameExcludedInputPathsInDifferentOrder_DoesNotChangeAuditBoundary()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
+        try
+        {
+            await AddInputScopeAsync(previous, "product-a/docs", "product-b/docs");
+            await AddInputScopeAsync(current, "product-b/docs", "product-a/docs");
+
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, "--format", "Json");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            using var document = JsonDocument.Parse(result.Stdout);
+            await Assert.That(document.RootElement.GetProperty("inputScope").GetProperty("changed").GetBoolean()).IsFalse();
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WithExcludedInputPaths_TextPreservesBothAuditBoundaries()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
+        try
+        {
+            await AddInputScopeAsync(previous, "product-a/docs");
+            await AddInputScopeAsync(current, "product-b/docs");
+
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("previous excluded input paths: product-a/docs");
+            await Assert.That(result.Stdout).Contains("current excluded input paths: product-b/docs");
+            await Assert.That(result.Stdout).Contains("changed: yes");
+            await Assert.That(result.Stdout).Contains("No component license changes.");
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WithJsonFormat_PreservesPreviousAndCurrentAuditBoundaries()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
+        try
+        {
+            await AddInputScopeAsync(previous, "product-a/docs");
+            await AddInputScopeAsync(current, "product-b/docs");
+
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, "--format", "Json");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            using var document = JsonDocument.Parse(result.Stdout);
+            var inputScope = document.RootElement.GetProperty("inputScope");
+            await Assert.That(inputScope.GetProperty("changed").GetBoolean()).IsTrue();
+            await Assert.That(inputScope.GetProperty("previous").GetProperty("excludedPathCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(inputScope.GetProperty("current").GetProperty("excludedPathCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(inputScope.GetProperty("previous").GetProperty("excludedPaths")[0].GetString()).IsEqualTo("product-a/docs");
+            await Assert.That(inputScope.GetProperty("current").GetProperty("excludedPaths")[0].GetString()).IsEqualTo("product-b/docs");
         }
         finally
         {
@@ -294,6 +370,20 @@ public sealed class CliDiffTests
         {
             if (File.Exists(path)) File.Delete(path);
         }
+    }
+
+    private static async Task AddInputScopeAsync(string reportPath, params string[] excludedPaths)
+    {
+        var report = await File.ReadAllTextAsync(reportPath);
+        var paths = new JsonArray();
+        for (var i = 0; i < excludedPaths.Length; i++) paths.Add(excludedPaths[i]);
+        var document = JsonNode.Parse(report)!.AsObject();
+        document["metadata"]!["inputScope"] = new JsonObject
+        {
+            ["excludedPathCount"] = excludedPaths.Length,
+            ["excludedPaths"] = paths,
+        };
+        await File.WriteAllTextAsync(reportPath, document.ToJsonString());
     }
 
     private static async Task<(string Previous, string Current)> WriteReportsAsync(string root, string previousLicense, string currentLicense)

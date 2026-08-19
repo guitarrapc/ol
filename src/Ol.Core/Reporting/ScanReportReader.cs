@@ -13,13 +13,15 @@ namespace Ol.Core.Reporting;
 /// <param name="Inventory">The complete dependency inventory restored from the report.</param>
 /// <param name="Components">The restored components in report order.</param>
 /// <param name="ComponentUsages">The restored development usage per component, aligned with <paramref name="Components"/>.</param>
+/// <param name="ExcludedInputPaths">The logical paths excluded from input discovery by the producing scan.</param>
 public readonly record struct ScanReport(
     int SchemaVersion,
     string SourceReference,
     string LicenseListVersion,
     DependencyInventory Inventory,
     ScanComponent[] Components,
-    DependencyUsage[] ComponentUsages);
+    DependencyUsage[] ComponentUsages,
+    string[] ExcludedInputPaths);
 
 /// <summary>
 /// Restores a persisted scan report so a policy can be re-evaluated without re-reading inputs or
@@ -52,6 +54,7 @@ public static class ScanReportReader
             var sourceReference = string.Empty;
             var licenseListVersion = string.Empty;
             var input = default(ScanInputDescriptor);
+            string[] excludedInputPaths = [];
             DependencyInventory? inventory = null;
             ScanComponent[]? components = null;
             DependencyUsage[] componentUsages = [];
@@ -68,7 +71,7 @@ public static class ScanReportReader
                 }
                 else if (reader.ValueTextEquals("metadata"u8))
                 {
-                    if (!TryReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input, out error)) return false;
+                    if (!TryReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input, ref excludedInputPaths, out error)) return false;
                 }
                 else if (reader.ValueTextEquals("inventory"u8))
                 {
@@ -107,7 +110,7 @@ public static class ScanReportReader
             var restored = inventory is { } value
                 ? new DependencyInventory(input, value.Contexts, value.Components, value.Occurrences, value.Edges, value.OccurrenceVariants)
                 : new DependencyInventory(input, [], [], [], [], []);
-            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages);
+            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages, excludedInputPaths);
             error = string.Empty;
             return true;
         }
@@ -123,6 +126,7 @@ public static class ScanReportReader
         ref string sourceReference,
         ref string licenseListVersion,
         ref ScanInputDescriptor input,
+        ref string[] excludedInputPaths,
         out string error)
     {
         if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
@@ -147,6 +151,14 @@ public static class ScanReportReader
             {
                 licenseListVersion = ReadNestedString(ref reader, "licenseListVersion"u8);
             }
+            else if (reader.ValueTextEquals("inputScope"u8))
+            {
+                if (!TryReadInputScope(ref reader, out excludedInputPaths))
+                {
+                    error = "The report metadata.inputScope value must contain an excludedPaths array of strings.";
+                    return false;
+                }
+            }
             else
             {
                 reader.Read();
@@ -156,6 +168,38 @@ public static class ScanReportReader
 
         error = string.Empty;
         return true;
+    }
+
+    private static bool TryReadInputScope(ref Utf8JsonReader reader, out string[] excludedInputPaths)
+    {
+        excludedInputPaths = [];
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return false;
+
+        var foundExcludedPaths = false;
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            if (reader.ValueTextEquals("excludedPaths"u8))
+            {
+                foundExcludedPaths = true;
+                if (!reader.Read() || reader.TokenType != JsonTokenType.StartArray) return false;
+
+                var paths = new List<string>();
+                while (reader.Read() && reader.TokenType == JsonTokenType.String)
+                {
+                    paths.Add(reader.GetString() ?? string.Empty);
+                }
+
+                if (reader.TokenType != JsonTokenType.EndArray) return false;
+                excludedInputPaths = paths.ToArray();
+            }
+            else
+            {
+                reader.Read();
+                reader.Skip();
+            }
+        }
+
+        return foundExcludedPaths && reader.TokenType == JsonTokenType.EndObject;
     }
 
     private static bool TryReadInputMetadata(ref Utf8JsonReader reader, out ScanInputDescriptor input)

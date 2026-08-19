@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text;
+using System.Text.Json.Nodes;
 
 namespace Ol.Tests;
 
@@ -649,6 +650,30 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    public async Task Check_WithExcludedInputPaths_PreservesAuditBoundary()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, AddInputScope(scan.Stdout, "product-a/docs", "product-b/docs"));
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("Excluded input paths: product-a/docs, product-b/docs.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithReportContainingUnknownRoot_IgnoresRoot()
     {
         var root = FindRepositoryRoot();
@@ -1203,6 +1228,19 @@ public sealed class CliCheckTests
         "\"\": { \"name\": \"app\", \"dependencies\": { \"run-pkg\": \"1.0.0\" }, \"devDependencies\": { \"dev-pkg\": \"1.0.0\" } }, ",
         "\"node_modules/run-pkg\": { \"version\": \"1.0.0\", \"license\": \"", runtimeLicense, "\" }, ",
         "\"node_modules/dev-pkg\": { \"version\": \"1.0.0\", \"dev\": true, \"license\": \"", devLicense, "\" } } }");
+
+    private static string AddInputScope(string report, params string[] excludedPaths)
+    {
+        var paths = new JsonArray();
+        for (var i = 0; i < excludedPaths.Length; i++) paths.Add(excludedPaths[i]);
+        var document = JsonNode.Parse(report)!.AsObject();
+        document["metadata"]!["inputScope"] = new JsonObject
+        {
+            ["excludedPathCount"] = excludedPaths.Length,
+            ["excludedPaths"] = paths,
+        };
+        return document.ToJsonString();
+    }
 
     /// <summary>
     /// Writes one document covering the three ways a violated component can explain itself: a declared

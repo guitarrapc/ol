@@ -4,6 +4,27 @@ using Ol.Core.PackageManagers;
 
 namespace Ol.Internals;
 
+/// <summary>Identifies the bounded unresolved-mechanism vocabulary without allocating its display name.</summary>
+internal enum UnresolvedMechanismKind : byte
+{
+    None,
+    ExternalEvidenceNotCollected,
+    PackageMetadataNotFound,
+    DeclaredLicenseFileNotCollected,
+    DeclaredLicenseTextNotCollected,
+    LicenseNotRecognized,
+    LicenseNotDetected,
+    DeclaredLicenseLocationNotCollected,
+    LicenseClassifierNotSpecific,
+    PackageMetadataUnversionedPurl,
+    UnsupportedPackageMetadata,
+    UnsupportedSourceRepository,
+    SourceRepositorySubdirectory,
+    SourceRepositoryUnavailable,
+    SourceRepositoryFetchFailed,
+    PackageMetadataFetchFailed,
+}
+
 /// <summary>
 /// Names the one mechanism that left a component's license unresolved, and the place evidence pointed at.
 /// </summary>
@@ -16,9 +37,6 @@ namespace Ol.Internals;
 /// </remarks>
 internal static class UnresolvedMechanism
 {
-    /// <summary>The tally label for a violated component whose evidence names no mechanism at all.</summary>
-    internal const string NoneLabel = "no mechanism reported";
-
     /// <summary>Selects the one mechanism that best explains an unresolved component.</summary>
     /// <remarks>
     /// A component can carry several warnings at once, and listing all of them restates plumbing instead of naming
@@ -26,11 +44,32 @@ internal static class UnresolvedMechanism
     /// rather than repeating its status, while <c>check</c> still prints the row its violation requires.
     /// <see cref="SelectReason"/> holds the order, which is a reported contract rather than an implementation detail.
     /// </remarks>
-    internal static bool TryGetReason(in ScanComponent component, out ReadOnlySpan<byte> reason)
+    internal static bool TryGetReason(in ScanComponent component, out UnresolvedMechanismKind reason)
     {
         reason = SelectReason(CollectEvidence(component));
-        return !reason.IsEmpty;
+        return reason != UnresolvedMechanismKind.None;
     }
+
+    /// <summary>Returns the stable UTF-8 identifier for one mechanism.</summary>
+    internal static ReadOnlySpan<byte> GetNameUtf8(UnresolvedMechanismKind reason) => reason switch
+    {
+        UnresolvedMechanismKind.ExternalEvidenceNotCollected => "external_evidence_not_collected"u8,
+        UnresolvedMechanismKind.PackageMetadataNotFound => "package_metadata_not_found"u8,
+        UnresolvedMechanismKind.DeclaredLicenseFileNotCollected => "declared_license_file_not_collected"u8,
+        UnresolvedMechanismKind.DeclaredLicenseTextNotCollected => "declared_license_text_not_collected"u8,
+        UnresolvedMechanismKind.LicenseNotRecognized => "license_not_recognized"u8,
+        UnresolvedMechanismKind.LicenseNotDetected => "license_not_detected"u8,
+        UnresolvedMechanismKind.DeclaredLicenseLocationNotCollected => "declared_license_location_not_collected"u8,
+        UnresolvedMechanismKind.LicenseClassifierNotSpecific => "license_classifier_not_specific"u8,
+        UnresolvedMechanismKind.PackageMetadataUnversionedPurl => "package_metadata_unversioned_purl"u8,
+        UnresolvedMechanismKind.UnsupportedPackageMetadata => "unsupported_package_metadata"u8,
+        UnresolvedMechanismKind.UnsupportedSourceRepository => "unsupported_source_repository"u8,
+        UnresolvedMechanismKind.SourceRepositorySubdirectory => "source_repository_subdirectory"u8,
+        UnresolvedMechanismKind.SourceRepositoryUnavailable => "source_repository_unavailable"u8,
+        UnresolvedMechanismKind.SourceRepositoryFetchFailed => "source_repository_fetch_failed"u8,
+        UnresolvedMechanismKind.PackageMetadataFetchFailed => "package_metadata_fetch_failed"u8,
+        _ => "no mechanism reported"u8,
+    };
 
     /// <summary>
     /// Reduces a component's candidates to the facts the ranking asks about.
@@ -62,38 +101,38 @@ internal static class UnresolvedMechanism
     }
 
     /// <summary>Ranks the mechanisms from the most specific and actionable to the most general.</summary>
-    private static ReadOnlySpan<byte> SelectReason(Evidence evidence)
+    private static UnresolvedMechanismKind SelectReason(Evidence evidence)
     {
         // Collection that never ran, or a registry that answered "no such package", settles the component: no later
         // mechanism can explain more than the fact that there was nothing to explain.
-        if (evidence.Has(LicenseCandidateWarnings.ExternalEvidenceNotCollected)) return "external_evidence_not_collected"u8;
-        if (evidence.Has(LicenseCandidateWarnings.PackageMetadataNotFound)) return "package_metadata_not_found"u8;
+        if (evidence.Has(LicenseCandidateWarnings.ExternalEvidenceNotCollected)) return UnresolvedMechanismKind.ExternalEvidenceNotCollected;
+        if (evidence.Has(LicenseCandidateWarnings.PackageMetadataNotFound)) return UnresolvedMechanismKind.PackageMetadataNotFound;
 
         // A document that certainly answers the question outranks any outcome about where Ol looked.
-        if (evidence.DeclaredFile) return "declared_license_file_not_collected"u8;
-        if (evidence.DeclaredText) return "declared_license_text_not_collected"u8;
+        if (evidence.DeclaredFile) return UnresolvedMechanismKind.DeclaredLicenseFileNotCollected;
+        if (evidence.DeclaredText) return UnresolvedMechanismKind.DeclaredLicenseTextNotCollected;
 
         // A document Ol did read but could not classify still points at something to open.
-        if (evidence.Has(LicenseCandidateWarnings.SourceLicenseNotRecognized)) return "license_not_recognized"u8;
-        if (evidence.Has(LicenseCandidateWarnings.SourceLicenseNotDetected)) return "license_not_detected"u8;
+        if (evidence.Has(LicenseCandidateWarnings.SourceLicenseNotRecognized)) return UnresolvedMechanismKind.LicenseNotRecognized;
+        if (evidence.Has(LicenseCandidateWarnings.SourceLicenseNotDetected)) return UnresolvedMechanismKind.LicenseNotDetected;
 
         // A URL may lead anywhere, so it ranks below a named document; a family classifier names no place at all.
-        if (evidence.DeclaredLocation) return "declared_license_location_not_collected"u8;
-        if (evidence.FamilyClassifier) return "license_classifier_not_specific"u8;
+        if (evidence.DeclaredLocation) return UnresolvedMechanismKind.DeclaredLicenseLocationNotCollected;
+        if (evidence.FamilyClassifier) return UnresolvedMechanismKind.LicenseClassifierNotSpecific;
 
         // A component no registry could be asked about also has no repository, because nothing produced one. Naming
         // the repository would report the consequence and send the reader hunting for something never sought.
-        if (evidence.Has(LicenseCandidateWarnings.PackageMetadataUnversionedPurl)) return "package_metadata_unversioned_purl"u8;
-        if (evidence.Has(LicenseCandidateWarnings.UnsupportedPackageMetadata)) return "unsupported_package_metadata"u8;
+        if (evidence.Has(LicenseCandidateWarnings.PackageMetadataUnversionedPurl)) return UnresolvedMechanismKind.PackageMetadataUnversionedPurl;
+        if (evidence.Has(LicenseCandidateWarnings.UnsupportedPackageMetadata)) return UnresolvedMechanismKind.UnsupportedPackageMetadata;
 
         // Last come the outcomes that describe only where Ol looked, ending with the two that a later run may change.
-        if (evidence.Has(LicenseCandidateWarnings.UnsupportedSourceRepository)) return "unsupported_source_repository"u8;
-        if (evidence.Has(LicenseCandidateWarnings.SourceRepositorySubdirectory)) return "source_repository_subdirectory"u8;
-        if (evidence.Has(LicenseCandidateWarnings.SourceRepositoryUnavailable)) return "source_repository_unavailable"u8;
-        if (evidence.Has(LicenseCandidateWarnings.SourceRepositoryFetchFailed)) return "source_repository_fetch_failed"u8;
-        if (evidence.Has(LicenseCandidateWarnings.PackageMetadataFetchFailed)) return "package_metadata_fetch_failed"u8;
+        if (evidence.Has(LicenseCandidateWarnings.UnsupportedSourceRepository)) return UnresolvedMechanismKind.UnsupportedSourceRepository;
+        if (evidence.Has(LicenseCandidateWarnings.SourceRepositorySubdirectory)) return UnresolvedMechanismKind.SourceRepositorySubdirectory;
+        if (evidence.Has(LicenseCandidateWarnings.SourceRepositoryUnavailable)) return UnresolvedMechanismKind.SourceRepositoryUnavailable;
+        if (evidence.Has(LicenseCandidateWarnings.SourceRepositoryFetchFailed)) return UnresolvedMechanismKind.SourceRepositoryFetchFailed;
+        if (evidence.Has(LicenseCandidateWarnings.PackageMetadataFetchFailed)) return UnresolvedMechanismKind.PackageMetadataFetchFailed;
 
-        return default;
+        return UnresolvedMechanismKind.None;
     }
 
     /// <summary>The facts about one component that decide which unresolved mechanism is reported.</summary>
@@ -116,7 +155,7 @@ internal static class UnresolvedMechanism
     /// file would read as the place that file can be found. Ol never constructs a URL evidence did not
     /// supply, so a package whose license text is inside its own artifact shows no reference.
     /// </remarks>
-    internal static string GetReference(in ScanComponent component, ReadOnlySpan<byte> reason)
+    internal static string GetReference(in ScanComponent component, UnresolvedMechanismKind reason)
     {
         // A location the publisher declared outranks anything Ol inferred, because it is the place the
         // publisher said the license is rather than a place Ol happened to look. Embedded text names no
@@ -130,8 +169,8 @@ internal static class UnresolvedMechanism
             }
         }
 
-        var recognized = reason.SequenceEqual("license_not_recognized"u8);
-        if (!recognized && !reason.SequenceEqual("unsupported_source_repository"u8))
+        var recognized = reason == UnresolvedMechanismKind.LicenseNotRecognized;
+        if (!recognized && reason != UnresolvedMechanismKind.UnsupportedSourceRepository)
         {
             return string.Empty;
         }

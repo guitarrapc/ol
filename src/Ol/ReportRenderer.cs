@@ -149,7 +149,7 @@ internal static class ReportRenderer
                 WriteUtf8(writer, " "u8);
                 WriteDisplay(writer, component.Version);
                 WriteUtf8(writer, " "u8);
-                WriteUtf8(writer, reason);
+                WriteUtf8(writer, UnresolvedMechanism.GetNameUtf8(reason));
                 var reference = UnresolvedMechanism.GetReference(component, reason);
                 if (reference.Length != 0)
                 {
@@ -298,7 +298,7 @@ internal static class ReportRenderer
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, component.Version);
                 WriteUtf8(writer, " | "u8);
-                WriteUtf8(writer, reason);
+                WriteUtf8(writer, UnresolvedMechanism.GetNameUtf8(reason));
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, UnresolvedMechanism.GetReference(component, reason));
                 WriteUtf8(writer, " | "u8);

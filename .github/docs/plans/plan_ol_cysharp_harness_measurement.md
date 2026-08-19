@@ -204,15 +204,15 @@ error: cannot create the lock file ...\Cargo.lock because --locked was passed to
 
 csbindgen は library なので `Cargo.lock` を commit していない。`run:` は `bash -e` なので step ごと失敗する。`--locked` は lockfile を commit している repository（NativeCompressions）でのみ正しい。lockfile の有無で分岐するか、`--locked` を外して「解決結果が commit された lock と一致する保証はない」ことを受け入れるかの選択が要る。
 
-### 3. Rust ecosystem が無言で監査されない
+### 3. Rust ecosystem が無言で監査されない（実装前）
 
-csbindgen を `ol scan --input .` すると次のようになる。
+優先度 5 の実装前に csbindgen を `ol scan --input .` すると次のようになっていた。
 
 ```text
 Input discovery: 2 detected files; 0 ignored candidates; 0 incomplete input sets; ecosystems nuget
 ```
 
-warnings は空。Rust の依存が 1 つも監査されていないのに、baseline を置けば `License check passed` になる。`ol` の candidate 検出は `Cargo.lock` と `*.csproj` を見るが `Cargo.toml` を見ないため、lockfile を commit しない library repository では hint が発火しない。[cli.md](../specs/cli.md) が「a silently unscanned ecosystem is the failure the hint exists to prevent」と書いている失敗そのものである。
+warnings は空だった。Rust の依存が 1 つも監査されていないのに、baseline を置けば `License check passed` になっていた。`ol` の candidate 検出が `Cargo.lock` と `*.csproj` だけを見て `Cargo.toml` を見なかったため、lockfile を commit しない library repository では hint が発火しなかった。[cli.md](../specs/cli.md) が「a silently unscanned ecosystem is the failure the hint exists to prevent」と書いている失敗そのものである。現在は優先度 5 の実装により警告される。
 
 ### 4. `ol` の version が固定されていない
 
@@ -276,11 +276,10 @@ job summary の実出力例（MagicOnion の実 report に対して検証済み�
 - github license api: 0 requests, 820 cache hits, 0 errors
 ```
 
-`sbom-only 0` の 1 行が、この調査で最も時間のかかった問いに即答している。優先度 2 の改善が `ol` 本体に入れば、この行は workflow の jq ではなく `ol` が出すべきものになる。
+`sbom-only 0` の 1 行が、この調査で最も時間のかかった問いに即答している。優先度 2 の基本集計を実装した現在は、workflow の jq だけでなく `ol` 自身の stderr と JSON `summary.supply` に同じ情報が出る。
 
 ### 適用していない、人間が決めるべきもの
 
-- **不具合 3（Rust が無言で未監査）**: workflow 側では検出できない。`ol` の優先度 5 で対処するのが筋。当面は csbindgen を onboarding する前に `cargo-metadata.json` が生成されていることを目視確認する。
 - **不具合 9（docs 依存の scope）**: MagicOnion の 1292 件を監査対象に含めるかは組織判断。
 - **allow-list の内容**: 測定 5 の 8 identifier を Cysharp の既定に加えるかは policy owner の判断。
 - **共有 baseline の作成**: 129 entries を人が読む作業。生成コマンドは通るが、`minimal-lexical` の conflict のような本物の食い違いが混ざる。
@@ -310,14 +309,14 @@ harness は `--format json` でしか scan しないので、この行は誰の�
 
 dependency path は同じ理由で `check` に持ち込まれた。`REASON` と `REFERENCE` も同じ扱いを受けるべきである。report にはすでに両方あり、`check` は再収集しない。
 
-- [ ] `check` の violation 行に、unresolved 系 status の mechanism と reference を出す。
-- [ ] mechanism ごとの件数を末尾に集計する。`declared_license_location_not_collected: 86` の 1 行があれば、94 件が 1 つの母集団だと即座に分かる。
+- [x] `check` の violation 行に、unresolved 系 status の mechanism と reference を出す。
+- [x] mechanism ごとの件数を末尾に集計する。`declared_license_location_not_collected: 86` の 1 行があれば、94 件が 1 つの母集団だと即座に分かる。
 
-### 優先度 2 (実装済み): 入力ごとの寄与を summary に出す
+### 優先度 2 (基本集計を実装済み): 入力ごとの寄与を summary に出す
 
 前計画 Phase 3 の項目だが、実測すると**これが最も費用対効果の高い診断**である。`suppliedBy` の 3 分割を数えるだけで、測定 2 の結論（Syft が 129 個の phantom を足して 0 個を解決した）は試行時点で出ていた。
 
-- [ ] scan summary（stderr / JSON `summary`）に `sbom-only` / `package-manager-only` / `both` の件数を出す。
+- [x] scan summary（stderr / JSON `summary`）に `sbom-only` / `package-manager-only` / `both` の件数を出す。
 - [ ] `--verbose` では ecosystem 別に出す。
 - [ ] 片方の入力にしか現れない component が支配的な場合、scope mismatch の可能性を 1 行で述べる。
 
@@ -350,10 +349,10 @@ Acknowledged by baseline: 83 components. → passed
 
 ### 優先度 5 (実装済み): `Cargo.toml` を candidate として検出する
 
-`*.csproj` が「それ自体は入力ではないが restore すれば入力になる」ものとして検出されているのと同じ理由で、`Cargo.toml` も検出対象にする。lockfile を commit しない library repository では `Cargo.lock` が存在せず、現状は hint が一切出ない（不具合 3）。
+`*.csproj` が「それ自体は入力ではないが restore すれば入力になる」ものとして検出されているのと同じ理由で、`Cargo.toml` も検出対象にした。実装前は、lockfile を commit しない library repository に `Cargo.lock` が存在せず、hint が一切出なかった（不具合 3）。
 
-- [ ] `Cargo.toml` を検出し、`cargo metadata --format-version 1 > cargo-metadata.json` を案内する。
-- [ ] `--locked` を案内文に含めるかは lockfile の有無で分ける。
+- [x] `Cargo.toml` を検出し、`cargo metadata --format-version 1 > cargo-metadata.json` を案内する。
+- [x] `--locked` を案内文に含めるかは lockfile の有無で分ける。
 
 ### 優先度 6: SBOM fold による development usage の消失を文書化する
 
@@ -372,7 +371,7 @@ Acknowledged by baseline: 83 components. → passed
 
 ## 実装済みの改善と 8 リポジトリでの再検証
 
-優先度 1・2・5 を実装し、同じ 8 リポジトリを改修後の `ol` で再測定した（Syft は本文書が定める `declared,-binary` 構成、allow-list は測定 5 の拡張版、baseline なし）。
+優先度 1、優先度 2 の基本集計、優先度 5 を実装し、同じ 8 リポジトリを改修後の `ol` で再測定した（Syft は本文書が定める `declared,-binary` 構成、allow-list は測定 5 の拡張版、baseline なし）。
 
 | Repository | exit | violations | 未解決の母集団数 | `summary.supply`（sbomOnly / pmOnly / both） | Cargo hint |
 |---|---:|---:|---:|---|---|
@@ -430,7 +429,7 @@ Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-m
 
 ### 残る差分
 
-再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 3・4・6・7 は未着手である。
+再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 2 の ecosystem 別集計と scope mismatch 診断、および優先度 3・4・6・7 は未着手である。
 
 ## 推奨する運用
 

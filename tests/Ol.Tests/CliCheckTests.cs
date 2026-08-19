@@ -229,6 +229,30 @@ public sealed class CliCheckTests
         }
     }
 
+    /// <summary>Check writes its UTF-8 projection directly to stdout without passing through a UTF-16 report.</summary>
+    [Test]
+    public async Task Check_WithUtf8ComponentName_PreservesStdoutText()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-utf8-{Guid.NewGuid():N}.json");
+        const string Json = """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "日本語-package", "version": "1.0.0", "purl": "pkg:npm/example@1.0.0" } ] }
+            """;
+        await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).Contains("日本語-package");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
     /// <summary>
     /// The tally exists to show which population is worth attacking first, so the largest has to come
     /// first. With every count equal the order would be decided by dictionary insertion, which is not a

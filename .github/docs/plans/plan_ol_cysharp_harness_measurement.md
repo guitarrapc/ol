@@ -287,7 +287,7 @@ job summary の実出力例（MagicOnion の実 report に対して検証済み�
 
 ## `ol` への改善候補
 
-### 優先度 1: `ol check` が「なぜ未解決か」を出さない
+### 優先度 1 (実装済み): `ol check` が「なぜ未解決か」を出さない
 
 CI の operator が見るのはこれである。
 
@@ -313,7 +313,7 @@ dependency path は同じ理由で `check` に持ち込まれた。`REASON` と 
 - [ ] `check` の violation 行に、unresolved 系 status の mechanism と reference を出す。
 - [ ] mechanism ごとの件数を末尾に集計する。`declared_license_location_not_collected: 86` の 1 行があれば、94 件が 1 つの母集団だと即座に分かる。
 
-### 優先度 2: 入力ごとの寄与を summary に出す
+### 優先度 2 (実装済み): 入力ごとの寄与を summary に出す
 
 前計画 Phase 3 の項目だが、実測すると**これが最も費用対効果の高い診断**である。`suppliedBy` の 3 分割を数えるだけで、測定 2 の結論（Syft が 129 個の phantom を足して 0 個を解決した）は試行時点で出ていた。
 
@@ -348,7 +348,7 @@ Acknowledged by baseline: 83 components. → passed
 - [ ] 重複指定を exit 1 にする。
 - [ ] そのうえで、共有 baseline の需要（測定 5）に応えるなら `--baseline` を明示的に repeatable（union）にするかを設計判断する。fingerprint が identity と分離されている以上、union は今日でも意味論的に破綻しない。
 
-### 優先度 5: `Cargo.toml` を candidate として検出する
+### 優先度 5 (実装済み): `Cargo.toml` を candidate として検出する
 
 `*.csproj` が「それ自体は入力ではないが restore すれば入力になる」ものとして検出されているのと同じ理由で、`Cargo.toml` も検出対象にする。lockfile を commit しない library repository では `Cargo.lock` が存在せず、現状は hint が一切出ない（不具合 3）。
 
@@ -369,6 +369,68 @@ Acknowledged by baseline: 83 components. → passed
 - [ ] source repository を scan するときは binary cataloger を切ること、切らないと commit 済み binary の assembly version が package として現れることを、generator 中立な言い方で記す。
 - [ ] resolved input が取れる ecosystem では、SBOM は evidence を増やさず、artifact restore が効かない分むしろ浅くなることを記す。
 - [ ] SBOM の価値は「`ol` が adapter を持たない ecosystem」と「CI に resolver toolchain を入れたくない場合」に限られることを記す。
+
+## 実装済みの改善と 8 リポジトリでの再検証
+
+優先度 1・2・5 を実装し、同じ 8 リポジトリを改修後の `ol` で再測定した（Syft は本文書が定める `declared,-binary` 構成、allow-list は測定 5 の拡張版、baseline なし）。
+
+| Repository | exit | violations | 未解決の母集団数 | `summary.supply`（sbomOnly / pmOnly / both） | Cargo hint |
+|---|---:|---:|---:|---|---|
+| AIApiTracer | 0 | 0 | — | 2 / 22 / 78 | — |
+| csbindgen | 2 | 1 | 1 | 1 / 13 / 0 | **警告** |
+| DFrame | 2 | 83 | 2 | 1 / 189 / 0 | — |
+| LogicLooper | 2 | 11 | 3 | 1 / 50 / 0 | — |
+| MagicOnion | 2 | 73 | 2 | 1 / 298 / 1292 | — |
+| NativeCompressions | 2 | 6 | 3 | 4 / 130 / 36 | — |
+| UniTask | 2 | 94 | 3 | 1 / 141 / 0 | — |
+| ZLinq | 2 | 3 | 2 | 1 / 108 / 0 | — |
+
+### 優先度 1: `check` が機構を出す
+
+**8 リポジトリ合計 271 件の未解決違反が、5 種類の機構に畳まれた。**
+
+| Mechanism | 出現したリポジトリ数 |
+|---|---:|
+| `declared_license_location_not_collected` | 7 |
+| `license_not_recognized` | 5 |
+| `declared_license_file_not_collected` | 2 |
+| `source_repository_unavailable` | 1 |
+| `license_not_detected` | 1 |
+
+UniTask の 94 行は 3 母集団（86 / 7 / 1）、DFrame の 83 行は 2 母集団（76 / 7）になる。76 件はすべて `go.microsoft.com/fwlink` で、一度の判断で片が付く。7 件は GitHub が分類できなかった license file で、開くべき URL が行に出る。
+
+```text
+Package          Version  ...  Reason                 Mechanism                                Reference                                                           Path
+Google.Protobuf  3.18.0   ...  license is unresolved  license_not_recognized                   https://github.com/protocolbuffers/protobuf/blob/master/LICENSE     -
+Microsoft.CSharp 4.0.1    ...  license is unresolved  declared_license_location_not_collected  http://go.microsoft.com/fwlink/?LinkId=329770                       pkg:nuget/Microsoft.NET.Test.Sdk > ...
+
+Unresolved mechanisms
+  declared_license_location_not_collected: 76
+  license_not_recognized: 7
+```
+
+実装中に判明した前提の誤り: **`ScanReportReader` は candidate の `evidence` を丸ごと skip していた**ため、`check` は永続化レポートから機構を再現できなかった。場所を名指す 2 つの事実（publisher が宣言した reference と、GitHub が返した repository license URL）だけを復元する。他は「どう到達したか」の記録で、完成済みレポートを評価する側は行動できない。
+
+### 優先度 2: 入力ごとの寄与
+
+`summary.supply` と stderr の `Supplied by` 行になった。上表の DFrame `1 / 189 / 0` と MagicOnion `1 / 298 / 1292` は、**Syft が root component しか供給していない**ことを 1 行で述べている。測定 2 に丸一日かかった問いが、レポートを開けば分かる。
+
+root を含む点が測定 2 の表（root 除外）と 1 件ずれる。summary の他のカウンタと同じ母集団を数えるためで、意図した挙動である。
+
+### 優先度 5: `Cargo.toml` の検出
+
+改修前の csbindgen は `0 ignored candidates` / warnings 空で、Rust の依存が 1 つも監査されないまま通っていた。改修後:
+
+```text
+Warning: Rust dependencies were not scanned: Cargo.toml is not a supported input.
+Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-metadata.json.
+```
+
+`--locked` が付いていない点が重要で、csbindgen は lockfile を commit していないため付けると失敗する（不具合 2）。他 7 リポジトリは誤検出しない。NativeCompressions は `cargo-metadata.json` があるため満たされたものとして黙る。
+
+### 残る差分
+
+再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 3・4・6・7 は未着手である。
 
 ## 推奨する運用
 

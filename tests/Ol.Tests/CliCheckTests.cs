@@ -172,6 +172,121 @@ public sealed class CliCheckTests
         }
     }
 
+    /// <summary>
+    /// Covers every combination of "does a mechanism explain this violation" and "did evidence name a
+    /// place", because a column that is only ever populated is as untrustworthy as one that never is.
+    /// </summary>
+    [Test]
+    [Arguments("located", "declared_license_location_not_collected", "https://example.com/LICENSE")]
+    [Arguments("classified", "license_classifier_not_specific", "-")]
+    [Arguments("silent", "-", "-")]
+    public async Task Check_WithUnresolvedViolation_ReportsMechanismAndReference(string package, string mechanism, string reference)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxUnresolvedMechanismsAsync();
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).Contains("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tMechanism\tReference\tPath");
+            var row = Array.Find(
+                result.Stdout.Split('\n'),
+                line => line.StartsWith($"{package}\t", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            var columns = row!.TrimEnd('\r').Split('\t');
+            await Assert.That(columns[6]).IsEqualTo(mechanism);
+            await Assert.That(columns[7]).IsEqualTo(reference);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A reviewer facing many unresolved rows needs to know how many populations they are, not just how
+    /// many rows. The tally is ordered by count so the largest population is the first thing read.
+    /// </summary>
+    [Test]
+    public async Task Check_WithUnresolvedViolations_TalliesMechanisms()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxUnresolvedMechanismsAsync();
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).Contains("Unresolved mechanisms");
+            await Assert.That(result.Stdout).Contains("  declared_license_location_not_collected: 1");
+            await Assert.That(result.Stdout).Contains("  license_classifier_not_specific: 1");
+            await Assert.That(result.Stdout).Contains("  no mechanism reported: 1");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// The tally exists to show which population is worth attacking first, so the largest has to come
+    /// first. With every count equal the order would be decided by dictionary insertion, which is not a
+    /// contract; this document makes one mechanism the majority so the ordering is actually observable.
+    /// </summary>
+    [Test]
+    public async Task Check_WithRepeatedMechanism_OrdersTallyByCount()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        const string Json = """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "first", "version": "1.0.0", "purl": "pkg:npm/first@1.0.0", "licenses": [{ "license": { "url": "https://example.com/A" } }] },
+              { "type": "library", "name": "second", "version": "1.0.0", "purl": "pkg:npm/second@1.0.0", "licenses": [{ "license": { "url": "https://example.com/B" } }] },
+              { "type": "library", "name": "third", "version": "1.0.0", "purl": "pkg:npm/third@1.0.0", "licenses": [{ "license": { "name": "License :: OSI Approved :: BSD License" } }] } ] }
+            """;
+        await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            var tally = result.Stdout[result.Stdout.IndexOf("Unresolved mechanisms", StringComparison.Ordinal)..];
+            await Assert.That(tally.IndexOf("declared_license_location_not_collected: 2", StringComparison.Ordinal))
+                .IsLessThan(tally.IndexOf("license_classifier_not_specific: 1", StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>A resolved license the allow-list rejects has no collection mechanism to explain.</summary>
+    [Test]
+    public async Task Check_WithNotAllowedLicense_ReportsNoMechanismAndNoTally()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            var row = Array.Find(
+                result.Stdout.Split('\n'),
+                line => line.StartsWith("example\t", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            var columns = row!.TrimEnd('\r').Split('\t');
+            await Assert.That(columns[6]).IsEqualTo("-");
+            await Assert.That(columns[7]).IsEqualTo("-");
+            await Assert.That(result.Stdout).DoesNotContain("Unresolved mechanisms");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
     [Test]
     public async Task Check_WithUnknownLicense_ReturnsTwoAndUnresolvedReason()
     {
@@ -1064,6 +1179,24 @@ public sealed class CliCheckTests
         "\"\": { \"name\": \"app\", \"dependencies\": { \"run-pkg\": \"1.0.0\" }, \"devDependencies\": { \"dev-pkg\": \"1.0.0\" } }, ",
         "\"node_modules/run-pkg\": { \"version\": \"1.0.0\", \"license\": \"", runtimeLicense, "\" }, ",
         "\"node_modules/dev-pkg\": { \"version\": \"1.0.0\", \"dev\": true, \"license\": \"", devLicense, "\" } } }");
+
+    /// <summary>
+    /// Writes one document covering the three ways a violated component can explain itself: a declared
+    /// location that names a place, a mechanism that names none, and evidence that carries no mechanism
+    /// at all. All three resolve offline, so the expected output does not depend on a registry.
+    /// </summary>
+    private static async Task<string> WriteCycloneDxUnresolvedMechanismsAsync()
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        const string Json = """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "located", "version": "1.0.0", "purl": "pkg:npm/located@1.0.0", "licenses": [{ "license": { "url": "https://example.com/LICENSE" } }] },
+              { "type": "library", "name": "classified", "version": "1.0.0", "purl": "pkg:npm/classified@1.0.0", "licenses": [{ "license": { "name": "License :: OSI Approved :: BSD License" } }] },
+              { "type": "library", "name": "silent", "version": "1.0.0", "purl": "pkg:npm/silent@1.0.0" } ] }
+            """;
+        await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
+        return inputPath;
+    }
 
     private static async Task<string> WriteCycloneDxAsync(string? license, string version = "1.0.0")
     {

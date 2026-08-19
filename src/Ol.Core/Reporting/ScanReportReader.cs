@@ -600,6 +600,7 @@ public static class ScanReportReader
             var status = LicenseStatus.Unknown;
             var deprecated = false;
             var warnings = LicenseCandidateWarnings.None;
+            var evidence = default(LicenseEvidence);
 
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
@@ -610,6 +611,7 @@ public static class ScanReportReader
                 else if (reader.ValueTextEquals("status"u8)) LicenseStatusIdentifiers.TryParse(Encoding.UTF8.GetBytes(ReadString(ref reader)), out status);
                 else if (reader.ValueTextEquals("deprecated"u8)) deprecated = reader.Read() && reader.TokenType == JsonTokenType.True;
                 else if (reader.ValueTextEquals("warnings"u8)) warnings = LicenseCandidateIdentifiers.ParseWarnings(ReadStringArray(ref reader));
+                else if (reader.ValueTextEquals("evidence"u8)) evidence = ReadEvidence(ref reader);
                 else
                 {
                     reader.Read();
@@ -624,11 +626,75 @@ public static class ScanReportReader
                 Utf8Slice.FromString(normalized),
                 status,
                 deprecated,
-                warnings));
+                warnings,
+                evidence));
         }
 
         return result.ToArray();
     }
+
+    /// <summary>
+    /// Restores the provenance a reader of the persisted report needs to say why a license never settled.
+    /// </summary>
+    /// <remarks>
+    /// Only the two facts that name a place are restored: the reference a publisher declared, and the
+    /// repository license URL GitHub answered with. Everything else in the evidence object describes how
+    /// the scan reached its answer, and a command evaluating a finished report cannot act on it. Skipping
+    /// the whole object was what left <c>check</c> unable to reproduce the mechanism its own scan printed.
+    /// </remarks>
+    private static LicenseEvidence ReadEvidence(ref Utf8JsonReader reader)
+    {
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return default;
+
+        var kind = LicenseEvidenceKind.None;
+        var declaredKind = DeclaredLicenseReferenceKind.None;
+        var declaredValue = string.Empty;
+        var licenseUrl = string.Empty;
+        var declared = false;
+
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            if (reader.ValueTextEquals("type"u8)) kind = ParseEvidenceKind(ReadString(ref reader));
+            else if (reader.ValueTextEquals("declaredLicenseReferenceKind"u8))
+            {
+                declared = true;
+                declaredKind = ReadString(ref reader) switch
+                {
+                    "location" => DeclaredLicenseReferenceKind.Location,
+                    "inline-text" => DeclaredLicenseReferenceKind.InlineText,
+                    _ => DeclaredLicenseReferenceKind.ArtifactPath,
+                };
+            }
+            else if (reader.ValueTextEquals("declaredLicenseReference"u8)) declaredValue = ReadString(ref reader);
+            else if (reader.ValueTextEquals("licenseUrl"u8)) licenseUrl = ReadString(ref reader);
+            else
+            {
+                reader.Read();
+                reader.Skip();
+            }
+        }
+
+        // The source-repository shape is rebuilt with only the field a reference can be taken from, because
+        // the report is being read to be explained rather than to be collected from again.
+        var sourceRepository = licenseUrl.Length == 0
+            ? null
+            : new SourceRepositoryEvidence(string.Empty, string.Empty, null, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, licenseUrl);
+
+        return new LicenseEvidence(
+            kind,
+            SourceRepository: sourceRepository,
+            DeclaredReference: declared ? new DeclaredLicenseReference(declaredKind, Utf8Slice.FromString(declaredValue)) : null);
+    }
+
+    private static LicenseEvidenceKind ParseEvidenceKind(string value) => value switch
+    {
+        "sbom" => LicenseEvidenceKind.Sbom,
+        "dependency-input" => LicenseEvidenceKind.DependencyInput,
+        "package-registry" => LicenseEvidenceKind.PackageRegistry,
+        "source-repository" => LicenseEvidenceKind.SourceRepository,
+        "package-artifact" => LicenseEvidenceKind.PackageArtifact,
+        _ => LicenseEvidenceKind.None,
+    };
 
     private static string[] ReadStringArray(ref Utf8JsonReader reader)
     {

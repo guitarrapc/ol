@@ -326,9 +326,12 @@ internal static class CheckRenderer
             builder.AppendLine(".");
         }
         builder.AppendLine();
-        // The path names the direct dependency a reviewer can actually change, which the row identifying
-        // only the offending package never does when the violation is transitive.
-        builder.AppendLine("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tPath");
+        // Reason states why policy rejected the component; Mechanism states why its evidence never settled,
+        // and only the second one names an action. The path names the direct dependency a reviewer can
+        // actually change, which the row identifying only the offending package never does when the
+        // violation is transitive.
+        builder.AppendLine("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tMechanism\tReference\tPath");
+        var mechanismTally = new MechanismTally();
         using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
         for (var i = 0; i < violations.Length; i++)
         {
@@ -347,11 +350,88 @@ internal static class CheckRenderer
             builder.Append('\t');
             builder.Append(Reason(violation.Kind));
             builder.Append('\t');
+            AppendMechanism(builder, component, violation.Kind, mechanismTally);
+            builder.Append('\t');
             var path = DependencyPathText.Introducer(inventory, rootPaths, component, violation.ComponentIndex);
             builder.AppendLine(path.Length == 0 ? "-" : path);
         }
 
+        mechanismTally.Write(builder);
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Writes the Mechanism and Reference columns for one violation and records it in the tally.
+    /// </summary>
+    /// <remarks>
+    /// A resolved license the allow-list rejects has no collection mechanism to name, so it is left out of
+    /// the tally rather than counted as an unexplained one: the allow-list already explains it, and mixing
+    /// the two populations would make the tally report the larger one.
+    /// </remarks>
+    private static void AppendMechanism(StringBuilder builder, in ScanComponent component, LicensePolicyViolationKind kind, MechanismTally tally)
+    {
+        if (kind == LicensePolicyViolationKind.NotAllowed)
+        {
+            builder.Append("-\t-");
+            return;
+        }
+
+        if (!UnresolvedMechanism.TryGetReason(component, out var reason))
+        {
+            tally.Add(UnresolvedMechanism.NoneLabel);
+            builder.Append("-\t-");
+            return;
+        }
+
+        var mechanism = Encoding.UTF8.GetString(reason);
+        tally.Add(mechanism);
+        builder.Append(mechanism);
+        builder.Append('\t');
+        var reference = UnresolvedMechanism.GetReference(component, reason);
+        builder.Append(reference.Length == 0 ? "-" : reference);
+    }
+
+    /// <summary>
+    /// Counts how many violations each unresolved mechanism explains.
+    /// </summary>
+    /// <remarks>
+    /// A hundred rows reading "license is unresolved" look like a hundred problems. They are usually a
+    /// handful of populations, and which population a component belongs to decides what a reviewer does
+    /// about all of them at once. Ordered by count so the largest is read first, ties broken by name so
+    /// two runs over the same report print the same block.
+    /// </remarks>
+    private sealed class MechanismTally
+    {
+        private readonly Dictionary<string, int> counts = new(StringComparer.Ordinal);
+
+        public void Add(string mechanism)
+            => counts[mechanism] = counts.TryGetValue(mechanism, out var count) ? count + 1 : 1;
+
+        public void Write(StringBuilder builder)
+        {
+            if (counts.Count == 0)
+            {
+                return;
+            }
+
+            var ordered = new KeyValuePair<string, int>[counts.Count];
+            ((ICollection<KeyValuePair<string, int>>)counts).CopyTo(ordered, 0);
+            Array.Sort(ordered, static (left, right) =>
+            {
+                var byCount = right.Value.CompareTo(left.Value);
+                return byCount != 0 ? byCount : string.CompareOrdinal(left.Key, right.Key);
+            });
+
+            builder.AppendLine();
+            builder.AppendLine("Unresolved mechanisms");
+            for (var i = 0; i < ordered.Length; i++)
+            {
+                builder.Append("  ");
+                builder.Append(ordered[i].Key);
+                builder.Append(": ");
+                builder.AppendLine(ordered[i].Value.ToString());
+            }
+        }
     }
 
     /// <summary>Reports how many components the exclusion prefixes removed from evaluation, shown whenever the option is supplied.</summary>

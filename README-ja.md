@@ -405,9 +405,14 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```text
 License check failed: 1 violation.
 
-Package                  Version  Ecosystem  Purl                                     License/Status  Reason                 Path
-@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved  -
+Package                  Version  Ecosystem  Purl                                     License/Status  Reason                 Mechanism                   Reference  Path
+@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved  package_metadata_not_found  -          -
+
+Unresolved mechanisms
+  package_metadata_not_found: 1
 ```
+
+`Reason`はポリシーがなぜ拒否したかを、`Mechanism`は証拠がなぜ確定しなかったかを示します。次の行動を決めるのは後者です。この例は公開レジストリに存在しないパッケージなので、収集を繰り返しても答えは出ません。末尾の集計は行を母集団にまとめます。未解決が100件あっても実際には数種類であり、母集団ごとに一度で片が付くからです。
 
 確認して受け入れたものを`--update-baseline`で記録します。
 
@@ -455,8 +460,11 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-b
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package                Version  Ecosystem  Purl                                   License/Status  Reason                 Path
-@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved  -
+Package                Version  Ecosystem  Purl                                   License/Status  Reason                 Mechanism                   Reference  Path
+@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved  package_metadata_not_found  -          -
+
+Unresolved mechanisms
+  package_metadata_not_found: 1
 ```
 
 **禁止ライセンスは、再生成しても吸収されません。** 承認できるのは`unknown`、`ambiguous`、`conflict`、`invalid`だけで、しかも認識可能な候補が許可リストに拒否されない場合に限られます。解決済みのライセンスは`--allow-licenses`で扱う対象であり、`error`は修復すべき収集失敗です。許可リストがどう読んでも許可する`ambiguous`の列挙も、レビューすべき違反ではないため承認対象になりません。
@@ -470,8 +478,8 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package       Version  Ecosystem  Purl                          License/Status  Reason                  Path
-copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed  pkg:npm/report-builder@1.4.0 > pkg:npm/copyleft-lib@3.0.0
+Package       Version  Ecosystem  Purl                          License/Status  Reason                  Mechanism  Reference  Path
+copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed  -          -          pkg:npm/report-builder@1.4.0 > pkg:npm/copyleft-lib@3.0.0
 ```
 
 承認されたコンポーネントは、レポート上では未解決のステータスと証拠をそのまま保持します。外れるのは違反という扱いだけです。バージョンが上がったり、レジストリが記載を修正したりすると指紋が一致しなくなり、そのコンポーネントは再びレビューされるまで違反に戻ります。
@@ -514,7 +522,7 @@ stdoutの判定結果は変わらず、同じ違反集合をSARIF 2.1.0として
 
 ### `package.json`、`*.csproj`、`Cargo.toml`を直接渡せますか
 
-渡せません。これらは要求された依存関係を示すマニフェストであり、実際に解決されたバージョンや推移的依存関係を確定しません。SBOMを生成するか、対応する解決済み入力を渡してください。.NETでは`dotnet restore`を実行して`obj/project.assets.json`を指定します。Rustでは`cargo metadata --format-version 1 --locked > cargo-metadata.json`を実行して`cargo-metadata.json`を指定します。`Cargo.lock`は直接指定できません。
+渡せません。これらは要求された依存関係を示すマニフェストであり、実際に解決されたバージョンや推移的依存関係を確定しません。SBOMを生成するか、対応する解決済み入力を渡してください。.NETでは`dotnet restore`を実行して`obj/project.assets.json`を指定します。Rustでは`cargo metadata --format-version 1 --locked > cargo-metadata.json`を実行して`cargo-metadata.json`を指定します。`Cargo.toml`も`Cargo.lock`も直接は指定できません。lockfileをコミットしていないライブラリでは`--locked`を外してください。
 
 ### SBOMとパッケージマネジャー入力のどちらを使うべきですか
 

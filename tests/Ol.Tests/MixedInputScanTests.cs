@@ -29,6 +29,85 @@ public sealed class MixedInputScanTests
         await Assert.That(rows[0].GetProperty("status").GetString()).IsEqualTo("matched");
     }
 
+    /// <summary>
+    /// The per-component supply answers "which input saw this one"; only the tally answers "was the
+    /// second input worth passing", which is the question a combined scan is configured to ask.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithCombinedInputs_ReportsSupplyTallyInJsonSummary()
+    {
+        var report = await ScanMixedAsync("package-lock.json", "mixed-npm.cdx.json");
+
+        var supply = report.RootElement.GetProperty("summary").GetProperty("supply");
+        await Assert.That(supply.GetProperty("sbomOnly").GetInt32()).IsEqualTo(2);
+        await Assert.That(supply.GetProperty("packageManagerOnly").GetInt32()).IsEqualTo(4);
+        await Assert.That(supply.GetProperty("both").GetInt32()).IsEqualTo(3);
+    }
+
+    /// <summary>
+    /// Present in a single-input report too, for the reason the per-component field is: an absent tally
+    /// would leave "this scan had one input" indistinguishable from "an older Ol wrote this report".
+    /// </summary>
+    [Test]
+    public async Task Scan_WithSbomOnly_StillReportsSupplyTally()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, stdout, _) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence",
+            "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        using var report = JsonDocument.Parse(stdout);
+        var supply = report.RootElement.GetProperty("summary").GetProperty("supply");
+        await Assert.That(supply.GetProperty("packageManagerOnly").GetInt32()).IsEqualTo(0);
+        await Assert.That(supply.GetProperty("both").GetInt32()).IsEqualTo(0);
+        await Assert.That(supply.GetProperty("sbomOnly").GetInt32()).IsEqualTo(report.RootElement.GetProperty("components").GetArrayLength());
+    }
+
+    /// <summary>
+    /// A grouped report totals its groups instead of walking components once, so it reaches the tally by a
+    /// second path. Both paths describe the same run and must agree.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithGroupedView_ReportsTheSameSupplyTally()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, stdout, _) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence",
+            "--group-by", "ecosystem",
+            "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        using var report = JsonDocument.Parse(stdout);
+        var supply = report.RootElement.GetProperty("summary").GetProperty("supply");
+        await Assert.That(supply.GetProperty("sbomOnly").GetInt32()).IsEqualTo(2);
+        await Assert.That(supply.GetProperty("packageManagerOnly").GetInt32()).IsEqualTo(4);
+        await Assert.That(supply.GetProperty("both").GetInt32()).IsEqualTo(3);
+    }
+
+    /// <summary>The stderr summary must state what the JSON document states, or the JSON exemption breaks.</summary>
+    [Test]
+    public async Task Scan_WithCombinedInputs_ReportsSupplyTallyInTextSummary()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).Contains("  Supplied by: 2 sbom only; 4 package-manager only; 3 both");
+    }
+
     [Test]
     public async Task Scan_WithPurlPresentOnlyInSbom_RetainsRowAndNamesTheSbomAsItsOnlySupply()
     {

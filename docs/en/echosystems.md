@@ -81,6 +81,8 @@ cargo metadata --format-version 1 --locked > cargo-metadata.json
 ol scan --input cargo-metadata.json --format json > ol-report.json
 ```
 
+Omit `--locked` when the repository does not commit `Cargo.lock`, as a published library usually does not; with the flag the command refuses to write one and fails. ol reports `Cargo.toml` as an unscanned candidate in that case, so an unresolved Rust tree does not pass silently.
+
 ol preserves workspace context, dependency kinds, features, and target expressions. It does not reevaluate them for the scan host.
 
 ## Go modules

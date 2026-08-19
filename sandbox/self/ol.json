@@ -2004,7 +2004,12 @@
     "unknown": 4,
     "ambiguous": 0,
     "invalid": 0,
-    "error": 0
+    "error": 0,
+    "supply": {
+      "sbomOnly": 42,
+      "packageManagerOnly": 0,
+      "both": 0
+    }
   },
   "warnings": []
 }

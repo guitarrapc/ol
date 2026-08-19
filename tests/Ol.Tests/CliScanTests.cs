@@ -2053,6 +2053,189 @@ public sealed class CliScanTests
         }
     }
 
+    /// <summary>
+    /// A Cargo library does not commit Cargo.lock, so detecting only the lockfile leaves the whole Rust
+    /// ecosystem unscanned with nothing said about it. The manifest is the file every Cargo project has.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoTomlWithoutLock_WarnsThatRustWasNotScanned()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-toml-directory-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            // Without a committed lockfile --locked cannot succeed, so the advice must not carry it.
+            await Assert.That(stderr).Contains("Warning: Rust dependencies were not scanned: Cargo.toml is not a supported input. Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-metadata.json.");
+            await Assert.That(stderr).Contains("1 ignored candidate (Cargo.toml)");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Every Cargo project carrying a lockfile also carries a manifest, so detecting both would report the
+    /// same unscanned ecosystem twice. The lockfile wins because its advice is the reproducible one.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoTomlAndLock_ReportsTheLockfileOnce()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-both-directory-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).Contains("1 ignored candidate (Cargo.lock)");
+            await Assert.That(stderr).DoesNotContain("Cargo.toml");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>A scan that already covers the ecosystem must stay silent, however the candidate was found.</summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoTomlAndMetadata_DoesNotWarn()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-toml-metadata-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "cargo-metadata.json"),
+            Path.Combine(temporaryDirectory, "cargo-metadata.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).DoesNotContain("Warning: Rust dependencies were not scanned");
+            await Assert.That(stderr).Contains("0 ignored candidates");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A directory holding a manifest and a lockfile that Ol already covers must stay silent on both, or
+    /// suppressing the superseded rule would have traded one redundant warning for one false one.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoTomlLockAndMetadata_DoesNotWarn()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-all-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "cargo-metadata.json"),
+            Path.Combine(temporaryDirectory, "cargo-metadata.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).DoesNotContain("Warning: Rust dependencies were not scanned");
+            await Assert.That(stderr).Contains("0 ignored candidates");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// When discovery found no supported input at all, an empty report would read as a project without
+    /// dependencies, so the candidate's advice becomes the command failure rather than a warning beside it.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingOnlyCargoToml_FailsWithGuidance()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-toml-only-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("Cargo.toml is not a supported input. Run 'cargo metadata --format-version 1 > cargo-metadata.json'");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>A file the user named directly gets the same guidance the discovery warning gives.</summary>
+    [Test]
+    public async Task Scan_WithCargoTomlInput_ReportsUnsupportedInputGuidance()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-toml-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        var inputPath = Path.Combine(temporaryDirectory, "Cargo.toml");
+        await File.WriteAllTextAsync(inputPath, "[package]\nname = \"example\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Cargo.toml is not a supported input. Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-metadata.json.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
     [Test]
     public async Task Scan_WithDirectoryContainingIgnoredCandidate_SummarizesInputDiscovery()
     {

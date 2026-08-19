@@ -184,6 +184,11 @@ internal sealed class ScanCommands
             Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid; {summary.Error} error");
             Console.Error.WriteLine($"  Findings: {summary.UnresolvedWarningCount} warning{(summary.UnresolvedWarningCount == 1 ? string.Empty : "s")} on unresolved components; {summary.ResolvedWarningCount} on resolved components; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
 
+            // Two inputs rarely enumerate the same set, and which of them a component came from is the fact
+            // that says whether the second input earned its place. Per component the report already says it;
+            // only the totals say it about the run.
+            Console.Error.WriteLine($"  Supplied by: {summary.SbomOnlyCount} sbom only; {summary.PackageManagerOnlyCount} package-manager only; {summary.BothSuppliedCount} both");
+
             // Zeroed collection counters read as "nothing was needed" rather than "nothing was attempted",
             // which is the whole point of this mode, so state the absence instead of printing the counters.
             if (noExternalEvidence)

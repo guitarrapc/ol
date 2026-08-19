@@ -60,6 +60,9 @@ ol scan --input bom.cdx.json
 # Scan supported ecosystem-resolved dependency inputs under the current directory
 ol scan --input .
 
+# Exclude documentation or Pages projects that are outside the audited product
+ol scan --input . --exclude-input-path src/documents --exclude-input-path Pages
+
 # Scan a supported lockfile or package-manager output directly
 ol scan --input package-lock.json
 ol scan --input src/MyProject/obj/project.assets.json
@@ -180,6 +183,7 @@ Scan a resolved dependency input.
 
 Options:
   --input <string[]>                    Repeatable resolved dependency input files or directories. [Required]
+  --exclude-input-path <string[]?>      Repeatable file or directory paths excluded from directory input discovery. [Default: null]
   --input-format <string>               Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock. [Default: @"auto"]
   --format <ReportFormat>               Output format: text, json, or markdown. [Default: Text]
   --verbose                             Include verbose columns and input detection diagnostics.
@@ -366,6 +370,25 @@ One SBOM may be combined with any number of package-manager inputs. A second SBO
 ```text
 Unable to scan input: A collection accepts at most one SBOM document.
 ```
+
+### Exclude repository subtrees from the audit subject
+
+Use `--exclude-input-path` when a directory input contains a separate project that is not part of the product being audited. For example, this scans the server and shared resolved inputs while pruning the documentation site before recursive discovery:
+
+```text
+src/
+  server/       # included
+  shared/       # included
+  documents/    # excluded
+```
+
+```bash
+ol scan --input . --exclude-input-path src/documents --format json > ol-report.json
+```
+
+The option is repeatable and accepts exact file or directory paths, not globs. Relative exclusions are resolved beneath each directory input. Excluding the input root, escaping outside every directory input, or explicitly naming an excluded file with `--input` is an error. Canonical JSON records the normalized paths in `metadata.inputScope.excludedPaths` so the audit boundary remains reviewable.
+
+This controls ol's directory discovery only. It cannot remove documentation dependencies already present in an included repository-wide SBOM or root workspace lockfile. When an SBOM generator such as Syft also scans the repository, configure the same exclusion there before passing the SBOM to ol.
 
 ## Common operations
 

@@ -59,6 +59,9 @@ ol scan --input bom.cdx.json
 # カレントディレクトリ以下から対応するエコシステムの解決済み依存関係をスキャン
 ol scan --input .
 
+# 監査対象製品に含まれないドキュメントやPagesプロジェクトを除外
+ol scan --input . --exclude-input-path src/documents --exclude-input-path Pages
+
 # 対応するロックファイルやパッケージマネージャー出力を直接スキャン
 ol scan --input package-lock.json
 ol scan --input src/MyProject/obj/project.assets.json
@@ -179,6 +182,7 @@ Scan a resolved dependency input.
 
 Options:
   --input <string[]>                    Repeatable resolved dependency input files or directories. [Required]
+  --exclude-input-path <string[]?>      Repeatable file or directory paths excluded from directory input discovery. [Default: null]
   --input-format <string>               Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock. [Default: @"auto"]
   --format <ReportFormat>               Output format: text, json, or markdown. [Default: Text]
   --verbose                             Include verbose columns and input detection diagnostics.
@@ -367,6 +371,25 @@ SBOM側も、SBOMだけが知っていることを提供し続けます。生成
 ```text
 Unable to scan input: A collection accepts at most one SBOM document.
 ```
+
+### 監査対象からリポジトリのサブツリーを除外する
+
+ディレクトリ入力に、監査する製品とは別のプロジェクトが含まれる場合は`--exclude-input-path`を使います。次の例では、serverとsharedの解決済み入力をスキャンしつつ、documents以下は再帰探索に入る前に除外します。
+
+```text
+src/
+  server/       # 対象
+  shared/       # 対象
+  documents/    # 除外
+```
+
+```bash
+ol scan --input . --exclude-input-path src/documents --format json > ol-report.json
+```
+
+このオプションは繰り返し指定でき、globではなく正確なファイルまたはディレクトリパスを受け付けます。相対パスは各ディレクトリ入力を基準に解決されます。入力ルート自身の除外、すべてのディレクトリ入力の外への脱出、除外対象ファイルの`--input`による明示指定はエラーです。canonical JSONは正規化したパスを`metadata.inputScope.excludedPaths`へ記録するため、監査境界をレビューできます。
+
+この指定が制御するのはolのディレクトリ探索だけです。対象に含めたリポジトリ全体のSBOMやroot workspaceのlockfileにドキュメント依存関係が既に記録されている場合、それを削除することはできません。SyftなどのSBOM生成ツールもリポジトリを探索する場合は、olへSBOMを渡す前に同じパスを生成側でも除外してください。
 
 
 

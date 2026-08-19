@@ -2501,6 +2501,112 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithRelativeExcludedPath_ResolvesFromWorkingDirectory()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-relative-excluded-input-{Guid.NewGuid():N}");
+        var firstDirectory = Path.Combine(temporaryDirectory, "product-a");
+        var secondDirectory = Path.Combine(temporaryDirectory, "product-b");
+        Directory.CreateDirectory(Path.Combine(firstDirectory, "docs"));
+        Directory.CreateDirectory(Path.Combine(secondDirectory, "docs"));
+        await File.WriteAllTextAsync(Path.Combine(firstDirectory, "package-lock.json"), CreatePackageLock("product-a", "first-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(secondDirectory, "package-lock.json"), CreatePackageLock("product-b", "second-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                firstDirectory,
+                "--input",
+                secondDirectory,
+                "--exclude-input-path",
+                "docs",
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("Excluded input path must be inside a directory input: docs");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithRelativeExcludedPathInsideInput_ExcludesOnlyNamedPath()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-relative-included-exclusion-{Guid.NewGuid():N}");
+        var productDirectory = Path.Combine(temporaryDirectory, "product-a");
+        var serverDirectory = Path.Combine(productDirectory, "server");
+        var documentsDirectory = Path.Combine(productDirectory, "docs");
+        Directory.CreateDirectory(serverDirectory);
+        Directory.CreateDirectory(documentsDirectory);
+        await File.WriteAllTextAsync(Path.Combine(serverDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(documentsDirectory, "package-lock.json"), CreatePackageLock("docs", "docs-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlInDirectoryAsync(
+                root,
+                temporaryDirectory,
+                "scan",
+                "--input",
+                "product-a",
+                "--exclude-input-path",
+                Path.Combine("product-a", "docs"),
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            var components = report.RootElement.GetProperty("components");
+            await Assert.That(components.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("server-dependency");
+            var excludedPaths = report.RootElement.GetProperty("metadata").GetProperty("inputScope").GetProperty("excludedPaths");
+            await Assert.That(excludedPaths[0].GetString()).IsEqualTo("product-a/docs");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithMissingExcludedPath_ReturnsInputError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-missing-excluded-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+        var missingPath = Path.Combine(temporaryDirectory, "missing");
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                missingPath,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains($"Excluded input path not found: {missingPath}");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithExcludedInputPaths_ScansOnlyIncludedSubtreesAndRecordsScope()
     {
         var root = FindRepositoryRoot();
@@ -2523,9 +2629,9 @@ public sealed class CliScanTests
                 "--input",
                 temporaryDirectory,
                 "--exclude-input-path",
-                Path.Combine("src", "other", "..", "documents"),
+                Path.Combine(temporaryDirectory, "src", "other", "..", "documents"),
                 "--exclude-input-path",
-                "Pages",
+                Path.Combine(pagesDirectory, "Cargo.toml"),
                 "--no-external-evidence",
                 "--format",
                 "json");
@@ -2540,7 +2646,7 @@ public sealed class CliScanTests
             await Assert.That(inputScope.GetProperty("excludedPathCount").GetInt32()).IsEqualTo(2);
             var excludedPaths = inputScope.GetProperty("excludedPaths");
             await Assert.That(excludedPaths[0].GetString()).IsEqualTo("src/documents");
-            await Assert.That(excludedPaths[1].GetString()).IsEqualTo("Pages");
+            await Assert.That(excludedPaths[1].GetString()).IsEqualTo("Pages/Cargo.toml");
 
             var (summaryExitCode, _, summaryStderr) = await RunOlAsync(
                 root,
@@ -2548,12 +2654,12 @@ public sealed class CliScanTests
                 "--input",
                 temporaryDirectory,
                 "--exclude-input-path",
-                Path.Combine("src", "other", "..", "documents"),
+                Path.Combine(temporaryDirectory, "src", "other", "..", "documents"),
                 "--exclude-input-path",
-                "Pages",
+                Path.Combine(pagesDirectory, "Cargo.toml"),
                 "--no-external-evidence");
             await Assert.That(summaryExitCode).IsEqualTo(0).Because(summaryStderr);
-            await Assert.That(summaryStderr).Contains("2 excluded input paths (src/documents, Pages)");
+            await Assert.That(summaryStderr).Contains("2 excluded input paths (src/documents, Pages/Cargo.toml)");
         }
         finally
         {
@@ -2581,7 +2687,7 @@ public sealed class CliScanTests
                 "--input",
                 packageLock,
                 "--exclude-input-path",
-                Path.Combine("src", "documents"),
+                documentsDirectory,
                 "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(1);
@@ -2595,9 +2701,7 @@ public sealed class CliScanTests
     }
 
     [Test]
-    [Arguments(".", "cannot exclude itself")]
-    [Arguments("..", "must be inside a directory input")]
-    public async Task Scan_WithExcludedPathOutsideStrictDescendant_ReturnsInputError(string excludedPath, string expectedError)
+    public async Task Scan_WithExcludedPathOutsideStrictDescendant_ReturnsInputError()
     {
         var root = FindRepositoryRoot();
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-invalid-excluded-input-{Guid.NewGuid():N}");
@@ -2606,18 +2710,31 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(
+            var self = await RunOlAsync(
                 root,
                 "scan",
                 "--input",
                 temporaryDirectory,
                 "--exclude-input-path",
-                excludedPath,
+                temporaryDirectory,
                 "--no-external-evidence");
 
-            await Assert.That(exitCode).IsEqualTo(1);
-            await Assert.That(stdout).IsEmpty();
-            await Assert.That(stderr).Contains(expectedError);
+            await Assert.That(self.ExitCode).IsEqualTo(1);
+            await Assert.That(self.Stdout).IsEmpty();
+            await Assert.That(self.Stderr).Contains("cannot exclude itself");
+
+            var outside = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                root,
+                "--no-external-evidence");
+
+            await Assert.That(outside.ExitCode).IsEqualTo(1);
+            await Assert.That(outside.Stdout).IsEmpty();
+            await Assert.That(outside.Stderr).Contains("must be inside a directory input");
         }
         finally
         {
@@ -2630,7 +2747,9 @@ public sealed class CliScanTests
     {
         var root = FindRepositoryRoot();
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-excluded-input-boundary-{Guid.NewGuid():N}");
+        var documentDirectory = Path.Combine(temporaryDirectory, "src", "document");
         var documentsDirectory = Path.Combine(temporaryDirectory, "src", "documents");
+        Directory.CreateDirectory(documentDirectory);
         Directory.CreateDirectory(documentsDirectory);
         await File.WriteAllTextAsync(Path.Combine(documentsDirectory, "package-lock.json"), CreatePackageLock("documents", "documents-dependency"), Encoding.UTF8);
 
@@ -2642,7 +2761,7 @@ public sealed class CliScanTests
                 "--input",
                 temporaryDirectory,
                 "--exclude-input-path",
-                Path.Combine("src", "document"),
+                documentDirectory,
                 "--no-external-evidence",
                 "--format",
                 "json");
@@ -3366,6 +3485,9 @@ public sealed class CliScanTests
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
 
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlInDirectoryAsync(string root, string workingDirectory, params string[] args)
+        => await RunOlWithEnvironmentAsync(root, workingDirectory, null, null, null, args);
+
     private static string CreatePackageLock(string rootName, string dependencyName)
         => $$"""
             {
@@ -3390,16 +3512,19 @@ public sealed class CliScanTests
         => await RunOlWithCachesAsync(root, cacheRoot, sourceCacheRoot: null, args);
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithCachesAsync(string root, string? cacheRoot, string? sourceCacheRoot, params string[] args)
-        => await RunOlWithEnvironmentAsync(root, cacheRoot, sourceCacheRoot, null, args);
+        => await RunOlWithEnvironmentAsync(root, root, cacheRoot, sourceCacheRoot, null, args);
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithEnvironmentAsync(string root, string? cacheRoot, string? sourceCacheRoot, IReadOnlyDictionary<string, string?>? environment, params string[] args)
+        => await RunOlWithEnvironmentAsync(root, root, cacheRoot, sourceCacheRoot, environment, args);
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithEnvironmentAsync(string root, string workingDirectory, string? cacheRoot, string? sourceCacheRoot, IReadOnlyDictionary<string, string?>? environment, params string[] args)
     {
         await CliGate.WaitAsync();
         try
         {
             var startInfo = new ProcessStartInfo("dotnet")
             {
-                WorkingDirectory = root,
+                WorkingDirectory = workingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             };

@@ -374,22 +374,18 @@ Unable to scan input: A collection accepts at most one SBOM document.
 
 ### 監査対象からリポジトリのサブツリーを除外する
 
-ディレクトリ入力に、監査する製品とは別のプロジェクトが含まれる場合は`--exclude-input-path`を使います。次の例では、serverとsharedの解決済み入力をスキャンしつつ、documents以下は再帰探索に入る前に除外します。
-
-```text
-src/
-  server/       # 対象
-  shared/       # 対象
-  documents/    # 除外
-```
-
 ```bash
-ol scan --input . --exclude-input-path src/documents --format json > ol-report.json
+# product-a/docsだけ除外。product-b/docsは対象のまま
+ol scan --input product-a --input product-b \
+  --exclude-input-path product-a/docs
+
+# 複数パスは繰り返し指定
+ol scan --input product-a --input product-b \
+  --exclude-input-path product-a/docs \
+  --exclude-input-path product-b/docs
 ```
 
-このオプションは繰り返し指定でき、globではなく正確なファイルまたはディレクトリパスを受け付けます。相対パスは各ディレクトリ入力を基準に解決されます。入力ルート自身の除外、すべてのディレクトリ入力の外への脱出、除外対象ファイルの`--input`による明示指定はエラーです。canonical JSONは正規化したパスを`metadata.inputScope.excludedPaths`へ記録するため、監査境界をレビューできます。
-
-この指定が制御するのはolのディレクトリ探索だけです。対象に含めたリポジトリ全体のSBOMやroot workspaceのlockfileにドキュメント依存関係が既に記録されている場合、それを削除することはできません。SyftなどのSBOM生成ツールもリポジトリを探索する場合は、olへSBOMを渡す前に同じパスを生成側でも除外してください。
+パスはカレントディレクトリ基準の、実在する正確なファイルまたはディレクトリです。globには対応しません。olのディレクトリ探索だけに作用するため、リポジトリ全体のSBOMを生成する場合は生成側でも同じパスを除外してください。
 
 
 

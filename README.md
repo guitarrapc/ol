@@ -373,22 +373,18 @@ Unable to scan input: A collection accepts at most one SBOM document.
 
 ### Exclude repository subtrees from the audit subject
 
-Use `--exclude-input-path` when a directory input contains a separate project that is not part of the product being audited. For example, this scans the server and shared resolved inputs while pruning the documentation site before recursive discovery:
-
-```text
-src/
-  server/       # included
-  shared/       # included
-  documents/    # excluded
-```
-
 ```bash
-ol scan --input . --exclude-input-path src/documents --format json > ol-report.json
+# Exclude only product-a/docs; product-b/docs remains included
+ol scan --input product-a --input product-b \
+  --exclude-input-path product-a/docs
+
+# Repeat the option to exclude multiple exact paths
+ol scan --input product-a --input product-b \
+  --exclude-input-path product-a/docs \
+  --exclude-input-path product-b/docs
 ```
 
-The option is repeatable and accepts exact file or directory paths, not globs. Relative exclusions are resolved beneath each directory input. Excluding the input root, escaping outside every directory input, or explicitly naming an excluded file with `--input` is an error. Canonical JSON records the normalized paths in `metadata.inputScope.excludedPaths` so the audit boundary remains reviewable.
-
-This controls ol's directory discovery only. It cannot remove documentation dependencies already present in an included repository-wide SBOM or root workspace lockfile. When an SBOM generator such as Syft also scans the repository, configure the same exclusion there before passing the SBOM to ol.
+Paths are exact, existing files or directories relative to the current working directory; globs are not supported. This affects only ol's directory discovery, so apply the same exclusion when generating a repository-wide SBOM.
 
 ## Common operations
 

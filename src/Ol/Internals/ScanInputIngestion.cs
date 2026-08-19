@@ -518,10 +518,15 @@ internal static class ScanInputIngestion
         var fullPaths = new List<string>(selection.ExcludedPaths.Length);
         var fullPathSet = new HashSet<string>(pathComparer);
         var logicalPaths = new List<string>(selection.ExcludedPaths.Length);
-        var logicalPathSet = new HashSet<string>(pathComparer);
         for (var excludedIndex = 0; excludedIndex < selection.ExcludedPaths.Length; excludedIndex++)
         {
             var excludedPath = selection.ExcludedPaths[excludedIndex];
+            var fullExcludedPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(excludedPath));
+            if (!File.Exists(fullExcludedPath) && !Directory.Exists(fullExcludedPath))
+            {
+                throw new InvalidOperationException($"Excluded input path not found: {excludedPath}");
+            }
+
             var matchedDirectoryInput = false;
             string? logicalPath = null;
             for (var inputIndex = 0; inputIndex < selection.Paths.Length; inputIndex++)
@@ -532,8 +537,6 @@ internal static class ScanInputIngestion
                     continue;
                 }
 
-                var fullExcludedPath = Path.TrimEndingDirectorySeparator(
-                    Path.IsPathRooted(excludedPath) ? Path.GetFullPath(excludedPath) : Path.GetFullPath(excludedPath, inputRoot));
                 if (pathComparer.Equals(inputRoot, fullExcludedPath))
                 {
                     throw new InvalidOperationException($"An input directory cannot exclude itself: {excludedPath}");
@@ -545,12 +548,9 @@ internal static class ScanInputIngestion
                 }
 
                 matchedDirectoryInput = true;
-                if (fullPathSet.Add(fullExcludedPath))
-                {
-                    fullPaths.Add(fullExcludedPath);
-                }
-
-                logicalPath ??= Path.GetRelativePath(inputRoot, fullExcludedPath).Replace('\\', '/');
+                logicalPath ??= (Path.IsPathRooted(excludedPath)
+                    ? Path.GetRelativePath(inputRoot, fullExcludedPath)
+                    : Path.GetRelativePath(Environment.CurrentDirectory, fullExcludedPath)).Replace('\\', '/');
             }
 
             if (!matchedDirectoryInput)
@@ -558,8 +558,9 @@ internal static class ScanInputIngestion
                 throw new InvalidOperationException($"Excluded input path must be inside a directory input: {excludedPath}");
             }
 
-            if (logicalPathSet.Add(logicalPath!))
+            if (fullPathSet.Add(fullExcludedPath))
             {
+                fullPaths.Add(fullExcludedPath);
                 logicalPaths.Add(logicalPath!);
             }
         }

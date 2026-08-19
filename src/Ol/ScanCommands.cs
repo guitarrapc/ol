@@ -26,6 +26,7 @@ internal sealed class ScanCommands
     /// Scan a resolved dependency input.
     /// </summary>
     /// <param name="input">Repeatable resolved dependency input files or directories.</param>
+    /// <param name="excludeInputPath">Repeatable file or directory paths excluded from directory input discovery.</param>
     /// <param name="inputFormat">Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock.</param>
     /// <param name="format">Output format: text, json, or markdown.</param>
     /// <param name="verbose">Include verbose columns and input detection diagnostics.</param>
@@ -44,6 +45,7 @@ internal sealed class ScanCommands
     [Command("scan")]
     public int Scan(
         [InputPathsParser] string[] input,
+        [InputPathsParser] string[]? excludeInputPath = null,
         string inputFormat = "auto",
         ReportFormat format = ReportFormat.Text,
         bool verbose = false,
@@ -71,7 +73,7 @@ internal sealed class ScanCommands
         }
 
         var uncollectedPrefixes = skipEvidencePackages?.Split(',', StringSplitOptions.None);
-        if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, uncollectedPrefixes, concurrency, retry, out var preparation, out var preparationError))
+        if (!ScanExecution.TryPrepare(input, inputFormat, excludeInputPath, spdxData, cacheDir, noExternalEvidence, uncollectedPrefixes, concurrency, retry, out var preparation, out var preparationError))
         {
             Console.Error.WriteLine(preparationError);
             return 1;
@@ -135,7 +137,7 @@ internal sealed class ScanCommands
         {
             try
             {
-                var scope = new ScanReportScope(!noExternalEvidence, dependency is null or "" ? null : dependency, dependencyFilteredCount, excludedUnknownCount);
+                var scope = new ScanReportScope(!noExternalEvidence, dependency is null or "" ? null : dependency, dependencyFilteredCount, excludedUnknownCount, completed.ExcludedInputPaths);
                 WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, componentUsages, groups, groupBy, spdx, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, scope);
             }
             catch (IOException exception)
@@ -208,6 +210,7 @@ internal sealed class ScanCommands
                 completed.DetectedInputFileCount,
                 completed.InputCandidateDiagnostics,
                 completed.SkippedIncompleteInputCount,
+                completed.ExcludedInputPaths,
                 scanResult.Inventory.Components,
                 Console.Error);
             Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
@@ -241,6 +244,7 @@ internal sealed class ScanCommands
         int detectedInputFileCount,
         in InputCandidateDiagnostics candidateDiagnostics,
         int skippedIncompleteInputCount,
+        string[] excludedInputPaths,
         ReadOnlySpan<ScanComponent> components,
         TextWriter writer)
     {
@@ -260,6 +264,21 @@ internal sealed class ScanCommands
         writer.Write("; ");
         writer.Write(skippedIncompleteInputCount);
         writer.Write(skippedIncompleteInputCount == 1 ? " incomplete input set" : " incomplete input sets");
+        writer.Write("; ");
+        writer.Write(excludedInputPaths.Length);
+        writer.Write(excludedInputPaths.Length == 1 ? " excluded input path" : " excluded input paths");
+        if (excludedInputPaths.Length > 0)
+        {
+            writer.Write(" (");
+            for (var excludedIndex = 0; excludedIndex < excludedInputPaths.Length; excludedIndex++)
+            {
+                if (excludedIndex > 0) writer.Write(", ");
+                writer.Write(excludedInputPaths[excludedIndex]);
+            }
+
+            writer.Write(')');
+        }
+
         writer.Write("; ecosystems ");
         var ecosystems = new HashSet<string>(StringComparer.Ordinal);
         for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)

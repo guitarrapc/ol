@@ -25,6 +25,7 @@ internal readonly record struct CompletedScanExecution(
     InputCandidateDiagnostics InputCandidateDiagnostics,
     SkippedIncompleteInput[] SkippedIncompleteInputs,
     int SkippedIncompleteInputCount,
+    string[] ExcludedInputPaths,
     GitHubRateLimitStatus? GitHubRateLimit = null);
 
 internal static class ScanExecution
@@ -39,7 +40,7 @@ internal static class ScanExecution
         int retry,
         out ScanPreparation preparation,
         out string error)
-        => TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, null, concurrency, retry, out preparation, out error);
+        => TryPrepare(input, inputFormat, excludedInputPaths: null, spdxData, cacheDir, noExternalEvidence, null, concurrency, retry, out preparation, out error);
 
     public static bool TryPrepare(
         string[]? input,
@@ -52,8 +53,22 @@ internal static class ScanExecution
         int retry,
         out ScanPreparation preparation,
         out string error)
+        => TryPrepare(input, inputFormat, excludedInputPaths: null, spdxData, cacheDir, noExternalEvidence, skipEvidencePackages, concurrency, retry, out preparation, out error);
+
+    public static bool TryPrepare(
+        string[]? input,
+        string? inputFormat,
+        string[]? excludedInputPaths,
+        string? spdxData,
+        string? cacheDir,
+        bool noExternalEvidence,
+        string[]? skipEvidencePackages,
+        int concurrency,
+        int retry,
+        out ScanPreparation preparation,
+        out string error)
     {
-        if (!ScanInputIngestion.TryResolve(input, inputFormat, out var inputSelection, out var inputError))
+        if (!ScanInputIngestion.TryResolve(input, excludedInputPaths, inputFormat, out var inputSelection, out var inputError))
         {
             preparation = default;
             error = $"Invalid scan input: {inputError}";
@@ -208,7 +223,7 @@ internal static class ScanExecution
                 gitHubRateLimit = declaredGitHubFileCollector.RateLimit ?? sourceService.RateLimit;
             }
 
-            completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, ingestion.DetectedInputFileCount, ingestion.InputCandidateDiagnostics, ingestion.SkippedIncompleteInputs, ingestion.SkippedIncompleteInputCount, gitHubRateLimit);
+            completed = new CompletedScanExecution(scanResult with { Components = enrichedComponents }, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, ingestion.DetectedInputFileCount, ingestion.InputCandidateDiagnostics, ingestion.SkippedIncompleteInputs, ingestion.SkippedIncompleteInputCount, ingestion.ExcludedInputPaths, gitHubRateLimit);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or HttpRequestException or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
         {

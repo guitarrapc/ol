@@ -69,6 +69,10 @@
       "dependencyFilter": null,
       "excludedCount": 0,
       "excludedUnknownCount": 0
+    },
+    "inputScope": {
+      "excludedPathCount": 0,
+      "excludedPaths": []
     }
   },
   "inventory": {

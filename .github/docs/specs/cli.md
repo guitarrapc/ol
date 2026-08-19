@@ -157,10 +157,14 @@ A namespace written the way its ecosystem spells it is accepted: an `@` that sta
 ### `ol scan`
 
 ```text
-ol scan --input <file-or-directory> [--input <file-or-directory> ...]
+ol scan --input <file-or-directory> [--input <file-or-directory> ...] [--exclude-input-path <path> ...]
 ```
 
 `--input` is required and repeatable. It accepts CycloneDX JSON, SPDX JSON, or supported resolved package-manager inputs: NuGet assets, npm, pnpm, Yarn Classic/Berry, Cargo metadata, Go module graph, pip inspect, Composer, Bundler, Maven dependency tree, Swift `Package.resolved`, and CocoaPods lock data. `--input-format` defaults to `auto`; an explicit format is an assertion and must match every discovered document.
+
+`--exclude-input-path` is repeatable and removes exact file or directory paths from directory-input discovery. A relative exclusion is resolved independently beneath each directory input; an absolute exclusion must be a strict descendant of at least one directory input. The input directory itself and paths outside every directory input are invalid. Matching uses path-segment boundaries and the operating system's path case semantics. Glob syntax is not supported. Naming a file explicitly with `--input` while also placing it beneath an exclusion is an input failure rather than an order-dependent override.
+
+Excluded directories are pruned before recursive enumeration, so inaccessible or expensive content below them is not visited. The exclusion applies equally to registered resolved inputs, known unsupported candidates, and incomplete companion-set discovery. It does not remove dependencies already represented by an included root lockfile or SBOM; generators such as Syft must receive the corresponding scope exclusion before producing such an input. Canonical JSON records the normalized logical paths in `metadata.inputScope.excludedPaths`, and the human-readable input-discovery summary reports their count and values.
 
 Ol consumes already resolved inventories; it does not resolve manifests or version ranges. Directory discovery uses only registered resolved-input names and does not follow reparse points. Content signatures, not filenames or registration order, determine a document's format. Unsupported versions, no match, ambiguous matches, and more than one SBOM document are input failures. A failure on a discovered file names that file, because the user never named it and cannot otherwise tell which of the discovered inputs failed.
 

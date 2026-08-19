@@ -81,6 +81,26 @@ internal static class KnownUnsupportedInputCandidates
         }
     }
 
+    public static void DetectFile(string path, ref InputCandidateDiagnostics diagnostics)
+    {
+        var fileName = Path.GetFileName(path.AsSpan());
+        var extension = Path.GetExtension(fileName);
+        for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
+        {
+            ref readonly var rule = ref Rules[ruleIndex];
+            if (diagnostics.IsDetected(rule.Bit))
+            {
+                continue;
+            }
+
+            if ((rule.FileName is not null && fileName.Equals(rule.FileName, StringComparison.OrdinalIgnoreCase))
+                || (rule.Extension is not null && extension.Equals(rule.Extension, StringComparison.OrdinalIgnoreCase)))
+            {
+                diagnostics.MarkDetected(rule.Bit);
+            }
+        }
+    }
+
     public static void ObserveScannedInput(in DependencyInventory inventory, DependencyInputHandler handler, ref InputCandidateDiagnostics diagnostics)
     {
         var unresolved = diagnostics.Unresolved;

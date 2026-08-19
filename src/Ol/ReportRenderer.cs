@@ -23,11 +23,13 @@ using Ol.Internals;
 /// <param name="DependencyFilter">The <c>--dependency</c> filter applied to the view, or null when unfiltered.</param>
 /// <param name="ExcludedCount">Components the filter removed from the view.</param>
 /// <param name="ExcludedUnknownCount">Removed components whose dependency relationship is unknown.</param>
+/// <param name="ExcludedInputPaths">Logical paths omitted from directory input discovery.</param>
 internal readonly record struct ScanReportScope(
     bool ExternalEvidenceCollected,
     string? DependencyFilter,
     int ExcludedCount,
-    int ExcludedUnknownCount);
+    int ExcludedUnknownCount,
+    string[]? ExcludedInputPaths = null);
 
 internal static class ReportRenderer
 {
@@ -803,6 +805,20 @@ internal static class ReportRenderer
         else writer.WriteNull("dependencyFilter");
         writer.WriteNumber("excludedCount", scope.ExcludedCount);
         writer.WriteNumber("excludedUnknownCount", scope.ExcludedUnknownCount);
+        writer.WriteEndObject();
+        writer.WriteStartObject("inputScope");
+        var excludedInputPaths = scope.ExcludedInputPaths;
+        writer.WriteNumber("excludedPathCount", excludedInputPaths?.Length ?? 0);
+        writer.WriteStartArray("excludedPaths");
+        if (excludedInputPaths is not null)
+        {
+            for (var excludedIndex = 0; excludedIndex < excludedInputPaths.Length; excludedIndex++)
+            {
+                writer.WriteStringValue(excludedInputPaths[excludedIndex]);
+            }
+        }
+
+        writer.WriteEndArray();
         writer.WriteEndObject();
     }
 

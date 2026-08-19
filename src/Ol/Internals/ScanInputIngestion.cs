@@ -9,8 +9,9 @@ namespace Ol.Internals;
 
 /// <summary>Identifies the resolved dependency inputs one scan reads, and the format the user named.</summary>
 /// <param name="Paths">The input files or directories, in the order the user named them.</param>
+/// <param name="ExcludedPaths">File or directory paths omitted from directory input discovery.</param>
 /// <param name="ExpectedHandler">The handler for an explicitly named format, or default for automatic detection.</param>
-internal readonly record struct ScanInputSelection(string[] Paths, DependencyInputHandler ExpectedHandler)
+internal readonly record struct ScanInputSelection(string[] Paths, string[] ExcludedPaths, DependencyInputHandler ExpectedHandler)
 {
     public bool HasExpectedFormat => !string.IsNullOrEmpty(ExpectedHandler.Format.Name);
 }
@@ -32,7 +33,8 @@ internal readonly record struct ScanInputIngestionResult(
     int DetectedInputFileCount,
     InputCandidateDiagnostics InputCandidateDiagnostics,
     SkippedIncompleteInput[] SkippedIncompleteInputs,
-    int SkippedIncompleteInputCount);
+    int SkippedIncompleteInputCount,
+    string[] ExcludedInputPaths);
 
 /// <summary>
 /// Turns named input paths into one combined dependency inventory.
@@ -45,8 +47,14 @@ internal readonly record struct ScanInputIngestionResult(
 /// </remarks>
 internal static class ScanInputIngestion
 {
+    private static readonly StringComparison PathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
     /// <summary>Validates the named input paths and format, without touching the file system.</summary>
     public static bool TryResolve(string[]? input, string? inputFormat, out ScanInputSelection selection, out string error)
+        => TryResolve(input, excludedInputPaths: null, inputFormat, out selection, out error);
+
+    /// <summary>Validates the named input and excluded paths and format, without touching the file system.</summary>
+    public static bool TryResolve(string[]? input, string[]? excludedInputPaths, string? inputFormat, out ScanInputSelection selection, out string error)
     {
         selection = default;
         var hasInput = input is { Length: > 0 };
@@ -65,9 +73,19 @@ internal static class ScanInputIngestion
             }
         }
 
+        excludedInputPaths ??= [];
+        for (var excludedIndex = 0; excludedIndex < excludedInputPaths.Length; excludedIndex++)
+        {
+            if (string.IsNullOrWhiteSpace(excludedInputPaths[excludedIndex]))
+            {
+                error = "Excluded input paths must not be empty.";
+                return false;
+            }
+        }
+
         if (string.IsNullOrEmpty(inputFormat) || string.Equals(inputFormat, "auto", StringComparison.OrdinalIgnoreCase))
         {
-            selection = new ScanInputSelection(input, default);
+            selection = new ScanInputSelection(input, excludedInputPaths, default);
             error = string.Empty;
             return true;
         }
@@ -78,7 +96,7 @@ internal static class ScanInputIngestion
             return false;
         }
 
-        selection = new ScanInputSelection(input, handler);
+        selection = new ScanInputSelection(input, excludedInputPaths, handler);
         error = string.Empty;
         return true;
     }
@@ -90,7 +108,7 @@ internal static class ScanInputIngestion
         bool includeHash,
         bool collectPackageArtifacts)
     {
-        var files = CollectInputFiles(selection, out var inputCandidateDiagnostics);
+        var files = CollectInputFiles(selection, out var inputCandidateDiagnostics, out var excludedInputPaths);
         var inventories = new DependencyInventory[files.Length];
         var handlers = new DependencyInputHandler[files.Length];
         var packageArtifactInputs = collectPackageArtifacts ? new ResolvedPackageArtifactInput[files.Length] : [];
@@ -274,7 +292,8 @@ internal static class ScanInputIngestion
                 files.Length,
                 inputCandidateDiagnostics,
                 skippedIncompleteInputs,
-                skippedIncompleteInputCount);
+                skippedIncompleteInputCount,
+                excludedInputPaths);
         }
         finally
         {
@@ -361,14 +380,19 @@ internal static class ScanInputIngestion
         return false;
     }
 
-    private static CollectedInputFile[] CollectInputFiles(ScanInputSelection selection, out InputCandidateDiagnostics inputCandidateDiagnostics)
+    private static CollectedInputFile[] CollectInputFiles(
+        ScanInputSelection selection,
+        out InputCandidateDiagnostics inputCandidateDiagnostics,
+        out string[] excludedInputPaths)
     {
         inputCandidateDiagnostics = default;
         var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         var collectedByPath = new Dictionary<string, CollectedInputFile>(pathComparer);
+        var exclusions = ResolveExcludedInputPaths(selection, pathComparer);
+        excludedInputPaths = exclusions.LogicalPaths;
         var enumerationOptions = new EnumerationOptions
         {
-            RecurseSubdirectories = true,
+            RecurseSubdirectories = false,
             AttributesToSkip = FileAttributes.ReparsePoint,
             IgnoreInaccessible = false,
             MatchCasing = MatchCasing.CaseInsensitive,
@@ -379,6 +403,11 @@ internal static class ScanInputIngestion
             var inputPath = Path.GetFullPath(selection.Paths[inputIndex]);
             if (File.Exists(inputPath))
             {
+                if (IsExcluded(inputPath, exclusions.FullPaths, pathComparer))
+                {
+                    throw new InvalidOperationException($"Explicit input file is inside an excluded input path: {selection.Paths[inputIndex]}");
+                }
+
                 AddCollectedFile(collectedByPath, inputPath, Path.GetFileName(inputPath), discovered: false);
                 continue;
             }
@@ -388,17 +417,11 @@ internal static class ScanInputIngestion
             {
                 // An explicit format is an assertion about what to scan, so detecting the candidates it
                 // excludes would report a deliberate choice as an oversight.
-                DiscoverDirectoryFiles(inputPath, rootName, selection.ExpectedHandler, enumerationOptions, collectedByPath);
+                DiscoverDirectoryFiles(inputPath, rootName, [selection.ExpectedHandler], enumerationOptions, exclusions.FullPaths, pathComparer, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: false);
                 continue;
             }
 
-            KnownUnsupportedInputCandidates.DetectDirectory(inputPath, enumerationOptions, ref inputCandidateDiagnostics);
-
-            var registeredHandlers = DependencyInputRegistry.Default.RegisteredHandlers;
-            for (var handlerIndex = 0; handlerIndex < registeredHandlers.Length; handlerIndex++)
-            {
-                DiscoverDirectoryFiles(inputPath, rootName, registeredHandlers[handlerIndex], enumerationOptions, collectedByPath);
-            }
+            DiscoverDirectoryFiles(inputPath, rootName, DependencyInputRegistry.Default.RegisteredHandlers, enumerationOptions, exclusions.FullPaths, pathComparer, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: true);
         }
 
         if (collectedByPath.Count == 0)
@@ -425,21 +448,147 @@ internal static class ScanInputIngestion
     private static void DiscoverDirectoryFiles(
         string directory,
         string rootName,
-        DependencyInputHandler handler,
+        ReadOnlySpan<DependencyInputHandler> handlers,
         EnumerationOptions options,
-        Dictionary<string, CollectedInputFile> collectedByPath)
+        string[] excludedPaths,
+        StringComparer pathComparer,
+        Dictionary<string, CollectedInputFile> collectedByPath,
+        ref InputCandidateDiagnostics inputCandidateDiagnostics,
+        bool detectUnsupportedCandidates)
     {
-        var fileNames = handler.DirectoryFileNames.Span;
-        for (var fileNameIndex = 0; fileNameIndex < fileNames.Length; fileNameIndex++)
+        var pendingDirectories = new Stack<string>();
+        pendingDirectories.Push(directory);
+        while (pendingDirectories.Count > 0)
         {
-            var paths = Directory.GetFiles(directory, fileNames[fileNameIndex], options);
-            for (var pathIndex = 0; pathIndex < paths.Length; pathIndex++)
+            var currentDirectory = pendingDirectories.Pop();
+            foreach (var path in Directory.EnumerateFiles(currentDirectory, "*", options))
             {
-                var fullPath = Path.GetFullPath(paths[pathIndex]);
+                var fullPath = Path.GetFullPath(path);
+                if (IsExcluded(fullPath, excludedPaths, pathComparer))
+                {
+                    continue;
+                }
+
+                if (detectUnsupportedCandidates)
+                {
+                    KnownUnsupportedInputCandidates.DetectFile(fullPath, ref inputCandidateDiagnostics);
+                }
+
+                if (!MatchesRegisteredFileName(Path.GetFileName(fullPath.AsSpan()), handlers)) continue;
+
                 var relativePath = Path.GetRelativePath(directory, fullPath).Replace('\\', '/');
                 AddCollectedFile(collectedByPath, fullPath, string.Concat(rootName, "/", relativePath), discovered: true);
             }
+
+            foreach (var path in Directory.EnumerateDirectories(currentDirectory, "*", options))
+            {
+                var fullPath = Path.GetFullPath(path);
+                if (!IsExcluded(fullPath, excludedPaths, pathComparer))
+                {
+                    pendingDirectories.Push(fullPath);
+                }
+            }
         }
+    }
+
+    private static bool MatchesRegisteredFileName(ReadOnlySpan<char> fileName, ReadOnlySpan<DependencyInputHandler> handlers)
+    {
+        for (var handlerIndex = 0; handlerIndex < handlers.Length; handlerIndex++)
+        {
+            var registeredFileNames = handlers[handlerIndex].DirectoryFileNames.Span;
+            for (var fileNameIndex = 0; fileNameIndex < registeredFileNames.Length; fileNameIndex++)
+            {
+                if (fileName.Equals(registeredFileNames[fileNameIndex], StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static ResolvedInputExclusions ResolveExcludedInputPaths(ScanInputSelection selection, StringComparer pathComparer)
+    {
+        if (selection.ExcludedPaths.Length == 0)
+        {
+            return new ResolvedInputExclusions([], []);
+        }
+
+        var fullPaths = new List<string>(selection.ExcludedPaths.Length);
+        var fullPathSet = new HashSet<string>(pathComparer);
+        var logicalPaths = new List<string>(selection.ExcludedPaths.Length);
+        var logicalPathSet = new HashSet<string>(pathComparer);
+        for (var excludedIndex = 0; excludedIndex < selection.ExcludedPaths.Length; excludedIndex++)
+        {
+            var excludedPath = selection.ExcludedPaths[excludedIndex];
+            var matchedDirectoryInput = false;
+            string? logicalPath = null;
+            for (var inputIndex = 0; inputIndex < selection.Paths.Length; inputIndex++)
+            {
+                var inputRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(selection.Paths[inputIndex]));
+                if (!Directory.Exists(inputRoot))
+                {
+                    continue;
+                }
+
+                var fullExcludedPath = Path.TrimEndingDirectorySeparator(
+                    Path.IsPathRooted(excludedPath) ? Path.GetFullPath(excludedPath) : Path.GetFullPath(excludedPath, inputRoot));
+                if (pathComparer.Equals(inputRoot, fullExcludedPath))
+                {
+                    throw new InvalidOperationException($"An input directory cannot exclude itself: {excludedPath}");
+                }
+
+                if (!IsDescendant(fullExcludedPath, inputRoot))
+                {
+                    continue;
+                }
+
+                matchedDirectoryInput = true;
+                if (fullPathSet.Add(fullExcludedPath))
+                {
+                    fullPaths.Add(fullExcludedPath);
+                }
+
+                logicalPath ??= Path.GetRelativePath(inputRoot, fullExcludedPath).Replace('\\', '/');
+            }
+
+            if (!matchedDirectoryInput)
+            {
+                throw new InvalidOperationException($"Excluded input path must be inside a directory input: {excludedPath}");
+            }
+
+            if (logicalPathSet.Add(logicalPath!))
+            {
+                logicalPaths.Add(logicalPath!);
+            }
+        }
+
+        return new ResolvedInputExclusions(fullPaths.ToArray(), logicalPaths.ToArray());
+    }
+
+    private static bool IsExcluded(string path, string[] excludedPaths, StringComparer pathComparer)
+    {
+        for (var excludedIndex = 0; excludedIndex < excludedPaths.Length; excludedIndex++)
+        {
+            if (pathComparer.Equals(path, excludedPaths[excludedIndex]) || IsDescendant(path, excludedPaths[excludedIndex]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsDescendant(string path, string directory)
+    {
+        if (path.Length <= directory.Length || !path.AsSpan(0, directory.Length).Equals(directory, PathComparison))
+        {
+            return false;
+        }
+
+        var separator = path[directory.Length];
+        return separator == Path.DirectorySeparatorChar || separator == Path.AltDirectorySeparatorChar;
     }
 
     private static void AddCollectedFile(Dictionary<string, CollectedInputFile> collectedByPath, string path, string logicalPath, bool discovered)
@@ -471,6 +620,9 @@ internal static class ScanInputIngestion
 
     /// <summary>One physical input file, and whether directory discovery proposed it rather than the user naming it.</summary>
     private readonly record struct CollectedInputFile(string Path, string LogicalPath, bool Discovered);
+
+    /// <summary>Canonical paths used for pruning and logical paths persisted in the report.</summary>
+    private readonly record struct ResolvedInputExclusions(string[] FullPaths, string[] LogicalPaths);
 
     private sealed class CollectedInputFileComparer : IComparer<CollectedInputFile>
     {

@@ -23,6 +23,8 @@ public sealed class CliScanTests
         await Assert.That(stdout).Contains("--input <string[]>");
         await Assert.That(stdout).Contains("Repeatable resolved dependency input files or directories. [Required]");
         await Assert.That(stdout).Contains("--input-format <string>");
+        await Assert.That(stdout).Contains("--exclude-input-path <string[]?>");
+        await Assert.That(stdout).Contains("Repeatable file or directory paths excluded from directory input discovery.");
         await Assert.That(stdout).Contains("[Default: @\"auto\"]");
         await Assert.That(stdout).Contains("auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock");
         await Assert.That(stdout).Contains("Maximum concurrent package metadata and source repository lookups.");
@@ -1040,7 +1042,7 @@ public sealed class CliScanTests
                 await Assert.That(stderr).Contains("  Declared GitHub files (full scan): 0 targets; 0 GitHub requests; 0 cache hits; 0 cache misses; 0 documents; 0 matched; 0 fetch errors");
                 await Assert.That(stderr).Contains("  Package metadata (full scan):");
                 await Assert.That(stderr).Contains("  Source repositories (full scan):");
-                await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; 0 incomplete input sets; ecosystems none");
+                await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; 0 incomplete input sets; 0 excluded input paths; ecosystems none");
                 await Assert.That(stderr).Contains("  Input:");
             }
 
@@ -1783,7 +1785,7 @@ public sealed class CliScanTests
             var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 1 incomplete input set; ecosystems nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 1 incomplete input set; 0 excluded input paths; ecosystems nuget");
         }
         finally
         {
@@ -2258,7 +2260,7 @@ public sealed class CliScanTests
                 "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 1 ignored candidate (Cargo.lock); 0 incomplete input sets; ecosystems nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 1 ignored candidate (Cargo.lock); 0 incomplete input sets; 0 excluded input paths; ecosystems nuget");
         }
         finally
         {
@@ -2325,7 +2327,7 @@ public sealed class CliScanTests
                 "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 0 incomplete input sets; ecosystems cargo, nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 0 incomplete input sets; 0 excluded input paths; ecosystems cargo, nuget");
             await Assert.That(stderr).DoesNotContain("Warning: Rust dependencies were not scanned");
         }
         finally
@@ -2491,6 +2493,163 @@ public sealed class CliScanTests
             await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(4);
             await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
             await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(12);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExcludedInputPaths_ScansOnlyIncludedSubtreesAndRecordsScope()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-excluded-input-{Guid.NewGuid():N}");
+        var serverDirectory = Path.Combine(temporaryDirectory, "src", "server");
+        var documentsDirectory = Path.Combine(temporaryDirectory, "src", "documents");
+        var pagesDirectory = Path.Combine(temporaryDirectory, "Pages");
+        Directory.CreateDirectory(serverDirectory);
+        Directory.CreateDirectory(documentsDirectory);
+        Directory.CreateDirectory(pagesDirectory);
+        await File.WriteAllTextAsync(Path.Combine(serverDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(documentsDirectory, "package-lock.json"), CreatePackageLock("documents", "documents-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(pagesDirectory, "Cargo.toml"), "[package]\nname = \"pages\"\nversion = \"1.0.0\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                Path.Combine("src", "other", "..", "documents"),
+                "--exclude-input-path",
+                "Pages",
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var components = report.RootElement.GetProperty("components");
+            await Assert.That(components.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("server-dependency");
+            var inputScope = report.RootElement.GetProperty("metadata").GetProperty("inputScope");
+            await Assert.That(inputScope.GetProperty("excludedPathCount").GetInt32()).IsEqualTo(2);
+            var excludedPaths = inputScope.GetProperty("excludedPaths");
+            await Assert.That(excludedPaths[0].GetString()).IsEqualTo("src/documents");
+            await Assert.That(excludedPaths[1].GetString()).IsEqualTo("Pages");
+
+            var (summaryExitCode, _, summaryStderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                Path.Combine("src", "other", "..", "documents"),
+                "--exclude-input-path",
+                "Pages",
+                "--no-external-evidence");
+            await Assert.That(summaryExitCode).IsEqualTo(0).Because(summaryStderr);
+            await Assert.That(summaryStderr).Contains("2 excluded input paths (src/documents, Pages)");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitFileInsideExcludedPath_ReturnsInputError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-explicit-excluded-input-{Guid.NewGuid():N}");
+        var documentsDirectory = Path.Combine(temporaryDirectory, "src", "documents");
+        Directory.CreateDirectory(documentsDirectory);
+        var packageLock = Path.Combine(documentsDirectory, "package-lock.json");
+        await File.WriteAllTextAsync(packageLock, CreatePackageLock("documents", "documents-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--input",
+                packageLock,
+                "--exclude-input-path",
+                Path.Combine("src", "documents"),
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("Explicit input file is inside an excluded input path");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    [Arguments(".", "cannot exclude itself")]
+    [Arguments("..", "must be inside a directory input")]
+    public async Task Scan_WithExcludedPathOutsideStrictDescendant_ReturnsInputError(string excludedPath, string expectedError)
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-invalid-excluded-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                excludedPath,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains(expectedError);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExcludedPathPrefix_DoesNotExcludeSiblingPathSegment()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-excluded-input-boundary-{Guid.NewGuid():N}");
+        var documentsDirectory = Path.Combine(temporaryDirectory, "src", "documents");
+        Directory.CreateDirectory(documentsDirectory);
+        await File.WriteAllTextAsync(Path.Combine(documentsDirectory, "package-lock.json"), CreatePackageLock("documents", "documents-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                Path.Combine("src", "document"),
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("name").GetString()).IsEqualTo("documents-dependency");
         }
         finally
         {
@@ -3206,6 +3365,26 @@ public sealed class CliScanTests
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
+
+    private static string CreatePackageLock(string rootName, string dependencyName)
+        => $$"""
+            {
+              "name": "{{rootName}}",
+              "version": "1.0.0",
+              "lockfileVersion": 3,
+              "packages": {
+                "": {
+                  "name": "{{rootName}}",
+                  "version": "1.0.0",
+                  "dependencies": { "{{dependencyName}}": "1.0.0" }
+                },
+                "node_modules/{{dependencyName}}": {
+                  "version": "1.0.0",
+                  "license": "MIT"
+                }
+              }
+            }
+            """;
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithCacheAsync(string root, string? cacheRoot, params string[] args)
         => await RunOlWithCachesAsync(root, cacheRoot, sourceCacheRoot: null, args);

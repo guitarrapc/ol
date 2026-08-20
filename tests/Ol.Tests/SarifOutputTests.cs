@@ -259,6 +259,80 @@ public sealed class SarifOutputTests
         }
     }
 
+    /// <summary>
+    /// A CI job that reads only the SARIF file learns nothing from a result set that is complete for a narrowed
+    /// population. The view is run-level metadata rather than a finding, for the same reason a development allowance
+    /// is: it explains what the run covered instead of asking a reviewer to change something.
+    /// </summary>
+    [Test]
+    public async Task Sarif_WithDependencyFilteredReport_RecordsTheEvaluatedViewInRunProperties()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "GPL-3.0-only", transitiveLicense: "MIT");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            await RunCheckWorkflowAsync(root, input, ["--dependency", "direct"], "--allow-licenses", "MIT", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+            var view = document.RootElement.GetProperty("runs")[0].GetProperty("properties").GetProperty("evaluatedView");
+
+            await Assert.That(view.GetProperty("dependencyFilter").GetString()).IsEqualTo("direct");
+            await Assert.That(view.GetProperty("excludedCount").GetInt32()).IsEqualTo(1);
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    /// <summary>
+    /// Both facts are run-level metadata, so they share one <c>properties</c> object. Writing a second one would
+    /// emit a duplicate key that a reader resolves by taking whichever came first, silently losing the other.
+    /// </summary>
+    [Test]
+    public async Task Sarif_WithFilteredReportAndDevAllowance_WritesBothUnderOneRunProperties()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmDevLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            await RunCheckWorkflowAsync(root, input, ["--dependency", "direct"], "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+            var run = document.RootElement.GetProperty("runs")[0];
+
+            await Assert.That(run.EnumerateObject().Count(property => property.Name == "properties")).IsEqualTo(1);
+            var properties = run.GetProperty("properties");
+            await Assert.That(properties.TryGetProperty("evaluatedView", out _)).IsTrue();
+            await Assert.That(properties.GetProperty("developmentPolicyAllowances").GetArrayLength()).IsEqualTo(1);
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    [Test]
+    public async Task Sarif_WithDevAllowanceOnAnUnfilteredReport_OmitsTheEvaluatedView()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmDevLockAsync(devLicense: "CC-BY-4.0", runtimeLicense: "MIT");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT", "--allow-dev-licenses", "CC-BY-4.0", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+            var properties = document.RootElement.GetProperty("runs")[0].GetProperty("properties");
+
+            await Assert.That(properties.TryGetProperty("evaluatedView", out _)).IsFalse();
+            await Assert.That(properties.GetProperty("developmentPolicyAllowances").GetArrayLength()).IsEqualTo(1);
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
     private static async Task<string> WriteNpmDevLockAsync(string devLicense, string runtimeLicense)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"ol-sarif-{Guid.NewGuid():N}");
@@ -346,9 +420,12 @@ public sealed class SarifOutputTests
         return path;
     }
 
-    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunCheckWorkflowAsync(string root, string input, params string[] checkArguments)
+    private static Task<(int ExitCode, string Stdout, string Stderr)> RunCheckWorkflowAsync(string root, string input, params string[] checkArguments)
+        => RunCheckWorkflowAsync(root, input, [], checkArguments);
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunCheckWorkflowAsync(string root, string input, string[] scanArguments, params string[] checkArguments)
     {
-        var scan = await RunOlAsync(root, "scan", "--input", input, "--no-external-evidence", "--format", "Json");
+        var scan = await RunOlAsync(root, ["scan", "--input", input, "--no-external-evidence", .. scanArguments, "--format", "Json"]);
         if (scan.ExitCode != 0) return scan;
 
         var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");

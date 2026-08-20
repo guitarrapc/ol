@@ -63,6 +63,9 @@ public static class DependencyInventoryCombiner
         var foldsSbom = hasSbom && hasPackageManager;
         var identityNext = foldsSbom ? ArrayPool<int>.Shared.Rent(Math.Max(componentCapacity, 1)) : null;
         var identityComparisons = foldsSbom ? ArrayPool<DependencyComponentIdentityComparison>.Shared.Rent(Math.Max(componentCapacity, 1)) : null;
+        // What each row's resolver determined, read before the first fold writes to it. A fold decides from the
+        // resolver's own answer, and once a fill-in has been written the row can no longer state what that answer was.
+        var resolvedRelationships = foldsSbom ? ArrayPool<DependencyType>.Shared.Rent(Math.Max(componentCapacity, 1)) : null;
         try
         {
             // Identity is assigned in two passes rather than one so that the result does not depend on the order the
@@ -72,6 +75,11 @@ public static class DependencyInventoryCombiner
             if (foldsSbom)
             {
                 identityNext.AsSpan(0, Math.Max(componentCapacity, 1)).Fill(NotIndexed);
+                for (var i = 0; i < combinedComponentCount; i++)
+                {
+                    resolvedRelationships![i] = components[i].DependencyType;
+                }
+
                 var identities = new Dictionary<PurlIdentityKey, IdentityChain>(combinedComponentCount, PurlIdentityKeyComparer.Instance);
                 BuildIdentityChains(inventories, handlers, components, componentRemap, identities, identityNext!, identityComparisons!);
                 combinedComponentCount = FoldSbomComponents(
@@ -82,7 +90,8 @@ public static class DependencyInventoryCombiner
                     combinedComponentCount,
                     identities,
                     identityNext!,
-                    identityComparisons!);
+                    identityComparisons!,
+                    resolvedRelationships!);
             }
             else
             {
@@ -175,6 +184,7 @@ public static class DependencyInventoryCombiner
             ArrayPool<int>.Shared.Return(componentRemap);
             if (identityNext is not null) ArrayPool<int>.Shared.Return(identityNext);
             if (identityComparisons is not null) ArrayPool<DependencyComponentIdentityComparison>.Shared.Return(identityComparisons);
+            if (resolvedRelationships is not null) ArrayPool<DependencyType>.Shared.Return(resolvedRelationships);
         }
     }
 
@@ -371,7 +381,8 @@ public static class DependencyInventoryCombiner
         int combinedComponentCount,
         Dictionary<PurlIdentityKey, IdentityChain> identities,
         int[] identityNext,
-        DependencyComponentIdentityComparison[] identityComparisons)
+        DependencyComponentIdentityComparison[] identityComparisons,
+        DependencyType[] resolvedRelationships)
     {
         var componentOffset = 0;
         for (var inventoryIndex = 0; inventoryIndex < inventories.Length; inventoryIndex++)
@@ -404,7 +415,7 @@ public static class DependencyInventoryCombiner
                 for (var target = head; target >= 0; target = identityNext[target])
                 {
                     if (!MatchesIdentity(component.Purl, components[target].Purl, identityComparisons[target])) continue;
-                    components[target] = Absorb(components[target], component);
+                    components[target] = Absorb(components[target], component, resolvedRelationships[target]);
                 }
 
                 componentRemap[componentOffset + i] = head;
@@ -476,11 +487,11 @@ public static class DependencyInventoryCombiner
     // Folding keeps the receiving row's identity and adds what the SBOM contributes: its license candidates, its
     // supplying input kind, the stronger dependency relationship, and a repository URL the receiver lacks. Nothing the
     // receiver already states is replaced, so the fold can only add evidence.
-    private static ScanComponent Absorb(ScanComponent target, ScanComponent source)
+    private static ScanComponent Absorb(ScanComponent target, ScanComponent source, DependencyType resolvedRelationship)
     {
         var merged = target with
         {
-            DependencyType = MergeDependencyType(target.DependencyType, source.DependencyType),
+            DependencyType = FoldDependencyType(resolvedRelationship, target.DependencyType, source.DependencyType),
             SuppliedBy = target.SuppliedBy | source.SuppliedBy,
             RepositoryUrl = target.RepositoryUrl.IsEmpty ? source.RepositoryUrl : target.RepositoryUrl,
         };
@@ -492,6 +503,26 @@ public static class DependencyInventoryCombiner
 
         return merged;
     }
+
+    // Merging across the SBOM boundary is not the same operation as merging two observations of one graph, so the
+    // receiving row keeps the relationship its resolver determined and the SBOM only fills a relationship no resolver
+    // determined. Two inputs that both determined one are describing different graphs rather than disagreeing about
+    // one, and the row belongs to the graph the scan is about; the SBOM's own relationship stays derivable from the
+    // occurrences and edges it contributed.
+    //
+    // Root is not a value this can fall back to. Only an SBOM ever states it, and a package-manager input listing a
+    // component is itself the determination that the component is a dependency of the scanned resolution, so an SBOM
+    // root describes the receiving row no better than silence does. Policy skips a root, so admitting the value would
+    // let a second input withdraw a resolved dependency from the gate. An SBOM root that no package-manager input
+    // answers for never reaches here: it keeps its own row, and its own relationship with it.
+    // One SBOM can place the same purl at two positions in its own graph and fold both onto this row, so the fill-in
+    // aggregates across them the way the SBOM's own scan does. It is decided from the resolver's answer rather than
+    // from the row, because the row already holds an earlier fill-in by the second call and reading it back would
+    // make the result depend on the order the document listed its components.
+    private static DependencyType FoldDependencyType(DependencyType resolved, DependencyType current, DependencyType sbom)
+        => resolved != DependencyType.Unknown || sbom == DependencyType.Root
+            ? current
+            : MergeDependencyType(current, sbom);
 
     private static DependencyType MergeDependencyType(DependencyType left, DependencyType right)
     {

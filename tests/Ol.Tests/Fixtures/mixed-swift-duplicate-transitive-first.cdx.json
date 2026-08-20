@@ -1,0 +1,14 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": { "component": { "bom-ref": "swift-app", "type": "application", "name": "swift-app", "version": "0.0.0" } },
+  "components": [
+    { "bom-ref": "swift-log-t", "type": "library", "name": "swift-log", "version": "1.6.2", "purl": "pkg:swift/github.com/apple/swift-log@1.6.2" },
+    { "bom-ref": "swift-log-d", "type": "library", "name": "swift-log", "version": "1.6.2", "purl": "pkg:swift/github.com/apple/swift-log@1.6.2" }
+  ],
+  "dependencies": [
+    { "ref": "swift-app", "dependsOn": ["swift-log-d"] },
+    { "ref": "swift-log-d", "dependsOn": ["swift-log-t"] }
+  ]
+}

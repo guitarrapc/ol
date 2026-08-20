@@ -1,0 +1,16 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "bom-ref": "root-alpha",
+      "type": "library",
+      "name": "alpha",
+      "version": "1.0.0",
+      "purl": "pkg:npm/alpha@1.0.0"
+    }
+  },
+  "components": [],
+  "dependencies": [{ "ref": "root-alpha", "dependsOn": [] }]
+}

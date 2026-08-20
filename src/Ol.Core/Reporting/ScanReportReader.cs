@@ -14,6 +14,7 @@ namespace Ol.Core.Reporting;
 /// <param name="Components">The restored components in report order.</param>
 /// <param name="ComponentUsages">The restored development usage per component, aligned with <paramref name="Components"/>.</param>
 /// <param name="ExcludedInputPaths">The logical paths excluded from input discovery by the producing scan.</param>
+/// <param name="View">The view the producing scan rendered, which is the population a policy can evaluate.</param>
 public readonly record struct ScanReport(
     int SchemaVersion,
     string SourceReference,
@@ -21,7 +22,25 @@ public readonly record struct ScanReport(
     DependencyInventory Inventory,
     ScanComponent[] Components,
     DependencyUsage[] ComponentUsages,
-    string[] ExcludedInputPaths);
+    string[] ExcludedInputPaths,
+    ScanReportViewScope View = default);
+
+/// <summary>Describes how the producing scan narrowed the components it wrote.</summary>
+/// <param name="DependencyFilter">
+/// The <c>--dependency</c> filter the scan applied. Empty when it applied none, and null on a default-constructed
+/// value, which is what a caller that states no view produces; both read as unfiltered through
+/// <see cref="IsFiltered"/>, which is the only member that should decide on this field.
+/// </param>
+/// <param name="ExcludedCount">Components the filter removed from the report.</param>
+/// <param name="ExcludedUnknownCount">Components among them whose relationship no input determined.</param>
+public readonly record struct ScanReportViewScope(
+    string DependencyFilter,
+    int ExcludedCount,
+    int ExcludedUnknownCount)
+{
+    /// <summary>Reports whether the producing scan wrote fewer components than it resolved.</summary>
+    public bool IsFiltered => !string.IsNullOrEmpty(DependencyFilter);
+}
 
 /// <summary>
 /// Restores a persisted scan report so a policy can be re-evaluated without re-reading inputs or
@@ -55,6 +74,7 @@ public static class ScanReportReader
             var licenseListVersion = string.Empty;
             var input = default(ScanInputDescriptor);
             string[] excludedInputPaths = [];
+            var view = new ScanReportViewScope(string.Empty, 0, 0);
             DependencyInventory? inventory = null;
             ScanComponent[]? components = null;
             DependencyUsage[] componentUsages = [];
@@ -71,7 +91,7 @@ public static class ScanReportReader
                 }
                 else if (reader.ValueTextEquals("metadata"u8))
                 {
-                    if (!TryReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input, ref excludedInputPaths, out error)) return false;
+                    if (!TryReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input, ref excludedInputPaths, ref view, out error)) return false;
                 }
                 else if (reader.ValueTextEquals("inventory"u8))
                 {
@@ -110,7 +130,7 @@ public static class ScanReportReader
             var restored = inventory is { } value
                 ? new DependencyInventory(input, value.Contexts, value.Components, value.Occurrences, value.Edges, value.OccurrenceVariants)
                 : new DependencyInventory(input, [], [], [], [], []);
-            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages, excludedInputPaths);
+            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages, excludedInputPaths, view);
             error = string.Empty;
             return true;
         }
@@ -127,6 +147,7 @@ public static class ScanReportReader
         ref string licenseListVersion,
         ref ScanInputDescriptor input,
         ref string[] excludedInputPaths,
+        ref ScanReportViewScope view,
         out string error)
     {
         if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
@@ -159,6 +180,10 @@ public static class ScanReportReader
                     return false;
                 }
             }
+            else if (reader.ValueTextEquals("view"u8))
+            {
+                if (!TryReadView(ref reader, out view, out error)) return false;
+            }
             else
             {
                 reader.Read();
@@ -168,6 +193,91 @@ public static class ScanReportReader
 
         error = string.Empty;
         return true;
+    }
+
+    private static bool TryReadView(ref Utf8JsonReader reader, out ScanReportViewScope view, out string error)
+    {
+        view = new ScanReportViewScope(string.Empty, 0, 0);
+        error = string.Empty;
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+        {
+            error = "The report metadata.view value must be an object.";
+            return false;
+        }
+
+        var dependencyFilter = string.Empty;
+        var excludedCount = 0;
+        var excludedUnknownCount = 0;
+        // Every field is required. A view stating no filter and a view stating nothing are different documents, and
+        // only the first proves the report holds every component the scan resolved; a count Ol supplied and a count
+        // Ol defaulted are likewise different claims, and printing a defaulted zero would state an exclusion figure
+        // no producer wrote.
+        var statedDependencyFilter = false;
+        var statedExcludedCount = false;
+        var statedExcludedUnknownCount = false;
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            if (reader.ValueTextEquals("dependencyFilter"u8))
+            {
+                statedDependencyFilter = true;
+                if (!reader.Read()) return Invalid(out error, "The report metadata.view dependencyFilter must be a string or null.");
+                if (reader.TokenType == JsonTokenType.String) dependencyFilter = reader.GetString() ?? string.Empty;
+                else if (reader.TokenType != JsonTokenType.Null) return Invalid(out error, "The report metadata.view dependencyFilter must be a string or null.");
+            }
+            else if (reader.ValueTextEquals("excludedCount"u8))
+            {
+                statedExcludedCount = true;
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out excludedCount) || excludedCount < 0)
+                {
+                    return Invalid(out error, "The report metadata.view excludedCount must be a non-negative integer.");
+                }
+            }
+            else if (reader.ValueTextEquals("excludedUnknownCount"u8))
+            {
+                statedExcludedUnknownCount = true;
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out excludedUnknownCount) || excludedUnknownCount < 0)
+                {
+                    return Invalid(out error, "The report metadata.view excludedUnknownCount must be a non-negative integer.");
+                }
+            }
+            else
+            {
+                reader.Read();
+                reader.Skip();
+            }
+        }
+
+        if (reader.TokenType != JsonTokenType.EndObject)
+        {
+            return Invalid(out error, "The report metadata.view value must be an object.");
+        }
+
+        if (!statedDependencyFilter || !statedExcludedCount || !statedExcludedUnknownCount)
+        {
+            return Invalid(out error, "The report metadata.view must state dependencyFilter, excludedCount, and excludedUnknownCount.");
+        }
+
+        // The counts describe what the filter removed, so they cannot outrun it. A view claiming no filter while
+        // reporting exclusions is the narrowed-report-read-as-complete case in another shape, and an unknown-
+        // relationship count above the total describes a subset larger than its set.
+        if (excludedUnknownCount > excludedCount)
+        {
+            return Invalid(out error, $"The report metadata.view states excludedUnknownCount {excludedUnknownCount} above excludedCount {excludedCount}.");
+        }
+
+        if (dependencyFilter.Length == 0 && excludedCount > 0)
+        {
+            return Invalid(out error, $"The report metadata.view states no dependency filter but reports {excludedCount} excluded components.");
+        }
+
+        view = new ScanReportViewScope(dependencyFilter, excludedCount, excludedUnknownCount);
+        return true;
+    }
+
+    private static bool Invalid(out string error, string message)
+    {
+        error = message;
+        return false;
     }
 
     private static bool TryReadInputScope(ref Utf8JsonReader reader, out string[] excludedInputPaths)

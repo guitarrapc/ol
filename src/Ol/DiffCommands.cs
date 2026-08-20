@@ -36,8 +36,8 @@ internal sealed class DiffCommands
         try
         {
             Console.Write(format == DiffFormat.Json
-                ? RenderJson(changes, previousReport.ExcludedInputPaths, currentReport.ExcludedInputPaths)
-                : RenderText(changes, previousReport.ExcludedInputPaths, currentReport.ExcludedInputPaths));
+                ? RenderJson(changes, previousReport.ExcludedInputPaths, currentReport.ExcludedInputPaths, previousReport.View, currentReport.View)
+                : RenderText(changes, previousReport.ExcludedInputPaths, currentReport.ExcludedInputPaths, previousReport.View, currentReport.View));
         }
         catch (IOException exception)
         {
@@ -49,15 +49,25 @@ internal sealed class DiffCommands
         return 0;
     }
 
-    private static string RenderText(ReadOnlySpan<ScanReportChange> changes, string[] previousExcludedInputPaths, string[] currentExcludedInputPaths)
+    private static string RenderText(
+        ReadOnlySpan<ScanReportChange> changes,
+        string[] previousExcludedInputPaths,
+        string[] currentExcludedInputPaths,
+        in ScanReportViewScope previousView,
+        in ScanReportViewScope currentView)
     {
-        if (changes.IsEmpty && previousExcludedInputPaths.Length == 0 && currentExcludedInputPaths.Length == 0)
+        if (changes.IsEmpty
+            && previousExcludedInputPaths.Length == 0
+            && currentExcludedInputPaths.Length == 0
+            && !previousView.IsFiltered
+            && !currentView.IsFiltered)
         {
             return $"No license-relevant changes.{Environment.NewLine}";
         }
 
         var builder = new StringBuilder();
         AppendInputScope(builder, previousExcludedInputPaths, currentExcludedInputPaths);
+        AppendEvaluatedView(builder, previousView, currentView);
         if (changes.IsEmpty)
         {
             builder.AppendLine("No component license changes.");
@@ -93,9 +103,65 @@ internal sealed class DiffCommands
         AppendExcludedInputPaths(builder, "  previous excluded input paths: ", previous);
         AppendExcludedInputPaths(builder, "  current excluded input paths: ", current);
         builder.Append("  changed: ");
-        builder.AppendLine(InputScopeChanged(previous, current) ? "yes" : "no");
+        builder.AppendLine(SetChanged(previous, current) ? "yes" : "no");
         builder.AppendLine();
     }
+
+    /// <summary>
+    /// States the view each report was rendered under, when either was narrowed.
+    /// </summary>
+    /// <remarks>
+    /// A <c>--dependency</c>-filtered report holds fewer components than its scan resolved, so a diff over two of
+    /// them compares populations rather than resolutions, and two different filters make every difference between
+    /// them an artifact of the filters. Ol states the two views and whether they match and draws no conclusion:
+    /// which components a comparison covers is a scope decision its reader makes, exactly as the excluded input
+    /// paths above are.
+    /// </remarks>
+    private static void AppendEvaluatedView(StringBuilder builder, in ScanReportViewScope previous, in ScanReportViewScope current)
+    {
+        if (!previous.IsFiltered && !current.IsFiltered) return;
+
+        builder.AppendLine("Evaluated view:");
+        AppendDependencyFilter(builder, "  previous dependency filter: ", previous);
+        AppendDependencyFilter(builder, "  current dependency filter: ", current);
+        builder.Append("  changed: ");
+        builder.AppendLine(ViewChanged(previous, current) ? "yes" : "no");
+        builder.AppendLine();
+    }
+
+    private static void AppendDependencyFilter(StringBuilder builder, string prefix, in ScanReportViewScope view)
+    {
+        builder.Append(prefix);
+        if (!view.IsFiltered)
+        {
+            builder.AppendLine("none");
+            return;
+        }
+
+        builder.Append(view.DependencyFilter);
+        builder.Append("; ");
+        builder.Append(view.ExcludedCount);
+        builder.Append(view.ExcludedCount == 1 ? " component excluded" : " components excluded");
+        if (view.ExcludedUnknownCount > 0)
+        {
+            builder.Append(", ");
+            builder.Append(view.ExcludedUnknownCount);
+            builder.Append(" with an unknown relationship");
+        }
+
+        builder.AppendLine();
+    }
+
+    // `--dependency` is an unordered list the view filter parses with entries trimmed, so the same configuration can
+    // be spelled several ways and only the set it denotes is the boundary. Casing is significant, because a token the
+    // filter does not recognize selects the unknown relationship rather than the one it was misspelled from.
+    private static bool ViewChanged(in ScanReportViewScope previous, in ScanReportViewScope current)
+        => SetChanged(DependencyFilterTokens(previous), DependencyFilterTokens(current));
+
+    private static string[] DependencyFilterTokens(in ScanReportViewScope view)
+        => view.IsFiltered
+            ? view.DependencyFilter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : [];
 
     private static void AppendExcludedInputPaths(StringBuilder builder, string prefix, string[] paths)
     {
@@ -223,7 +289,12 @@ internal sealed class DiffCommands
 
     private static string Or(string value) => value.Length == 0 ? "-" : value;
 
-    private static string RenderJson(ReadOnlySpan<ScanReportChange> changes, string[] previousExcludedInputPaths, string[] currentExcludedInputPaths)
+    private static string RenderJson(
+        ReadOnlySpan<ScanReportChange> changes,
+        string[] previousExcludedInputPaths,
+        string[] currentExcludedInputPaths,
+        in ScanReportViewScope previousView,
+        in ScanReportViewScope currentView)
     {
         var buffer = new ArrayBufferWriter<byte>(128 + (changes.Length * 160));
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
@@ -231,6 +302,7 @@ internal sealed class DiffCommands
             writer.WriteStartObject();
             writer.WriteNumber("schemaVersion"u8, JsonSchemaVersion);
             WriteInputScope(writer, previousExcludedInputPaths, currentExcludedInputPaths);
+            WriteView(writer, previousView, currentView);
             writer.WriteStartArray("changes"u8);
             for (var i = 0; i < changes.Length; i++)
             {
@@ -273,9 +345,30 @@ internal sealed class DiffCommands
     private static void WriteInputScope(Utf8JsonWriter writer, string[] previous, string[] current)
     {
         writer.WriteStartObject("inputScope"u8);
-        writer.WriteBoolean("changed"u8, InputScopeChanged(previous, current));
+        writer.WriteBoolean("changed"u8, SetChanged(previous, current));
         WriteExcludedInputPaths(writer, "previous"u8, previous);
         WriteExcludedInputPaths(writer, "current"u8, current);
+        writer.WriteEndObject();
+    }
+
+    // Written whether or not either side was filtered, for the same reason inputScope is: a consumer must not have to
+    // determine the document's shape before it can read a boundary the absence of a key would leave ambiguous.
+    private static void WriteView(Utf8JsonWriter writer, in ScanReportViewScope previous, in ScanReportViewScope current)
+    {
+        writer.WriteStartObject("view"u8);
+        writer.WriteBoolean("changed"u8, ViewChanged(previous, current));
+        WriteDependencyFilter(writer, "previous"u8, previous);
+        WriteDependencyFilter(writer, "current"u8, current);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteDependencyFilter(Utf8JsonWriter writer, ReadOnlySpan<byte> name, in ScanReportViewScope view)
+    {
+        writer.WriteStartObject(name);
+        if (view.IsFiltered) writer.WriteString("dependencyFilter"u8, view.DependencyFilter);
+        else writer.WriteNull("dependencyFilter"u8);
+        writer.WriteNumber("excludedCount"u8, view.ExcludedCount);
+        writer.WriteNumber("excludedUnknownCount"u8, view.ExcludedUnknownCount);
         writer.WriteEndObject();
     }
 
@@ -289,7 +382,7 @@ internal sealed class DiffCommands
         writer.WriteEndObject();
     }
 
-    private static bool InputScopeChanged(string[] previous, string[] current)
+    private static bool SetChanged(string[] previous, string[] current)
     {
         for (var i = 0; i < previous.Length; i++)
         {

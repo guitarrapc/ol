@@ -1,0 +1,16 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "bom-ref": "root-shared",
+      "type": "library",
+      "name": "shared",
+      "version": "1.0.0",
+      "purl": "pkg:npm/shared@1.0.0"
+    }
+  },
+  "components": [],
+  "dependencies": [{ "ref": "root-shared", "dependsOn": [] }]
+}

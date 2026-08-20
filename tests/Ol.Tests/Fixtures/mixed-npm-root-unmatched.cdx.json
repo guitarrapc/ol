@@ -1,0 +1,16 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "bom-ref": "root-standalone",
+      "type": "library",
+      "name": "standalone",
+      "version": "2.0.0",
+      "purl": "pkg:npm/standalone@2.0.0"
+    }
+  },
+  "components": [],
+  "dependencies": [{ "ref": "root-standalone", "dependsOn": [] }]
+}

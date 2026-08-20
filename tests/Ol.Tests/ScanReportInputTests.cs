@@ -97,6 +97,124 @@ public sealed class ScanReportInputTests
     }
 
     [Test]
+    public async Task TryRead_WithFilteredView_RestoresTheFilterAndTheExcludedCounts()
+    {
+        var json = Report(Component()).Replace(
+            "\"spdx\":",
+            "\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": 3, \"excludedUnknownCount\": 1 }, \"spdx\":",
+            StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.View.IsFiltered).IsTrue();
+        await Assert.That(report.View.DependencyFilter).IsEqualTo("direct");
+        await Assert.That(report.View.ExcludedCount).IsEqualTo(3);
+        await Assert.That(report.View.ExcludedUnknownCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task TryRead_WithUnfilteredView_RestoresNoFilter()
+    {
+        var json = Report(Component()).Replace(
+            "\"spdx\":",
+            "\"view\": { \"dependencyFilter\": null, \"excludedCount\": 0, \"excludedUnknownCount\": 0 }, \"spdx\":",
+            StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.View.IsFiltered).IsFalse();
+    }
+
+    /// <summary>
+    /// A view that states no filter at all is not the same document as one stating there was none, and a view whose
+    /// counts contradict its filter is neither. Accepting either as unfiltered would let a narrowed report be gated
+    /// as a complete one, which is what reading the view prevents.
+    /// </summary>
+    [Test]
+    [Arguments("\"view\": null")]
+    [Arguments("\"view\": {}")]
+    [Arguments("\"view\": { \"excludedCount\": 0, \"excludedUnknownCount\": 0 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": 6, \"excludedCount\": 0, \"excludedUnknownCount\": 0 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"direct\", \"excludedUnknownCount\": 0 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": 0 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": 1.5, \"excludedUnknownCount\": 0 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": -1, \"excludedUnknownCount\": 0 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": 3, \"excludedUnknownCount\": -1 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": 3, \"excludedUnknownCount\": 5 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": null, \"excludedCount\": 6, \"excludedUnknownCount\": 0 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"\", \"excludedCount\": 0, \"excludedUnknownCount\": 3 }")]
+    public async Task TryRead_WithUnreadableView_Fails(string view)
+    {
+        var json = Report(Component()).Replace("\"spdx\":", $"{view}, \"spdx\":", StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
+
+        await Assert.That(parsed).IsFalse();
+        await Assert.That(error).Contains("metadata.view");
+    }
+
+    /// <summary>
+    /// The rejected states are narrow, so the nearby valid ones have to stay valid: a filter that excluded nothing,
+    /// and one whose exclusions were all relationships no input determined.
+    /// </summary>
+    [Test]
+    [Arguments("\"dependencyFilter\": \"direct\", \"excludedCount\": 0, \"excludedUnknownCount\": 0", true)]
+    [Arguments("\"dependencyFilter\": \"direct\", \"excludedCount\": 3, \"excludedUnknownCount\": 3", true)]
+    [Arguments("\"dependencyFilter\": null, \"excludedCount\": 0, \"excludedUnknownCount\": 0", false)]
+    [Arguments("\"dependencyFilter\": \"\", \"excludedCount\": 0, \"excludedUnknownCount\": 0", false)]
+    public async Task TryRead_WithConsistentView_Succeeds(string view, bool filtered)
+    {
+        var json = Report(Component()).Replace("\"spdx\":", $"\"view\": {{ {view} }}, \"spdx\":", StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.View.IsFiltered).IsEqualTo(filtered);
+    }
+
+    /// <summary>
+    /// One message for every way a view can be unreadable points a reader at the wrong contract. A report is rejected
+    /// once and the operator has only the message to work from, so it has to name the field that failed.
+    /// </summary>
+    [Test]
+    [Arguments("\"view\": null", "must be an object")]
+    [Arguments("\"view\": { \"excludedCount\": 0, \"excludedUnknownCount\": 0 }", "dependencyFilter")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": -1, \"excludedUnknownCount\": 0 }", "excludedCount")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": 3, \"excludedUnknownCount\": 5 }", "excludedUnknownCount")]
+    [Arguments("\"view\": { \"dependencyFilter\": null, \"excludedCount\": 6, \"excludedUnknownCount\": 0 }", "states no dependency filter")]
+    public async Task TryRead_WithUnreadableView_NamesWhatFailed(string view, string expected)
+    {
+        var json = Report(Component()).Replace("\"spdx\":", $"{view}, \"spdx\":", StringComparison.Ordinal);
+
+        ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
+
+        await Assert.That(error).Contains("metadata.view");
+        await Assert.That(error).Contains(expected);
+    }
+
+    /// <summary>
+    /// A default-constructed scope is the one a caller gets when it states no view, and it must read as unfiltered
+    /// rather than as an unusable value, because that is the only value the renderers' optional parameter can take.
+    /// </summary>
+    [Test]
+    public async Task ViewScope_WhenDefaultConstructed_StatesNoFilter()
+    {
+        await Assert.That(default(ScanReportViewScope).IsFiltered).IsFalse();
+        await Assert.That(new ScanReportViewScope(string.Empty, 0, 0).IsFiltered).IsFalse();
+    }
+
+    [Test]
+    public async Task TryRead_WithoutView_RestoresNoFilter()
+    {
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(Report(Component())), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.View.IsFiltered).IsFalse();
+    }
+
+    [Test]
     public async Task TryRead_RestoresPerComponentDevelopmentUsage()
     {
         const string components = """

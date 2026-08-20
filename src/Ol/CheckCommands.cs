@@ -145,7 +145,7 @@ internal sealed class CheckCommands
         {
             try
             {
-                File.WriteAllBytes(sarif, SarifRenderer.Render(inventory, components, violations, developmentAllowedComponents, ToolVersion));
+                File.WriteAllBytes(sarif, SarifRenderer.Render(inventory, components, violations, developmentAllowedComponents, ToolVersion, persisted.View));
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
             {
@@ -167,7 +167,8 @@ internal sealed class CheckCommands
                 developmentAllowedCount,
                 excludePackages is null ? -1 : excludedCount,
                 ambiguityAllowedCount,
-                persisted.ExcludedInputPaths);
+                persisted.ExcludedInputPaths,
+                persisted.View);
         }
         catch (IOException exception)
         {
@@ -348,8 +349,10 @@ internal static class CheckRenderer
         int developmentAllowedCount = -1,
         int excludedCount = -1,
         int ambiguityAllowedCount = 0,
-        string[]? excludedInputPaths = null)
+        string[]? excludedInputPaths = null,
+        ScanReportViewScope view = default)
     {
+        WriteDependencyFilter(writer, view);
         WriteExcludedInputPaths(writer, excludedInputPaths);
         WriteOptionalCount(writer, "Excluded from evaluation: "u8, excludedCount, includeZero: true);
         WriteOptionalCount(writer, "Acknowledged by baseline: "u8, acknowledgedCount, includeZero: true);
@@ -414,6 +417,36 @@ internal static class CheckRenderer
         }
 
         mechanismTally.Write(writer);
+    }
+
+    /// <summary>
+    /// States the <c>--dependency</c> filter the producing scan applied, when it applied one.
+    /// </summary>
+    /// <remarks>
+    /// A filtered report is a narrower population than the scan resolved, and <c>check</c> evaluates whatever the
+    /// report holds. Saying nothing would leave a partial evaluation reading exactly like a complete one, which is
+    /// the failure the report's own <c>metadata.view</c> exists to prevent. The excluded relationships no input
+    /// determined are counted separately because policy keeps those fail-closed, so dropping them is the part of the
+    /// exclusion that changes what a gate can prove.
+    /// </remarks>
+    private static void WriteDependencyFilter(IBufferWriter<byte> writer, in ScanReportViewScope view)
+    {
+        if (!view.IsFiltered) return;
+
+        WriteUtf8(writer, "Dependency filter: "u8);
+        WriteUtf8(writer, view.DependencyFilter);
+        WriteUtf8(writer, "; "u8);
+        WriteInt32(writer, view.ExcludedCount);
+        WriteUtf8(writer, view.ExcludedCount == 1 ? " component excluded by the producing scan"u8 : " components excluded by the producing scan"u8);
+        if (view.ExcludedUnknownCount > 0)
+        {
+            WriteUtf8(writer, ", "u8);
+            WriteInt32(writer, view.ExcludedUnknownCount);
+            WriteUtf8(writer, " with an unknown relationship"u8);
+        }
+
+        WriteUtf8(writer, "."u8);
+        WriteNewLine(writer);
     }
 
     private static void WriteExcludedInputPaths(IBufferWriter<byte> writer, string[]? excludedInputPaths)

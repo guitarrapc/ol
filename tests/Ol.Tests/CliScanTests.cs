@@ -460,7 +460,7 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
             // Every counter on this line carries a fixed plural, so this one does too.
-            await Assert.That(stderr).Contains("0 fetch errors; 2 unsupported ecosystems; 1 unversioned purls");
+            await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 2 unsupported ecosystems; 1 unversioned purls;");
         }
         finally
         {
@@ -494,7 +494,7 @@ public sealed class CliScanTests
             var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-evidence-packages", "pkg:nuget/MyCompany.");
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stderr).Contains("0 fetch errors; 1 unsupported ecosystems");
+            await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 1 unsupported ecosystems;");
         }
         finally
         {
@@ -1447,10 +1447,13 @@ public sealed class CliScanTests
                 await Assert.That(exitCode).IsEqualTo(0);
                 await Assert.That(stderr).StartsWith($"{Environment.NewLine}Scan summary{Environment.NewLine}");
                 await Assert.That(stderr).Contains("  License results: 1 displayed component; 1 matched; 0 conflict; 0 unknown; 0 ambiguous; 0 invalid; 0 error");
-                await Assert.That(stderr).Contains("  Package artifacts (full scan): 0 targets; 0 documents; 0 matched");
-                await Assert.That(stderr).Contains("  Declared GitHub files (full scan): 0 targets; 0 GitHub requests; 0 cache hits; 0 cache misses; 0 documents; 0 matched; 0 fetch errors");
-                await Assert.That(stderr).Contains("  Package metadata (full scan):");
-                await Assert.That(stderr).Contains("  Source repositories (full scan):");
+                await Assert.That(stderr).Contains("  Evidence (full scan)     targets  requests  hits  misses  docs  matched  errors");
+                await Assert.That(stderr).Contains("    Package artifacts            0         -     -       -     0        0       -");
+                await Assert.That(stderr).Contains("    Declared GitHub files        0         0     0       0     0        0       0");
+                await Assert.That(stderr).Contains("    Package metadata             0         -     0       0     -        -       0");
+                await Assert.That(stderr).Contains("    Source repositories          0         0     0       0     -        -       0");
+                await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 0 unsupported ecosystems; 0 unversioned purls;");
+                await Assert.That(stderr).Contains("components without source license");
                 await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; 0 incomplete input sets; 0 excluded input paths; ecosystems none");
                 await Assert.That(stderr).Contains("  Input:");
             }
@@ -3933,8 +3936,9 @@ public sealed class CliScanTests
                     await Assert.That(human.Stdout).Contains(packages[index].Name);
                 }
 
-                await Assert.That(human.Stderr).Contains("  Package artifacts (full scan): 4 targets; 0 documents; 0 matched");
-                await Assert.That(human.Stderr).Contains("  Declared GitHub files (full scan): 1 targets; 0 GitHub requests; 1 cache hits; 0 cache misses; 1 documents; 4 matched; 0 fetch errors");
+                await Assert.That(human.Stderr).Contains("  Evidence (full scan)     targets  requests  hits  misses  docs  matched  errors");
+                await Assert.That(human.Stderr).Contains("    Package artifacts            4         -     -       -     0        0       -");
+                await Assert.That(human.Stderr).Contains("    Declared GitHub files        1         0     1       0     1        4       0");
             }
         }
         finally

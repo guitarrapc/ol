@@ -189,7 +189,7 @@ internal sealed class ScanCommands
             Console.Error.WriteLine();
             Console.Error.WriteLine("Scan summary");
             Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid; {summary.Error} error");
-            Console.Error.WriteLine($"  Findings: {summary.UnresolvedWarningCount} warning{(summary.UnresolvedWarningCount == 1 ? string.Empty : "s")} on unresolved components; {summary.ResolvedWarningCount} on resolved components; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
+            Console.Error.WriteLine($"  Findings: {summary.UnresolvedWarningCount} warning{(summary.UnresolvedWarningCount == 1 ? string.Empty : "s")} on unresolved components; {summary.ResolvedWarningCount} warning{(summary.ResolvedWarningCount == 1 ? string.Empty : "s")} on resolved components; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
 
             // Two inputs rarely enumerate the same set, and which of them a component came from is the fact
             // that says whether the second input earned its place. Per component the report already says it;
@@ -208,10 +208,7 @@ internal sealed class ScanCommands
             }
             else
             {
-                Console.Error.WriteLine($"  Package artifacts (full scan): {packageArtifacts.TargetCount} targets; {packageArtifacts.DocumentCount} documents; {packageArtifacts.MatchedCount} matched");
-                Console.Error.WriteLine($"  Declared GitHub files (full scan): {declaredGitHubFiles.TargetCount} targets; {declaredGitHubFiles.GitHubRequestCount} GitHub requests; {declaredGitHubFiles.CacheHitCount} cache hits; {declaredGitHubFiles.CacheMissCount} cache misses; {declaredGitHubFiles.DocumentCount} documents; {declaredGitHubFiles.MatchedCount} matched; {declaredGitHubFiles.FetchErrorCount} fetch errors");
-                Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems; {packageMetadata.UnversionedPurlCount} unversioned purls; {packageMetadata.NoPurlCount} without purl");
-                Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
+                WriteEvidenceTable(packageArtifacts, declaredGitHubFiles, packageMetadata, source, Console.Error);
                 Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
             }
 
@@ -319,6 +316,92 @@ internal sealed class ScanCommands
         public int SbomOnly;
         public int PackageManagerOnly;
         public int Both;
+    }
+
+    /// <summary>Column headers of the evidence table, in display order.</summary>
+    private static readonly string[] EvidenceColumnHeaders = ["targets", "requests", "hits", "misses", "docs", "matched", "errors"];
+
+    /// <summary>Row labels of the evidence table, in display order.</summary>
+    private static readonly string[] EvidenceRowLabels = ["Package artifacts", "Declared GitHub files", "Package metadata", "Source repositories"];
+
+    /// <summary>
+    /// States what each evidence collector was pointed at and what came back, as one aligned table.
+    /// </summary>
+    /// <remarks>
+    /// The four collectors share most of their vocabulary — targets, requests, cache hits and misses,
+    /// documents, matches, errors — but not all of it, and as four semicolon-separated lines the shared
+    /// counters never landed in the same place. Comparing one counter across collectors meant re-reading
+    /// four lines of up to 150 characters to find where each had put it. Alignment is the whole change:
+    /// the values are the ones those lines already carried, and the mode qualifier the four lines repeated
+    /// is stated once in the heading.
+    ///
+    /// A cell a collector has no counter for is written "-", not 0, because a zero claims it attempted the
+    /// work and found nothing. That is the same distinction the External evidence line draws for a run.
+    /// Counters only one collector has stay in a named line under the table rather than adding a column
+    /// that would be "-" in three of the four rows.
+    /// </remarks>
+    private static void WriteEvidenceTable(
+        in PackageArtifactCollectionSummary packageArtifacts,
+        in DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFiles,
+        in PackageMetadataSummary packageMetadata,
+        in SourceRepositorySummary source,
+        TextWriter writer)
+    {
+        const string Heading = "  Evidence (full scan)";
+        const string RowIndent = "    ";
+        const string NoCounter = "-";
+
+        // Package metadata counts supported components rather than planned lookups here, because the row's
+        // cache hits and misses are counted per component: a lookup count would not sum with them.
+        string[][] rows =
+        [
+            [Count(packageArtifacts.TargetCount), NoCounter, NoCounter, NoCounter, Count(packageArtifacts.DocumentCount), Count(packageArtifacts.MatchedCount), NoCounter],
+            [Count(declaredGitHubFiles.TargetCount), Count(declaredGitHubFiles.GitHubRequestCount), Count(declaredGitHubFiles.CacheHitCount), Count(declaredGitHubFiles.CacheMissCount), Count(declaredGitHubFiles.DocumentCount), Count(declaredGitHubFiles.MatchedCount), Count(declaredGitHubFiles.FetchErrorCount)],
+            [Count(packageMetadata.SupportedComponentCount), NoCounter, Count(packageMetadata.CacheHitCount), Count(packageMetadata.CacheMissCount), NoCounter, NoCounter, Count(packageMetadata.FetchErrorCount)],
+            [Count(source.TargetCount), Count(source.GitHubRequestCount), Count(source.CacheHitCount), Count(source.CacheMissCount), NoCounter, NoCounter, Count(source.FetchErrorCount)],
+        ];
+
+        var labelWidth = Heading.Length;
+        for (var rowIndex = 0; rowIndex < EvidenceRowLabels.Length; rowIndex++)
+        {
+            labelWidth = Math.Max(labelWidth, RowIndent.Length + EvidenceRowLabels[rowIndex].Length);
+        }
+
+        Span<int> widths = stackalloc int[EvidenceColumnHeaders.Length];
+        for (var columnIndex = 0; columnIndex < EvidenceColumnHeaders.Length; columnIndex++)
+        {
+            var width = EvidenceColumnHeaders[columnIndex].Length;
+            for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
+            {
+                width = Math.Max(width, rows[rowIndex][columnIndex].Length);
+            }
+
+            widths[columnIndex] = width;
+        }
+
+        WriteEvidenceRow(Heading, EvidenceColumnHeaders, labelWidth, widths, writer);
+        for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
+        {
+            WriteEvidenceRow(RowIndent + EvidenceRowLabels[rowIndex], rows[rowIndex], labelWidth, widths, writer);
+        }
+
+        writer.WriteLine($"{RowIndent}Package metadata: {packageMetadata.RefreshedCount} refreshed; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems; {packageMetadata.UnversionedPurlCount} unversioned purls; {packageMetadata.NoPurlCount} without purl");
+        writer.WriteLine($"{RowIndent}Source repositories: {source.UnknownCount} components without source license");
+
+        static string Count(int value) => value.ToString();
+    }
+
+    /// <summary>Writes one evidence row with the label left-aligned and every counter right-aligned in its column.</summary>
+    private static void WriteEvidenceRow(string label, string[] cells, int labelWidth, ReadOnlySpan<int> widths, TextWriter writer)
+    {
+        writer.Write(label.PadRight(labelWidth));
+        for (var columnIndex = 0; columnIndex < cells.Length; columnIndex++)
+        {
+            writer.Write("  ");
+            writer.Write(cells[columnIndex].PadLeft(widths[columnIndex]));
+        }
+
+        writer.WriteLine();
     }
 
     private static void WriteInputDiscoverySummary(

@@ -361,7 +361,7 @@ ol scan --input bom.cdx.json --input .
 
 SBOMを公開しているプロジェクトには、この入力を推奨します。SBOM単体では得られないものが2つ戻ってきます。
 
-- **ビルドが実際に消費したパッケージ内のライセンスファイル。** olが復元済みパッケージ内の`LICENSE`を読むのは、そのパッケージの位置を入力が教えたときだけです。これはregistryのメタデータがライセンスを書いていない発行元を解決し、実在のパッケージで`matched`と未解決を分けます。たとえば`Microsoft.DotNet.PlatformAbstractions`はNuGet registryにライセンス記載がなくGitHubも`NOASSERTION`を返しますが、パッケージには`LICENSE.TXT`が同梱されています。解決済みツリーを指す入力がない場合、スキャンのサマリーは`Package artifacts (full scan): 0 targets`と報告します。
+- **ビルドが実際に消費したパッケージ内のライセンスファイル。** olが復元済みパッケージ内の`LICENSE`を読むのは、そのパッケージの位置を入力が教えたときだけです。これはregistryのメタデータがライセンスを書いていない発行元を解決し、実在のパッケージで`matched`と未解決を分けます。たとえば`Microsoft.DotNet.PlatformAbstractions`はNuGet registryにライセンス記載がなくGitHubも`NOASSERTION`を返しますが、パッケージには`LICENSE.TXT`が同梱されています。解決済みツリーを指す入力がない場合、スキャンのサマリーはevidence表の`Package artifacts`行の`targets`に`0`を報告します。
 - **resolverが生成した依存グラフ。** SBOMが利用可能なグラフを持つかは生成ツール次第です。不完全なグラフを出力する生成ツールでは、olが分類しないcomponentが残ります。`dependency: unknown`になると`--dependency direct`が効かなくなり、`--allow-dev-licenses`の緩和も適用されません。この緩和はresolverが開発専用であることを証明できたcomponentにしか適用されないためです。
 
 SBOM側も、SBOMだけが知っていることを提供し続けます。生成元が主張したライセンスと、olが直接読むパッケージマネージャーの外にあるcomponentです。

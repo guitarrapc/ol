@@ -182,11 +182,7 @@ public static class ScanReportReader
             }
             else if (reader.ValueTextEquals("view"u8))
             {
-                if (!TryReadView(ref reader, out view))
-                {
-                    error = "The report metadata.view value must be an object.";
-                    return false;
-                }
+                if (!TryReadView(ref reader, out view, out error)) return false;
             }
             else
             {
@@ -199,34 +195,50 @@ public static class ScanReportReader
         return true;
     }
 
-    private static bool TryReadView(ref Utf8JsonReader reader, out ScanReportViewScope view)
+    private static bool TryReadView(ref Utf8JsonReader reader, out ScanReportViewScope view, out string error)
     {
         view = new ScanReportViewScope(string.Empty, 0, 0);
-        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return false;
+        error = string.Empty;
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+        {
+            error = "The report metadata.view value must be an object.";
+            return false;
+        }
 
         var dependencyFilter = string.Empty;
         var excludedCount = 0;
         var excludedUnknownCount = 0;
-        // A view stating no filter and a view stating nothing are different documents. Only the first proves the
-        // report holds every component the scan resolved, so the field has to be present rather than merely absent
-        // of a value; an empty object read as unfiltered would gate a narrowed report as a complete one.
+        // Every field is required. A view stating no filter and a view stating nothing are different documents, and
+        // only the first proves the report holds every component the scan resolved; a count Ol supplied and a count
+        // Ol defaulted are likewise different claims, and printing a defaulted zero would state an exclusion figure
+        // no producer wrote.
         var statedDependencyFilter = false;
+        var statedExcludedCount = false;
+        var statedExcludedUnknownCount = false;
         while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
         {
             if (reader.ValueTextEquals("dependencyFilter"u8))
             {
                 statedDependencyFilter = true;
-                if (!reader.Read()) return false;
+                if (!reader.Read()) return Invalid(out error, "The report metadata.view dependencyFilter must be a string or null.");
                 if (reader.TokenType == JsonTokenType.String) dependencyFilter = reader.GetString() ?? string.Empty;
-                else if (reader.TokenType != JsonTokenType.Null) return false;
+                else if (reader.TokenType != JsonTokenType.Null) return Invalid(out error, "The report metadata.view dependencyFilter must be a string or null.");
             }
             else if (reader.ValueTextEquals("excludedCount"u8))
             {
-                if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out excludedCount)) return false;
+                statedExcludedCount = true;
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out excludedCount) || excludedCount < 0)
+                {
+                    return Invalid(out error, "The report metadata.view excludedCount must be a non-negative integer.");
+                }
             }
             else if (reader.ValueTextEquals("excludedUnknownCount"u8))
             {
-                if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out excludedUnknownCount)) return false;
+                statedExcludedUnknownCount = true;
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out excludedUnknownCount) || excludedUnknownCount < 0)
+                {
+                    return Invalid(out error, "The report metadata.view excludedUnknownCount must be a non-negative integer.");
+                }
             }
             else
             {
@@ -235,9 +247,37 @@ public static class ScanReportReader
             }
         }
 
-        if (!statedDependencyFilter || reader.TokenType != JsonTokenType.EndObject) return false;
+        if (reader.TokenType != JsonTokenType.EndObject)
+        {
+            return Invalid(out error, "The report metadata.view value must be an object.");
+        }
+
+        if (!statedDependencyFilter || !statedExcludedCount || !statedExcludedUnknownCount)
+        {
+            return Invalid(out error, "The report metadata.view must state dependencyFilter, excludedCount, and excludedUnknownCount.");
+        }
+
+        // The counts describe what the filter removed, so they cannot outrun it. A view claiming no filter while
+        // reporting exclusions is the narrowed-report-read-as-complete case in another shape, and an unknown-
+        // relationship count above the total describes a subset larger than its set.
+        if (excludedUnknownCount > excludedCount)
+        {
+            return Invalid(out error, $"The report metadata.view states excludedUnknownCount {excludedUnknownCount} above excludedCount {excludedCount}.");
+        }
+
+        if (dependencyFilter.Length == 0 && excludedCount > 0)
+        {
+            return Invalid(out error, $"The report metadata.view states no dependency filter but reports {excludedCount} excluded components.");
+        }
+
         view = new ScanReportViewScope(dependencyFilter, excludedCount, excludedUnknownCount);
         return true;
+    }
+
+    private static bool Invalid(out string error, string message)
+    {
+        error = message;
+        return false;
     }
 
     private static bool TryReadInputScope(ref Utf8JsonReader reader, out string[] excludedInputPaths)

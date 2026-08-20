@@ -13,7 +13,7 @@
 1. **現状の harness は 8 リポジトリすべてで失敗する**（`ol check` exit 2、合計 451 violations）。onboarding 手順が欠けているのであって、`ol` が壊れているのではない。
 2. **Syft SBOM は 129 個の phantom component と 108 件の violation を追加し、`ol` 単独が解決できなかった component を 1 つも解決しなかった。** 原因は Syft の binary cataloger であり、cataloger 選択の修正で phantom は 129 → 4 に減る。
 3. **残る 343 violations の大半は legacy .NET NuGet corpus**（`System.*` / `runtime.*` / 旧 xunit）で、`licenseUrl` が非ライセンス文書を指すため原理的に解決しない。prefix 除外では分離できず、baseline が唯一の正しい機構である。
-4. **129 entries / 76 KB の共有 baseline 1 個 + allow-list への 8 identifier 追加で、8 リポジトリすべてが exit 0 に到達する。** baseline はリポジトリ間で再利用でき、組織で 1 ファイルを共有できる。
+4. **129 entries 相当の baseline + allow-list への 8 identifier 追加で、8 リポジトリすべてが exit 0 に到達する。** baseline entry はリポジトリ間で再利用できるため、組織 baseline とリポジトリ固有 delta を `--baseline` の合成で重ねる運用を採る。
 5. **`ol` は実用に足る。** 実用足る使い方は「Syft を第一入力にする」ではなく「`ol scan --input .` を主入力にし、Syft は `ol` が adapter を持たない ecosystem の補完として、binary cataloger を切って使う」である。
 
 ## 前計画のどれが支持され、どれが反証されたか
@@ -21,7 +21,7 @@
 | 前計画の主張 | 実測 |
 |---|---|
 | `dotnet build` 後の Syft scan は noise が増える | **支持**。ただし build しなくても Unity `Assets/Plugins` などの commit 済み DLL から同じ noise が出るため、`bin`/`obj` 除外では防げない |
-| npm dev dependency は inventory に含める | **支持**。ただし SBOM を併記すると `--allow-dev-licenses` が機能しなくなる |
+| npm dev dependency は inventory に含める | **支持**。SBOM 併記で `--allow-dev-licenses` が機能しなくなる問題は優先度 6 で解消済み |
 | GitHub Actions cataloger を除外する | **部分的に支持**。真の noise 源は github ではなく binary cataloger だった |
 | allow-list と baseline の役割を分ける | **支持**。8 リポジトリで例外なく成立した |
 | Syft を第一候補にする | **反証**。Cysharp の 8 リポジトリで Syft の限界効用は負だった |
@@ -108,7 +108,9 @@ AIApiTracer で `usage=development` と判定された component 数:
 
 cataloger を `declared,-binary` に絞っても 1 のままだった。npm cataloger は `declared` なので SBOM は同じ lockfile を列挙し続け、[packagemanager.md:178](../specs/packagemanager.md:178) の「SBOM inputs leave usage unknown」と「any runtime or unknown occurrence wins」により、fold のたびに dev 判定が消える。仕様どおりの fail-closed であって bug ではないが、結果として **推奨構成が `--allow-dev-licenses` を機能しなくする**。
 
-前計画が AIApiTracer で `0BSD` と `BlueOak-1.0.0` を dev policy ではなく主 allow-list に入れたのは、この相互作用に押し出された結果と考えられる。Cysharp/Actions が `license-allow-dev-licenses` を input として公開している以上、この組み合わせは文書化されるか、設計として解消される必要がある。
+前計画が AIApiTracer で `0BSD` と `BlueOak-1.0.0` を dev policy ではなく主 allow-list に入れたのは、この相互作用に押し出された結果と考えられる。
+
+**この測定は後に設計として解消された。** 優先度 6 を参照。当初は「仕様どおりの fail-closed だから文書化のみ」と結論したが、規則の照準がずれていることが分かり、判定していない入力の occurrence は棄権するよう変更した。usage を判定する 5 エコシステムすべてで before/after を実証している。
 
 ## 測定 4: 残る 343 violations の正体
 
@@ -161,9 +163,13 @@ SBOM を外した状態の violation を名前で分類すると、.NET リポ�
 - baseline の `fingerprint` は status と evidence のハッシュで、identity（ecosystem/name/version/purl）とは別フィールドである。したがって同じ component は別リポジトリでも同じ entry になる。
 - report に存在しない entry を含む baseline はエラーにならない。LogicLooper の 11 entry baseline を csbindgen に適用して `Acknowledged by baseline: 1 component.` / exit 0 を確認した。
 
-つまり **Cysharp/Actions に共有 baseline を 1 個置き、リポジトリ側は原則ファイルを持たない**運用が今日の `ol` で成立する。「空なら空にしたい、作るのを求めたくない」という要件はこの形で満たせる。
+つまり **Cysharp/Actions に組織 baseline を 1 個置く**運用が成立する。
 
-ただし統合 129 entries には `minimal-lexical` の conflict が 1 件含まれている。`--update-baseline` は conflict も acknowledge するため、**onboarding の一括生成は本物の食い違いを埋めうる**。共有 baseline を作る作業は、生成コマンドを流すことではなく 129 件を読むことである。
+当初はこれを「承認の帰属が曖昧になる」として採らず、各リポジトリが 1 ファイルを持つ方針にしたが、**撤回した**。測定 4 のとおり legacy .NET corpus はリポジトリ間で同一の母集団であり、各ファイルに複製すると 1 度で済む組織レビューが repo ごとの書き写しになる。優先度 4 で `--baseline` を repeatable（union 合成）にしたので、**組織ファイルとリポジトリ固有ファイルの両方を渡す**形が採れる。帰属は「どちらのファイルに entry があるか」で表現される。
+
+「空なら空にしたい、作るのを求めたくない」という要件は、**workflow が「ファイルがあるときだけ `--baseline` を付ける」**ことで満たす（不具合 7 の修正）。組織 baseline の外に承認すべき未解決証拠が無いリポジトリはファイルを持たない。
+
+なお統合 129 entries には `minimal-lexical` の conflict が 1 件含まれていた。`--update-baseline` は conflict も acknowledge するため、**onboarding の一括生成は本物の食い違いを埋めうる**。baseline を作る作業は、生成コマンドを流すことではなく entry を読むことである。
 
 ## 測定 6: CI での実行コスト
 
@@ -180,6 +186,87 @@ MagicOnion（1670 components）を cache 完全空で 1 回スキャンした。
 timeout 10 分には収まる。問題は GitHub API で、Actions の `GITHUB_TOKEN` は **1 リポジトリあたり毎時 1,000 requests**（Enterprise Cloud は 15,000）である。cold cache の MagicOnion 1 回で時間枠の 82% を使い、**同一時間内の 2 本目の PR で rate limit に到達する**。しかも 821 のうち 766 は何も答えていない。
 
 これは 2 つの帰結を生む。evidence cache の CI 復元は最適化ではなく前提条件であること。そして rate limit で collection が落ちた run は `error` status になり `ol check` は exit **3** を返すため、exit 3 の扱いを決めていない harness は「registry 障害」と「ライセンス違反」を区別できないこと。
+
+## 測定 7: 各エコシステム推奨の事前解決を行った基準線と、そこへの Syft 追加
+
+測定 1〜2 の基準線は「単一 solution の restore + `--input .`」だった。これを各言語が推奨する解決手順に揃え直して測り直した。全 solution の `dotnet restore`、Cargo workspace ごとの `cargo metadata`（lockfile が commit されている場合のみ `--locked`）、npm/pnpm は commit 済み lockfile。
+
+### 事前解決を正すと取りこぼしが消える
+
+| Repository | 旧基準線 | 正しい事前解決 | 差 | 原因 |
+|---|---:|---:|---:|---|
+| csbindgen | 15 | **61** | +46 | Rust 48 crates。従来は**完全に未監査** |
+| ZLinq | 109 | **122** | +13 | 2 つ目の solution `tests/System.Linq.Tests` の xunit.v3 系 |
+
+8/8 で `0 ignored candidates` に到達した。`license is not allowed` は 8 リポジトリで 0 件で、残る 269 violations はすべて未解決の証拠である。
+
+### 正しい基準線の上で Syft を足すとどうなるか
+
+|  | PM のみ | | + Syft(推奨) | | + Syft(既定) | |
+|---|---:|---:|---:|---:|---:|---:|
+| Repository | comp | viol | comp | viol | comp | viol |
+| AIApiTracer | 100 | 0 | 102 | 0 | 115 | 13 |
+| csbindgen | 61 | 2 | 64 | 4 | 75 | 15 |
+| DFrame | 189 | 83 | 190 | 83 | 236 | 124 |
+| LogicLooper | 50 | 11 | 51 | 11 | 65 | 25 |
+| MagicOnion | 1590 | 73 | 1591 | 73 | 1709 | 177 |
+| NativeCompressions | 166 | 3 | 170 | 6 | 209 | 44 |
+| UniTask | 141 | 94 | 142 | 94 | 167 | 119 |
+| ZLinq | 122 | 3 | 123 | 3 | 139 | 19 |
+| **合計 violations** | | **269** | | **274** | | **516** |
+| **合計 sbom-only** | | **0** | | **13** | | **296** |
+
+**推奨 cataloger 構成なら劣化は +5 violations で、6/8 は完全に不変。** 増分は csbindgen +2、NativeCompressions +3 のみで、内訳は全部**リポジトリ自身の Cargo workspace member**だった（`csbindgen`、`csbindgen-tests`、`liblz4`、`libopenzl`、`libzstd`）。`cargo metadata` は workspace member を監査対象そのものとして除外するが、Syft の `rust-cargo-lock-cataloger` は Cargo.lock を読むため含める。generator と resolver の意味論の差であり、`package_metadata_no_purl` として正しく報告される。Rust を含まない 6 リポジトリでは Syft が足したのは scan root 1 個だけだった。
+
+**既定構成では 269 → 516（+92%）。** 同じツール・同じ入力で、cataloger 選択の違いだけでこの差が出る。したがって「Syft は結果を大きく劣化させない」は**推奨構成に限った命題**であり、無条件には成り立たない。`sbomOnly` が診断指標として機能することも確認できた（推奨 0〜4、既定 15〜119）。
+
+### 入力を自動検出に置き換えても結果は同一
+
+harness が受け取っている path 入力が本当に必要かを測った。`git ls-files` から `*.sln` / `*.slnx` と、`[workspace]` を含む `Cargo.toml` を拾うだけの、**入力ゼロ**の手順で 8 リポジトリを再測定した。
+
+| Repository | 手動指定 | 自動検出 | 一致 |
+|---|---:|---:|:---:|
+| AIApiTracer | 100 | 100 | OK |
+| csbindgen | 61 | 61 | OK |
+| DFrame | 189 | 189 | OK |
+| LogicLooper | 50 | 50 | OK |
+| MagicOnion | 1590 | 1590 | OK |
+| NativeCompressions | 166 | 166 | OK |
+| UniTask | 141 | 141 | OK |
+| ZLinq | 122 | 122 | OK |
+
+**8/8 で component 数が完全一致。** MagicOnion と ZLinq の 2 つ目の solution、NativeCompressions の `bindgen/Cargo.toml` も自動で拾えた。自動検出のほうが網羅的でもある——本文書が最初に書いた手動パス表は ZLinq の 2 つ目の solution を落としており、それは不具合 8 として別途記録されている。
+
+したがって `license-dotnet-path` と `license-cargo-manifest-path` は**入力として存在する必要がない**。`--locked` の要否も lockfile の有無で判定でき、不具合 2 の分岐も入力を介さずに書ける。
+
+### 現状 harness の規模と、削減できる範囲
+
+`pr-harness.yaml` の `license-check` job は 169 行 / 14 step / 9 input（commit `21e60ea` 時点）。測定に照らすと次が削れる。
+
+| 対象 | 判断 | 根拠 |
+|---|---|---|
+| `license-dotnet-path`, `license-cargo-manifest-path` | 削除 | 上記の自動検出で同一結果 |
+| Syft の 2 step と `license-syft-version` | 削除 | 測定 7 のとおり寄与ゼロ。推奨構成で +5 violations、既定構成で +247 |
+| `license-scan-path` | 削除（`.` 固定） | 8/8 で `0 ignored candidates` |
+| `Validate license check inputs` step | 削除 | 残る必須入力は allow-list だけで、`ol` 自身が空を弾く |
+| `license-allow-dev-licenses` | 保留 | Cysharp では 8/8 で発火しない。使う repo が出るまで不要 |
+
+残す入力は `license-check` / `license-allow-licenses` / `license-baseline-path` / `license-ol-version` の 4 つ。**削らないもの**は測定に裏付けがある: evidence cache（測定 6 の 821 req）、exit 3 の分岐（同）、`ignored candidates` と ecosystem 一覧の job summary（取りこぼし検出の唯一の手段）、`pr-harness-check` の `needs` 判定（不具合 1）。
+
+Syft を外すと、`ol` が adapter を持たないエコシステム（Go、Python、Swift など）が将来入ったとき、自動検出はその存在に気づけない。`ol` の候補検出は `Cargo.toml` と `*.csproj` に限られるためである。保険は Syft の常設ではなく、job summary の ecosystem 一覧を人が見ることとする。
+
+### csbindgen に Cargo.lock を commit すると改善するか
+
+**ol の出力は変わらない。** `cargo metadata` は lockfile が無ければ副作用で生成してから解決するため、その回の結果は同一である（metadata が byte 単位で一致、48 components / 全 matched）。
+
+変わるのは**再現性**である。lockfile が無いと解決は実行時点の最新 semver 互換版になる。
+
+```text
+Cargo.toml の宣言:  syn = "2.0.68",  regex = "1.10.5"
+実際に解決された版:  syn 2.0.119,     regex 1.13.1
+```
+
+これは 3 つの帰結を持つ。`--locked` が使えず CI の解決が固定されない。`ol diff` が「依存の変更」と「解決の揺れ」を区別できない。baseline の fingerprint は version を含むため、揺れるたびに acknowledgement が失効する。ライセンス監査を CI に置くなら、lockfile を commit するか、揺れを受け入れるかの選択になる。
 
 ## Cysharp/Actions `pr-harness.yaml` の不具合
 
@@ -204,15 +291,15 @@ error: cannot create the lock file ...\Cargo.lock because --locked was passed to
 
 csbindgen は library なので `Cargo.lock` を commit していない。`run:` は `bash -e` なので step ごと失敗する。`--locked` は lockfile を commit している repository（NativeCompressions）でのみ正しい。lockfile の有無で分岐するか、`--locked` を外して「解決結果が commit された lock と一致する保証はない」ことを受け入れるかの選択が要る。
 
-### 3. Rust ecosystem が無言で監査されない
+### 3. Rust ecosystem が無言で監査されない（実装前）
 
-csbindgen を `ol scan --input .` すると次のようになる。
+優先度 5 の実装前に csbindgen を `ol scan --input .` すると次のようになっていた。
 
 ```text
 Input discovery: 2 detected files; 0 ignored candidates; 0 incomplete input sets; ecosystems nuget
 ```
 
-warnings は空。Rust の依存が 1 つも監査されていないのに、baseline を置けば `License check passed` になる。`ol` の candidate 検出は `Cargo.lock` と `*.csproj` を見るが `Cargo.toml` を見ないため、lockfile を commit しない library repository では hint が発火しない。[cli.md](../specs/cli.md) が「a silently unscanned ecosystem is the failure the hint exists to prevent」と書いている失敗そのものである。
+warnings は空だった。Rust の依存が 1 つも監査されていないのに、baseline を置けば `License check passed` になっていた。`ol` の candidate 検出が `Cargo.lock` と `*.csproj` だけを見て `Cargo.toml` を見なかったため、lockfile を commit しない library repository では hint が発火しなかった。[cli.md](../specs/cli.md) が「a silently unscanned ecosystem is the failure the hint exists to prevent」と書いている失敗そのものである。現在は優先度 5 の実装により警告される。
 
 ### 4. `ol` の version が固定されていない
 
@@ -276,18 +363,17 @@ job summary の実出力例（MagicOnion の実 report に対して検証済み�
 - github license api: 0 requests, 820 cache hits, 0 errors
 ```
 
-`sbom-only 0` の 1 行が、この調査で最も時間のかかった問いに即答している。優先度 2 の改善が `ol` 本体に入れば、この行は workflow の jq ではなく `ol` が出すべきものになる。
+`sbom-only 0` の 1 行が、この調査で最も時間のかかった問いに即答している。優先度 2 の基本集計を実装した現在は、workflow の jq だけでなく `ol` 自身の stderr と JSON `summary.supply` に同じ情報が出る。
 
 ### 適用していない、人間が決めるべきもの
 
-- **不具合 3（Rust が無言で未監査）**: workflow 側では検出できない。`ol` の優先度 5 で対処するのが筋。当面は csbindgen を onboarding する前に `cargo-metadata.json` が生成されていることを目視確認する。
 - **不具合 9（docs 依存の scope）**: MagicOnion の 1292 件を監査対象に含めるかは組織判断。
 - **allow-list の内容**: 測定 5 の 8 identifier を Cysharp の既定に加えるかは policy owner の判断。
-- **共有 baseline の作成**: 129 entries を人が読む作業。生成コマンドは通るが、`minimal-lexical` の conflict のような本物の食い違いが混ざる。
+- **各リポジトリの baseline 作成**: entry を人が読む作業。生成コマンドは通るが、`minimal-lexical` の conflict のような本物の食い違いが混ざる。
 
 ## `ol` への改善候補
 
-### 優先度 1: `ol check` が「なぜ未解決か」を出さない
+### 優先度 1 (実装済み): `ol check` が「なぜ未解決か」を出さない
 
 CI の operator が見るのはこれである。
 
@@ -310,57 +396,223 @@ harness は `--format json` でしか scan しないので、この行は誰の�
 
 dependency path は同じ理由で `check` に持ち込まれた。`REASON` と `REFERENCE` も同じ扱いを受けるべきである。report にはすでに両方あり、`check` は再収集しない。
 
-- [ ] `check` の violation 行に、unresolved 系 status の mechanism と reference を出す。
-- [ ] mechanism ごとの件数を末尾に集計する。`declared_license_location_not_collected: 86` の 1 行があれば、94 件が 1 つの母集団だと即座に分かる。
+- [x] `check` の violation 行に、unresolved 系 status の mechanism と reference を出す。
+- [x] mechanism ごとの件数を末尾に集計する。`declared_license_location_not_collected: 86` の 1 行があれば、94 件が 1 つの母集団だと即座に分かる。
 
-### 優先度 2: 入力ごとの寄与を summary に出す
+### 優先度 2 (基本集計を実装済み): 入力ごとの寄与を summary に出す
 
 前計画 Phase 3 の項目だが、実測すると**これが最も費用対効果の高い診断**である。`suppliedBy` の 3 分割を数えるだけで、測定 2 の結論（Syft が 129 個の phantom を足して 0 個を解決した）は試行時点で出ていた。
 
-- [ ] scan summary（stderr / JSON `summary`）に `sbom-only` / `package-manager-only` / `both` の件数を出す。
-- [ ] `--verbose` では ecosystem 別に出す。
-- [ ] 片方の入力にしか現れない component が支配的な場合、scope mismatch の可能性を 1 行で述べる。
+- [x] scan summary（stderr / JSON `summary`）に `sbom-only` / `package-manager-only` / `both` の件数を出す。
+- [x] `--verbose` では ecosystem 別に出す。
+- [x] ~~片方の入力にしか現れない component が支配的な場合、scope mismatch の可能性を 1 行で述べる。~~ **設計して却下した**（下記）。
+
+#### scope mismatch ヒントを却下した理由
+
+実装前に 8 リポジトリの ecosystem 別内訳を測った。
+
+| Repository | 内訳 |
+|---|---|
+| MagicOnion | `npm: both 1292` / `nuget: pmOnly 298` |
+| NativeCompressions | `cargo: both 36` / `nuget: pmOnly 130` |
+| AIApiTracer | `npm: sbomOnly 1, both 78` / `nuget: pmOnly 22` |
+| DFrame / LogicLooper / UniTask / ZLinq / csbindgen | `nuget: pmOnly N, both 0` |
+
+**`nuget` が package-manager 片側だけになるのは 8/8 で発生する。** Syft の `declared` cataloger が `project.assets.json` を読まないためで、正しく構成された状態そのものである。閾値ヒントはこの 8 件すべてで発火し、[cli.md](../specs/cli.md) が detected-candidate の scope を決めた際の理由——「既にそのエコシステムをスキャンしているリポジトリで発火するヒントは、読者に無視することを学習させる。見逃すコストより高くつく」——にそのまま抵触する。
+
+ecosystem 別内訳はこの意図を閾値なしで満たす。読者は `both 0` の行を見て自分で判断でき、`ol` は数を述べるだけで意図を推測しない。
+
+```text
+  Supplied by: 2 sbom only; 8 package-manager only; 3 both
+    -: 1 sbom only; 0 package-manager only; 0 both
+    npm: 1 sbom only; 4 package-manager only; 3 both
+    nuget: 0 sbom only; 4 package-manager only; 0 both
+```
+
+canonical JSON は変更していない。component ごとに `ecosystem` と `suppliedBy` を持つため、JSON の消費者はこれを正確に計算できる。計算できないのは text/markdown を読む人間だけであり、既定 summary は既に十分長い。よって `--verbose` の診断とした。
 
 `metadata.input` は collection のとき `"sourceRef": "2 inputs"` と 1 つのハッシュしか持たないため、入力ごとの内訳は現状 component を全走査しないと得られない。
 
-### 優先度 3: purl を持たない component の扱い
+### 優先度 3 (実装済み): purl を持たない component の扱い
 
-generator は package でないもの（実行ファイル、path 依存、workspace member）を purl なしの component として出す。現状これは policy 対象になり、`--exclude-packages` では除去できず、baseline に入れるしかない。名前が `\unity-sandbox\Assets\csbindgen_tests` のように OS 依存の path 断片になることもあり、Windows で生成した baseline が Linux CI で一致しない懸念もある。
+generator は package でないもの（実行ファイル、path 依存、workspace member）を purl なしの component として出す。現状これは policy 対象になり、`--exclude-packages` では除去できず、baseline に入れるしかない。
 
-`ol` が名前から推測して落とすのは fail-open なので採るべきでない。可視性で解く。
+#### 当初の記述は前提を誤っていた
 
-- [ ] purl を持たない component の violation に、`component_has_no_package_identity` 相当の独立した reason を与える。「registry に問えない」ことは status ではなく identity の性質であり、reviewer の行動（generator 設定を直す）が他と異なる。
-- [ ] その件数を常に集計行に出す。
-- [ ] 除外手段を与えるかは別途判断する。与えるなら prefix ではなく「identity のない component」という機構名で指定させる。
-
-### 優先度 4: `--baseline` の重複指定が無言で last-wins
+「機構が出ない」と書いたが、実測は**誤った機構が出る**だった。
 
 ```text
-$ ol check --report DFrame.json --baseline org.json --baseline zlinq.json
-Acknowledged by baseline: 1 component.   → 82 violations
-
-$ ol check --report DFrame.json --baseline zlinq.json --baseline org.json
-Acknowledged by baseline: 83 components. → passed
+\sandbox\Assets\thing  UNKNOWN  -  -  unknown  license is unresolved  source_repository_unavailable  -  -
 ```
 
-警告もエラーも出ない。組織共有 baseline とリポジトリ固有 baseline を合成しようとした人が、順序次第で通ったり落ちたりする。[cli.md](../specs/cli.md) の「an unusable invocation ... is an explicit command failure」に従えば、単数オプションの重複は invocation error であるべきである。
+`sourceRepository.targetCount` は 0。**一度も探されていないリポジトリについて「利用できなかった」という収集結果が合成されていた。** `source_repository_unavailable` は「後の実行で変わりうる」群に分類される機構なので、永久に変わらない条件に対して再試行を示唆していた。
 
-- [ ] 重複指定を exit 1 にする。
-- [ ] そのうえで、共有 baseline の需要（測定 5）に応えるなら `--baseline` を明示的に repeatable（union）にするかを設計判断する。fingerprint が identity と分離されている以上、union は今日でも意味論的に破綻しない。
+`--no-external-evidence` では逆に機構が一切出ず、component は unresolved section にすら現れなかった。同じ条件が収集モードによって「偽」と「無言」に分かれていた。
 
-### 優先度 5: `Cargo.toml` を candidate として検出する
+8 リポジトリの実測: `source_repository_unavailable` を持つ component 146 件のうち、purl なしは 11 件で、**purl なしの 11 件は全部これを持っていた**。
 
-`*.csproj` が「それ自体は入力ではないが restore すれば入力になる」ものとして検出されているのと同じ理由で、`Cargo.toml` も検出対象にする。lockfile を commit しない library repository では `Cargo.lock` が存在せず、現状は hint が一切出ない（不具合 3）。
+#### 実装した内容
 
-- [ ] `Cargo.toml` を検出し、`cargo metadata --format-version 1 > cargo-metadata.json` を案内する。
-- [ ] `--locked` を案内文に含めるかは lockfile の有無で分ける。
+- [x] **enrichment が偽の証拠を作るのをやめた。** identity を持たない component には source-repository の記録を付けない。purl を持つ component の同じ記録（146 − 11 = 135 件）は残す。あちらは対象があり、問い合わせ、リポジトリを知り得なかったという正当な結果である。
+- [x] **機構 `package_metadata_no_purl` を派生させた。** warning bit ではなく `component.Purl.IsEmpty` からの派生。理由はビット数ではなく規則で、「レポートが型付きで既に述べている事実の言い換えは警告ではない」——引退した 3 つの NuGet license 警告と同じ形になるため。派生にしたことで**収集モードに依存しなくなり**、偽と無言の両方が同時に解消した。順位は `package_metadata_unversioned_purl` / `unsupported_package_metadata` と同じ「問い合わせる先が無い」一族の先頭。宣言された文書（`declared_license_file_not_collected` 等）には負ける——文書を開くのは行動だが「identity が無い」は行動ではないため。
+- [x] **`metadata.packageMetadata.noPurlCount` を追加した。** 従来この母集団はどのカウンタにも現れなかった（`targetCount` にも `unversionedPurlCount` にも `unsupportedEcosystemCount` にも入らない）。解決済みの component も数える。「入力のどれだけを enrichment が対象にできなかったか」を測るもので、policy に落ちる前に generator の品質を見るための数だからである。
+- [x] **除外オプションは足さない。** 推奨 cataloger 構成で残るのは 8 リポジトリで 3 件（NativeCompressions 自身の workspace crate）。かつ purl なし ≠ ノイズで、宣言ライセンスを持つ purl なし component は正常に `matched` する。オプションは、SBOM が purl を書き漏らした実在の依存を fail-open させる道になる。
 
-### 優先度 6: SBOM fold による development usage の消失を文書化する
+#### 実データでの確認
 
-仕様としては fail-closed で正しいが、「SBOM と lockfile を併記する」推奨構成が「`--allow-dev-licenses` を使う」推奨構成を無効化することは、どの文書にも書かれていない。
+```text
+$ ol scan --input <NativeCompressions の Syft SBOM>
+Unresolved components
+  liblz4 0.1.0 package_metadata_no_purl
+  libopenzl 0.1.0 package_metadata_no_purl
+  libzstd 0.1.0 package_metadata_no_purl
 
-- [ ] `--allow-dev-licenses` の説明に、同じ ecosystem を SBOM も列挙している場合は usage が unknown に落ちて相殺されることを明記する。
-- [ ] 併記時に「dev 判定を持っていた component が fold で unknown になった件数」を warning として出せないか検討する。これは可視性の問題であり、挙動を変える提案ではない。
+metadata.packageMetadata: {"targetCount":36,"noPurlCount":4,"unversionedPurlCount":0,"unsupportedEcosystemCount":0}
+```
+
+改修前はこの 3 件が `source_repository_unavailable` で、レビュアーを存在しないリポジトリ探しに送っていた。
+
+#### 移行コスト
+
+evidence を変えるので baseline の fingerprint も変わる。実測で失効するのは **policy 対象の 3 件のみ**（残り 8 件は root で policy 対象外）。もともと真でなかった証拠に対する承認なので、失効するのが正しい。
+
+#### やらないこと: 名前の正規化
+
+baseline は purl なし component を名前だけで識別する（`purl: null`、`ecosystem: "-"`）。Windows で生成した `\sandbox\Assets\thing` は Linux CI の `/sandbox/...` と一致せず、review 済みの承認が失効する。しかし [cli.md](../specs/cli.md) の report-privacy 契約が「入力自身の記述を書き換えない」と定めているため、区切り文字の正規化は契約違反になる。cataloger 構成でこの母集団ごと消すのが正しい対処である。
+
+### 優先度 4 (実装済み): 単数オプションの重複が無言で last-wins
+
+#### 当初の記述は範囲を誤っていた
+
+`--baseline` 固有として書いたが、実測すると**単数オプション全部**が同じで、しかも `--baseline` は最も害が小さい部類だった。
+
+| 実行 | 結果 |
+|---|---|
+| `--allow-licenses MIT --allow-licenses <7 個>` | 3 violations |
+| 逆順 | **7 violations** |
+| `--report missing.json --report real.json` | 成功。タイポした最初の指定が黙殺 |
+| `--exclude-packages pkg:cargo/ --exclude-packages pkg:npm/` | `pkg:cargo/` が黙って消える（**36 component が除外対象から外れる**） |
+| `--input-format spdx --input-format cyclonedx` | 後者 |
+
+**policy そのものである `--allow-licenses` が黙って差し替わり、順序で結果が割れる**ほうが重大である。
+
+#### ユースケースから逆算した設計
+
+last-wins が正当化されるのは「デフォルト層を上書きする」CLI（config file → 環境変数 → フラグ）である。`ol` にはその層が無い——[cli.md](../specs/cli.md) が「Policy files, deny-lists, per-package exceptions ... are outside this command's contract」と定め、設定ファイルを持たない設計である。したがって**「後の指定で前を上書きする」という意図を持つ invocation は存在しない**。
+
+重複が起きる経路は 2 つで、累積したい場合の表現手段は既に揃っている。
+
+| オプション | 累積の表現 |
+|---|---|
+| `--allow-licenses` / `--exclude-packages` / `--allow-dev-licenses` | カンマ区切り |
+| `--input` / `--exclude-input-path` | `CommandLineArguments.NormalizeRepeatedOption` が繰り返しを正規化 |
+| `--report` / `--sarif` / `--input-format` / `--cache-dir` | 累積に意味がない |
+
+#### 実装した内容
+
+- [x] **単数オプションの重複を invocation error にした。** `--baseline` 固有ではなく CLI 全体。`CommandLineRouting.TryValidate` に検証を追加した。
+- [x] **累積オプションの除外リストは持たない。** `NormalizeRepeatedInputs` が検証より先に走って繰り返しを 1 occurrence に畳むため、**この規則は「どのオプションが累積するか」を知る必要がない**。表を持たないので、累積オプションが増減しても規則が実態とずれない。
+- [x] `--` escape の後ろは値として扱う。オプション名の比較は parser と同じく大文字小文字を無視する。
+
+```text
+$ ol check --report r.json --allow-licenses MIT --allow-licenses Apache-2.0
+Argument '--allow-licenses' was supplied more than once.
+```
+
+#### `--baseline` は repeatable にした
+
+当初は「各リポジトリが 1 ファイルで管理する」方針で repeatable にしない判断をしたが、**撤回した**。決め手は測定 4 である。legacy .NET NuGet corpus は netstandard2.0 を対象とするリポジトリで**同一の母集団**であり、各リポジトリのファイルに複製すると、1 度で済むはずの組織レビューが repo ごとの書き写しになる。
+
+- [x] `--baseline` を repeatable にし、**union** で合成する。component はいずれかの baseline が述べていれば承認される。entry は identity と evidence fingerprint で自己識別するため、合成に調停規則は要らず、**順序にも依存しない**。
+- [x] 累積オプションの登録は `NormalizeRepeatedInputs` に 1 行加えるだけで済んだ。単数オプション規則（優先度 4 の本体）は正規化の後に走るので、**登録した時点で自動的に対象外**になる。
+- [x] `--update-baseline` は**最後の** `--baseline` を書き、**それより前のファイルが既に承認している entry は書かない**。完全 snapshot を書くと共有母集団が合成相手のファイルに複製され、合成する意味が消えるため。baseline が 1 つなら引く対象が無いので完全 snapshot となり、**従来の挙動と一致する**。
+- [x] 最後より前のファイルは読むだけで書かない。共有母集団は、それを作ったレビューの下に留まる。
+
+#### 実データでの確認
+
+UniTask から生成した 94 entry を組織 baseline とし、NativeCompressions に合成した。
+
+```text
+$ ol check --report NativeCompressions.json --allow-licenses ... \
+    --baseline org.json --baseline local.json --update-baseline
+Acknowledged by baseline: 6 components.
+License check passed: 169 components satisfy the allow-list.
+
+local.json: 4 entries -> liblz4, libopenzl, libzstd, minimal-lexical
+```
+
+NativeCompressions の未解決 6 件のうち、**org.json が既に持つ 2 件は local.json に複製されていない**。
+
+### 優先度 5 (実装済み): `Cargo.toml` を candidate として検出する
+
+`*.csproj` が「それ自体は入力ではないが restore すれば入力になる」ものとして検出されているのと同じ理由で、`Cargo.toml` も検出対象にした。実装前は、lockfile を commit しない library repository に `Cargo.lock` が存在せず、hint が一切出なかった（不具合 3）。
+
+- [x] `Cargo.toml` を検出し、`cargo metadata --format-version 1 > cargo-metadata.json` を案内する。
+- [x] `--locked` を案内文に含めるかは lockfile の有無で分ける。
+
+### 優先度 6 (実装済み): SBOM fold による development usage の消失を文書化する
+
+仕様としては fail-closed で正しいが、「SBOM と lockfile を併記する」推奨構成が「`--allow-dev-licenses` を使う」推奨構成を無効化することは、どの文書にも書かれていなかった。
+
+- [x] [cli.md](../specs/cli.md) の `contract-development-usage-and-sbom` に契約として記述し、[packagemanager.md](../specs/packagemanager.md) の usage 判定にアンカーを付けて相互参照した。README 両言語にも同じ例を載せた。
+- [ ] 件数の warning は**保留**。`Allowed by development policy: N components.` はオプション指定時に必ず出るので、`0` が出ること自体が既に手掛かりになっている。`0` は「dev component が無かった」でも起きるため完全な信号ではないが、別 warning を足すだけの必要は実測できていない。
+
+#### 最小再現（改修前の挙動）
+
+測定 3 は AIApiTracer の 78 → 1 という規模で示したが、原因は 1 component で再現した。同じポリシー・同じ依存関係で、2 つ目の入力の有無だけが違う。
+
+```text
+# package-lock.json が build-tool を devDependency として記録
+$ ol check --report a.json --allow-licenses MIT --allow-dev-licenses CC-BY-4.0
+Allowed by development policy: 1 component.
+License check passed: 1 component satisfies the allow-list.
+
+# 同じ lockfile に、build-tool を列挙する SBOM を併記
+$ ol check --report b.json --allow-licenses MIT --allow-dev-licenses CC-BY-4.0
+Allowed by development policy: 0 components.
+License check failed: 1 violation.
+build-tool  1.0.0  npm  pkg:npm/build-tool@1.0.0  CC-BY-4.0  license is not allowed  -  -  -
+```
+
+#### その後、挙動そのものを直した
+
+当初は「仕様どおりの fail-closed だから文書化のみ」と結論したが、**規則の照準がずれていた**ことが後の検討で判明し、`ol` の挙動を変更した。
+
+**判定していない入力の occurrence は棄権する**（従来は「判定した入力の判定を打ち消す」）。SBOM occurrence は到達性について何も観測しておらず、入力種別に語彙が無いだけである。それを対立する主張として数えると、**語れない入力が語った入力を上書きする**。判定する入力どうしが食い違う場合は別で、そこは従来どおり runtime が勝つ。
+
+決め手になったのは、**現行規則が同一パッケージ内ですら一貫していない**という実測だった。同じ `dup@1.0.0` を 2 箇所に dev install した lockfile に SBOM を足すと:
+
+```text
+PM のみ:      development, development
+PM + SBOM:    (none), development      ← 片方だけ判定を失う
+check:        Allowed by development policy: 1 component. / License check failed: 1 violation.
+```
+
+SBOM occurrence は「入力順で最初に一致した行」にだけ付く（graph に端点を与えるための選択）。それが install パスの違いだけで policy を分けていた。
+
+**放棄したもの**: scope が解決済み入力より広い SBOM が、同じ purl の runtime install を別の場所で拾い、dev 行に fold されるケース。8 リポジトリの実測では npm/pnpm の fold は全件が「同じ lockfile を 2 度読んだ」もので、このケースは 0 件だった。`Supplied by` の内訳（優先度 2）が、SBOM が解決済み入力の外まで届いたかを示す唯一の手掛かりになる。
+
+**保たれたもの**: どの入力も判定しなかった component は unknown のままで、`--allow-dev-licenses` は緩和しない。
+
+#### 5 エコシステムでの実証
+
+「npm と同じはず」という推測を避け、usage を判定する 5 adapter すべてで before/after を測った。cargo・npm・maven は実物のツールチェーンで入力を生成し、pnpm・Composer は実形式に沿って構成した。
+
+| Ecosystem | 入力生成 | dev component | PM のみ | OLD + SBOM | NEW + SBOM |
+|---|---|---|---|---|---|
+| npm | `npm install --package-lock-only` | `left-pad@1.3.0` | development | `(none)` | **development** |
+| pnpm | 手構成（lockfileVersion 9） | `left-pad@1.3.0` | development | `(none)` | **development** |
+| Cargo | `cargo metadata` | `lazy_static@1.5.0` | development | `(none)` | **development** |
+| Maven | `maven-dependency-plugin:tree` | `junit@4.13.2`, `hamcrest-core@1.3` | development | `(none)` | **development** |
+| Composer | 手構成（`packages-dev`） | `phpunit/phpunit`, `sebastian/version` | development | `(none)` | **development** |
+
+OLD は scoop 導入済みの `ol 0.9.3` release。5/5 で同じ回帰が起きており、npm 固有ではなかった。
+
+#### 併せて確定した境界
+
+- **package-manager 入力どうしは fold しない。** npm(dev) + yarn(判定なし、同一 purl) は 2 行に分かれ、npm 側は `development` を保つ。したがって「判定しない入力が判定を打ち消す」現象は実質 SBOM fold でしか起きなかった。
+- **sourceId が衝突すると 1 component にマージされる。** npm(dev) + npm(runtime) を同一パスで与えると `runtime`。これは判定どうしの食い違いなので変更しない。
+- **SBOM 単独供給の component** は元から unknown。保持すべき判定が無く、対象外。
 
 ### 優先度 7: skill と README の polyglot 例
 
@@ -369,6 +621,68 @@ Acknowledged by baseline: 83 components. → passed
 - [ ] source repository を scan するときは binary cataloger を切ること、切らないと commit 済み binary の assembly version が package として現れることを、generator 中立な言い方で記す。
 - [ ] resolved input が取れる ecosystem では、SBOM は evidence を増やさず、artifact restore が効かない分むしろ浅くなることを記す。
 - [ ] SBOM の価値は「`ol` が adapter を持たない ecosystem」と「CI に resolver toolchain を入れたくない場合」に限られることを記す。
+
+## 実装済みの改善と 8 リポジトリでの再検証
+
+優先度 1、優先度 2 の基本集計、優先度 5 を実装し、同じ 8 リポジトリを改修後の `ol` で再測定した（Syft は本文書が定める `declared,-binary` 構成、allow-list は測定 5 の拡張版、baseline なし）。
+
+| Repository | exit | violations | 未解決の母集団数 | `summary.supply`（sbomOnly / pmOnly / both） | Cargo hint |
+|---|---:|---:|---:|---|---|
+| AIApiTracer | 0 | 0 | — | 2 / 22 / 78 | — |
+| csbindgen | 2 | 1 | 1 | 1 / 13 / 0 | **警告** |
+| DFrame | 2 | 83 | 2 | 1 / 189 / 0 | — |
+| LogicLooper | 2 | 11 | 3 | 1 / 50 / 0 | — |
+| MagicOnion | 2 | 73 | 2 | 1 / 298 / 1292 | — |
+| NativeCompressions | 2 | 6 | 3 | 4 / 130 / 36 | — |
+| UniTask | 2 | 94 | 3 | 1 / 141 / 0 | — |
+| ZLinq | 2 | 3 | 2 | 1 / 108 / 0 | — |
+
+### 優先度 1: `check` が機構を出す
+
+**8 リポジトリ合計 271 件の未解決違反が、5 種類の機構に畳まれた。**
+
+| Mechanism | 出現したリポジトリ数 |
+|---|---:|
+| `declared_license_location_not_collected` | 7 |
+| `license_not_recognized` | 5 |
+| `declared_license_file_not_collected` | 2 |
+| `source_repository_unavailable` | 1 |
+| `license_not_detected` | 1 |
+
+UniTask の 94 行は 3 母集団（86 / 7 / 1）、DFrame の 83 行は 2 母集団（76 / 7）になる。76 件はすべて `go.microsoft.com/fwlink` で、一度の判断で片が付く。7 件は GitHub が分類できなかった license file で、開くべき URL が行に出る。
+
+```text
+Package          Version  ...  Reason                 Mechanism                                Reference                                                           Path
+Google.Protobuf  3.18.0   ...  license is unresolved  license_not_recognized                   https://github.com/protocolbuffers/protobuf/blob/master/LICENSE     -
+Microsoft.CSharp 4.0.1    ...  license is unresolved  declared_license_location_not_collected  http://go.microsoft.com/fwlink/?LinkId=329770                       pkg:nuget/Microsoft.NET.Test.Sdk > ...
+
+Unresolved mechanisms
+  declared_license_location_not_collected: 76
+  license_not_recognized: 7
+```
+
+実装中に判明した前提の誤り: **`ScanReportReader` は candidate の `evidence` を丸ごと skip していた**ため、`check` は永続化レポートから機構を再現できなかった。場所を名指す 2 つの事実（publisher が宣言した reference と、GitHub が返した repository license URL）だけを復元する。他は「どう到達したか」の記録で、完成済みレポートを評価する側は行動できない。
+
+### 優先度 2: 入力ごとの寄与
+
+`summary.supply` と stderr の `Supplied by` 行になった。上表の DFrame `1 / 189 / 0` と MagicOnion `1 / 298 / 1292` は、**Syft が root component しか供給していない**ことを 1 行で述べている。測定 2 に丸一日かかった問いが、レポートを開けば分かる。
+
+root を含む点が測定 2 の表（root 除外）と 1 件ずれる。summary の他のカウンタと同じ母集団を数えるためで、意図した挙動である。
+
+### 優先度 5: `Cargo.toml` の検出
+
+改修前の csbindgen は `0 ignored candidates` / warnings 空で、Rust の依存が 1 つも監査されないまま通っていた。改修後:
+
+```text
+Warning: Rust dependencies were not scanned: Cargo.toml is not a supported input.
+Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-metadata.json.
+```
+
+`--locked` が付いていない点が重要で、csbindgen は lockfile を commit していないため付けると失敗する（不具合 2）。他 7 リポジトリは誤検出しない。NativeCompressions は `cargo-metadata.json` があるため満たされたものとして黙る。
+
+### 残る差分
+
+再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 7 も実装済みで、未着手の項目は残っていない。
 
 ## 推奨する運用
 
@@ -393,16 +707,23 @@ step 3 は Cysharp の現行 8 リポジトリでは省略しても結果が変�
 
 ### baseline の運用
 
-- Cysharp/Actions に共有 baseline を 1 個置く（129 entries / 76 KB で現行 8 リポジトリを充足）。
-- リポジトリ側は原則ファイルを持たない。必要になったリポジトリだけ追加ファイルを持つ。
-- workflow は「ファイルがあれば `--baseline` を付ける」。存在必須にしない。
-- 共有 baseline の更新は人間が entry を読む作業とする。`--update-baseline` は CI で実行しない。
-- 生成時に conflict が混じることを前提に、conflict entry は個別に判断する（`minimal-lexical` が実例）。
+- **Cysharp/Actions に組織 baseline を 1 個置き、リポジトリは自分の delta ファイルだけを持つ。** `--baseline` は repeatable になったので、両方を渡して合成する。
+
+  ```bash
+  ol check --report ol-report.json --allow-licenses ... \
+      --baseline <organization>/ol-baseline.json --baseline ol-baseline.json
+  ```
+
+- 組織 baseline は測定 4 の legacy .NET corpus を担う。リポジトリ側は**組織 baseline が持たないものだけ**を持つ（実測: NativeCompressions は 6 件中 4 件）。
+- delta の生成は `--baseline <organization> --baseline <local> --update-baseline`。最後のファイルだけが書かれ、組織ファイルは読むだけである。
+- 承認すべき未解決証拠が組織 baseline の外に無いリポジトリはファイルを持たない。workflow は「ファイルがあれば `--baseline` を付ける」で、存在必須にしない。
+- baseline の更新は人間が entry を読む作業とする。`--update-baseline` は CI で実行しない。
+- 生成時に conflict が混じることを前提に、conflict entry は個別に判断する（`minimal-lexical` が実例。上の実測では local 側の delta に入っている）。
 
 ### 段階導入
 
 1. `ol scan` + artifact 保存 + job summary のみ。`ol check` は `continue-on-error`。
-2. 共有 baseline と allow-list を確定させる。
+2. 組織 baseline・リポジトリ固有 delta・組織 allow-list を確定させる。
 3. `ol check` を必須にし、`pr-harness-check` の `needs` に入れる。
 4. `ol diff` で base ↔ head の regression 判定を足す。
 

@@ -24,7 +24,7 @@ public class ScanReportScaleBenchmark
     private readonly ArrayBufferWriter<byte> buffer = new(1024 * 1024);
     private readonly PackageArtifactCollectionSummary packageArtifactSummary = new(1, 1, 1);
     private readonly DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFileSummary = new(1, 0, 1, 0, 1, 1, 0);
-    private readonly PackageMetadataSummary packageMetadataSummary = new(0, 0, 0, 0, 0, 0, 0, 1, 0);
+    private readonly PackageMetadataSummary packageMetadataSummary = new(0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
     private readonly SourceRepositorySummary sourceRepositorySummary = new(0, 0, 0, 0, 0, 0, "none", 1, 0);
     private readonly ScanReportScope scope = new(ExternalEvidenceCollected: true, DependencyFilter: null, ExcludedCount: 0, ExcludedUnknownCount: 0);
     private ScanComponent[] components = [];

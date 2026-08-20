@@ -52,6 +52,16 @@ internal static class CommandLineArguments
 
     public static string[] NormalizeRepeatedInputs(string[] args)
     {
+        args = NormalizeRepeatedOption(args, "--input");
+        args = NormalizeRepeatedOption(args, "--exclude-input-path");
+
+        // Baselines compose, so repeats accumulate here rather than reaching the single-use rule in
+        // CommandLineRouting. Registering an option in this list is what makes it repeatable.
+        return NormalizeRepeatedOption(args, "--baseline");
+    }
+
+    private static string[] NormalizeRepeatedOption(string[] args, string option)
+    {
         if (args.Length < 5
             || !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(args[0], "check", StringComparison.OrdinalIgnoreCase))
@@ -67,7 +77,7 @@ internal static class CommandLineArguments
                 break;
             }
 
-            if (string.Equals(args[i], "--input", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            if (string.Equals(args[i], option, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
             {
                 inputCount++;
                 i++;
@@ -88,7 +98,7 @@ internal static class CommandLineArguments
                 break;
             }
 
-            if (string.Equals(args[i], "--input", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            if (string.Equals(args[i], option, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
             {
                 inputs[inputIndex++] = args[++i];
             }
@@ -105,7 +115,7 @@ internal static class CommandLineArguments
                 escaped = true;
             }
 
-            if (!escaped && string.Equals(args[i], "--input", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            if (!escaped && string.Equals(args[i], option, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
             {
                 if (!emittedInput)
                 {

@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Buffers.Text;
 using System.Text;
 using ConsoleAppFramework;
 using Ol.Core;
@@ -19,8 +20,8 @@ internal sealed class CheckCommands
     /// <param name="excludePackages">Comma-separated package URL prefixes whose components are not evaluated. A prefix may stop at the ecosystem, as in pkg:github/.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="verbose">Include persisted report diagnostics.</param>
-    /// <param name="baseline">Baseline file acknowledging already reviewed unresolved components.</param>
-    /// <param name="updateBaseline">Rewrite the baseline file as a complete snapshot.</param>
+    /// <param name="baseline">Repeatable baseline files acknowledging already reviewed unresolved components. A component is acknowledged when any of them states it.</param>
+    /// <param name="updateBaseline">Rewrite the last baseline file, holding what the earlier ones do not already acknowledge.</param>
     /// <param name="sarif">Write violations as SARIF to this file for CI code scanning.</param>
     [Command("check")]
     public int Check(
@@ -30,7 +31,7 @@ internal sealed class CheckCommands
         string? excludePackages = null,
         string? spdxData = null,
         bool verbose = false,
-        string? baseline = null,
+        [InputPathsParser] string[]? baseline = null,
         bool updateBaseline = false,
         string? sarif = null)
     {
@@ -49,8 +50,8 @@ internal sealed class CheckCommands
             ? []
             : excludePackages.Split(',', StringSplitOptions.None);
 
-        var baselinePath = string.IsNullOrWhiteSpace(baseline) ? null : baseline;
-        if (updateBaseline && baselinePath is null)
+        var baselinePaths = NormalizeBaselinePaths(baseline);
+        if (updateBaseline && baselinePaths.Length == 0)
         {
             Console.Error.WriteLine("Invalid license policy: --update-baseline requires --baseline.");
             return 1;
@@ -84,9 +85,10 @@ internal sealed class CheckCommands
         }
 
         // An unusable baseline is a command failure rather than a silently empty baseline, so a mistyped
-        // path is reported instead of changing which components fail.
-        LicenseBaseline? acknowledgements = null;
-        if (baselinePath is not null && !updateBaseline && !BaselineFile.TryRead(baselinePath, out acknowledgements, out var baselineError))
+        // path is reported instead of changing which components fail. When updating, the last file is the
+        // one being replaced, so only the files before it are read.
+        var readCount = updateBaseline ? baselinePaths.Length - 1 : baselinePaths.Length;
+        if (!TryComposeBaselines(baselinePaths.AsSpan(0, readCount), out var acknowledgements, out var baselineError))
         {
             Console.Error.WriteLine(baselineError);
             return 1;
@@ -94,14 +96,17 @@ internal sealed class CheckCommands
 
         if (updateBaseline)
         {
-            var entries = LicenseBaseline.CreateEntries(components, policy);
-            if (!BaselineFile.TryWrite(baselinePath!, entries, licenseListVersion, out var writeError))
+            // Only what the earlier files do not already state. Writing the complete snapshot would copy
+            // the shared population into the file that composes with it, which is the duplication
+            // composing them removes.
+            var entries = LicenseBaseline.CreateEntries(SelectUnacknowledged(components, acknowledgements), policy);
+            if (!BaselineFile.TryWrite(baselinePaths[^1], entries, licenseListVersion, out var writeError))
             {
                 Console.Error.WriteLine(writeError);
                 return 1;
             }
 
-            acknowledgements = LicenseBaseline.FromEntries(entries);
+            acknowledgements = Compose(acknowledgements, LicenseBaseline.FromEntries(entries));
         }
 
         int acknowledgedCount;
@@ -149,18 +154,20 @@ internal sealed class CheckCommands
             }
         }
 
-        var text = CheckRenderer.Render(
-            inventory,
-            components,
-            violations,
-            policyComponentCount,
-            baselinePath is null ? -1 : acknowledgedCount,
-            developmentAllowedCount,
-            excludePackages is null ? -1 : excludedCount,
-            ambiguityAllowedCount);
         try
         {
-            Console.Write(text);
+            using var writer = new PooledStreamBufferWriter(Console.OpenStandardOutput());
+            CheckRenderer.Write(
+                writer,
+                inventory,
+                components,
+                violations,
+                policyComponentCount,
+                baselinePaths.Length == 0 ? -1 : acknowledgedCount,
+                developmentAllowedCount,
+                excludePackages is null ? -1 : excludedCount,
+                ambiguityAllowedCount,
+                persisted.ExcludedInputPaths);
         }
         catch (IOException exception)
         {
@@ -173,6 +180,55 @@ internal sealed class CheckCommands
         // A run whose only findings are collection failures resolved nothing and proved nothing; reporting it as a
         // policy violation would make a registry outage indistinguishable from a forbidden license in CI.
         return CheckRenderer.IsIncomplete(violations) ? 3 : 2;
+    }
+
+    /// <summary>Drops empty entries so a supplied-but-blank option is not read as a path.</summary>
+    private static string[] NormalizeBaselinePaths(string[]? baseline)
+    {
+        if (baseline is null || baseline.Length == 0) return [];
+
+        var paths = new List<string>(baseline.Length);
+        for (var i = 0; i < baseline.Length; i++)
+        {
+            if (!string.IsNullOrWhiteSpace(baseline[i])) paths.Add(baseline[i]);
+        }
+
+        return [.. paths];
+    }
+
+    /// <summary>Reads every supplied baseline and unions them, or reports the first that cannot be read.</summary>
+    private static bool TryComposeBaselines(ReadOnlySpan<string> paths, out LicenseBaseline? composed, out string error)
+    {
+        composed = null;
+        error = string.Empty;
+        if (paths.IsEmpty) return true;
+
+        var baselines = new LicenseBaseline[paths.Length];
+        for (var i = 0; i < paths.Length; i++)
+        {
+            if (!BaselineFile.TryRead(paths[i], out var parsed, out error)) return false;
+            baselines[i] = parsed!;
+        }
+
+        composed = LicenseBaseline.Compose(baselines);
+        return true;
+    }
+
+    private static LicenseBaseline Compose(LicenseBaseline? earlier, LicenseBaseline written)
+        => earlier is null ? written : LicenseBaseline.Compose([earlier, written]);
+
+    /// <summary>Returns the components no already-supplied baseline acknowledges.</summary>
+    private static ScanComponent[] SelectUnacknowledged(ScanComponent[] components, LicenseBaseline? acknowledgements)
+    {
+        if (acknowledgements is null || acknowledgements.Count == 0) return components;
+
+        var remaining = new List<ScanComponent>(components.Length);
+        for (var i = 0; i < components.Length; i++)
+        {
+            if (!acknowledgements.IsAcknowledged(components[i])) remaining.Add(components[i]);
+        }
+
+        return [.. remaining];
     }
 
     private static void WriteExclusionMatches(LicenseAllowPolicy policy, ReadOnlySpan<ScanComponent> components)
@@ -282,7 +338,8 @@ internal static class CheckRenderer
         return true;
     }
 
-    public static string Render(
+    public static void Write(
+        IBufferWriter<byte> writer,
         in DependencyInventory inventory,
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<LicensePolicyViolation> violations,
@@ -290,121 +347,227 @@ internal static class CheckRenderer
         int acknowledgedCount = -1,
         int developmentAllowedCount = -1,
         int excludedCount = -1,
-        int ambiguityAllowedCount = 0)
+        int ambiguityAllowedCount = 0,
+        string[]? excludedInputPaths = null)
     {
+        WriteExcludedInputPaths(writer, excludedInputPaths);
+        WriteOptionalCount(writer, "Excluded from evaluation: "u8, excludedCount, includeZero: true);
+        WriteOptionalCount(writer, "Acknowledged by baseline: "u8, acknowledgedCount, includeZero: true);
+        WriteOptionalCount(writer, "Allowed by development policy: "u8, developmentAllowedCount, includeZero: true);
+        WriteOptionalCount(writer, "Allowed on every reading of ambiguous evidence: "u8, ambiguityAllowedCount, includeZero: false);
+
         if (violations.IsEmpty)
         {
-            return string.Concat(
-                Exclusion(excludedCount),
-                Acknowledgement(acknowledgedCount),
-                DevelopmentAllowance(developmentAllowedCount),
-                AmbiguityAllowance(ambiguityAllowedCount),
-                $"License check passed: {policyComponentCount} component{(policyComponentCount == 1 ? string.Empty : "s")} satisf{(policyComponentCount == 1 ? "ies" : "y")} the allow-list.{Environment.NewLine}");
+            WriteUtf8(writer, "License check passed: "u8);
+            WriteInt32(writer, policyComponentCount);
+            WriteUtf8(writer, policyComponentCount == 1 ? " component satisfies the allow-list."u8 : " components satisfy the allow-list."u8);
+            WriteNewLine(writer);
+            return;
         }
 
-        var builder = new StringBuilder();
-        builder.Append(Exclusion(excludedCount));
-        builder.Append(Acknowledgement(acknowledgedCount));
-        builder.Append(DevelopmentAllowance(developmentAllowedCount));
-        builder.Append(AmbiguityAllowance(ambiguityAllowedCount));
         // An incomplete run is stated as such: nothing was proven about those components, which is not the same
         // claim as a policy violation, and the exit code makes the same distinction.
         if (IsIncomplete(violations))
         {
-            builder.Append("License check incomplete: ");
-            builder.Append(violations.Length);
-            builder.Append(" component");
-            if (violations.Length != 1) builder.Append('s');
-            builder.AppendLine(" could not be evaluated.");
+            WriteUtf8(writer, "License check incomplete: "u8);
+            WriteInt32(writer, violations.Length);
+            WriteUtf8(writer, violations.Length == 1 ? " component could not be evaluated."u8 : " components could not be evaluated."u8);
         }
         else
         {
-            builder.Append("License check failed: ");
-            builder.Append(violations.Length);
-            builder.Append(" violation");
-            if (violations.Length != 1) builder.Append('s');
-            builder.AppendLine(".");
+            WriteUtf8(writer, "License check failed: "u8);
+            WriteInt32(writer, violations.Length);
+            WriteUtf8(writer, violations.Length == 1 ? " violation."u8 : " violations."u8);
         }
-        builder.AppendLine();
-        // The path names the direct dependency a reviewer can actually change, which the row identifying
-        // only the offending package never does when the violation is transitive.
-        builder.AppendLine("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tPath");
+        WriteNewLine(writer);
+        WriteNewLine(writer);
+        // Reason states why policy rejected the component; Mechanism states why its evidence never settled,
+        // and only the second one names an action. The path names the direct dependency a reviewer can
+        // actually change, which the row identifying only the offending package never does when the
+        // violation is transitive.
+        WriteUtf8(writer, "Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tMechanism\tReference\tPath"u8);
+        WriteNewLine(writer);
+        var mechanismTally = new MechanismTally();
         using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
         for (var i = 0; i < violations.Length; i++)
         {
             var violation = violations[i];
             var component = components[violation.ComponentIndex];
-            Append(builder, component.Name);
-            builder.Append('\t');
-            Append(builder, component.Version);
-            builder.Append('\t');
-            builder.Append(component.Ecosystem);
-            builder.Append('\t');
-            Append(builder, component.Purl, "-");
-            builder.Append('\t');
-            if (component.Status == LicenseStatus.Matched) Append(builder, component.License);
-            else builder.Append(Status(violation.Kind));
-            builder.Append('\t');
-            builder.Append(Reason(violation.Kind));
-            builder.Append('\t');
+            WriteDisplay(writer, component.Name, default);
+            WriteByte(writer, (byte)'\t');
+            WriteDisplay(writer, component.Version, default);
+            WriteByte(writer, (byte)'\t');
+            WriteUtf8(writer, component.Ecosystem);
+            WriteByte(writer, (byte)'\t');
+            WriteDisplay(writer, component.Purl, "-"u8);
+            WriteByte(writer, (byte)'\t');
+            if (component.Status == LicenseStatus.Matched) WriteDisplay(writer, component.License, default);
+            else WriteUtf8(writer, Status(violation.Kind));
+            WriteByte(writer, (byte)'\t');
+            WriteUtf8(writer, Reason(violation.Kind));
+            WriteByte(writer, (byte)'\t');
+            WriteMechanism(writer, component, violation.Kind, mechanismTally);
+            WriteByte(writer, (byte)'\t');
             var path = DependencyPathText.Introducer(inventory, rootPaths, component, violation.ComponentIndex);
-            builder.AppendLine(path.Length == 0 ? "-" : path);
+            WriteUtf8(writer, path.Length == 0 ? "-" : path);
+            WriteNewLine(writer);
         }
 
-        return builder.ToString();
+        mechanismTally.Write(writer);
     }
 
-    /// <summary>Reports how many components the exclusion prefixes removed from evaluation, shown whenever the option is supplied.</summary>
-    private static string Exclusion(int excludedCount)
-        => excludedCount < 0
-            ? string.Empty
-            : $"Excluded from evaluation: {excludedCount} component{(excludedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
+    private static void WriteExcludedInputPaths(IBufferWriter<byte> writer, string[]? excludedInputPaths)
+    {
+        if (excludedInputPaths is not { Length: > 0 }) return;
 
-    /// <summary>Makes a supplied baseline visible even when the run passes.</summary>
-    private static string Acknowledgement(int acknowledgedCount)
-        => acknowledgedCount < 0
-            ? string.Empty
-            : $"Acknowledged by baseline: {acknowledgedCount} component{(acknowledgedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
+        WriteUtf8(writer, "Excluded input paths: "u8);
+        for (var i = 0; i < excludedInputPaths.Length; i++)
+        {
+            if (i != 0) WriteUtf8(writer, ", "u8);
+            WriteUtf8(writer, excludedInputPaths[i]);
+        }
+        WriteUtf8(writer, "."u8);
+        WriteNewLine(writer);
+    }
 
     /// <summary>
-    /// Reports how many ambiguous components the allow-list admitted on every reading of their evidence.
+    /// Writes the Mechanism and Reference columns for one violation and records it in the tally.
     /// </summary>
     /// <remarks>
-    /// No option turns this on, so it is shown only when it happened. Those components stay ambiguous in
-    /// the scan report, and the count is what connects that to the absence of a violation here.
+    /// A resolved license the allow-list rejects has no collection mechanism to name, so it is left out of
+    /// the tally rather than counted as an unexplained one: the allow-list already explains it, and mixing
+    /// the two populations would make the tally report the larger one.
     /// </remarks>
-    private static string AmbiguityAllowance(int ambiguityAllowedCount)
-        => ambiguityAllowedCount <= 0
-            ? string.Empty
-            : $"Allowed on every reading of ambiguous evidence: {ambiguityAllowedCount} component{(ambiguityAllowedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
-
-    /// <summary>Reports how many components the development allow-list admitted, shown whenever the option is supplied.</summary>
-    private static string DevelopmentAllowance(int developmentAllowedCount)
-        => developmentAllowedCount < 0
-            ? string.Empty
-            : $"Allowed by development policy: {developmentAllowedCount} component{(developmentAllowedCount == 1 ? string.Empty : "s")}.{Environment.NewLine}";
-
-    private static void Append(StringBuilder builder, Utf8Slice value, string empty = "")
-        => builder.Append(value.IsEmpty ? empty : value.ToString());
-
-    private static string Status(LicensePolicyViolationKind kind) => kind switch
+    private static void WriteMechanism(IBufferWriter<byte> writer, in ScanComponent component, LicensePolicyViolationKind kind, MechanismTally tally)
     {
-        LicensePolicyViolationKind.Conflict => "conflict",
-        LicensePolicyViolationKind.Unknown => "unknown",
-        LicensePolicyViolationKind.Ambiguous => "ambiguous",
-        LicensePolicyViolationKind.Invalid => "invalid",
-        LicensePolicyViolationKind.Error => "error",
-        _ => "matched",
+        if (kind == LicensePolicyViolationKind.NotAllowed)
+        {
+            WriteUtf8(writer, "-\t-"u8);
+            return;
+        }
+
+        if (!UnresolvedMechanism.TryGetReason(component, out var reason))
+        {
+            tally.Add(UnresolvedMechanismKind.None);
+            WriteUtf8(writer, "-\t-"u8);
+            return;
+        }
+
+        tally.Add(reason);
+        WriteUtf8(writer, UnresolvedMechanism.GetNameUtf8(reason));
+        WriteByte(writer, (byte)'\t');
+        var reference = UnresolvedMechanism.GetReference(component, reason);
+        WriteUtf8(writer, reference.Length == 0 ? "-" : reference);
+    }
+
+    /// <summary>
+    /// Counts how many violations each unresolved mechanism explains.
+    /// </summary>
+    /// <remarks>
+    /// A hundred rows reading "license is unresolved" look like a hundred problems. They are usually a
+    /// handful of populations, and which population a component belongs to decides what a reviewer does
+    /// about all of them at once. Ordered by count so the largest is read first, ties broken by name so
+    /// two runs over the same report print the same block.
+    /// </remarks>
+    private sealed class MechanismTally
+    {
+        private readonly Dictionary<UnresolvedMechanismKind, int> counts = [];
+
+        public void Add(UnresolvedMechanismKind mechanism)
+            => counts[mechanism] = counts.TryGetValue(mechanism, out var count) ? count + 1 : 1;
+
+        public void Write(IBufferWriter<byte> writer)
+        {
+            if (counts.Count == 0)
+            {
+                return;
+            }
+
+            var ordered = new KeyValuePair<UnresolvedMechanismKind, int>[counts.Count];
+            ((ICollection<KeyValuePair<UnresolvedMechanismKind, int>>)counts).CopyTo(ordered, 0);
+            Array.Sort(ordered, static (left, right) =>
+            {
+                var byCount = right.Value.CompareTo(left.Value);
+                return byCount != 0
+                    ? byCount
+                    : UnresolvedMechanism.GetNameUtf8(left.Key).SequenceCompareTo(UnresolvedMechanism.GetNameUtf8(right.Key));
+            });
+
+            WriteNewLine(writer);
+            WriteUtf8(writer, "Unresolved mechanisms"u8);
+            WriteNewLine(writer);
+            for (var i = 0; i < ordered.Length; i++)
+            {
+                WriteUtf8(writer, "  "u8);
+                WriteUtf8(writer, UnresolvedMechanism.GetNameUtf8(ordered[i].Key));
+                WriteUtf8(writer, ": "u8);
+                WriteInt32(writer, ordered[i].Value);
+                WriteNewLine(writer);
+            }
+        }
+    }
+
+    /// <summary>Writes one optional component counter without materializing its decimal or surrounding sentence.</summary>
+    private static void WriteOptionalCount(IBufferWriter<byte> writer, ReadOnlySpan<byte> prefix, int count, bool includeZero)
+    {
+        if (count < 0 || (!includeZero && count == 0)) return;
+
+        WriteUtf8(writer, prefix);
+        WriteInt32(writer, count);
+        WriteUtf8(writer, count == 1 ? " component."u8 : " components."u8);
+        WriteNewLine(writer);
+    }
+
+    private static void WriteDisplay(IBufferWriter<byte> writer, Utf8Slice value, ReadOnlySpan<byte> empty)
+        => WriteUtf8(writer, value.IsEmpty ? empty : value.Span);
+
+    private static void WriteByte(IBufferWriter<byte> writer, byte value)
+    {
+        writer.GetSpan(1)[0] = value;
+        writer.Advance(1);
+    }
+
+    private static void WriteInt32(IBufferWriter<byte> writer, int value)
+    {
+        var destination = writer.GetSpan(11);
+        Utf8Formatter.TryFormat(value, destination, out var written);
+        writer.Advance(written);
+    }
+
+    private static void WriteNewLine(IBufferWriter<byte> writer)
+        => WriteUtf8(writer, Environment.NewLine);
+
+    private static void WriteUtf8(IBufferWriter<byte> writer, ReadOnlySpan<byte> value)
+    {
+        value.CopyTo(writer.GetSpan(value.Length));
+        writer.Advance(value.Length);
+    }
+
+    private static void WriteUtf8(IBufferWriter<byte> writer, string value)
+    {
+        var byteCount = Encoding.UTF8.GetByteCount(value);
+        var destination = writer.GetSpan(byteCount);
+        writer.Advance(Encoding.UTF8.GetBytes(value, destination));
+    }
+
+    private static ReadOnlySpan<byte> Status(LicensePolicyViolationKind kind) => kind switch
+    {
+        LicensePolicyViolationKind.Conflict => "conflict"u8,
+        LicensePolicyViolationKind.Unknown => "unknown"u8,
+        LicensePolicyViolationKind.Ambiguous => "ambiguous"u8,
+        LicensePolicyViolationKind.Invalid => "invalid"u8,
+        LicensePolicyViolationKind.Error => "error"u8,
+        _ => "matched"u8,
     };
 
-    private static string Reason(LicensePolicyViolationKind kind) => kind switch
+    private static ReadOnlySpan<byte> Reason(LicensePolicyViolationKind kind) => kind switch
     {
-        LicensePolicyViolationKind.NotAllowed => "license is not allowed",
-        LicensePolicyViolationKind.Conflict => "license evidence conflicts",
-        LicensePolicyViolationKind.Unknown => "license is unresolved",
-        LicensePolicyViolationKind.Ambiguous => "license is ambiguous",
-        LicensePolicyViolationKind.Invalid => "license expression is invalid",
-        LicensePolicyViolationKind.Error => "license evidence could not be completed",
-        _ => "license policy violation",
+        LicensePolicyViolationKind.NotAllowed => "license is not allowed"u8,
+        LicensePolicyViolationKind.Conflict => "license evidence conflicts"u8,
+        LicensePolicyViolationKind.Unknown => "license is unresolved"u8,
+        LicensePolicyViolationKind.Ambiguous => "license is ambiguous"u8,
+        LicensePolicyViolationKind.Invalid => "license expression is invalid"u8,
+        LicensePolicyViolationKind.Error => "license evidence could not be completed"u8,
+        _ => "license policy violation"u8,
     };
 }

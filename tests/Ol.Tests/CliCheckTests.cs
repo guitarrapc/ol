@@ -1,5 +1,7 @@
 ﻿using System.Diagnostics;
+using System.Text.Json;
 using System.Text;
+using System.Text.Json.Nodes;
 
 namespace Ol.Tests;
 
@@ -165,6 +167,360 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("example");
             await Assert.That(result.Stdout).Contains("GPL-3.0-only");
             await Assert.That(result.Stdout).Contains("license is not allowed");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// Covers every combination of "does a mechanism explain this violation" and "did evidence name a
+    /// place", because a column that is only ever populated is as untrustworthy as one that never is.
+    /// </summary>
+    [Test]
+    [Arguments("located", "declared_license_location_not_collected", "https://example.com/LICENSE")]
+    [Arguments("classified", "license_classifier_not_specific", "-")]
+    [Arguments("silent", "-", "-")]
+    public async Task Check_WithUnresolvedViolation_ReportsMechanismAndReference(string package, string mechanism, string reference)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxUnresolvedMechanismsAsync();
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).Contains("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tMechanism\tReference\tPath");
+            var row = Array.Find(
+                result.Stdout.Split('\n'),
+                line => line.StartsWith($"{package}\t", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            var columns = row!.TrimEnd('\r').Split('\t');
+            await Assert.That(columns[6]).IsEqualTo(mechanism);
+            await Assert.That(columns[7]).IsEqualTo(reference);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A reviewer facing many unresolved rows needs to know how many populations they are, not just how
+    /// many rows. The tally is ordered by count so the largest population is the first thing read.
+    /// </summary>
+    [Test]
+    public async Task Check_WithUnresolvedViolations_TalliesMechanisms()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxUnresolvedMechanismsAsync();
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).Contains("Unresolved mechanisms");
+            await Assert.That(result.Stdout).Contains("  declared_license_location_not_collected: 1");
+            await Assert.That(result.Stdout).Contains("  license_classifier_not_specific: 1");
+            await Assert.That(result.Stdout).Contains("  no mechanism reported: 1");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>Check writes its UTF-8 projection directly to stdout without passing through a UTF-16 report.</summary>
+    [Test]
+    public async Task Check_WithUtf8ComponentName_PreservesStdoutText()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-utf8-{Guid.NewGuid():N}.json");
+        const string Json = """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "日本語-package", "version": "1.0.0", "purl": "pkg:npm/example@1.0.0" } ] }
+            """;
+        await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).Contains("日本語-package");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// The tally exists to show which population is worth attacking first, so the largest has to come
+    /// first. With every count equal the order would be decided by dictionary insertion, which is not a
+    /// contract; this document makes one mechanism the majority so the ordering is actually observable.
+    /// </summary>
+    [Test]
+    public async Task Check_WithRepeatedMechanism_OrdersTallyByCount()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        const string Json = """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "first", "version": "1.0.0", "purl": "pkg:npm/first@1.0.0", "licenses": [{ "license": { "url": "https://example.com/A" } }] },
+              { "type": "library", "name": "second", "version": "1.0.0", "purl": "pkg:npm/second@1.0.0", "licenses": [{ "license": { "url": "https://example.com/B" } }] },
+              { "type": "library", "name": "third", "version": "1.0.0", "purl": "pkg:npm/third@1.0.0", "licenses": [{ "license": { "name": "License :: OSI Approved :: BSD License" } }] } ] }
+            """;
+        await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            var tally = result.Stdout[result.Stdout.IndexOf("Unresolved mechanisms", StringComparison.Ordinal)..];
+            await Assert.That(tally.IndexOf("declared_license_location_not_collected: 2", StringComparison.Ordinal))
+                .IsLessThan(tally.IndexOf("license_classifier_not_specific: 1", StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A shared baseline states the acknowledgements a whole organization made once — the legacy .NET
+    /// corpus is the same population in every repository that targets netstandard2.0 — while the
+    /// repository's own file states what only it has to accept. Composing them is what keeps the shared
+    /// population from being copied into every repository.
+    /// </summary>
+    [Test]
+    public async Task Check_WithComposedBaselines_AcknowledgesEntriesFromEach()
+    {
+        var root = FindRepositoryRoot();
+        var (reportPath, first, second) = await WritePartitionedBaselinesAsync(root);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", first, "--baseline", second);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Acknowledged by baseline: 2 components.");
+        }
+        finally
+        {
+            Delete(reportPath, first, second);
+        }
+    }
+
+    /// <summary>
+    /// A component is acknowledged when any supplied baseline states it, so the composition is a union and
+    /// the answer cannot depend on which file was named first.
+    /// </summary>
+    [Test]
+    public async Task Check_WithComposedBaselines_IsOrderIndependent()
+    {
+        var root = FindRepositoryRoot();
+        var (reportPath, first, second) = await WritePartitionedBaselinesAsync(root);
+        try
+        {
+            var forward = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", first, "--baseline", second);
+            var reversed = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", second, "--baseline", first);
+
+            await Assert.That(reversed.ExitCode).IsEqualTo(forward.ExitCode);
+            await Assert.That(reversed.Stdout).IsEqualTo(forward.Stdout);
+        }
+        finally
+        {
+            Delete(reportPath, first, second);
+        }
+    }
+
+    /// <summary>Proves the composition is what passed: either file alone leaves a violation.</summary>
+    [Test]
+    public async Task Check_WithOnlyOneOfTheComposedBaselines_StillFails()
+    {
+        var root = FindRepositoryRoot();
+        var (reportPath, first, second) = await WritePartitionedBaselinesAsync(root);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", first);
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stdout).Contains("Acknowledged by baseline: 1 component.");
+        }
+        finally
+        {
+            Delete(reportPath, first, second);
+        }
+    }
+
+    /// <summary>An unreadable file among several is still a command failure, not a silently smaller union.</summary>
+    [Test]
+    public async Task Check_WithComposedBaselineMissingOneFile_ReturnsOne()
+    {
+        var root = FindRepositoryRoot();
+        var (reportPath, first, second) = await WritePartitionedBaselinesAsync(root);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", first, "--baseline", "missing-baseline.json");
+
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr).Contains("missing-baseline.json");
+        }
+        finally
+        {
+            Delete(reportPath, first, second);
+        }
+    }
+
+    /// <summary>
+    /// Updating writes only what the earlier baselines do not already state. Writing the complete snapshot
+    /// into the repository's own file would copy the shared population back into it, which is the
+    /// duplication composing the files exists to remove.
+    /// </summary>
+    [Test]
+    public async Task Check_WithComposedBaselinesAndUpdate_WritesOnlyWhatTheEarlierFilesLack()
+    {
+        var root = FindRepositoryRoot();
+        var (reportPath, shared, unused) = await WritePartitionedBaselinesAsync(root);
+        var own = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        var sharedBefore = await File.ReadAllTextAsync(shared);
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", shared, "--baseline", own, "--update-baseline");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            using var written = JsonDocument.Parse(await File.ReadAllTextAsync(own));
+            var names = written.RootElement.GetProperty("acknowledged").EnumerateArray().Select(e => e.GetProperty("name").GetString()).ToArray();
+            await Assert.That(names).IsEquivalentTo(new[] { "beta" });
+
+            // The earlier file is read, never rewritten.
+            await Assert.That(await File.ReadAllTextAsync(shared)).IsEqualTo(sharedBefore);
+        }
+        finally
+        {
+            Delete(reportPath, shared, unused, own);
+        }
+    }
+
+    /// <summary>One baseline has no earlier file to subtract, so updating still writes the whole snapshot.</summary>
+    [Test]
+    public async Task Check_WithSingleBaselineAndUpdate_WritesTheCompleteSnapshot()
+    {
+        var root = FindRepositoryRoot();
+        var (reportPath, first, second) = await WritePartitionedBaselinesAsync(root);
+        var own = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", own, "--update-baseline");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            using var written = JsonDocument.Parse(await File.ReadAllTextAsync(own));
+            var names = written.RootElement.GetProperty("acknowledged").EnumerateArray().Select(e => e.GetProperty("name").GetString()).ToArray();
+            await Assert.That(names).IsEquivalentTo(new[] { "alpha", "beta" });
+        }
+        finally
+        {
+            Delete(reportPath, first, second, own);
+        }
+    }
+
+    /// <summary>
+    /// Two unresolved components, and one baseline for each, so a test can prove the union rather than
+    /// assume it. The partition is produced by Ol itself, because a baseline entry is identified by a
+    /// fingerprint of its evidence that a hand-written fixture cannot reproduce.
+    /// </summary>
+    private static async Task<(string ReportPath, string First, string Second)> WritePartitionedBaselinesAsync(string root)
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        const string Json = """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "alpha", "version": "1.0.0", "purl": "pkg:npm/alpha@1.0.0" },
+              { "type": "library", "name": "beta", "version": "1.0.0", "purl": "pkg:npm/beta@1.0.0" } ] }
+            """;
+        await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
+
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json", "--quiet");
+        File.Delete(inputPath);
+        await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+        await File.WriteAllTextAsync(reportPath, scan.Stdout, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        var first = await WriteBaselineExcludingAsync(root, reportPath, "pkg:npm/beta");
+        var second = await WriteBaselineExcludingAsync(root, reportPath, "pkg:npm/alpha");
+        return (reportPath, first, second);
+    }
+
+    private static async Task<string> WriteBaselineExcludingAsync(string root, string reportPath, string excludedPurl)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"ol-baseline-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(path, string.Empty, Encoding.UTF8);
+        var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--baseline", path, "--update-baseline", "--exclude-packages", excludedPurl);
+        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        return path;
+    }
+
+    private static void Delete(params string[] paths)
+    {
+        for (var i = 0; i < paths.Length; i++)
+        {
+            if (File.Exists(paths[i])) File.Delete(paths[i]);
+        }
+    }
+
+    /// <summary>
+    /// A component the generator emitted without a package identity used to reach the violation table
+    /// saying a repository was unavailable, which is the one mechanism a reviewer cannot act on: no
+    /// repository was ever sought, and no rerun can produce one. The action is to fix the generator.
+    /// </summary>
+    [Test]
+    public async Task Check_WithComponentLackingPurl_NamesTheMissingIdentity()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        const string Json = """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "bare", "version": "1.0.0" } ] }
+            """;
+        await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            var row = Array.Find(result.Stdout.Split('\n'), line => line.StartsWith("bare\t", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            var columns = row!.TrimEnd('\r').Split('\t');
+            await Assert.That(columns[3]).IsEqualTo("-");
+            await Assert.That(columns[6]).IsEqualTo("package_metadata_no_purl");
+            await Assert.That(columns[7]).IsEqualTo("-");
+            await Assert.That(result.Stdout).Contains("  package_metadata_no_purl: 1");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>A resolved license the allow-list rejects has no collection mechanism to explain.</summary>
+    [Test]
+    public async Task Check_WithNotAllowedLicense_ReportsNoMechanismAndNoTally()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("GPL-3.0-only");
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            var row = Array.Find(
+                result.Stdout.Split('\n'),
+                line => line.StartsWith("example\t", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            var columns = row!.TrimEnd('\r').Split('\t');
+            await Assert.That(columns[6]).IsEqualTo("-");
+            await Assert.That(columns[7]).IsEqualTo("-");
+            await Assert.That(result.Stdout).DoesNotContain("Unresolved mechanisms");
         }
         finally
         {
@@ -501,6 +857,30 @@ public sealed class CliCheckTests
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stdout).Contains("GPL-3.0-only");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithExcludedInputPaths_PreservesAuditBoundary()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, AddInputScope(scan.Stdout, "product-a/docs", "product-b/docs"));
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("Excluded input paths: product-a/docs, product-b/docs.");
         }
         finally
         {
@@ -1064,6 +1444,37 @@ public sealed class CliCheckTests
         "\"\": { \"name\": \"app\", \"dependencies\": { \"run-pkg\": \"1.0.0\" }, \"devDependencies\": { \"dev-pkg\": \"1.0.0\" } }, ",
         "\"node_modules/run-pkg\": { \"version\": \"1.0.0\", \"license\": \"", runtimeLicense, "\" }, ",
         "\"node_modules/dev-pkg\": { \"version\": \"1.0.0\", \"dev\": true, \"license\": \"", devLicense, "\" } } }");
+
+    private static string AddInputScope(string report, params string[] excludedPaths)
+    {
+        var paths = new JsonArray();
+        for (var i = 0; i < excludedPaths.Length; i++) paths.Add(excludedPaths[i]);
+        var document = JsonNode.Parse(report)!.AsObject();
+        document["metadata"]!["inputScope"] = new JsonObject
+        {
+            ["excludedPathCount"] = excludedPaths.Length,
+            ["excludedPaths"] = paths,
+        };
+        return document.ToJsonString();
+    }
+
+    /// <summary>
+    /// Writes one document covering the three ways a violated component can explain itself: a declared
+    /// location that names a place, a mechanism that names none, and evidence that carries no mechanism
+    /// at all. All three resolve offline, so the expected output does not depend on a registry.
+    /// </summary>
+    private static async Task<string> WriteCycloneDxUnresolvedMechanismsAsync()
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        const string Json = """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "located", "version": "1.0.0", "purl": "pkg:npm/located@1.0.0", "licenses": [{ "license": { "url": "https://example.com/LICENSE" } }] },
+              { "type": "library", "name": "classified", "version": "1.0.0", "purl": "pkg:npm/classified@1.0.0", "licenses": [{ "license": { "name": "License :: OSI Approved :: BSD License" } }] },
+              { "type": "library", "name": "silent", "version": "1.0.0", "purl": "pkg:npm/silent@1.0.0" } ] }
+            """;
+        await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
+        return inputPath;
+    }
 
     private static async Task<string> WriteCycloneDxAsync(string? license, string version = "1.0.0")
     {

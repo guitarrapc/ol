@@ -60,6 +60,9 @@ ol scan --input bom.cdx.json
 # Scan supported ecosystem-resolved dependency inputs under the current directory
 ol scan --input .
 
+# Exclude documentation or Pages projects that are outside the audited product
+ol scan --input . --exclude-input-path src/documents --exclude-input-path Pages
+
 # Scan a supported lockfile or package-manager output directly
 ol scan --input package-lock.json
 ol scan --input src/MyProject/obj/project.assets.json
@@ -180,6 +183,7 @@ Scan a resolved dependency input.
 
 Options:
   --input <string[]>                    Repeatable resolved dependency input files or directories. [Required]
+  --exclude-input-path <string[]?>      Repeatable file or directory paths excluded from directory input discovery. [Default: null]
   --input-format <string>               Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock. [Default: @"auto"]
   --format <ReportFormat>               Output format: text, json, or markdown. [Default: Text]
   --verbose                             Include verbose columns and input detection diagnostics.
@@ -210,8 +214,8 @@ Options:
   --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. A prefix may stop at the ecosystem, as in pkg:github/. [Default: null]
   --spdx-data <string?>             Directory containing licenses.json and exceptions.json. [Default: null]
   --verbose                         Include persisted report diagnostics.
-  --baseline <string?>              Baseline file acknowledging already reviewed unresolved components. [Default: null]
-  --update-baseline                 Rewrite the baseline file as a complete snapshot.
+  --baseline <string[]?>            Repeatable baseline files acknowledging already reviewed unresolved components. A component is acknowledged when any of them states it. [Default: null]
+  --update-baseline                 Rewrite the last baseline file, holding what the earlier ones do not already acknowledge.
   --sarif <string?>                 Write violations as SARIF to this file for CI code scanning. [Default: null]
 ```
 
@@ -367,6 +371,21 @@ One SBOM may be combined with any number of package-manager inputs. A second SBO
 Unable to scan input: A collection accepts at most one SBOM document.
 ```
 
+### Exclude repository subtrees from the audit subject
+
+```bash
+# Exclude only product-a/docs; product-b/docs remains included
+ol scan --input product-a --input product-b \
+  --exclude-input-path product-a/docs
+
+# Repeat the option to exclude multiple exact paths
+ol scan --input product-a --input product-b \
+  --exclude-input-path product-a/docs \
+  --exclude-input-path product-b/docs
+```
+
+Paths are exact, existing files or directories relative to the current working directory; globs are not supported. This affects only ol's directory discovery, so apply the same exclusion when generating a repository-wide SBOM.
+
 ## Common operations
 
 ### Filter the view
@@ -391,6 +410,17 @@ ol check --report ol-report.json \
 
 This does not prove that the package is absent from a production artifact. Check the release artifact separately with the primary allow-list.
 
+**Scanning an SBOM alongside the lockfile does not withdraw the allowance.** An SBOM records no development scope, so it says nothing about reachability and its view of a component abstains rather than overruling the resolver. Only a resolver that classifies the component as runtime downgrades it. A component no input classified stays unknown, and this option never relaxes it.
+
+```text
+$ ol scan --input package-lock.json --input bom.cdx.json --format json > report.json
+$ ol check --report report.json --allow-licenses MIT --allow-dev-licenses CC-BY-4.0
+Allowed by development policy: 1 component.
+License check passed: 1 component satisfies the allow-list.
+```
+
+One thing to know: an SBOM covering more than the lockfile does can carry a runtime copy of the same package, and ol matches on package URL alone, so it would fold onto the development row. The `Supplied by` summary line shows whether the SBOM reached beyond the resolved inputs.
+
 ### Adopt a baseline for an existing project
 
 An existing project can contain components ol cannot resolve: a package on a private feed, a registry with no license field, a source outside GitHub. They fail closed, and you cannot fix them by editing your own code.
@@ -402,9 +432,14 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```text
 License check failed: 1 violation.
 
-Package                  Version  Ecosystem  Purl                                     License/Status  Reason                 Path
-@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved  -
+Package                  Version  Ecosystem  Purl                                     License/Status  Reason                 Mechanism                   Reference  Path
+@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved  package_metadata_not_found  -          -
+
+Unresolved mechanisms
+  package_metadata_not_found: 1
 ```
+
+`Reason` says why policy rejected the component. `Mechanism` says why its evidence never settled, and that is the one that names an action: this package is not on a public registry, so no amount of collection will answer for it. The tally at the end groups the rows, because a hundred unresolved components are usually a handful of populations and each population is fixed once.
 
 Record what you reviewed and accepted with `--update-baseline`:
 
@@ -452,8 +487,11 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-b
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package                Version  Ecosystem  Purl                                   License/Status  Reason                 Path
-@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved  -
+Package                Version  Ecosystem  Purl                                   License/Status  Reason                 Mechanism                   Reference  Path
+@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved  package_metadata_not_found  -          -
+
+Unresolved mechanisms
+  package_metadata_not_found: 1
 ```
 
 **A forbidden license is never absorbed**, even when you regenerate the file. Only `unknown`, `ambiguous`, `conflict`, and `invalid` can be acknowledged, and only when no recognizable candidate is rejected by the allow-list. A resolved license belongs in `--allow-licenses`, and an `error` is a collection failure to repair. An `ambiguous` listing the allow-list already admits on every reading is not acknowledged either, because it is not a violation to review.
@@ -467,8 +505,8 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package       Version  Ecosystem  Purl                          License/Status  Reason                  Path
-copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed  pkg:npm/report-builder@1.4.0 > pkg:npm/copyleft-lib@3.0.0
+Package       Version  Ecosystem  Purl                          License/Status  Reason                  Mechanism  Reference  Path
+copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed  -          -          pkg:npm/report-builder@1.4.0 > pkg:npm/copyleft-lib@3.0.0
 ```
 
 An acknowledged component keeps its unresolved status and evidence in the report; only its violation is removed. When the version changes, or a registry corrects its metadata, the fingerprint stops matching and the component fails again until it is reviewed anew.
@@ -524,7 +562,7 @@ The stdout verdict remains unchanged. SARIF 2.1.0 contains the same violations a
 
 ### Can I pass `package.json`, `*.csproj`, or `Cargo.toml` directly?
 
-No. These manifests describe requested dependencies, not the exact versions and transitive graph selected by the build. Generate an SBOM or use a supported resolved input. For .NET, run `dotnet restore` and scan `obj/project.assets.json`. For Rust, run `cargo metadata --format-version 1 --locked > cargo-metadata.json` and scan `cargo-metadata.json`; `Cargo.lock` is not accepted directly.
+No. These manifests describe requested dependencies, not the exact versions and transitive graph selected by the build. Generate an SBOM or use a supported resolved input. For .NET, run `dotnet restore` and scan `obj/project.assets.json`. For Rust, run `cargo metadata --format-version 1 --locked > cargo-metadata.json` and scan `cargo-metadata.json`; neither `Cargo.toml` nor `Cargo.lock` is accepted directly, and a library that does not commit a lockfile omits `--locked`.
 
 ### Should I use an SBOM or package-manager input?
 

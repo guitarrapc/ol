@@ -26,6 +26,7 @@ internal sealed class ScanCommands
     /// Scan a resolved dependency input.
     /// </summary>
     /// <param name="input">Repeatable resolved dependency input files or directories.</param>
+    /// <param name="excludeInputPath">Repeatable file or directory paths excluded from directory input discovery.</param>
     /// <param name="inputFormat">Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock.</param>
     /// <param name="format">Output format: text, json, or markdown.</param>
     /// <param name="verbose">Include verbose columns and input detection diagnostics.</param>
@@ -44,6 +45,7 @@ internal sealed class ScanCommands
     [Command("scan")]
     public int Scan(
         [InputPathsParser] string[] input,
+        [InputPathsParser] string[]? excludeInputPath = null,
         string inputFormat = "auto",
         ReportFormat format = ReportFormat.Text,
         bool verbose = false,
@@ -71,7 +73,7 @@ internal sealed class ScanCommands
         }
 
         var uncollectedPrefixes = skipEvidencePackages?.Split(',', StringSplitOptions.None);
-        if (!ScanExecution.TryPrepare(input, inputFormat, spdxData, cacheDir, noExternalEvidence, uncollectedPrefixes, concurrency, retry, out var preparation, out var preparationError))
+        if (!ScanExecution.TryPrepare(input, inputFormat, excludeInputPath, spdxData, cacheDir, noExternalEvidence, uncollectedPrefixes, concurrency, retry, out var preparation, out var preparationError))
         {
             Console.Error.WriteLine(preparationError);
             return 1;
@@ -135,7 +137,7 @@ internal sealed class ScanCommands
         {
             try
             {
-                var scope = new ScanReportScope(!noExternalEvidence, dependency is null or "" ? null : dependency, dependencyFilteredCount, excludedUnknownCount);
+                var scope = new ScanReportScope(!noExternalEvidence, dependency is null or "" ? null : dependency, dependencyFilteredCount, excludedUnknownCount, completed.ExcludedInputPaths);
                 WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, componentUsages, groups, groupBy, spdx, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, scope);
             }
             catch (IOException exception)
@@ -184,6 +186,15 @@ internal sealed class ScanCommands
             Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid; {summary.Error} error");
             Console.Error.WriteLine($"  Findings: {summary.UnresolvedWarningCount} warning{(summary.UnresolvedWarningCount == 1 ? string.Empty : "s")} on unresolved components; {summary.ResolvedWarningCount} on resolved components; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
 
+            // Two inputs rarely enumerate the same set, and which of them a component came from is the fact
+            // that says whether the second input earned its place. Per component the report already says it;
+            // only the totals say it about the run.
+            Console.Error.WriteLine($"  Supplied by: {summary.SbomOnlyCount} sbom only; {summary.PackageManagerOnlyCount} package-manager only; {summary.BothSuppliedCount} both");
+            if (verbose)
+            {
+                WriteSupplyByEcosystem(components, Console.Error);
+            }
+
             // Zeroed collection counters read as "nothing was needed" rather than "nothing was attempted",
             // which is the whole point of this mode, so state the absence instead of printing the counters.
             if (noExternalEvidence)
@@ -194,7 +205,7 @@ internal sealed class ScanCommands
             {
                 Console.Error.WriteLine($"  Package artifacts (full scan): {packageArtifacts.TargetCount} targets; {packageArtifacts.DocumentCount} documents; {packageArtifacts.MatchedCount} matched");
                 Console.Error.WriteLine($"  Declared GitHub files (full scan): {declaredGitHubFiles.TargetCount} targets; {declaredGitHubFiles.GitHubRequestCount} GitHub requests; {declaredGitHubFiles.CacheHitCount} cache hits; {declaredGitHubFiles.CacheMissCount} cache misses; {declaredGitHubFiles.DocumentCount} documents; {declaredGitHubFiles.MatchedCount} matched; {declaredGitHubFiles.FetchErrorCount} fetch errors");
-                Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems; {packageMetadata.UnversionedPurlCount} unversioned purls");
+                Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems; {packageMetadata.UnversionedPurlCount} unversioned purls; {packageMetadata.NoPurlCount} without purl");
                 Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
                 Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
             }
@@ -203,6 +214,7 @@ internal sealed class ScanCommands
                 completed.DetectedInputFileCount,
                 completed.InputCandidateDiagnostics,
                 completed.SkippedIncompleteInputCount,
+                completed.ExcludedInputPaths,
                 scanResult.Inventory.Components,
                 Console.Error);
             Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
@@ -232,10 +244,83 @@ internal sealed class ScanCommands
         }
     }
 
+    /// <summary>
+    /// States, per ecosystem, which input kinds supplied its components.
+    /// </summary>
+    /// <remarks>
+    /// The totals say whether a second input earned its place in the collection; this says where. One
+    /// ecosystem supplied by both inputs and another by only one is the ordinary shape of a polyglot
+    /// scan rather than a defect — a source-tree SBOM generator reads npm lockfiles and does not read
+    /// NuGet restore output — and the split is what lets a reader see which case they are in.
+    ///
+    /// Ol prints the counts and draws no conclusion from them. A threshold that called a one-sided
+    /// ecosystem a scope mismatch was considered and rejected: measured across eight polyglot
+    /// repositories it would have fired on every one of them, all correctly configured, because the
+    /// NuGet population is package-manager-only in all of them. A hint that always fires is one readers
+    /// learn to skip, which costs more than the missed hint.
+    ///
+    /// It is a verbose diagnostic rather than a summary fact because the report already carries
+    /// <c>ecosystem</c> and <c>suppliedBy</c> per component, so a consumer of the canonical JSON can
+    /// compute exactly this. Only the human reading a text or Markdown run cannot, and the default
+    /// summary is long enough already.
+    /// </remarks>
+    private static void WriteSupplyByEcosystem(ReadOnlySpan<ScanComponent> components, TextWriter writer)
+    {
+        var counts = new Dictionary<string, SupplyCounts>(StringComparer.Ordinal);
+        for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)
+        {
+            // An empty ecosystem is displayed as "-" everywhere else in the report, and the generator's
+            // own root component is the usual one, so the rows keep summing to the totals line.
+            var ecosystem = components[componentIndex].Ecosystem;
+            if (string.IsNullOrEmpty(ecosystem)) ecosystem = "-";
+
+            counts.TryGetValue(ecosystem, out var entry);
+            switch (components[componentIndex].SuppliedBy)
+            {
+                case ComponentSupply.Sbom: entry.SbomOnly++; break;
+                case ComponentSupply.PackageManager: entry.PackageManagerOnly++; break;
+                case ComponentSupply.Sbom | ComponentSupply.PackageManager: entry.Both++; break;
+            }
+
+            counts[ecosystem] = entry;
+        }
+
+        if (counts.Count == 0)
+        {
+            return;
+        }
+
+        var ecosystems = new string[counts.Count];
+        counts.Keys.CopyTo(ecosystems, 0);
+        Array.Sort(ecosystems, StringComparer.Ordinal);
+        for (var ecosystemIndex = 0; ecosystemIndex < ecosystems.Length; ecosystemIndex++)
+        {
+            var entry = counts[ecosystems[ecosystemIndex]];
+            writer.Write("    ");
+            writer.Write(ecosystems[ecosystemIndex]);
+            writer.Write(": ");
+            writer.Write(entry.SbomOnly);
+            writer.Write(" sbom only; ");
+            writer.Write(entry.PackageManagerOnly);
+            writer.Write(" package-manager only; ");
+            writer.Write(entry.Both);
+            writer.WriteLine(" both");
+        }
+    }
+
+    /// <summary>How many components of one ecosystem each input kind supplied.</summary>
+    private struct SupplyCounts
+    {
+        public int SbomOnly;
+        public int PackageManagerOnly;
+        public int Both;
+    }
+
     private static void WriteInputDiscoverySummary(
         int detectedInputFileCount,
         in InputCandidateDiagnostics candidateDiagnostics,
         int skippedIncompleteInputCount,
+        string[] excludedInputPaths,
         ReadOnlySpan<ScanComponent> components,
         TextWriter writer)
     {
@@ -255,6 +340,21 @@ internal sealed class ScanCommands
         writer.Write("; ");
         writer.Write(skippedIncompleteInputCount);
         writer.Write(skippedIncompleteInputCount == 1 ? " incomplete input set" : " incomplete input sets");
+        writer.Write("; ");
+        writer.Write(excludedInputPaths.Length);
+        writer.Write(excludedInputPaths.Length == 1 ? " excluded input path" : " excluded input paths");
+        if (excludedInputPaths.Length > 0)
+        {
+            writer.Write(" (");
+            for (var excludedIndex = 0; excludedIndex < excludedInputPaths.Length; excludedIndex++)
+            {
+                if (excludedIndex > 0) writer.Write(", ");
+                writer.Write(excludedInputPaths[excludedIndex]);
+            }
+
+            writer.Write(')');
+        }
+
         writer.Write("; ecosystems ");
         var ecosystems = new HashSet<string>(StringComparer.Ordinal);
         for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)

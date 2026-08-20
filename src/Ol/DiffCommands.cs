@@ -35,7 +35,9 @@ internal sealed class DiffCommands
         var changes = ScanReportDiff.Compare(previousReport.Components, currentReport.Components);
         try
         {
-            Console.Write(format == DiffFormat.Json ? RenderJson(changes) : RenderText(changes));
+            Console.Write(format == DiffFormat.Json
+                ? RenderJson(changes, previousReport.ExcludedInputPaths, currentReport.ExcludedInputPaths)
+                : RenderText(changes, previousReport.ExcludedInputPaths, currentReport.ExcludedInputPaths));
         }
         catch (IOException exception)
         {
@@ -47,12 +49,22 @@ internal sealed class DiffCommands
         return 0;
     }
 
-    private static string RenderText(ReadOnlySpan<ScanReportChange> changes)
+    private static string RenderText(ReadOnlySpan<ScanReportChange> changes, string[] previousExcludedInputPaths, string[] currentExcludedInputPaths)
     {
-        if (changes.IsEmpty) return $"No license-relevant changes.{Environment.NewLine}";
+        if (changes.IsEmpty && previousExcludedInputPaths.Length == 0 && currentExcludedInputPaths.Length == 0)
+        {
+            return $"No license-relevant changes.{Environment.NewLine}";
+        }
+
+        var builder = new StringBuilder();
+        AppendInputScope(builder, previousExcludedInputPaths, currentExcludedInputPaths);
+        if (changes.IsEmpty)
+        {
+            builder.AppendLine("No component license changes.");
+            return builder.ToString();
+        }
 
         var componentCount = CountComponents(changes);
-        var builder = new StringBuilder();
         builder.Append("License-relevant changes: ");
         builder.Append(changes.Length);
         builder.Append(changes.Length == 1 ? " change in " : " changes in ");
@@ -71,6 +83,36 @@ internal sealed class DiffCommands
         }
 
         return builder.ToString();
+    }
+
+    private static void AppendInputScope(StringBuilder builder, string[] previous, string[] current)
+    {
+        if (previous.Length == 0 && current.Length == 0) return;
+
+        builder.AppendLine("Audit boundary:");
+        AppendExcludedInputPaths(builder, "  previous excluded input paths: ", previous);
+        AppendExcludedInputPaths(builder, "  current excluded input paths: ", current);
+        builder.Append("  changed: ");
+        builder.AppendLine(InputScopeChanged(previous, current) ? "yes" : "no");
+        builder.AppendLine();
+    }
+
+    private static void AppendExcludedInputPaths(StringBuilder builder, string prefix, string[] paths)
+    {
+        builder.Append(prefix);
+        if (paths.Length == 0)
+        {
+            builder.AppendLine("none");
+            return;
+        }
+
+        builder.Append(paths[0]);
+        for (var i = 1; i < paths.Length; i++)
+        {
+            builder.Append(", ");
+            builder.Append(paths[i]);
+        }
+        builder.AppendLine();
     }
 
     private static void AppendComponent(StringBuilder builder, ReadOnlySpan<ScanReportChange> changes)
@@ -181,13 +223,14 @@ internal sealed class DiffCommands
 
     private static string Or(string value) => value.Length == 0 ? "-" : value;
 
-    private static string RenderJson(ReadOnlySpan<ScanReportChange> changes)
+    private static string RenderJson(ReadOnlySpan<ScanReportChange> changes, string[] previousExcludedInputPaths, string[] currentExcludedInputPaths)
     {
         var buffer = new ArrayBufferWriter<byte>(128 + (changes.Length * 160));
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
         {
             writer.WriteStartObject();
             writer.WriteNumber("schemaVersion"u8, JsonSchemaVersion);
+            WriteInputScope(writer, previousExcludedInputPaths, currentExcludedInputPaths);
             writer.WriteStartArray("changes"u8);
             for (var i = 0; i < changes.Length; i++)
             {
@@ -225,6 +268,53 @@ internal sealed class DiffCommands
         }
 
         return Encoding.UTF8.GetString(buffer.WrittenSpan) + Environment.NewLine;
+    }
+
+    private static void WriteInputScope(Utf8JsonWriter writer, string[] previous, string[] current)
+    {
+        writer.WriteStartObject("inputScope"u8);
+        writer.WriteBoolean("changed"u8, InputScopeChanged(previous, current));
+        WriteExcludedInputPaths(writer, "previous"u8, previous);
+        WriteExcludedInputPaths(writer, "current"u8, current);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteExcludedInputPaths(Utf8JsonWriter writer, ReadOnlySpan<byte> name, string[] paths)
+    {
+        writer.WriteStartObject(name);
+        writer.WriteNumber("excludedPathCount"u8, paths.Length);
+        writer.WriteStartArray("excludedPaths"u8);
+        for (var i = 0; i < paths.Length; i++) writer.WriteStringValue(paths[i]);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static bool InputScopeChanged(string[] previous, string[] current)
+    {
+        for (var i = 0; i < previous.Length; i++)
+        {
+            var found = false;
+            for (var j = 0; j < current.Length; j++)
+            {
+                if (!string.Equals(previous[i], current[j], StringComparison.Ordinal)) continue;
+                found = true;
+                break;
+            }
+            if (!found) return true;
+        }
+
+        for (var i = 0; i < current.Length; i++)
+        {
+            var found = false;
+            for (var j = 0; j < previous.Length; j++)
+            {
+                if (!string.Equals(current[i], previous[j], StringComparison.Ordinal)) continue;
+                found = true;
+                break;
+            }
+            if (!found) return true;
+        }
+        return false;
     }
 
     private static void WriteTransition(Utf8JsonWriter writer, ReadOnlySpan<byte> name, string previous, string current)

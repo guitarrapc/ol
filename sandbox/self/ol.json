@@ -48,6 +48,7 @@
       "fetchErrorCount": 0,
       "unsupportedEcosystemCount": 0,
       "unversionedPurlCount": 0,
+      "noPurlCount": 0,
       "concurrency": 4,
       "retryCount": 1
     },
@@ -69,6 +70,10 @@
       "dependencyFilter": null,
       "excludedCount": 0,
       "excludedUnknownCount": 0
+    },
+    "inputScope": {
+      "excludedPathCount": 0,
+      "excludedPaths": []
     }
   },
   "inventory": {
@@ -2004,7 +2009,12 @@
     "unknown": 4,
     "ambiguous": 0,
     "invalid": 0,
-    "error": 0
+    "error": 0,
+    "supply": {
+      "sbomOnly": 42,
+      "packageManagerOnly": 0,
+      "both": 0
+    }
   },
   "warnings": []
 }

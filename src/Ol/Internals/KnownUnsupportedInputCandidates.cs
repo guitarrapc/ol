@@ -41,7 +41,27 @@ internal static class KnownUnsupportedInputCandidates
             WarningSubject: ".NET",
             SatisfiedFormat: ScanInputFormat.NuGetAssets,
             SatisfiedEcosystem: "nuget"),
+
+        // A Cargo library does not commit its lockfile, so detecting only Cargo.lock leaves the ecosystem
+        // silently unscanned in exactly the repositories that publish crates. The manifest is the file every
+        // Cargo project has. It is superseded rather than independent because a project carrying a lockfile
+        // always carries a manifest too, so two rules would report one unscanned ecosystem twice, and the
+        // lockfile's advice is the one that reproduces the recorded resolution.
+        new(
+            Bit: 1UL << 2,
+            FileName: "Cargo.toml",
+            Extension: null,
+            DirectoryPattern: "Cargo.toml",
+            Advice: "Cargo.toml is not a supported input. Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-metadata.json.",
+            WarningSubject: "Rust",
+            SatisfiedFormat: ScanInputFormat.CargoMetadata,
+            SatisfiedEcosystem: "cargo",
+            SupersededBy: 1UL << 0),
     ];
+
+    /// <summary>Reports whether a more specific rule already speaks for this one's ecosystem.</summary>
+    private static bool IsSuperseded(in CandidateRule rule, in InputCandidateDiagnostics diagnostics)
+        => rule.SupersededBy != 0 && diagnostics.IsDetected(rule.SupersededBy);
 
     public static void DetectDirectory(string directory, EnumerationOptions options, ref InputCandidateDiagnostics diagnostics)
     {
@@ -55,6 +75,26 @@ internal static class KnownUnsupportedInputCandidates
 
             using var paths = Directory.EnumerateFiles(directory, rule.DirectoryPattern, options).GetEnumerator();
             if (paths.MoveNext())
+            {
+                diagnostics.MarkDetected(rule.Bit);
+            }
+        }
+    }
+
+    public static void DetectFile(string path, ref InputCandidateDiagnostics diagnostics)
+    {
+        var fileName = Path.GetFileName(path.AsSpan());
+        var extension = Path.GetExtension(fileName);
+        for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
+        {
+            ref readonly var rule = ref Rules[ruleIndex];
+            if (diagnostics.IsDetected(rule.Bit))
+            {
+                continue;
+            }
+
+            if ((rule.FileName is not null && fileName.Equals(rule.FileName, StringComparison.OrdinalIgnoreCase))
+                || (rule.Extension is not null && extension.Equals(rule.Extension, StringComparison.OrdinalIgnoreCase)))
             {
                 diagnostics.MarkDetected(rule.Bit);
             }
@@ -125,7 +165,7 @@ internal static class KnownUnsupportedInputCandidates
         for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
         {
             ref readonly var rule = ref Rules[ruleIndex];
-            if ((unresolved & rule.Bit) != 0)
+            if ((unresolved & rule.Bit) != 0 && !IsSuperseded(rule, diagnostics))
             {
                 // Nothing was scanned at all on this path, so the warning's "were not scanned" framing would
                 // misreport the failure. The advice alone is what the caller can act on.
@@ -149,7 +189,7 @@ internal static class KnownUnsupportedInputCandidates
         for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
         {
             ref readonly var rule = ref Rules[ruleIndex];
-            if ((unresolved & rule.Bit) == 0)
+            if ((unresolved & rule.Bit) == 0 || IsSuperseded(rule, diagnostics))
             {
                 continue;
             }
@@ -161,8 +201,22 @@ internal static class KnownUnsupportedInputCandidates
         }
     }
 
+    /// <summary>Counts the candidates a reader is asked to act on, which excludes any a rule already speaks for.</summary>
     public static int GetUnresolvedCount(in InputCandidateDiagnostics diagnostics)
-        => BitOperations.PopCount(diagnostics.Unresolved);
+    {
+        var count = 0;
+        var unresolved = diagnostics.Unresolved;
+        for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
+        {
+            ref readonly var rule = ref Rules[ruleIndex];
+            if ((unresolved & rule.Bit) != 0 && !IsSuperseded(rule, diagnostics))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
 
     public static void WriteUnresolvedNames(in InputCandidateDiagnostics diagnostics, TextWriter writer)
     {
@@ -171,7 +225,7 @@ internal static class KnownUnsupportedInputCandidates
         for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
         {
             ref readonly var rule = ref Rules[ruleIndex];
-            if ((unresolved & rule.Bit) == 0)
+            if ((unresolved & rule.Bit) == 0 || IsSuperseded(rule, diagnostics))
             {
                 continue;
             }
@@ -194,6 +248,7 @@ internal static class KnownUnsupportedInputCandidates
     /// <param name="WarningSubject">The ecosystem named by the directory-discovery warning.</param>
     /// <param name="SatisfiedFormat">The input format whose presence proves the ecosystem was scanned.</param>
     /// <param name="SatisfiedEcosystem">The component ecosystem whose presence proves the ecosystem was scanned.</param>
+    /// <param name="SupersededBy">The bit of a rule that reports this one's ecosystem better, or zero when this rule stands alone.</param>
     private readonly record struct CandidateRule(
         ulong Bit,
         string? FileName,
@@ -202,5 +257,6 @@ internal static class KnownUnsupportedInputCandidates
         string Advice,
         string WarningSubject,
         ScanInputFormat SatisfiedFormat,
-        string SatisfiedEcosystem);
+        string SatisfiedEcosystem,
+        ulong SupersededBy = 0);
 }

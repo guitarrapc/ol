@@ -9,7 +9,7 @@ Use only the rows matching the audited subject. Confirm exact supported versions
 | npm | `package-lock.json` v2/v3 | Run the project's locked install workflow. Include each in-scope workspace/root lock; do not substitute `package.json`. |
 | pnpm | `pnpm-lock.yaml` v9 | Run the project's locked install workflow. Preserve workspace importer coverage. |
 | Yarn | Classic v1 or Berry metadata v8 `yarn.lock` | Run the project's install workflow and verify the lock format/version. |
-| Rust / Cargo | Cargo metadata JSON | Run `cargo metadata --format-version 1 --locked > cargo-metadata.json`. `Cargo.lock` alone is not accepted. Include the intended features/targets when they change the graph. |
+| Rust / Cargo | Cargo metadata JSON | Run `cargo metadata --format-version 1 --locked > cargo-metadata.json`, omitting `--locked` when the repository does not commit `Cargo.lock`. Neither `Cargo.toml` nor `Cargo.lock` is accepted directly. Include the intended features/targets when they change the graph. |
 | Go modules | `go-list-modules.json` plus `go-mod-graph.txt` in one directory | Run `go list -m -json all` and `go mod graph`, saving the outputs with those names. Run them from the intended module/workspace context. |
 | Python | pip inspect JSON v1 | Activate the audited environment, then run `python -m pip inspect --local > pip-inspect.json`. A requirements file alone is not resolved evidence. |
 | PHP / Composer | `composer.json` plus `composer.lock` in one directory | Keep the pair together. Include or exclude `packages-dev` according to the audited install scope; do not scan `composer.lock` without its root requirements. |

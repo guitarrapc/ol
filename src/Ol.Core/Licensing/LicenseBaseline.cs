@@ -102,6 +102,28 @@ public sealed class LicenseBaseline
         return new LicenseBaseline(keys.ToFrozenSet(StringComparer.Ordinal));
     }
 
+    /// <summary>Unions several baselines into the set a component is checked against.</summary>
+    /// <remarks>
+    /// A component is acknowledged when any supplied baseline states it, so the composition is a union and
+    /// the result cannot depend on the order the files were named. Nothing has to be reconciled: an entry
+    /// already identifies itself by identity and evidence fingerprint, so two files stating different
+    /// evidence for one component contribute two keys, and whichever matches the report is the one that
+    /// applies.
+    /// </remarks>
+    public static LicenseBaseline Compose(ReadOnlySpan<LicenseBaseline> baselines)
+    {
+        if (baselines.Length == 1) return baselines[0];
+
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < baselines.Length; i++)
+        {
+            ArgumentNullException.ThrowIfNull(baselines[i]);
+            keys.UnionWith(baselines[i].acknowledged);
+        }
+
+        return new LicenseBaseline(keys.ToFrozenSet(StringComparer.Ordinal));
+    }
+
     /// <summary>Builds the deterministic snapshot of every non-root component the policy allows to be acknowledged.</summary>
     public static LicenseBaselineEntry[] CreateEntries(ReadOnlySpan<ScanComponent> components, LicenseAllowPolicy policy)
     {

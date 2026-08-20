@@ -59,6 +59,9 @@ ol scan --input bom.cdx.json
 # カレントディレクトリ以下から対応するエコシステムの解決済み依存関係をスキャン
 ol scan --input .
 
+# 監査対象製品に含まれないドキュメントやPagesプロジェクトを除外
+ol scan --input . --exclude-input-path src/documents --exclude-input-path Pages
+
 # 対応するロックファイルやパッケージマネージャー出力を直接スキャン
 ol scan --input package-lock.json
 ol scan --input src/MyProject/obj/project.assets.json
@@ -179,6 +182,7 @@ Scan a resolved dependency input.
 
 Options:
   --input <string[]>                    Repeatable resolved dependency input files or directories. [Required]
+  --exclude-input-path <string[]?>      Repeatable file or directory paths excluded from directory input discovery. [Default: null]
   --input-format <string>               Input format: auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock. [Default: @"auto"]
   --format <ReportFormat>               Output format: text, json, or markdown. [Default: Text]
   --verbose                             Include verbose columns and input detection diagnostics.
@@ -211,8 +215,8 @@ Options:
   --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. [Default: null]
   --spdx-data <string?>             Directory containing licenses.json and exceptions.json. [Default: null]
   --verbose                         Include persisted report diagnostics.
-  --baseline <string?>              Baseline file acknowledging already reviewed unresolved components. [Default: null]
-  --update-baseline                 Rewrite the baseline file as a complete snapshot.
+  --baseline <string[]?>            Repeatable baseline files acknowledging already reviewed unresolved components. A component is acknowledged when any of them states it. [Default: null]
+  --update-baseline                 Rewrite the last baseline file, holding what the earlier ones do not already acknowledge.
   --sarif <string?>                 Write violations as SARIF to this file for CI code scanning. [Default: null]
 ```
 
@@ -368,6 +372,21 @@ SBOM側も、SBOMだけが知っていることを提供し続けます。生成
 Unable to scan input: A collection accepts at most one SBOM document.
 ```
 
+### 監査対象からリポジトリのサブツリーを除外する
+
+```bash
+# product-a/docsだけ除外。product-b/docsは対象のまま
+ol scan --input product-a --input product-b \
+  --exclude-input-path product-a/docs
+
+# 複数パスは繰り返し指定
+ol scan --input product-a --input product-b \
+  --exclude-input-path product-a/docs \
+  --exclude-input-path product-b/docs
+```
+
+パスはカレントディレクトリ基準の、実在する正確なファイルまたはディレクトリです。globには対応しません。olのディレクトリ探索だけに作用するため、リポジトリ全体のSBOMを生成する場合は生成側でも同じパスを除外してください。
+
 
 
 ## よく使う操作
@@ -394,6 +413,17 @@ ol check --report ol-report.json \
 
 これは「本番成果物に含まれない」ことの証明ではありません。リリース成果物は基本の許可リストで別途確認してください。
 
+**lockfileと一緒にSBOMをスキャンしても、この緩和は取り消されません。** SBOMは開発スコープを記録しないので到達性について何も述べておらず、その観測はresolverの判定を覆さず棄権します。componentを格下げできるのは、runtimeと判定したresolverだけです。どの入力も判定しなかったcomponentはunknownのままで、このオプションが緩和することはありません。
+
+```text
+$ ol scan --input package-lock.json --input bom.cdx.json --format json > report.json
+$ ol check --report report.json --allow-licenses MIT --allow-dev-licenses CC-BY-4.0
+Allowed by development policy: 1 component.
+License check passed: 1 component satisfies the allow-list.
+```
+
+ひとつ知っておくべき点があります。lockfileより広い範囲を含むSBOMは、同じパッケージのruntime installを抱えている可能性があり、olはpackage URLだけで照合するため、それが開発用の行にfoldされます。SBOMが解決済み入力の外まで届いたかどうかは`Supplied by`のサマリー行で確認できます。
+
 ### 既存プロジェクトへベースラインを導入する
 
 既存プロジェクトには、olが解決できないコンポーネントが残りえます。プライベートフィードのパッケージ、ライセンス欄のないレジストリ、GitHub以外のソースなどです。これらは安全側に倒して違反になりますが、自分のコードを直しても解消できません。
@@ -405,9 +435,14 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 ```text
 License check failed: 1 violation.
 
-Package                  Version  Ecosystem  Purl                                     License/Status  Reason                 Path
-@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved  -
+Package                  Version  Ecosystem  Purl                                     License/Status  Reason                 Mechanism                   Reference  Path
+@mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved  package_metadata_not_found  -          -
+
+Unresolved mechanisms
+  package_metadata_not_found: 1
 ```
+
+`Reason`はポリシーがなぜ拒否したかを、`Mechanism`は証拠がなぜ確定しなかったかを示します。次の行動を決めるのは後者です。この例は公開レジストリに存在しないパッケージなので、収集を繰り返しても答えは出ません。末尾の集計は行を母集団にまとめます。未解決が100件あっても実際には数種類であり、母集団ごとに一度で片が付くからです。
 
 確認して受け入れたものを`--update-baseline`で記録します。
 
@@ -455,8 +490,11 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-b
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package                Version  Ecosystem  Purl                                   License/Status  Reason                 Path
-@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved  -
+Package                Version  Ecosystem  Purl                                   License/Status  Reason                 Mechanism                   Reference  Path
+@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved  package_metadata_not_found  -          -
+
+Unresolved mechanisms
+  package_metadata_not_found: 1
 ```
 
 **禁止ライセンスは、再生成しても吸収されません。** 承認できるのは`unknown`、`ambiguous`、`conflict`、`invalid`だけで、しかも認識可能な候補が許可リストに拒否されない場合に限られます。解決済みのライセンスは`--allow-licenses`で扱う対象であり、`error`は修復すべき収集失敗です。許可リストがどう読んでも許可する`ambiguous`の列挙も、レビューすべき違反ではないため承認対象になりません。
@@ -470,8 +508,8 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package       Version  Ecosystem  Purl                          License/Status  Reason                  Path
-copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed  pkg:npm/report-builder@1.4.0 > pkg:npm/copyleft-lib@3.0.0
+Package       Version  Ecosystem  Purl                          License/Status  Reason                  Mechanism  Reference  Path
+copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed  -          -          pkg:npm/report-builder@1.4.0 > pkg:npm/copyleft-lib@3.0.0
 ```
 
 承認されたコンポーネントは、レポート上では未解決のステータスと証拠をそのまま保持します。外れるのは違反という扱いだけです。バージョンが上がったり、レジストリが記載を修正したりすると指紋が一致しなくなり、そのコンポーネントは再びレビューされるまで違反に戻ります。
@@ -514,7 +552,7 @@ stdoutの判定結果は変わらず、同じ違反集合をSARIF 2.1.0として
 
 ### `package.json`、`*.csproj`、`Cargo.toml`を直接渡せますか
 
-渡せません。これらは要求された依存関係を示すマニフェストであり、実際に解決されたバージョンや推移的依存関係を確定しません。SBOMを生成するか、対応する解決済み入力を渡してください。.NETでは`dotnet restore`を実行して`obj/project.assets.json`を指定します。Rustでは`cargo metadata --format-version 1 --locked > cargo-metadata.json`を実行して`cargo-metadata.json`を指定します。`Cargo.lock`は直接指定できません。
+渡せません。これらは要求された依存関係を示すマニフェストであり、実際に解決されたバージョンや推移的依存関係を確定しません。SBOMを生成するか、対応する解決済み入力を渡してください。.NETでは`dotnet restore`を実行して`obj/project.assets.json`を指定します。Rustでは`cargo metadata --format-version 1 --locked > cargo-metadata.json`を実行して`cargo-metadata.json`を指定します。`Cargo.toml`も`Cargo.lock`も直接は指定できません。lockfileをコミットしていないライブラリでは`--locked`を外してください。
 
 ### SBOMとパッケージマネジャー入力のどちらを使うべきですか
 

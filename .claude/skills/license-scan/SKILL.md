@@ -1,83 +1,62 @@
 ---
 name: license-scan
-description: Scan dependency licenses with ol by combining a CycloneDX/SPDX SBOM with resolved package-manager inputs, then enforce the intended SPDX policy with check, reviewed baselines, and CI. Supports single-language, polyglot, and monorepo builds, including input alignment, evidence collection, unresolved-result diagnosis, baseline updates, and license-regression detection.
+description: Scan dependency licenses with ol by combining resolved package-manager inputs with an optional CycloneDX/SPDX SBOM, judge coverage, then enforce the intended SPDX policy with check, reviewed baselines, and CI. Supports single-language, polyglot, and monorepo builds, including input alignment, evidence collection, unresolved-result diagnosis, baseline composition, and license-regression detection.
 ---
 
 # ol License Scan
 
-Scan the dependencies the audited build actually resolved. Treat repositories as potentially polyglot: discover every in-scope ecosystem before selecting inputs.
+Scan what the build actually resolved. Judge coverage before reading licenses. Apply policy last.
 
-## Run the compliance lifecycle
+Repositories are polyglot until proven otherwise: find every in-scope ecosystem before choosing inputs.
 
-Use ol as a review loop, not as a one-time inventory:
-
-1. **Scan:** generate a canonical JSON report from the aligned SBOM and resolved package-manager inputs.
-2. **Review facts:** confirm coverage, then inspect detected licenses and unresolved evidence. Scan results describe evidence; they do not decide organizational intent.
-3. **Define policy:** obtain the intended SPDX allow-list and any separately approved development-only licenses.
-4. **Check:** run `ol check` without a baseline first so every policy violation is visible.
-5. **Decide:** for each violation, fix bad evidence or dependencies; add a resolved license to the allow-list only after approval; consider a baseline only for reviewed evidence that remains unresolved.
-6. **Adopt a baseline:** generate `baseline.json` once from the reviewed unresolved set, inspect its contents, and commit it.
-7. **Verify:** rerun `check` without `--update-baseline`; it must pass with the committed policy and baseline.
-8. **Enforce in CI:** regenerate the report, then run the same `check`. New or changed evidence must fail until reviewed.
-9. **Update deliberately:** when dependencies or evidence change, review the violation and baseline diff before replacing the complete baseline snapshot.
+## Lifecycle
 
 ```text
-ol scan --input <sbom> --input <aligned-resolved-inputs> --format json > ol-report.json
+ol scan --input . --format json > ol-report.json
 ol check --report ol-report.json --allow-licenses <approved-SPDX-ids>
-ol check --report ol-report.json --allow-licenses <approved-SPDX-ids> --baseline baseline.json --update-baseline
-ol check --report ol-report.json --allow-licenses <approved-SPDX-ids> --baseline baseline.json
 ```
 
-Read [references/policy-workflow.md](references/policy-workflow.md) before creating or updating a baseline. Never use a baseline to absorb a resolved but unapproved license or a collection error.
+1. **Scan** into canonical JSON and keep it. Every later step reads that file, not a new scan.
+2. **Judge coverage.** Exit `0` means the command ran, not that the audit is complete.
+3. **Check without a baseline** so every violation is visible.
+4. **Triage by population**, not row by row.
+5. **Baseline** only reviewed evidence that stays unresolved.
+6. **Verify** steady state, then run the same check in CI.
 
-## Establish the executable and scope
+Read [references/policy-workflow.md](references/policy-workflow.md) before creating or updating a baseline.
 
-1. Run `ol scan --help`; use it as the version-specific option reference.
-2. Define the auditable subject: a release artifact, application, workspace, subtree, or whole repository. Ask when the choice changes compliance meaning.
-3. Inventory manifests, workspaces, existing SBOMs, lockfiles, and generated resolver outputs across the entire subject, including ignored build directories.
-4. Map each in-scope component to its package manager and build context. Do not stop after finding the first ecosystem.
-5. Read [references/ecosystem-inputs.md](references/ecosystem-inputs.md) for supported inputs and preparation commands relevant to the ecosystems found.
+## Scope and inputs
 
-Do not pass unresolved manifests such as `package.json`, `Cargo.toml`, project files, `go.mod`, or requirements files by themselves. They state requests, not necessarily the versions and transitive graph selected by the build. Generate a supported SBOM or resolved input first.
+1. Run `ol scan --help` as the version-specific option reference.
+2. Name the auditable subject: a release artifact, application, workspace, subtree, or whole repository. Ask when the choice changes compliance meaning.
+3. Find every ecosystem in that subject, including inside ignored build directories. Do not stop at the first one.
+4. Read [references/ecosystem-inputs.md](references/ecosystem-inputs.md) for each ecosystem's supported input and how to produce it.
 
-## Select and align inputs
+`ol scan --input .` discovers every supported resolved input recursively and is the normal starting point. It also finds test fixtures, vendored trees, and unrelated sample projects, which are not dependencies of the subject. The `Input discovery` line is the detector: an ecosystem you did not expect, or a detected-file count far above the number of projects you know about, means the scan reached beyond the subject. Narrow it with `--exclude-input-path` or explicit paths.
 
-Prefer inputs in this order:
+Never pass an unresolved manifest alone — `package.json`, `Cargo.toml`, `*.csproj`, `go.mod`, requirements files. They state requests, not the graph the build selected. ol reports such a file as an ignored candidate and names the command that produces the real input; act on that rather than scanning the manifest.
 
-1. **One SBOM plus aligned package-manager inputs:** use one CycloneDX/SPDX JSON SBOM for the auditable subject and the resolved outputs for every in-scope ecosystem.
-2. **One SBOM:** use it alone only when aligned resolver outputs cannot be produced reliably.
-3. **Resolved package-manager inputs:** use all in-scope ecosystem outputs together when no trustworthy subject-wide SBOM can be generated.
+### Adding an SBOM
 
-Do not silently fall back. Attempt the companion input or record its exact blocker. Validate that generated inputs are current for the same commit, configuration, platform, feature set, and production/development scope. A file's presence does not prove freshness.
+An SBOM is a second input, not a replacement. Add one when ol has no adapter for an ecosystem in the subject, or when CI must not install that ecosystem's resolver.
 
-Pass a directory when it contains only aligned supported inputs. Otherwise repeat explicit paths. ol accepts at most one SBOM per input collection.
+Where a resolved input exists, it is the stronger evidence: only a resolved input records the installed location that lets ol read licenses out of package artifacts. Adding an SBOM there usually changes nothing and can add components that are not dependencies — see [references/sbom-generators.md](references/sbom-generators.md).
 
-```text
-ol scan --input bom.cdx.json \
-  --input path/to/ecosystem-a/resolved-input \
-  --input path/to/ecosystem-b/resolved-input \
-  --format json
+ol accepts at most one SBOM per scan, and every input must describe the same commit, configuration, platform, and feature set. For separate independently shipped products, scan each subject separately rather than manufacturing one repository-wide result.
+
+## Run the scan
+
+Keep external evidence enabled for the primary result. `--no-external-evidence` is for an explicitly offline comparison; label such a result incomplete.
+
+Use `--refresh` only when stale evidence is suspected, and lower `--concurrency` when a service rate-limits. In CI, persist `--cache-dir` between runs: a cold cache costs hundreds of GitHub requests on a large repository, and `GITHUB_TOKEN` allows 1,000 per hour per repository.
+
+### GitHub authentication
+
+ol does not read `GITHUB_TOKEN`. Set `OL_GITHUB_TOKEN` in the scan process environment only, never on the command line, and never echo or store it.
+
+```bash
+OL_GITHUB_TOKEN="$(gh auth token)" ol scan ...
 ```
-
-For a monorepo, do not mix a repository-wide SBOM with resolver files from unrelated samples, tests, tools, old builds, or excluded release units. For separate independently shipped products, scan and report each auditable subject separately instead of manufacturing one repository-wide result.
-
-When resolution or SBOM generation can mutate the target repository, write outputs and caches outside it where the ecosystem permits. Before contacting private feeds or external services, explain that dependency coordinates may leave the environment and obtain any required approval.
-
-## Run the evidence scan
-
-Keep external evidence enabled for the primary result so ol can combine input claims with available package artifacts, registries, declared GitHub files, and source repositories.
-
-```text
-ol scan --input <sbom-or-resolved-input> --format json
-```
-
-Preserve the canonical JSON report. Use an isolated `--cache-dir` for reproducibility experiments; retain the normal cache for ordinary use. Use `--refresh` only when stale evidence is suspected, and reduce `--concurrency` when a service rate-limits requests.
-
-Do not make `--no-external-evidence` the default. Use it only for an explicitly offline/input-only comparison and label the result incomplete. Its impact varies by ecosystem and available local artifacts.
-
-### Apply GitHub authentication safely
-
-Check `gh auth status`. If it succeeds, obtain the token without displaying it and set `OL_GITHUB_TOKEN` only in the scan process environment:
 
 ```powershell
 $env:OL_GITHUB_TOKEN = gh auth token
@@ -85,39 +64,66 @@ ol scan ...
 Remove-Item Env:OL_GITHUB_TOKEN
 ```
 
-```bash
-OL_GITHUB_TOKEN="$(gh auth token)" ol scan ...
-```
+## Judge coverage first
 
-ol does not implicitly read `GITHUB_TOKEN`. Never echo, log, store, or place the token on the command line. If authentication is invalid, request re-authentication or report the unauthenticated limitation.
+Read these before any license, cheapest first.
 
-## Judge coverage before license status
+| Signal | Question it answers |
+|---|---|
+| `Input discovery` line: detected files, ignored candidates, incomplete input sets, excluded paths, ecosystems | Did every ecosystem in the subject get scanned, and only those? An ignored candidate is an unscanned ecosystem. |
+| `summary.supply` (`Supplied by` line; `--verbose` splits it per ecosystem) | Did the second input earn its place? A large `sbomOnly` count means the generator catalogued things that are not dependencies. |
+| `warnings`, including `input_declares_no_components` | Did an input resolve nothing? Every count zero reads exactly like a clean project. |
+| `metadata.packageMetadata`, `packageArtifacts`, `declaredGitHubFiles`, `sourceRepository` | Separate collector failure from component status. `fetchErrorCount` above zero means the run is degraded. |
+| `metadata.network.githubAuth` | Was the intended authentication mode used? |
 
-Treat exit code zero as successful execution, not a clean compliance result. Read:
+In a polyglot scan, read these per ecosystem. One healthy ecosystem hides a missing graph in another.
 
-- `metadata.input`: confirm every expected parser, file, and build context is represented.
-- inventory and dependency counts: compare them with each ecosystem's resolver and with the SBOM.
-- `suppliedBy`: confirm expected identities merged across the SBOM and resolver inputs.
-- `metadata.packageArtifacts`, `metadata.packageMetadata`, `metadata.declaredGitHubFiles`, and `metadata.sourceRepository`: separate collector coverage and fetch failures from component status.
-- `metadata.network.githubAuth`: confirm the intended authentication mode.
-- every component's `status`, `dependency`, `licenseCandidates`, and `warnings`.
+If a combined scan surprises you, rerun the same scope with each input alone and identify which one changed the evidence. Keep the combined result; do not discard inconvenient evidence.
 
-In a polyglot scan, group coverage diagnostics by ecosystem and input context. One healthy ecosystem must not hide a missing, stale, or unsupported graph in another. A large resolver-only remainder, duplicate-looking identities, or unexpected `dependency: unknown` usually indicates scope, identity, or graph mismatch.
+## Triage violations by population
 
-If a combined scan has unexpected unresolved or ambiguous results, rerun the same scope as SBOM-only and resolved-input-only, then isolate individual ecosystem inputs when needed. Preserve the combined result and identify which input changes the evidence; do not discard inconvenient evidence silently.
+`ol check` exits `0` pass, `2` policy violations, `3` inconclusive — every finding was a collection failure, so retry rather than treat it as a licensing fact. A CI job that collapses `2` and `3` cannot tell a registry outage from a forbidden license.
 
-Evaluate fetch-error counters separately from statuses. If network collection fails, do not present the degraded run as definitive.
+Violations name a `Mechanism` and end with an `Unresolved mechanisms` tally. **Read the tally first.** A hundred unresolved rows are usually a few populations, and one decision covers each.
 
-## Apply policy only after assessment
+| Mechanism | What it means | Action |
+|---|---|---|
+| `declared_license_location_not_collected` | The publisher named a URL ol does not fetch. | Open the `Reference` URL. Legacy NuGet `licenseUrl` values often lead to no license at all; then the component is inherently unresolved. |
+| `declared_license_file_not_collected` | A license file ships inside the package. | Open that path in the published package. |
+| `license_not_recognized` | A repository license file exists that GitHub could not classify. | Open the `Reference` URL. |
+| `license_not_detected` | The repository was read and holds no license file. | Ask the publisher, or accept it as unresolved. |
+| `external_evidence_not_collected` | Collection was never attempted for this component. | Expected under `--no-external-evidence` or `--skip-evidence-packages`; rerun with collection before concluding anything. |
+| `package_metadata_not_found` | The registry said the package is not published there. | Expected for private-feed packages. |
+| `package_metadata_no_purl` | The component carries no package identity, so nothing can ever be asked. | A generator problem, not a collection problem. Fix the generator's scope or cataloger selection. |
+| `unsupported_package_metadata`, `package_metadata_unversioned_purl` | ol has no provider for that ecosystem, or the purl names no single version. | Fix the input, or accept the limitation. |
+| `-` on a `license is not allowed` row | The license resolved; policy rejected it. | Allow-list decision, never a baseline one. |
 
-Run `ol check` only after producing canonical JSON and obtaining the intended SPDX policy:
+`--allow-dev-licenses` relaxes only components a resolver proved development-only. An input that determines no usage — an SBOM, Yarn, NuGet, Go, pip, Bundler — abstains rather than cancelling that proof, but a component no input classified stays unknown and is never relaxed.
+
+## Policy and baseline
+
+Do not invent an allow-list; obtain the intended one. Resolved-but-rejected licenses belong in the allow-list. Only `unknown`, `ambiguous`, `conflict`, and `invalid` may be baselined, and `error` never is.
+
+`--baseline` is repeatable and the files compose: a component is acknowledged when any of them states it. Use one shared file for a population several repositories share and a local file for what only this repository accepts.
 
 ```text
-ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause
+ol check --report ol-report.json --allow-licenses <ids> --baseline <shared> --baseline <local>
 ```
 
-Do not invent an allow-list. Review `unknown`, `ambiguous`, `conflict`, and `invalid` before any baseline decision; repair `error` and scan again. Apply development-only allowances only where resolver evidence proves the dependency classification.
+`--update-baseline` rewrites the **last** file with what the earlier ones do not already acknowledge, and never touches the earlier ones. Never run it in CI: a failing check is the review gate.
 
-## Report the assessment
+## Detect regressions
 
-State the ol executable/version, auditable subject, languages/ecosystems found, included and excluded build contexts, input-generation commands, scan mode, component/status/dependency counts by ecosystem where useful, collector health, limitations, and next action. For policy onboarding or maintenance, also state the allow-list source, initial violations, baseline path and acknowledged count, steady-state exit code, and exact CI command. Preserve the full canonical JSON report before producing filtered views. Remember that `--dependency` filters presentation, not analysis.
+`check` answers "does the current state satisfy policy". It cannot say what a change did, so every pre-existing violation blocks every pull request until it is resolved. Commit a report and compare:
+
+```text
+ol diff --previous before.json --current after.json
+```
+
+This is what surfaces a dependency whose license changed between versions. `--sarif` on `check` writes the same violations for code scanning, with dependency paths.
+
+## Report
+
+State the ol version, the auditable subject, the ecosystems found and any excluded, the exact input-generation commands, coverage signals above, component and status counts per ecosystem, unresolved mechanisms with counts, collector health, limitations, and the next action. For policy work also state the allow-list source, initial violations, baseline paths and acknowledged counts, steady-state exit code, and the exact CI command.
+
+Keep the canonical JSON before producing any filtered view. `--dependency` filters presentation, not analysis.

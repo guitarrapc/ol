@@ -62,7 +62,7 @@ public sealed class PackageArtifactEvidenceTests
                 SpdxData.Load(null),
                 new PackageArtifactCollectionSummary(2, 3, 1),
                 new DeclaredGitHubFileArtifactCollectionSummary(4, 5, 6, 7, 8, 9, 10),
-                new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, 1, 0),
+                new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, 0, 1, 0),
                 new SourceRepositorySummary(0, 0, 0, 0, 0, 0, "none", 1, 0),
                 new ScanReportScope(true, null, 0, 0));
         }

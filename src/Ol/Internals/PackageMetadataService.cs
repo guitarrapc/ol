@@ -16,6 +16,7 @@ internal readonly record struct PackageMetadataSummary(
     int FetchErrorCount,
     int UnsupportedEcosystemCount,
     int UnversionedPurlCount,
+    int NoPurlCount,
     int Concurrency,
     int RetryCount,
     int TargetCount = 0);
@@ -87,7 +88,7 @@ internal sealed class PackageMetadataService(
         {
             return ValueTask.FromResult((
                 Components: components,
-                Summary: new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, concurrency, retryCount)));
+                Summary: new PackageMetadataSummary(0, 0, 0, 0, 0, 0, 0, 0, concurrency, retryCount)));
         }
 
         return components.Length == 1
@@ -160,6 +161,7 @@ internal sealed class PackageMetadataService(
                 result.Has(LookupOutcome.FetchError) ? 1 : 0,
                 result.Has(LookupOutcome.Unsupported) ? 1 : 0,
                 result.Has(LookupOutcome.UnversionedPurl) ? 1 : 0,
+                components[0].Purl.IsEmpty ? 1 : 0,
                 concurrency,
                 retryCount,
                 lookupCount));
@@ -313,6 +315,7 @@ internal sealed class PackageMetadataService(
         var errors = 0;
         var unsupported = 0;
         var unversioned = 0;
+        var noPurl = 0;
         for (var i = 0; i < components.Length; i++)
         {
             var lookupIndex = componentLookupIndexes[i];
@@ -328,9 +331,10 @@ internal sealed class PackageMetadataService(
             errors += result.Has(LookupOutcome.FetchError) ? 1 : 0;
             unsupported += result.Has(LookupOutcome.Unsupported) ? 1 : 0;
             unversioned += result.Has(LookupOutcome.UnversionedPurl) ? 1 : 0;
+            noPurl += components[i].Purl.IsEmpty ? 1 : 0;
         }
 
-        return new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, unversioned, concurrency, retryCount, lookupCount);
+        return new PackageMetadataSummary(supported, hits, misses, refreshed, errors, unsupported, unversioned, noPurl, concurrency, retryCount, lookupCount);
     }
 
     private async Task<PackageMetadataLookupResult> EnrichLookupAsync(PackageMetadataRequest request, CancellationToken cancellationToken)

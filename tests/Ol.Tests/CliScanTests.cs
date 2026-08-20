@@ -23,6 +23,8 @@ public sealed class CliScanTests
         await Assert.That(stdout).Contains("--input <string[]>");
         await Assert.That(stdout).Contains("Repeatable resolved dependency input files or directories. [Required]");
         await Assert.That(stdout).Contains("--input-format <string>");
+        await Assert.That(stdout).Contains("--exclude-input-path <string[]?>");
+        await Assert.That(stdout).Contains("Repeatable file or directory paths excluded from directory input discovery.");
         await Assert.That(stdout).Contains("[Default: @\"auto\"]");
         await Assert.That(stdout).Contains("auto (default), cyclonedx, spdx, nuget-assets, npm-package-lock, pnpm-lock, yarn-classic-lock, yarn-berry-lock, cargo-metadata, go-module-graph, pip-inspect, composer-lock, bundler-lock, maven-dependency-tree, swift-package-resolved, or cocoapods-lock");
         await Assert.That(stdout).Contains("Maximum concurrent package metadata and source repository lookups.");
@@ -134,6 +136,217 @@ public sealed class CliScanTests
     /// reported as an unsupported ecosystem and counted as one. Only a multi-component input reaches the
     /// planner at all, which is why the single-component tests above never showed it.
     /// </remarks>
+    /// <summary>
+    /// A component with no package identity was never a lookup subject, so no collection outcome is true
+    /// of it. Recording one asserted that a repository had been sought and not found, which named a place
+    /// nothing produced and implied a retry that can never help.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithComponentLackingPurl_RecordsNoSourceRepositoryOutcome()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteIdentitylessComponentsAsync();
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(SelectWarnings(report, "bare")).DoesNotContain("source_repository_unavailable");
+            await Assert.That(SelectCandidateSources(report, "bare")).IsEmpty();
+
+            // A declared license still reaches a component with no identity, so the SBOM's own claim stays.
+            await Assert.That(SelectCandidateSources(report, "resolved")).IsEquivalentTo(new[] { "sbom" });
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// The mechanism is derived from the empty purl rather than recorded as a warning, so it is stated
+    /// whether or not the run collected anything. Both modes used to fail differently: collection invented
+    /// a repository outcome, and <c>--no-external-evidence</c> left the component with nothing said at all.
+    /// </summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Scan_WithComponentLackingPurl_NamesTheMechanismInEitherCollectionMode(bool collectExternalEvidence)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteIdentitylessComponentsAsync();
+        var arguments = collectExternalEvidence
+            ? new[] { "scan", "--input", inputPath, "--format", "text", "--quiet" }
+            : ["scan", "--input", inputPath, "--format", "text", "--quiet", "--no-external-evidence"];
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, arguments);
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stdout).Contains("bare 1.0.0 package_metadata_no_purl");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A document the publisher named outranks the structural fact, because opening it is an action and
+    /// "this has no identity" is not.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithComponentLackingPurlButDeclaringLocation_PrefersTheDeclaredLocation()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteIdentitylessComponentsAsync();
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stdout).Contains("with-location 1.0.0 declared_license_location_not_collected https://example.com/LICENSE");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// The population is invisible in every counter today: a component with no purl is not a metadata
+    /// target, and is neither an unsupported ecosystem nor an unversioned purl.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithComponentsLackingPurl_CountsThemInPackageMetadata()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteIdentitylessComponentsAsync();
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            var packageMetadata = report.RootElement.GetProperty("metadata").GetProperty("packageMetadata");
+
+            // All three components in the document lack a purl, including the one that resolved.
+            await Assert.That(packageMetadata.GetProperty("noPurlCount").GetInt32()).IsEqualTo(3);
+            await Assert.That(packageMetadata.GetProperty("targetCount").GetInt32()).IsEqualTo(0);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A component that did have an identity keeps its repository outcome: Ol had a subject, asked, and
+    /// learned no repository, which is a true record of where it looked.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithComponentHavingPurl_KeepsItsSourceRepositoryOutcome()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "name": "bare", "version": "1.0.0" },
+                { "type": "library", "name": "absent", "version": "1.0.0", "purl": "pkg:nuget/Ol.Test.Package.That.Does.Not.Exist@1.0.0" }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(SelectCandidateSources(report, "absent")).Contains("source-repository");
+            await Assert.That(SelectCandidateSources(report, "bare")).IsEmpty();
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A purl that exists but cannot be queried keeps its own mechanism. The three members of this family
+    /// state different things — nothing to ask with, a version missing, an ecosystem Ol cannot ask — and
+    /// collapsing them would send the reader to the wrong fix.
+    /// </summary>
+    [Test]
+    [Arguments("Versionless", "pkg:nuget/NoVersion", "package_metadata_unversioned_purl")]
+    [Arguments("Unsupported", "pkg:generic/thing@1.0.0", "unsupported_package_metadata")]
+    public async Task Scan_WithUnqueryablePurl_KeepsItsOwnMechanism(string name, string purl, string mechanism)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            $$"""
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [ { "type": "library", "name": "{{name}}", "version": "1.0.0", "purl": "{{purl}}" } ]
+            }
+            """,
+            Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stdout).Contains($"{name} 1.0.0 {mechanism}");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>Three components with no purl, covering resolved, declared-location, and bare evidence.</summary>
+    private static async Task<string> WriteIdentitylessComponentsAsync()
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "name": "bare", "version": "1.0.0" },
+                { "type": "library", "name": "with-location", "version": "1.0.0", "licenses": [{ "license": { "url": "https://example.com/LICENSE" } }] },
+                { "type": "library", "name": "resolved", "version": "1.0.0", "licenses": [{ "expression": "MIT" }] }
+              ]
+            }
+            """,
+            Encoding.UTF8);
+        return inputPath;
+    }
+
+    private static string[] SelectCandidateSources(JsonDocument report, string name)
+    {
+        foreach (var component in report.RootElement.GetProperty("components").EnumerateArray())
+        {
+            if (component.GetProperty("name").GetString() != name) continue;
+            return [.. component.GetProperty("licenseCandidates").EnumerateArray().Select(c => c.GetProperty("source").GetString() ?? string.Empty)];
+        }
+
+        throw new InvalidOperationException($"Component '{name}' was not found in the report.");
+    }
+
     [Test]
     public async Task Scan_WithSeveralUnqueryableComponents_KeepsEachOutcomeDistinct()
     {
@@ -901,7 +1114,9 @@ public sealed class CliScanTests
             using var report = JsonDocument.Parse(stdout);
             var component = report.RootElement.GetProperty("components")[0];
             var candidates = component.GetProperty("licenseCandidates");
-            await Assert.That(candidates.GetArrayLength()).IsEqualTo(3);
+            // Two, not three: this package declares no purl, so no source-repository lookup ever had a
+            // subject and no "unavailable" outcome is recorded for it.
+            await Assert.That(candidates.GetArrayLength()).IsEqualTo(2);
             var declared = candidates[0];
             await Assert.That(declared.GetProperty("source").GetString()).IsEqualTo("sbom");
             await Assert.That(declared.GetProperty("kind").GetString()).IsEqualTo("declared");
@@ -918,7 +1133,8 @@ public sealed class CliScanTests
             var concludedEvidence = candidates[1].GetProperty("evidence");
             await Assert.That(concludedEvidence.GetProperty("field").GetString()).IsEqualTo("licenseConcluded");
             await Assert.That(concludedEvidence.TryGetProperty("acknowledgement", out _)).IsFalse();
-            await Assert.That(candidates[2].GetProperty("kind").GetString()).IsEqualTo("unavailable");
+            await Assert.That(component.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()))
+                .DoesNotContain("source_repository_unavailable");
             await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
             await Assert.That(stderr).IsEmpty();
         }
@@ -1040,7 +1256,7 @@ public sealed class CliScanTests
                 await Assert.That(stderr).Contains("  Declared GitHub files (full scan): 0 targets; 0 GitHub requests; 0 cache hits; 0 cache misses; 0 documents; 0 matched; 0 fetch errors");
                 await Assert.That(stderr).Contains("  Package metadata (full scan):");
                 await Assert.That(stderr).Contains("  Source repositories (full scan):");
-                await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; 0 incomplete input sets; ecosystems none");
+                await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; 0 incomplete input sets; 0 excluded input paths; ecosystems none");
                 await Assert.That(stderr).Contains("  Input:");
             }
 
@@ -1783,7 +1999,7 @@ public sealed class CliScanTests
             var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 1 incomplete input set; ecosystems nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 1 incomplete input set; 0 excluded input paths; ecosystems nuget");
         }
         finally
         {
@@ -2053,6 +2269,189 @@ public sealed class CliScanTests
         }
     }
 
+    /// <summary>
+    /// A Cargo library does not commit Cargo.lock, so detecting only the lockfile leaves the whole Rust
+    /// ecosystem unscanned with nothing said about it. The manifest is the file every Cargo project has.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoTomlWithoutLock_WarnsThatRustWasNotScanned()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-toml-directory-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            // Without a committed lockfile --locked cannot succeed, so the advice must not carry it.
+            await Assert.That(stderr).Contains("Warning: Rust dependencies were not scanned: Cargo.toml is not a supported input. Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-metadata.json.");
+            await Assert.That(stderr).Contains("1 ignored candidate (Cargo.toml)");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Every Cargo project carrying a lockfile also carries a manifest, so detecting both would report the
+    /// same unscanned ecosystem twice. The lockfile wins because its advice is the reproducible one.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoTomlAndLock_ReportsTheLockfileOnce()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-both-directory-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "Project", "obj");
+        Directory.CreateDirectory(projectDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"),
+            Path.Combine(projectDirectory, "project.assets.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).Contains("1 ignored candidate (Cargo.lock)");
+            await Assert.That(stderr).DoesNotContain("Cargo.toml");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>A scan that already covers the ecosystem must stay silent, however the candidate was found.</summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoTomlAndMetadata_DoesNotWarn()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-toml-metadata-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "cargo-metadata.json"),
+            Path.Combine(temporaryDirectory, "cargo-metadata.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).DoesNotContain("Warning: Rust dependencies were not scanned");
+            await Assert.That(stderr).Contains("0 ignored candidates");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A directory holding a manifest and a lockfile that Ol already covers must stay silent on both, or
+    /// suppressing the superseded rule would have traded one redundant warning for one false one.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingCargoTomlLockAndMetadata_DoesNotWarn()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-all-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "cargo-metadata.json"),
+            Path.Combine(temporaryDirectory, "cargo-metadata.json"));
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.lock"), "version = 3\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(stderr).DoesNotContain("Warning: Rust dependencies were not scanned");
+            await Assert.That(stderr).Contains("0 ignored candidates");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// When discovery found no supported input at all, an empty report would read as a project without
+    /// dependencies, so the candidate's advice becomes the command failure rather than a warning beside it.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithDirectoryContainingOnlyCargoToml_FailsWithGuidance()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-toml-only-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "Cargo.toml"), "[package]\nname = \"example\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("Cargo.toml is not a supported input. Run 'cargo metadata --format-version 1 > cargo-metadata.json'");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>A file the user named directly gets the same guidance the discovery warning gives.</summary>
+    [Test]
+    public async Task Scan_WithCargoTomlInput_ReportsUnsupportedInputGuidance()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-cargo-toml-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        var inputPath = Path.Combine(temporaryDirectory, "Cargo.toml");
+        await File.WriteAllTextAsync(inputPath, "[package]\nname = \"example\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr.Trim()).IsEqualTo("Unable to scan input: Cargo.toml is not a supported input. Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-metadata.json.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
     [Test]
     public async Task Scan_WithDirectoryContainingIgnoredCandidate_SummarizesInputDiscovery()
     {
@@ -2075,7 +2474,7 @@ public sealed class CliScanTests
                 "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 1 ignored candidate (Cargo.lock); 0 incomplete input sets; ecosystems nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 1 ignored candidate (Cargo.lock); 0 incomplete input sets; 0 excluded input paths; ecosystems nuget");
         }
         finally
         {
@@ -2142,7 +2541,7 @@ public sealed class CliScanTests
                 "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 0 incomplete input sets; ecosystems cargo, nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 0 incomplete input sets; 0 excluded input paths; ecosystems cargo, nuget");
             await Assert.That(stderr).DoesNotContain("Warning: Rust dependencies were not scanned");
         }
         finally
@@ -2308,6 +2707,382 @@ public sealed class CliScanTests
             await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(4);
             await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(4);
             await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(12);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithRelativeExcludedPath_ResolvesFromWorkingDirectory()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-relative-excluded-input-{Guid.NewGuid():N}");
+        var firstDirectory = Path.Combine(temporaryDirectory, "product-a");
+        var secondDirectory = Path.Combine(temporaryDirectory, "product-b");
+        Directory.CreateDirectory(Path.Combine(firstDirectory, "docs"));
+        Directory.CreateDirectory(Path.Combine(secondDirectory, "docs"));
+        await File.WriteAllTextAsync(Path.Combine(firstDirectory, "package-lock.json"), CreatePackageLock("product-a", "first-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(secondDirectory, "package-lock.json"), CreatePackageLock("product-b", "second-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                firstDirectory,
+                "--input",
+                secondDirectory,
+                "--exclude-input-path",
+                "docs",
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("Excluded input path must be inside a directory input: docs");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithRelativeExcludedPathInsideInput_ExcludesOnlyNamedPath()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-relative-included-exclusion-{Guid.NewGuid():N}");
+        var productDirectory = Path.Combine(temporaryDirectory, "product-a");
+        var serverDirectory = Path.Combine(productDirectory, "server");
+        var documentsDirectory = Path.Combine(productDirectory, "docs");
+        Directory.CreateDirectory(serverDirectory);
+        Directory.CreateDirectory(documentsDirectory);
+        await File.WriteAllTextAsync(Path.Combine(serverDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(documentsDirectory, "package-lock.json"), CreatePackageLock("docs", "docs-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlInDirectoryAsync(
+                root,
+                temporaryDirectory,
+                "scan",
+                "--input",
+                "product-a",
+                "--exclude-input-path",
+                Path.Combine("product-a", "docs"),
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            var components = report.RootElement.GetProperty("components");
+            await Assert.That(components.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("server-dependency");
+            var excludedPaths = report.RootElement.GetProperty("metadata").GetProperty("inputScope").GetProperty("excludedPaths");
+            await Assert.That(excludedPaths[0].GetString()).IsEqualTo("product-a/docs");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithCaseInsensitiveInputAndExclusion_RecordsFileSystemCasing()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-input-casing-{Guid.NewGuid():N}");
+        var productDirectory = Path.Combine(temporaryDirectory, "Product-A");
+        var serverDirectory = Path.Combine(productDirectory, "Server");
+        var documentsDirectory = Path.Combine(productDirectory, "Docs");
+        Directory.CreateDirectory(serverDirectory);
+        Directory.CreateDirectory(documentsDirectory);
+        await File.WriteAllTextAsync(Path.Combine(serverDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(documentsDirectory, "package-lock.json"), CreatePackageLock("docs", "docs-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var differentlyCasedInput = Path.Combine(temporaryDirectory, "product-a");
+            if (!Directory.Exists(differentlyCasedInput))
+            {
+                return;
+            }
+
+            var (exitCode, stdout, stderr) = await RunOlInDirectoryAsync(
+                root,
+                temporaryDirectory,
+                "scan",
+                "--input",
+                "product-a",
+                "--exclude-input-path",
+                Path.Combine("product-a", "docs"),
+                "--exclude-input-path",
+                Path.Combine("Product-A", "DOCS"),
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var input = report.RootElement.GetProperty("metadata").GetProperty("input");
+            await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo("Product-A");
+            var inputScope = report.RootElement.GetProperty("metadata").GetProperty("inputScope");
+            await Assert.That(inputScope.GetProperty("excludedPathCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(inputScope.GetProperty("excludedPaths")[0].GetString()).IsEqualTo("Product-A/Docs");
+            var components = report.RootElement.GetProperty("components");
+            await Assert.That(components.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("server-dependency");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithCaseDistinctDirectories_ExcludesOrdinalMatch_WhenSupported()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-case-distinct-input-{Guid.NewGuid():N}");
+        var upperDirectory = Path.Combine(temporaryDirectory, "Docs");
+        var lowerDirectory = Path.Combine(temporaryDirectory, "docs");
+        Directory.CreateDirectory(upperDirectory);
+        Directory.CreateDirectory(lowerDirectory);
+
+        try
+        {
+            var distinctNames = Directory.EnumerateDirectories(temporaryDirectory)
+                .Select(Path.GetFileName)
+                .Count(static name => string.Equals(name, "Docs", StringComparison.Ordinal) || string.Equals(name, "docs", StringComparison.Ordinal));
+            if (distinctNames != 2)
+            {
+                return;
+            }
+
+            await File.WriteAllTextAsync(Path.Combine(upperDirectory, "package-lock.json"), CreatePackageLock("upper", "included-dependency"), Encoding.UTF8);
+            await File.WriteAllTextAsync(Path.Combine(lowerDirectory, "package-lock.json"), CreatePackageLock("lower", "excluded-dependency"), Encoding.UTF8);
+
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                lowerDirectory,
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            var components = report.RootElement.GetProperty("components");
+            await Assert.That(components.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("included-dependency");
+            await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("inputScope").GetProperty("excludedPaths")[0].GetString()).IsEqualTo("docs");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithMissingExcludedPath_ReturnsInputError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-missing-excluded-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+        var missingPath = Path.Combine(temporaryDirectory, "missing");
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                missingPath,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains($"Excluded input path not found: {missingPath}");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExcludedInputPaths_ScansOnlyIncludedSubtreesAndRecordsScope()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-excluded-input-{Guid.NewGuid():N}");
+        var serverDirectory = Path.Combine(temporaryDirectory, "src", "server");
+        var documentsDirectory = Path.Combine(temporaryDirectory, "src", "documents");
+        var pagesDirectory = Path.Combine(temporaryDirectory, "Pages");
+        Directory.CreateDirectory(serverDirectory);
+        Directory.CreateDirectory(documentsDirectory);
+        Directory.CreateDirectory(pagesDirectory);
+        await File.WriteAllTextAsync(Path.Combine(serverDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(documentsDirectory, "package-lock.json"), CreatePackageLock("documents", "documents-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(pagesDirectory, "Cargo.toml"), "[package]\nname = \"pages\"\nversion = \"1.0.0\"\n", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                Path.Combine(temporaryDirectory, "src", "other", "..", "documents"),
+                "--exclude-input-path",
+                Path.Combine(pagesDirectory, "Cargo.toml"),
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var components = report.RootElement.GetProperty("components");
+            await Assert.That(components.GetArrayLength()).IsEqualTo(1);
+            await Assert.That(components[0].GetProperty("name").GetString()).IsEqualTo("server-dependency");
+            var inputScope = report.RootElement.GetProperty("metadata").GetProperty("inputScope");
+            await Assert.That(inputScope.GetProperty("excludedPathCount").GetInt32()).IsEqualTo(2);
+            var excludedPaths = inputScope.GetProperty("excludedPaths");
+            await Assert.That(excludedPaths[0].GetString()).IsEqualTo("src/documents");
+            await Assert.That(excludedPaths[1].GetString()).IsEqualTo("Pages/Cargo.toml");
+
+            var (summaryExitCode, _, summaryStderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                Path.Combine(temporaryDirectory, "src", "other", "..", "documents"),
+                "--exclude-input-path",
+                Path.Combine(pagesDirectory, "Cargo.toml"),
+                "--no-external-evidence");
+            await Assert.That(summaryExitCode).IsEqualTo(0).Because(summaryStderr);
+            await Assert.That(summaryStderr).Contains("2 excluded input paths (src/documents, Pages/Cargo.toml)");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExplicitFileInsideExcludedPath_ReturnsInputError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-explicit-excluded-input-{Guid.NewGuid():N}");
+        var documentsDirectory = Path.Combine(temporaryDirectory, "src", "documents");
+        Directory.CreateDirectory(documentsDirectory);
+        var packageLock = Path.Combine(documentsDirectory, "package-lock.json");
+        await File.WriteAllTextAsync(packageLock, CreatePackageLock("documents", "documents-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--input",
+                packageLock,
+                "--exclude-input-path",
+                documentsDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("Explicit input file is inside an excluded input path");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExcludedPathOutsideStrictDescendant_ReturnsInputError()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-invalid-excluded-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(Path.Combine(temporaryDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var self = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                temporaryDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(self.ExitCode).IsEqualTo(1);
+            await Assert.That(self.Stdout).IsEmpty();
+            await Assert.That(self.Stderr).Contains("cannot exclude itself");
+
+            var outside = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                root,
+                "--no-external-evidence");
+
+            await Assert.That(outside.ExitCode).IsEqualTo(1);
+            await Assert.That(outside.Stdout).IsEmpty();
+            await Assert.That(outside.Stderr).Contains("must be inside a directory input");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithExcludedPathPrefix_DoesNotExcludeSiblingPathSegment()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-excluded-input-boundary-{Guid.NewGuid():N}");
+        var documentDirectory = Path.Combine(temporaryDirectory, "src", "document");
+        var documentsDirectory = Path.Combine(temporaryDirectory, "src", "documents");
+        Directory.CreateDirectory(documentDirectory);
+        Directory.CreateDirectory(documentsDirectory);
+        await File.WriteAllTextAsync(Path.Combine(documentsDirectory, "package-lock.json"), CreatePackageLock("documents", "documents-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--exclude-input-path",
+                documentDirectory,
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("name").GetString()).IsEqualTo("documents-dependency");
         }
         finally
         {
@@ -3024,20 +3799,46 @@ public sealed class CliScanTests
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
 
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlInDirectoryAsync(string root, string workingDirectory, params string[] args)
+        => await RunOlWithEnvironmentAsync(root, workingDirectory, null, null, null, args);
+
+    private static string CreatePackageLock(string rootName, string dependencyName)
+        => $$"""
+            {
+              "name": "{{rootName}}",
+              "version": "1.0.0",
+              "lockfileVersion": 3,
+              "packages": {
+                "": {
+                  "name": "{{rootName}}",
+                  "version": "1.0.0",
+                  "dependencies": { "{{dependencyName}}": "1.0.0" }
+                },
+                "node_modules/{{dependencyName}}": {
+                  "version": "1.0.0",
+                  "license": "MIT"
+                }
+              }
+            }
+            """;
+
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithCacheAsync(string root, string? cacheRoot, params string[] args)
         => await RunOlWithCachesAsync(root, cacheRoot, sourceCacheRoot: null, args);
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithCachesAsync(string root, string? cacheRoot, string? sourceCacheRoot, params string[] args)
-        => await RunOlWithEnvironmentAsync(root, cacheRoot, sourceCacheRoot, null, args);
+        => await RunOlWithEnvironmentAsync(root, root, cacheRoot, sourceCacheRoot, null, args);
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithEnvironmentAsync(string root, string? cacheRoot, string? sourceCacheRoot, IReadOnlyDictionary<string, string?>? environment, params string[] args)
+        => await RunOlWithEnvironmentAsync(root, root, cacheRoot, sourceCacheRoot, environment, args);
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlWithEnvironmentAsync(string root, string workingDirectory, string? cacheRoot, string? sourceCacheRoot, IReadOnlyDictionary<string, string?>? environment, params string[] args)
     {
         await CliGate.WaitAsync();
         try
         {
             var startInfo = new ProcessStartInfo("dotnet")
             {
-                WorkingDirectory = root,
+                WorkingDirectory = workingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             };

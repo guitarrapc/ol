@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Ol.Core;
 using Ol.Core.Licensing;
@@ -27,6 +28,327 @@ public sealed class MixedInputScanTests
         await Assert.That(CandidateSources(rows[0])).Contains("sbom");
         await Assert.That(SuppliedBy(rows[0])).IsEquivalentTo(new[] { "sbom", "package-manager" });
         await Assert.That(rows[0].GetProperty("status").GetString()).IsEqualTo("matched");
+    }
+
+    /// <summary>
+    /// The per-component supply answers "which input saw this one"; only the tally answers "was the
+    /// second input worth passing", which is the question a combined scan is configured to ask.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithCombinedInputs_ReportsSupplyTallyInJsonSummary()
+    {
+        var report = await ScanMixedAsync("package-lock.json", "mixed-npm.cdx.json");
+
+        var supply = report.RootElement.GetProperty("summary").GetProperty("supply");
+        await Assert.That(supply.GetProperty("sbomOnly").GetInt32()).IsEqualTo(2);
+        await Assert.That(supply.GetProperty("packageManagerOnly").GetInt32()).IsEqualTo(4);
+        await Assert.That(supply.GetProperty("both").GetInt32()).IsEqualTo(3);
+    }
+
+    /// <summary>
+    /// Present in a single-input report too, for the reason the per-component field is: an absent tally
+    /// would leave "this scan had one input" indistinguishable from "an older Ol wrote this report".
+    /// </summary>
+    [Test]
+    public async Task Scan_WithSbomOnly_StillReportsSupplyTally()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, stdout, _) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence",
+            "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        using var report = JsonDocument.Parse(stdout);
+        var supply = report.RootElement.GetProperty("summary").GetProperty("supply");
+        await Assert.That(supply.GetProperty("packageManagerOnly").GetInt32()).IsEqualTo(0);
+        await Assert.That(supply.GetProperty("both").GetInt32()).IsEqualTo(0);
+        await Assert.That(supply.GetProperty("sbomOnly").GetInt32()).IsEqualTo(report.RootElement.GetProperty("components").GetArrayLength());
+    }
+
+    /// <summary>
+    /// A grouped report totals its groups instead of walking components once, so it reaches the tally by a
+    /// second path. Both paths describe the same run and must agree.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithGroupedView_ReportsTheSameSupplyTally()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, stdout, _) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence",
+            "--group-by", "ecosystem",
+            "--format", "json");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        using var report = JsonDocument.Parse(stdout);
+        var supply = report.RootElement.GetProperty("summary").GetProperty("supply");
+        await Assert.That(supply.GetProperty("sbomOnly").GetInt32()).IsEqualTo(2);
+        await Assert.That(supply.GetProperty("packageManagerOnly").GetInt32()).IsEqualTo(4);
+        await Assert.That(supply.GetProperty("both").GetInt32()).IsEqualTo(3);
+    }
+
+    /// <summary>
+    /// The totals say whether the second input earned its place; only the per-ecosystem split says where.
+    /// A repository whose SBOM covers one ecosystem and not another reads as a half-useless input in the
+    /// totals and as an exact statement here, and the rows must sum to the totals so both can be trusted.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithVerboseCombinedInputs_ReportsSupplyPerEcosystem()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("nuget-project.assets.json"),
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence",
+            "--verbose");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).Contains("  Supplied by: 2 sbom only; 8 package-manager only; 3 both");
+        await Assert.That(stderr).Contains("    -: 1 sbom only; 0 package-manager only; 0 both");
+        await Assert.That(stderr).Contains("    npm: 1 sbom only; 4 package-manager only; 3 both");
+        await Assert.That(stderr).Contains("    nuget: 0 sbom only; 4 package-manager only; 0 both");
+    }
+
+    /// <summary>
+    /// Ordinal order, so two runs over one report print the same block and a diff of two runs shows only
+    /// what changed.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithVerboseCombinedInputs_OrdersEcosystemsOrdinally()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("nuget-project.assets.json"),
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence",
+            "--verbose");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr.IndexOf("    -: ", StringComparison.Ordinal))
+            .IsLessThan(stderr.IndexOf("    npm: ", StringComparison.Ordinal));
+        await Assert.That(stderr.IndexOf("    npm: ", StringComparison.Ordinal))
+            .IsLessThan(stderr.IndexOf("    nuget: ", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The default summary already runs to eight lines; one row per ecosystem belongs behind the option
+    /// whose job is extra diagnostics.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithoutVerbose_OmitsSupplyPerEcosystem()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("nuget-project.assets.json"),
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).Contains("  Supplied by: 2 sbom only; 8 package-manager only; 3 both");
+        await Assert.That(stderr).DoesNotContain("    npm: ");
+        await Assert.That(stderr).DoesNotContain("    nuget: ");
+    }
+
+    /// <summary>A single-input scan states one row that repeats the totals, rather than none.</summary>
+    [Test]
+    public async Task Scan_WithVerboseSingleInput_StillReportsOneEcosystemRow()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("package-lock.json"),
+            "--no-external-evidence",
+            "--verbose");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).Contains("    npm: 0 sbom only; 7 package-manager only; 0 both");
+    }
+
+    /// <summary>The rows are part of the summary, so <c>--quiet</c> suppresses them with it.</summary>
+    [Test]
+    public async Task Scan_WithVerboseAndQuiet_OmitsTheWholeSummary()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("package-lock.json"),
+            "--no-external-evidence",
+            "--verbose",
+            "--quiet");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).DoesNotContain("Supplied by:");
+        await Assert.That(stderr).DoesNotContain("    npm: ");
+    }
+
+    /// <summary>
+    /// An SBOM that also lists a component folds onto the lockfile's row for evidence, but it observed no
+    /// installation and states no scope, so it must not cancel the resolver's classification. The two
+    /// recommended configurations — scanning an SBOM beside the resolved tree, and relaxing policy for
+    /// development-only dependencies — otherwise cannot be used together.
+    /// </summary>
+    [Test]
+    [Arguments("dev-direct", "development")]
+    [Arguments("dev-trans", "development")]
+    [Arguments("both-direct", "runtime")]
+    [Arguments("both-trans", "runtime")]
+    public async Task Scan_WithSbomFoldedOntoResolvedRow_KeepsTheResolverClassification(string name, string expected)
+    {
+        var root = FindRepositoryRoot();
+        var directory = await WriteDevelopmentUsageInputsAsync();
+        try
+        {
+            var report = await ScanUsageAsync(root, Path.Combine(directory, "package-lock.json"), Path.Combine(directory, "bom.cdx.json"));
+            await Assert.That(SelectUsage(report, name)).IsEqualTo(expected);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A package installed at two paths is two rows, and an SBOM component attaches its occurrence to the
+    /// first matching one. While that occurrence could cancel a classification, the same package at the
+    /// same version was development on one row and unclassified on the other, so a policy allowance applied
+    /// to one copy and not the other for no reason a reader could act on.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithSbomAndDuplicateInstalls_ClassifiesEveryCopyTheSame()
+    {
+        var root = FindRepositoryRoot();
+        var directory = await WriteDuplicateInstallInputsAsync();
+        try
+        {
+            var report = await ScanUsageAsync(root, Path.Combine(directory, "package-lock.json"), Path.Combine(directory, "bom.cdx.json"));
+            var usages = report.RootElement.GetProperty("components").EnumerateArray()
+                .Where(c => c.GetProperty("name").GetString() == "dup")
+                .Select(c => c.TryGetProperty("usage", out var usage) ? usage.GetString() : "(none)")
+                .ToArray();
+
+            await Assert.That(usages).Count().IsEqualTo(2);
+            await Assert.That(usages).IsEquivalentTo(new[] { "development", "development" });
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async Task<JsonDocument> ScanUsageAsync(string root, params string[] inputs)
+    {
+        var arguments = new List<string> { "scan" };
+        for (var i = 0; i < inputs.Length; i++)
+        {
+            arguments.Add("--input");
+            arguments.Add(inputs[i]);
+        }
+
+        arguments.AddRange(["--no-external-evidence", "--format", "json", "--quiet"]);
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, [.. arguments]);
+        await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+        return JsonDocument.Parse(stdout);
+    }
+
+    private static string SelectUsage(JsonDocument report, string name)
+    {
+        foreach (var component in report.RootElement.GetProperty("components").EnumerateArray())
+        {
+            if (component.GetProperty("name").GetString() != name) continue;
+            return component.TryGetProperty("usage", out var usage) ? usage.GetString() ?? "(none)" : "(none)";
+        }
+
+        throw new InvalidOperationException($"Component '{name}' was not found in the report.");
+    }
+
+    /// <summary>Covers direct and transitive development reachability, each with and without a runtime path.</summary>
+    private static async Task<string> WriteDevelopmentUsageInputsAsync()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-usage-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "package-lock.json"), """
+            {
+              "name": "app", "version": "1.0.0", "lockfileVersion": 3, "requires": true,
+              "packages": {
+                "": { "name": "app", "version": "1.0.0",
+                  "dependencies": { "runtime-root": "1.0.0" },
+                  "devDependencies": { "dev-direct": "1.0.0", "both-direct": "1.0.0" } },
+                "node_modules/runtime-root": { "version": "1.0.0", "license": "MIT",
+                  "dependencies": { "both-direct": "1.0.0", "both-trans": "1.0.0" } },
+                "node_modules/dev-direct": { "version": "1.0.0", "license": "MIT", "dev": true,
+                  "dependencies": { "dev-trans": "1.0.0" } },
+                "node_modules/dev-trans": { "version": "1.0.0", "license": "MIT", "dev": true },
+                "node_modules/both-direct": { "version": "1.0.0", "license": "MIT" },
+                "node_modules/both-trans": { "version": "1.0.0", "license": "MIT" }
+              }
+            }
+            """, Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(directory, "bom.cdx.json"), """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "runtime-root", "version": "1.0.0", "purl": "pkg:npm/runtime-root@1.0.0" },
+              { "type": "library", "name": "dev-direct", "version": "1.0.0", "purl": "pkg:npm/dev-direct@1.0.0" },
+              { "type": "library", "name": "dev-trans", "version": "1.0.0", "purl": "pkg:npm/dev-trans@1.0.0" },
+              { "type": "library", "name": "both-direct", "version": "1.0.0", "purl": "pkg:npm/both-direct@1.0.0" },
+              { "type": "library", "name": "both-trans", "version": "1.0.0", "purl": "pkg:npm/both-trans@1.0.0" } ] }
+            """, Encoding.UTF8);
+        return directory;
+    }
+
+    /// <summary>One package installed at two paths, both reached only through development dependencies.</summary>
+    private static async Task<string> WriteDuplicateInstallInputsAsync()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-usage-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "package-lock.json"), """
+            {
+              "name": "app", "version": "1.0.0", "lockfileVersion": 3, "requires": true,
+              "packages": {
+                "": { "name": "app", "version": "1.0.0", "devDependencies": { "dev-a": "1.0.0", "dev-b": "1.0.0" } },
+                "node_modules/dev-a": { "version": "1.0.0", "license": "MIT", "dev": true, "dependencies": { "dup": "1.0.0" } },
+                "node_modules/dev-a/node_modules/dup": { "version": "1.0.0", "license": "MIT", "dev": true },
+                "node_modules/dev-b": { "version": "1.0.0", "license": "MIT", "dev": true, "dependencies": { "dup": "1.0.0" } },
+                "node_modules/dup": { "version": "1.0.0", "license": "MIT", "dev": true }
+              }
+            }
+            """, Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(directory, "bom.cdx.json"), """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "dup", "version": "1.0.0", "purl": "pkg:npm/dup@1.0.0" } ] }
+            """, Encoding.UTF8);
+        return directory;
+    }
+
+    /// <summary>The stderr summary must state what the JSON document states, or the JSON exemption breaks.</summary>
+    [Test]
+    public async Task Scan_WithCombinedInputs_ReportsSupplyTallyInTextSummary()
+    {
+        var root = FindRepositoryRoot();
+        var (exitCode, _, stderr) = await RunOlAsync(
+            root,
+            "scan",
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm.cdx.json"),
+            "--no-external-evidence");
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stderr).Contains("  Supplied by: 2 sbom only; 4 package-manager only; 3 both");
     }
 
     [Test]

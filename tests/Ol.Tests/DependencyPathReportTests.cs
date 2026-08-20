@@ -29,8 +29,8 @@ public sealed class DependencyPathReportTests
             var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT");
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("Reason\tPath");
-            await Assert.That(result.Stdout).Contains($"license is ambiguous\t{TransitivePath}");
+            await Assert.That(result.Stdout).Contains("Reason\tMechanism\tReference\tPath");
+            await Assert.That(LastColumn(SelectLine(result.Stdout, "pkg:nuget/Transitive@2.0.0"))).IsEqualTo(TransitivePath);
         }
         finally
         {
@@ -50,7 +50,7 @@ public sealed class DependencyPathReportTests
             var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT");
             var row = SelectLine(result.Stdout, purl);
 
-            await Assert.That(row).EndsWith("license is ambiguous\t-");
+            await Assert.That(LastColumn(row)).IsEqualTo("-");
         }
         finally
         {
@@ -208,6 +208,13 @@ public sealed class DependencyPathReportTests
         {
             Cleanup(input, sarifPath);
         }
+    }
+
+    /// <summary>Reads the Path column, which is last however many evidence columns precede it.</summary>
+    private static string LastColumn(string row)
+    {
+        var columns = row.Split('\t');
+        return columns[^1];
     }
 
     private static string SelectLine(string text, string marker)

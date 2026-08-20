@@ -6,16 +6,25 @@ namespace Ol.Core;
 public static class DependencyUsageResolver
 {
     // Merge codes ordered so that a plain max over a component's occurrences yields the policy verdict:
-    // Runtime and Unknown both defeat Development, and a component with no occurrence stays Unknown.
+    // Runtime defeats Development, and a component no input classified stays Unknown.
+    //
+    // An occurrence whose input determined no usage casts no code at all. It records no observation about
+    // reachability — its input kind has no vocabulary for one — so counting it as a competing claim let an
+    // input that cannot speak overrule one that did. That is not the same as two inputs disagreeing, which
+    // Runtime still wins. The case it decided in practice was an SBOM folded onto a lockfile row: the SBOM
+    // adds an occurrence so its graph has an endpoint, and that occurrence silently cancelled the
+    // classification the lockfile made. It did so unevenly, too — a package installed at two paths is two
+    // rows and the SBOM attaches to the first, so one copy kept its classification and the other did not.
     private const byte None = 0;
     private const byte DevelopmentCode = 1;
-    private const byte UnknownCode = 2;
-    private const byte RuntimeCode = 3;
+    private const byte RuntimeCode = 2;
 
     /// <summary>
     /// Writes the aggregated <see cref="DependencyUsage"/> for each inventory component into
-    /// <paramref name="componentUsages"/>. A component is <see cref="DependencyUsage.Development"/> only when it has at
-    /// least one occurrence and every occurrence is development-only; any runtime or unknown occurrence downgrades it.
+    /// <paramref name="componentUsages"/>. A component is <see cref="DependencyUsage.Development"/> only when at least
+    /// one input classified it and every classification is development-only; a runtime classification downgrades it,
+    /// while an occurrence from an input that classifies nothing abstains. A component no input classified is
+    /// <see cref="DependencyUsage.Unknown"/>.
     /// </summary>
     /// <param name="inventory">The inventory whose occurrences carry usage information.</param>
     /// <param name="componentUsages">Destination sized to <c>inventory.Components.Length</c>.</param>
@@ -65,7 +74,14 @@ public static class DependencyUsageResolver
                 var isDevelopment = developmentOccurrences is not null
                     && developmentCursor < developmentOccurrences.Length
                     && developmentOccurrences[developmentCursor] == occurrenceIndex;
-                var code = isDevelopment ? DevelopmentCode : IsDetermined(occurrenceIndex, ranges) ? RuntimeCode : UnknownCode;
+                // A development occurrence always lies inside a determined range, so the check only decides
+                // whether an occurrence that is not development was classified at all.
+                if (!isDevelopment && !IsDetermined(occurrenceIndex, ranges))
+                {
+                    continue;
+                }
+
+                var code = isDevelopment ? DevelopmentCode : RuntimeCode;
                 if (codes[componentIndex] < code)
                 {
                     codes[componentIndex] = code;

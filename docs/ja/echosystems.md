@@ -81,6 +81,8 @@ cargo metadata --format-version 1 --locked > cargo-metadata.json
 ol scan --input cargo-metadata.json --format json > ol-report.json
 ```
 
+`Cargo.lock`をコミットしていないリポジトリでは`--locked`を外してください。公開ライブラリでは通常コミットしないため、このフラグを付けるとlockfileの生成を拒否してコマンドが失敗します。その場合olは`Cargo.toml`を未スキャンの候補として報告するので、Rustの依存が黙って素通りすることはありません。
+
 olはworkspaceのコンテキスト、依存関係の種類、feature、target式を保持します。スキャン環境に合わせた再評価は行いません。
 
 ## Go modules

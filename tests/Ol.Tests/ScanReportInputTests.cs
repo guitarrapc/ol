@@ -53,6 +53,7 @@ public sealed class ScanReportInputTests
         await Assert.That(report.LicenseListVersion).IsEqualTo("5e59516");
         await Assert.That(report.SourceReference).IsEqualTo("sbom.json");
         await Assert.That(report.Components).Count().IsEqualTo(1);
+        await Assert.That(report.ExcludedInputPaths).IsEmpty();
 
         var component = report.Components[0];
         await Assert.That(component.Name.ToString()).IsEqualTo("example");
@@ -65,6 +66,34 @@ public sealed class ScanReportInputTests
         await Assert.That(component.CandidateCount).IsEqualTo(1);
         await Assert.That(component.GetCandidate(0).Source).IsEqualTo(LicenseCandidateSource.Sbom);
         await Assert.That(component.GetCandidate(0).Normalized.ToString()).IsEqualTo("MIT");
+    }
+
+    [Test]
+    public async Task TryRead_WithInputScope_RestoresExcludedInputPaths()
+    {
+        var json = Report(Component()).Replace(
+            "\"spdx\":",
+            "\"inputScope\": { \"excludedPathCount\": 2, \"excludedPaths\": [\"product-a/docs\", \"product-b/docs\"] }, \"spdx\":",
+            StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.ExcludedInputPaths).IsEquivalentTo(["product-a/docs", "product-b/docs"]);
+    }
+
+    [Test]
+    public async Task TryRead_WithMalformedInputScope_Fails()
+    {
+        var json = Report(Component()).Replace(
+            "\"spdx\":",
+            "\"inputScope\": { \"excludedPaths\": {} }, \"spdx\":",
+            StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
+
+        await Assert.That(parsed).IsFalse();
+        await Assert.That(error).Contains("metadata.inputScope");
     }
 
     [Test]

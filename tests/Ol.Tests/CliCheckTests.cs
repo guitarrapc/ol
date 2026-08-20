@@ -153,6 +153,60 @@ public sealed class CliCheckTests
     }
 
     /// <summary>
+    /// A `--dependency`-filtered report is a narrower population than the scan resolved, and `check` gates whatever
+    /// the report holds. The report states the filter in <c>metadata.view</c>; a gate that reads it and says nothing
+    /// makes a partial evaluation read exactly like a complete one.
+    /// </summary>
+    [Test]
+    public async Task Check_WithDependencyFilteredReport_StatesTheFilterAndTheExcludedCount()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunCheckWorkflowAsync(
+            root,
+            "--input", FixturePath("package-lock.json"),
+            "--dependency", "transitive",
+            "--allow-licenses", "Apache-2.0",
+            "--no-external-evidence");
+
+        await Assert.That(result.Stdout).Contains("Dependency filter: transitive; 6 components excluded by the producing scan.");
+    }
+
+    /// <summary>
+    /// Filtering to a relationship other than <c>unknown</c> also drops the components whose relationship no input
+    /// proved, and those are the ones policy keeps fail-closed. The count is stated separately because it is the
+    /// consequential half of the exclusion.
+    /// </summary>
+    [Test]
+    public async Task Check_WithFilterExcludingUnknownRelationships_StatesThatCountSeparately()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunCheckWorkflowAsync(
+            root,
+            "--input", FixturePath("Package.resolved"),
+            "--dependency", "direct",
+            "--allow-licenses", "MIT",
+            "--no-external-evidence");
+
+        await Assert.That(result.Stdout).Contains("2 with an unknown relationship");
+    }
+
+    [Test]
+    public async Task Check_WithUnfilteredReport_StatesNoDependencyFilter()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunCheckWorkflowAsync(
+            root,
+            "--input", FixturePath("package-lock.json"),
+            "--allow-licenses", "Apache-2.0",
+            "--no-external-evidence");
+
+        await Assert.That(result.Stdout).DoesNotContain("Dependency filter:");
+    }
+
+    /// <summary>
     /// Policy skips a root, so an SBOM that names a resolved dependency as its own root must not be able to withdraw
     /// that dependency from the gate. Scanning an SBOM beside the resolved tree is a recommended configuration, and a
     /// second input merely mentioning a component may not change the verdict on it.
@@ -1566,6 +1620,7 @@ public sealed class CliCheckTests
             {
                 case "--input":
                 case "--input-format":
+                case "--dependency":
                 case "--cache-dir":
                 case "--skip-evidence-packages":
                 case "--concurrency":

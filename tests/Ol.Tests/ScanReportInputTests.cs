@@ -97,6 +97,65 @@ public sealed class ScanReportInputTests
     }
 
     [Test]
+    public async Task TryRead_WithFilteredView_RestoresTheFilterAndTheExcludedCounts()
+    {
+        var json = Report(Component()).Replace(
+            "\"spdx\":",
+            "\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": 3, \"excludedUnknownCount\": 1 }, \"spdx\":",
+            StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.View.IsFiltered).IsTrue();
+        await Assert.That(report.View.DependencyFilter).IsEqualTo("direct");
+        await Assert.That(report.View.ExcludedCount).IsEqualTo(3);
+        await Assert.That(report.View.ExcludedUnknownCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task TryRead_WithUnfilteredView_RestoresNoFilter()
+    {
+        var json = Report(Component()).Replace(
+            "\"spdx\":",
+            "\"view\": { \"dependencyFilter\": null, \"excludedCount\": 0, \"excludedUnknownCount\": 0 }, \"spdx\":",
+            StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.View.IsFiltered).IsFalse();
+    }
+
+    /// <summary>
+    /// A view that states no filter at all is not the same document as one stating there was none. Accepting it as
+    /// unfiltered would let a narrowed report be gated as a complete one, which is what reading the view prevents.
+    /// </summary>
+    [Test]
+    [Arguments("\"view\": {}")]
+    [Arguments("\"view\": null")]
+    [Arguments("\"view\": { \"dependencyFilter\": 6 }")]
+    [Arguments("\"view\": { \"dependencyFilter\": \"direct\", \"excludedCount\": 1.5 }")]
+    public async Task TryRead_WithUnreadableView_Fails(string view)
+    {
+        var json = Report(Component()).Replace("\"spdx\":", $"{view}, \"spdx\":", StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out _, out var error);
+
+        await Assert.That(parsed).IsFalse();
+        await Assert.That(error).Contains("metadata.view");
+    }
+
+    [Test]
+    public async Task TryRead_WithoutView_RestoresNoFilter()
+    {
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(Report(Component())), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.View.IsFiltered).IsFalse();
+    }
+
+    [Test]
     public async Task TryRead_RestoresPerComponentDevelopmentUsage()
     {
         const string components = """

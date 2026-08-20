@@ -4,79 +4,69 @@
 
 ### Status
 
-- 状態: P0 / P1 完了、P2 は判断待ち
-- 対象: cross-input relationship merge、`DependencyInventoryCombiner`
+- 状態: 完了（P0 / P1 / P2 すべて解消）
+- 対象: cross-input relationship merge、`check` の view 開示
 - 発見契機: [Microsoft Component Detection の分析](../references/component_detection.md)、およびその分析に対する敵対的レビュー
 
-### この文書の前提
+open な作業項目は残っていない。決定と根拠は仕様側へ移してある。この文書は経緯の記録であり、[repo の慣行](../../../AGENTS.md)に従って削除してよい。
 
-初版はこの節を「native resolved graph > SBOM projection」という入力種別のヒエラルキーとして立てていた。その定式化は採用しない。理由は二つある。
+### 初版の定式化を採用しなかった理由
 
-一つ目。プロジェクトはすでに同じ問題に対する原則を持っており、それは入力種別の優劣ではない。[開発用途の判定](../specs/cli.md#contract-development-usage-and-sbom)で確立された規則は **「fact を determine した input がそれを所有し、何も determine していない input はそれを取り消さない」** である。軸は native 対 SBOM ではなく determined 対 undetermined であり、この軸のほうが扱える case が広い。package-manager input が `unknown`、SBOM が `direct` の場合、入力種別のヒエラルキーは SBOM の determination を捨てるが、determined 対 undetermined は捨てない。
+初版はこの節を「native resolved graph > SBOM projection」という入力種別のヒエラルキーとして立てていた。採用しなかった理由は二つ。
 
-二つ目。初版は `direct` 対 `transitive` の精度を論じることに大半を費やしていたが、その二値は表示列と `--dependency` filter にしか影響しない。exit code に影響するのは `root` だけであり、初版はその rung を「検討する問い」の 7 番目に分類学の質問として置いただけだった。
+一つ目。プロジェクトはすでに同じ問題への原則を持っており、それは入力種別の優劣ではない。[開発用途の判定](../specs/cli.md#contract-development-usage-and-sbom)で確立された規則は **「fact を determine した input がそれを所有し、何も determine していない input はそれを取り消さない」** である。入力種別のヒエラルキーは package-manager が `unknown` で SBOM が `direct` の場合に SBOM の determination を捨てるが、determined 対 undetermined は捨てない。
 
-### P0 として解消した defect（完了）
+二つ目。初版は `direct` 対 `transitive` の精度に大半を費やしていたが、その二値は exit code に効かない。効くのは `root` だけで、初版はその rung を「検討する問い」の 7 番目に分類学の質問として置いただけだった。
 
-`MergeDependencyType` は input 境界を跨いで `root > direct > transitive > unknown` を適用していた。ここで次の二つが重なっていた。
+### 解消した内容
 
-- `DependencyType.Root` を生成するのは SBOM parser だけである。package-manager adapter は 14 個どれも生成しない。
-- `Root` は [policy 評価から除外される](../specs/cli.md#contract-policy-checks)。他の三値に policy 影響はない。
+#### 1. SBOM root による policy 素通し（P0）
 
-したがって、SBOM が resolved dependency と同じ purl を自身の root として述べると、その component が gate から消えた。再現は単純で、`pkg:npm/alpha@1.0.0` を `metadata.component` に持つ artifact SBOM を、alpha に依存する lockfile と一緒に scan すると、`check` が exit 2 から exit 0 に変わる。scan の表には該当行が残るため、人間の view では気づけるが CI は黙る。
+`DependencyType.Root` を生成するのは SBOM parser だけであり、`Root` は [policy 評価から除外される](../specs/cli.md#contract-policy-checks)。cross-input の strongest-wins はこの二つを掛け合わせ、SBOM が resolved dependency と同じ purl を自身の root として述べると、その component が gate から消えていた。`pkg:npm/alpha@1.0.0` を `metadata.component` に持つ artifact SBOM を alpha に依存する lockfile と一緒に scan すると `check` が exit 2 から exit 0 に変わり、scan の表には該当行が残るため CI だけが黙った。
 
-Ol は他の未確定 case をすべて fail-closed に倒しているので、姿勢としても例外だった。`suppliedBy` は正常な fold と区別できないため、usage risk に対する緩和策として仕様が挙げる supply tally もここでは効かない。
+#### 2. resolver relationship の所有（P2）
 
-**採用した規則**: package-manager input が供給した row に対して、SBOM の `root` は適用しない。package-manager input が component を列挙したこと自体が「これは scan 対象 resolution の依存である」という determination であり、SBOM の root はその SBOM 自身の graph の root にすぎない。受け手の row には沈黙以上のことを述べていないので、merge せず捨てる。package-manager input が答えない SBOM root は fold が発生しないため影響を受けず、従来どおり自身の row を保って `root` のままになる。
+両 input が relationship を determine して食い違う場合、closest-to-a-root ではなく resolver の値を代表値とする。relationship は graph 相対なので、値が違うのは通常「食い違い」ではなく「別の graph を述べている」であり、row は scan 対象の graph に属する。SBOM 側の relationship は occurrence / edge に保持されるため導出可能で、変わるのは要約値だけである。
 
-仕様は [folded relationship](../specs/cli.md#contract-folded-relationship) に記載した。regression は `MixedInputScanTests` の relationship 系 6 件と `CliCheckTests.Check_WithSbomRootNamingAResolvedDependency_StillEvaluatesThatDependency` が固定している。cross-input fold の等価クラスは次のとおり。
+決め手になった非対称性: [`--dependency` で絞った report](../specs/cli.md#contract-dependency-filtering) は `check` の母集団を狭める。strongest-wins では resolver が `transitive` と述べた component が `direct` に書き換わり、`--dependency transitive` の gate から抜ける。逆方向（resolver `direct` / SBOM `transitive`）はどちらの規則でも `direct` なので差が出ない。resolver 優先には対称のコストがない。
 
-| package-manager | SBOM | 修正前 | 修正後 |
+#### 3. `check` が filtered report を黙って gate していた
+
+`scan` は `--dependency` を `metadata.view` に記録するよう既に直されていたが、`check` はそれを読まず、狭められた母集団を評価して pass を出していた。`--verbose` でも出なかった。producer 側で回収した fact を、次の consumer が再び落としていた。
+
+filtered report は refuse せず開示する。grouped report を refuse するのは行が aggregate で評価不能だからで、filtered report は評価可能で小さいだけであり、どこまでを gate に含めるかは利用者の判断だからである。relationship が `unknown` のため除外された件数は別に数える。それらは policy が fail-closed に保つ population であり、落ちたときに証明できることが変わるのはその部分だからである。
+
+### 最終的な cross-input fold の等価クラス
+
+| package-manager | SBOM | 初版 | 現在 |
 |---|---|---|---|
+| unknown | unknown | `unknown` | `unknown` |
 | unknown | root | `root` | `unknown` |
+| unknown | direct | `direct` | `direct` |
+| unknown | transitive | `transitive` | `transitive` |
 | direct | root | `root` | `direct` |
+| direct | transitive | `direct` | `direct` |
 | transitive | root | `root` | `transitive` |
+| transitive | direct | `direct` | `transitive` |
 | （対応 row なし） | root | `root` | `root`（fold 不発） |
-| unknown | direct / transitive | 強い方 | 変更なし |
-| direct / transitive | 相互に不一致 | 強い方 | 変更なし（P2） |
 
-`CombineSbomWithPackageManagerInputs` benchmark は 1024 components で 542.4 → 547.7 μs、4096 components で 1897.3 → 1883.0 μs、allocation は実質同値だった（`IterationCount=1` の単発測定）。
+### 検討したが採らなかった選択肢
 
-### P1 として明文化した内容（完了）
+- **strongest-wins を維持し、出典と不一致を明示する**。default view で root/direct を見落とさないことが利点だが、resolver が `transitive` と述べているならこの resolution についての真実は `transitive` であり、見落としは起きない。advisory な値のために provenance field と disagreement state を report contract に足すことになる。
+- **component-level の分類を graph-derived view にする**。canonical JSON、filter、group、summary、`check` の dependency filtering まで波及する。per-graph view を求める消費者が現れた場合、必要なデータは既に `inventory` の occurrence / edge / context にある。動機が概念的な正しさのみである間は採らない。
 
-- [Architecture の input combination decision](../Architecture.md#decision-input-combination) に、combine が入力種別の ranking ではないこと、determine した input が所有し、何も determine していない input は取り消さないことを追記した。
-- [CLI input combination contract](../specs/cli.md#contract-input-combination) に [folded relationship](../specs/cli.md#contract-folded-relationship) を追加した。
-- [contract-development-usage-and-sbom](../specs/cli.md#contract-development-usage-and-sbom) に、同じ規則が relationship にも及ぶこと、license evidence はそのどちらとも別で入力種別による選別を行わないことを追記した。combined scan は同じ component について三つの別の規則を述べており、そのいずれも SBOM 対 package-manager の勝敗ではない。
-- [Package-manager の lessons learned](../specs/packagemanager.md#lessons-learned) の「Neither input path is generally better」が license evidence の観測に限定された結論であることを明記した。この bullet を入力種別全体の parity と読んだことが P0 の defect の遠因である。
-- `DependencyType` の XML doc が全 4 値を「SBOM root component 相対」と定義していたため、graph 相対の記述に直した。`Root` を述べるのが SBOM だけである理由もそこに書いた。
+### 実装上の注意
 
-### P2 として残る問い（判断待ち）
+`DependencyTypes.Merge` と `DependencyInventoryCombiner.FoldDependencyType` は**統合してはならない**。前者は一つの graph の複数観測を集約する intra-input 用、後者は input 境界を跨ぐ cross-input 用で、規則が異なる。現在は名前と comment で分けてある。
 
-残る唯一の実質的な設計問題は次である。
+`FoldDependencyType` は row の現在値ではなく **fold 前に控えた resolver の値** から判定する。row を読み返すと、同じ purl を二箇所に置く SBOM の二回目の fold で「resolver が determine した」と「一回目の fill-in が書いた」を区別できず、結果が SBOM の component 列挙順に依存する。実装時にこの defect を一度作り込んで検出した。`resolvedRelationships` の pooled snapshot はそのためにある。
 
-**package-manager input と SBOM が両方 relationship を determine していて食い違うとき、component-level の代表値をどうするか。**
+### 残っている既知のギャップ
 
-現在は strongest-wins のまま、`direct` が `transitive` に勝つ。この値は表示列、`--dependency` filter、sort、group にのみ影響し、exit code には影響しない。したがって急ぐ理由はない。
+- `check --sarif` は filtered report であることを SARIF に出さない。text の result にのみ開示行が出る。
+- `ol diff` も persisted report を読むが、filtered report を黙って比較する。母集団が違う二つの report を比較していることを述べない。
 
-判断する前に答える問い。
-
-1. component-level の `DependencyType` は「どれか一つの input が観測した最も root に近い relationship」か、「代表 resolved graph が証明した relationship」か。
-2. artifact-specific SBOM が repository-wide package-manager graph とは別の配布 artifact について `direct` を述べている場合、その値を同じ component-level 分類に畳んでよいか。
-3. relationship の不一致を warning、structured provenance、通常状態のどれとして公開するか。
-
-選択肢は初版から変わらない。
-
-- **A. package-manager classification を代表値にする**。native graph が inventory structure を所有する原則と単純に一致するが、artifact-specific SBOM の異なる relationship が default view から見えなくなる。
-- **B. strongest-wins を維持し、出典と不一致を明示する**。human output と policy behavior の変更が最小。provenance field と disagreement state が増える。
-- **C. component-level の単一分類を graph-derived view にする**。canonical JSON、filter、group、summary、`check` の dependency filtering まで波及する大きな contract change。graph を持たない input と legacy report の扱いも必要になる。
-
-現時点で C を正当化する根拠はない。動機が概念的な正しさのみで、exit code に効かない値のために report contract 全体を変えることになる。判断のために実測が必要なのは B と A の差だけであり、その実測は「ecosystem 別に native resolved input と SBOM を対にして `direct` / `transitive` の不一致を数え、missing edge・異なる root scope・workspace 差・artifact 差・generator defect に分類する」ことに限定できる。初版の Phase 2 が計画していた全 rung の実測は不要になった。
-
-### 付随して残る整理（優先度低）
-
-`DependencyTypes.Merge` と `DependencyInventoryCombiner.MergeDependencyType` は同一実装が二箇所にある。前者は一つの graph の複数観測を集約する intra-input 用、後者は input 境界を跨ぐ cross-input 用で、意味が異なる。P0 で cross-input 側の入口を `FoldDependencyType` として名前で分けたが、実装の重複自体は残っている。P2 の判断が A か C になった場合、この二つは別々の規則になるため統合してはならない。B になった場合のみ統合を検討できる。
-
-### 非目標
+### 非目標（当時のまま）
 
 - SBOM 入力 support を廃止すること。
 - SBOM-only component を inventory から削除すること。
@@ -88,12 +78,13 @@ Ol は他の未確定 case をすべて fail-closed に倒しているので、�
 ### 関連実装と仕様
 
 - [Architecture: input combination](../Architecture.md#decision-input-combination)
-- [CLI: component supply](../specs/cli.md#contract-component-supply)
 - [CLI: input combination](../specs/cli.md#contract-input-combination)
 - [CLI: folded relationship](../specs/cli.md#contract-folded-relationship)
 - [CLI: development usage and SBOM](../specs/cli.md#contract-development-usage-and-sbom)
+- [CLI: filtered report as policy input](../specs/cli.md#contract-policy-filtered-report)
 - [Package-manager evidence lessons](../specs/packagemanager.md#lessons-learned)
 - [`DependencyInventoryCombiner`](../../../src/Ol.Core/DependencyInventoryCombiner.cs)
 - [`DependencyType`](../../../src/Ol.Core/DependencyType.cs)
+- [`ScanReportReader`](../../../src/Ol.Core/Reporting/ScanReportReader.cs)
 - [`MixedInputScanTests`](../../../tests/Ol.Tests/MixedInputScanTests.cs)
 - [Component Detection comparison](../references/component_detection.md)

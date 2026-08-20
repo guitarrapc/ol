@@ -601,7 +601,7 @@ Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-m
 
 ### 残る差分
 
-再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 7 は未着手である。
+再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 7 も実装済みで、未着手の項目は残っていない。
 
 ## 推奨する運用
 

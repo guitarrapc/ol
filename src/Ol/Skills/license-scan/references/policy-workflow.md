@@ -36,6 +36,19 @@ ol check --report ol-report.json \
 
 `--update-baseline` replaces the file; it does not append one exception. Inspect the generated raw evidence and fingerprints, verify that forbidden resolved licenses and errors remain violations, then commit `baseline.json` with the policy change.
 
+## Compose a shared baseline with a local one
+
+`--baseline` is repeatable and the files union: a component is acknowledged when any of them states it, whatever order they were named in. Use this when several repositories share a population — the legacy `System.*` and `runtime.*` NuGet corpus is identical in every repository targeting `netstandard2.0` — so the shared review is not transcribed into each repository.
+
+```text
+ol check --report ol-report.json --allow-licenses <ids> \
+  --baseline <shared>/ol-baseline.json --baseline ol-baseline.json
+```
+
+`--update-baseline` rewrites the **last** file with only what the earlier files do not already acknowledge, and reads but never writes the earlier ones. With a single baseline there is nothing to subtract and the snapshot is complete, as before the option became repeatable.
+
+A repository with nothing to acknowledge beyond the shared file keeps no file of its own. Make CI pass `--baseline` only when the file exists rather than requiring an empty one: an unresolved component fails the check whether or not a baseline was supplied, so an empty file protects nothing and is never reviewed.
+
 Verify the steady-state command without the update option:
 
 ```text

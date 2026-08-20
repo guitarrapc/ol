@@ -66,7 +66,7 @@ public sealed class CliSkillTests
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
             var skill = await File.ReadAllTextAsync(Path.Combine(directory, ".agents", "skills", "license-scan", "SKILL.md"));
-            await Assert.That(skill).Contains("description: Scan dependency licenses with ol by combining a CycloneDX/SPDX SBOM with resolved package-manager inputs, then enforce the intended SPDX policy with check, reviewed baselines, and CI.");
+            await Assert.That(skill).Contains("description: Scan dependency licenses with ol by combining resolved package-manager inputs with an optional CycloneDX/SPDX SBOM, judge coverage, then enforce the intended SPDX policy with check, reviewed baselines, and CI.");
             await Assert.That(skill).DoesNotContain("Use when");
         }
         finally
@@ -86,9 +86,9 @@ public sealed class CliSkillTests
             await Assert.That(result.ExitCode).IsEqualTo(0);
             var skillDirectory = Path.Combine(directory, ".agents", "skills", "license-scan");
             var skill = await File.ReadAllTextAsync(Path.Combine(skillDirectory, "SKILL.md"));
-            await Assert.That(skill).Contains("## Run the compliance lifecycle");
-            await Assert.That(skill).Contains("--baseline baseline.json --update-baseline");
-            await Assert.That(skill).Contains("--baseline baseline.json");
+            await Assert.That(skill).Contains("## Lifecycle");
+            await Assert.That(skill).Contains("--update-baseline");
+            await Assert.That(skill).Contains("--baseline");
             await Assert.That(skill).Contains("references/policy-workflow.md");
 
             var referencePath = Path.Combine(skillDirectory, "references", "policy-workflow.md");

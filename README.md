@@ -281,7 +281,7 @@ Each command uses the following exit codes. CI can use the `check` result to dis
 | `0` | The command completed successfully. Help and version output also use `0`. |
 | `1` | Argument parsing, configuration, input, I/O, or another execution failure prevented completion. |
 | `2` | `check` completed policy evaluation and found one or more violations. |
-| `3` | `check` completed, but every finding is a collection failure, so the result is inconclusive. |
+| `3` | `check` completed but proved nothing: every finding is a collection failure, or the report states its input declared no resolved dependencies. |
 
 ### Reading license results
 

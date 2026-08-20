@@ -15,6 +15,11 @@ namespace Ol.Core.Reporting;
 /// <param name="ComponentUsages">The restored development usage per component, aligned with <paramref name="Components"/>.</param>
 /// <param name="ExcludedInputPaths">The logical paths excluded from input discovery by the producing scan.</param>
 /// <param name="View">The view the producing scan rendered, which is the population a policy can evaluate.</param>
+/// <param name="Warnings">
+/// The report's top-level warning identifiers, restored verbatim and in report order. The reader restores
+/// the array and each consumer decides which identifiers it acts on, so an identifier a later Ol adds is
+/// carried rather than rejected; the schema version is what guards an incompatible document.
+/// </param>
 public readonly record struct ScanReport(
     int SchemaVersion,
     string SourceReference,
@@ -23,7 +28,34 @@ public readonly record struct ScanReport(
     ScanComponent[] Components,
     DependencyUsage[] ComponentUsages,
     string[] ExcludedInputPaths,
-    ScanReportViewScope View = default);
+    ScanReportViewScope View = default,
+    string[]? Warnings = null)
+{
+    /// <summary>The warning identifier a scan writes when a recognized input contributed no inventory.</summary>
+    public const string EmptyInventoryWarning = "input_declares_no_components";
+
+    /// <summary>Reports whether the producing scan stated that its input declared no resolved dependencies.</summary>
+    /// <remarks>
+    /// Such a report proves nothing about licenses: every count is zero, so a pass on it is indistinguishable
+    /// from a project whose dependencies are all allowed. The scan states the condition in every view it
+    /// writes; a gate that consumed the report without restating it would leave that fact unable to reach
+    /// the reader the warning exists for.
+    /// </remarks>
+    public bool DeclaresNoComponents
+    {
+        get
+        {
+            var warnings = Warnings;
+            if (warnings is null) return false;
+            for (var i = 0; i < warnings.Length; i++)
+            {
+                if (string.Equals(warnings[i], EmptyInventoryWarning, StringComparison.Ordinal)) return true;
+            }
+
+            return false;
+        }
+    }
+}
 
 /// <summary>Describes how the producing scan narrowed the components it wrote.</summary>
 /// <param name="DependencyFilter">
@@ -78,6 +110,7 @@ public static class ScanReportReader
             DependencyInventory? inventory = null;
             ScanComponent[]? components = null;
             DependencyUsage[] componentUsages = [];
+            string[] warnings = [];
 
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
@@ -101,6 +134,10 @@ public static class ScanReportReader
                 else if (reader.ValueTextEquals("components"u8))
                 {
                     if (!TryReadComponents(ref reader, out components, out componentUsages, out error)) return false;
+                }
+                else if (reader.ValueTextEquals("warnings"u8))
+                {
+                    warnings = ReadStringArray(ref reader);
                 }
                 else
                 {
@@ -130,7 +167,7 @@ public static class ScanReportReader
             var restored = inventory is { } value
                 ? new DependencyInventory(input, value.Contexts, value.Components, value.Occurrences, value.Edges, value.OccurrenceVariants)
                 : new DependencyInventory(input, [], [], [], [], []);
-            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages, excludedInputPaths, view);
+            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages, excludedInputPaths, view, warnings);
             error = string.Empty;
             return true;
         }

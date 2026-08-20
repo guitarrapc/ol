@@ -168,13 +168,19 @@ internal sealed class CheckCommands
                 excludePackages is null ? -1 : excludedCount,
                 ambiguityAllowedCount,
                 persisted.ExcludedInputPaths,
-                persisted.View);
+                persisted.View,
+                persisted.DeclaresNoComponents);
         }
         catch (IOException exception)
         {
             Console.Error.WriteLine($"Unable to write check result: {exception.Message}");
             return 1;
         }
+
+        // The run completed and the report is complete; what it proves is nothing, which is the state exit 3
+        // exists to name. A pass here would make an unrestored project read as a project whose dependencies
+        // are all allowed, and no baseline can acknowledge an inventory that has no components to acknowledge.
+        if (persisted.DeclaresNoComponents) return 3;
 
         if (violations.Length == 0) return 0;
 
@@ -350,7 +356,8 @@ internal static class CheckRenderer
         int excludedCount = -1,
         int ambiguityAllowedCount = 0,
         string[]? excludedInputPaths = null,
-        ScanReportViewScope view = default)
+        ScanReportViewScope view = default,
+        bool declaresNoComponents = false)
     {
         WriteDependencyFilter(writer, view);
         WriteExcludedInputPaths(writer, excludedInputPaths);
@@ -358,6 +365,16 @@ internal static class CheckRenderer
         WriteOptionalCount(writer, "Acknowledged by baseline: "u8, acknowledgedCount, includeZero: true);
         WriteOptionalCount(writer, "Allowed by development policy: "u8, developmentAllowedCount, includeZero: true);
         WriteOptionalCount(writer, "Allowed on every reading of ambiguous evidence: "u8, ambiguityAllowedCount, includeZero: false);
+
+        // A report whose input contributed no inventory proves nothing about licenses, and every count being zero
+        // is exactly what a fully allowed project looks like. Stated before the allow-list result, because the
+        // allow-list result is the sentence a reader would otherwise take as the answer.
+        if (declaresNoComponents)
+        {
+            WriteUtf8(writer, "License check incomplete: the report states its input declared no resolved dependencies."u8);
+            WriteNewLine(writer);
+            return;
+        }
 
         if (violations.IsEmpty)
         {

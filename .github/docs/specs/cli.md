@@ -24,11 +24,17 @@ Ol uses four exit codes:
 | `0` | The command completed successfully. Help and version output also use `0`. |
 | `1` | Invocation, configuration, input, SPDX data, cache, network-required operation, or output failed. |
 | `2` | `check` completed successfully and found one or more policy violations. |
-| `3` | `check` completed successfully, but every finding is a collection failure, so the result is inconclusive. |
+| `3` | `check` completed successfully but proved nothing, because every finding is a collection failure or the report states its input declared no resolved dependencies. |
 
 Exit codes `2` and `3` belong only to policy results. `scan` and `diff` do not use changes or unresolved components as an alternate failure code.
 
 `3` exists because the three states a CI job must tell apart are "fix the pipeline", "fix the dependency", and "try again". A component whose evidence could not be collected proves nothing about its license, so reporting it as a policy violation would make a registry outage indistinguishable from a forbidden license. It is not exit `1` either: the command ran, produced a complete report, and component-level collection failures are best-effort results rather than command failures. A run is inconclusive only when **every** violation is a collection failure; one genuine finding alongside them yields `2`, because a real violation is the more actionable fact. Status `error` cannot be acknowledged into a baseline, so a baseline never converts an inconclusive run into a pass.
+
+<a id="contract-inconclusive-empty-report"></a>
+
+An [empty inventory](#contract-empty-inventory) reaches `3` by the same reasoning through a different route. There are no findings to classify, so the letter of the rule above does not reach it, but the state it describes is identical: the command ran, the report is complete, and it proves nothing about any license. A pass would be the worse answer rather than the neutral one, because zero violations over zero components is exactly what a project whose dependencies are all allowed produces, so the two become indistinguishable at the only place a CI job looks. Nor can a baseline convert it: a baseline acknowledges components, and this report has none.
+
+The boundary that makes this safe without an opt-out was measured rather than assumed. A project that legitimately resolves no dependencies still declares a root, so its inventory is not empty and it stays at `0`; and a scan that found nothing to read at all already fails at `1` before a report exists. What remains for `3` is only the case the warning was written for: Ol read a real input and that input declared nothing.
 
 Primary command output is written to stdout and ends with a line feed. Successful help is also stdout. Diagnostics and human-readable scan summaries are written to stderr. An expected failure writes one concise cause to stderr, leaves stdout empty, and does not print a stack trace or partial primary result.
 
@@ -96,6 +102,10 @@ Ol prints those counts and draws no conclusion from them. A threshold that calle
 An input Ol recognized but that contributes no components produces a `No components` statement in every `scan` view and an `input_declares_no_components` entry in the canonical JSON report's top-level warnings. The statement belongs to the primary result, so `--quiet` does not suppress it.
 
 Silence would be the one false negative a policy gate cannot recover from: every count is zero, `check` finds no violation, and the run is indistinguishable from a project whose dependencies are all allowed. The ordinary causes are not exotic — an unrestored project, an `obj` directory left from a different build, an SBOM generated before install. It is not a command failure: the input was read and the report is complete, and only the reader knows whether "no dependencies" is the expected answer for that input. The condition is the resolved inventory, not the displayed view, so a `--dependency` filter that excludes every component is explained by the filter line rather than reported as an empty input.
+
+The warning reaches the gate. `check` reads the report's top-level warnings, states `License check incomplete: the report states its input declared no resolved dependencies.` instead of an allow-list result, and [exits `3`](#contract-inconclusive-empty-report). Stating it only in `scan`'s views was the same defect one step later: `scan` warned in every projection it wrote, the reader dropped the array at the persistence boundary, and the command whose whole product is an exit code reported a pass. A fact only one projection carries does not reach the reader of the other.
+
+`check` restores every top-level warning and acts on the identifiers it knows, rather than restoring the one identifier it acts on. An identifier a later Ol adds is then carried by an older reader instead of rejected by it, which is the additive case the schema version is not the guard for; `deprecated_spdx_identifier` is restored the same way and gates nothing, because it describes an identifier the report already carries per component and changes nothing about what the run proved. A report written before top-level warnings existed is read as having stated none, which is what it was.
 
 <a id="contract-unresolved-section"></a>
 
@@ -243,7 +253,7 @@ The cache root is selected by `--cache-dir`, then `OL_CACHE_DIR`, then legacy ca
 ol check --report <scan.json> --allow-licenses <SPDX-ids>
 ```
 
-`check` reads one ungrouped canonical JSON report. It performs no dependency parsing, evidence collection, cache access, or network access. Invalid, malformed, grouped, or unsupported-schema reports are command failures.
+`check` reads one ungrouped canonical JSON report. It performs no dependency parsing, evidence collection, cache access, or network access. Invalid, malformed, grouped, or unsupported-schema reports are command failures. A report [whose input declared no resolved dependencies](#contract-empty-inventory) is readable and complete, and is reported as inconclusive rather than evaluated.
 
 <a id="contract-policy-filtered-report"></a>
 

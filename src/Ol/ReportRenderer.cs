@@ -24,12 +24,33 @@ using Ol.Internals;
 /// <param name="ExcludedCount">Components the filter removed from the view.</param>
 /// <param name="ExcludedUnknownCount">Removed components whose dependency relationship is unknown.</param>
 /// <param name="ExcludedInputPaths">Logical paths omitted from directory input discovery.</param>
+/// <param name="Discovery">What input discovery found, ignored, and skipped.</param>
 internal readonly record struct ScanReportScope(
     bool ExternalEvidenceCollected,
     string? DependencyFilter,
     int ExcludedCount,
     int ExcludedUnknownCount,
-    string[]? ExcludedInputPaths = null);
+    string[]? ExcludedInputPaths = null,
+    ScanInputDiscovery Discovery = default);
+
+/// <summary>What input discovery observed, as distinct from what the invocation asked it to exclude.</summary>
+/// <remarks>
+/// These are the facts a reader needs to tell a scan that read every input from one that skipped an ecosystem,
+/// and no counter elsewhere in the report implies them: an ignored candidate and a skipped companion set both
+/// leave the report smaller without leaving any trace in the components it does contain. They lived only in the
+/// stderr summary, which <c>--format json</c> does not write, so the recommended CI path produced a document
+/// that could not state whether it was complete.
+/// </remarks>
+/// <param name="DetectedFileCount">Physical input files discovery detected, including ones it then skipped.</param>
+/// <param name="IgnoredCandidates">
+/// Known dependency inputs Ol cannot consume, named by the directory pattern that detected them. The values are
+/// a closed vocabulary Ol owns rather than anything read from the file system, so the field carries no path.
+/// </param>
+/// <param name="IncompleteInputSetCount">Companion sets discovery found incomplete and therefore skipped.</param>
+internal readonly record struct ScanInputDiscovery(
+    int DetectedFileCount,
+    string[]? IgnoredCandidates,
+    int IncompleteInputSetCount);
 
 internal static class ReportRenderer
 {
@@ -820,6 +841,30 @@ internal static class ReportRenderer
         }
 
         writer.WriteEndArray();
+        writer.WriteEndObject();
+        WriteInputDiscoveryMetadata(writer, scope.Discovery);
+    }
+
+    // Written unconditionally and with every count, for the reason inputScope is: a field that appeared only when
+    // it had something to say would leave "discovery ignored nothing" indistinguishable from "an older Ol wrote
+    // this report", and a reader would have to determine the document's shape before it could read the field.
+    private static void WriteInputDiscoveryMetadata(Utf8JsonWriter writer, in ScanInputDiscovery discovery)
+    {
+        writer.WriteStartObject("inputDiscovery");
+        writer.WriteNumber("detectedFileCount", discovery.DetectedFileCount);
+        var ignoredCandidates = discovery.IgnoredCandidates;
+        writer.WriteNumber("ignoredCandidateCount", ignoredCandidates?.Length ?? 0);
+        writer.WriteStartArray("ignoredCandidates");
+        if (ignoredCandidates is not null)
+        {
+            for (var candidateIndex = 0; candidateIndex < ignoredCandidates.Length; candidateIndex++)
+            {
+                writer.WriteStringValue(ignoredCandidates[candidateIndex]);
+            }
+        }
+
+        writer.WriteEndArray();
+        writer.WriteNumber("incompleteInputSetCount", discovery.IncompleteInputSetCount);
         writer.WriteEndObject();
     }
 

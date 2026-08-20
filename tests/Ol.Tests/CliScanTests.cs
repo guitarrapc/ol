@@ -840,6 +840,148 @@ public sealed class CliScanTests
         }
     }
 
+    /// <summary>
+    /// The canonical report is exempt from the stderr summary only while it states everything that summary
+    /// states. Input discovery was the part it did not state, so a consumer reading only the report could not
+    /// tell a scan that read every input from one that skipped an ecosystem.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithSingleInput_StatesInputDiscoveryInJson()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [ { "type": "library", "name": "a", "version": "1.0.0", "purl": "pkg:npm/a@1.0.0" } ] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var discovery = report.RootElement.GetProperty("metadata").GetProperty("inputDiscovery");
+
+            // Stated even when every count is trivial, for the reason inputScope is: a field that appeared only
+            // when it had something to say leaves "nothing was ignored" indistinguishable from an older report.
+            await Assert.That(discovery.GetProperty("detectedFileCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(discovery.GetProperty("ignoredCandidateCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(discovery.GetProperty("ignoredCandidates").GetArrayLength()).IsEqualTo(0);
+            await Assert.That(discovery.GetProperty("incompleteInputSetCount").GetInt32()).IsEqualTo(0);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A silently unscanned ecosystem is the failure the discovery hint exists to prevent, so the report names
+    /// the candidate rather than only counting it. The names are the closed set of directory patterns Ol
+    /// recognizes, never a path, so the value carries nothing about the machine that produced it.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithIgnoredInputCandidate_NamesItInInputDiscoveryJson()
+    {
+        var root = FindRepositoryRoot();
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "package-lock.json"), NpmLockWithOneDependency, Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(directory, "Cargo.toml"), CargoManifest, Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", directory, "--format", "json", "--no-external-evidence");
+            var (_, _, textStderr) = await RunOlAsync(root, "scan", "--input", directory, "--format", "text", "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var discovery = report.RootElement.GetProperty("metadata").GetProperty("inputDiscovery");
+            var candidates = discovery.GetProperty("ignoredCandidates").EnumerateArray().Select(x => x.GetString() ?? string.Empty).ToArray();
+
+            await Assert.That(discovery.GetProperty("detectedFileCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(discovery.GetProperty("ignoredCandidateCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(candidates).IsEquivalentTo(new[] { "Cargo.toml" });
+            await Assert.That(discovery.GetProperty("incompleteInputSetCount").GetInt32()).IsEqualTo(0);
+
+            // The document and the summary describe one scan, so they state the same discovery.
+            await Assert.That(textStderr).Contains("Input discovery: 1 detected file; 1 ignored candidate (Cargo.toml); 0 incomplete input sets");
+            await Assert.That(stderr).DoesNotContain("Input discovery");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A companion set discovery found incomplete is skipped rather than failed, and the remaining inputs are
+    /// still reported. The report therefore describes fewer ecosystems than it read files, which only this
+    /// count explains.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithIncompleteInputSet_CountsItInInputDiscoveryJson()
+    {
+        var root = FindRepositoryRoot();
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(directory, "vendored"));
+        await File.WriteAllTextAsync(Path.Combine(directory, "package-lock.json"), NpmLockWithOneDependency, Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(directory, "vendored", "composer.json"), ComposerManifest, Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", directory, "--format", "json", "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var discovery = report.RootElement.GetProperty("metadata").GetProperty("inputDiscovery");
+
+            await Assert.That(discovery.GetProperty("detectedFileCount").GetInt32()).IsEqualTo(2);
+            await Assert.That(discovery.GetProperty("ignoredCandidateCount").GetInt32()).IsEqualTo(0);
+            await Assert.That(discovery.GetProperty("incompleteInputSetCount").GetInt32()).IsEqualTo(1);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Grouping changes the rows a report displays, never what the scan read, so a grouped report states the
+    /// same discovery as the component report beside it.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithGroupedReport_StatesTheSameInputDiscoveryInJson()
+    {
+        var root = FindRepositoryRoot();
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "package-lock.json"), NpmLockWithOneDependency, Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(directory, "Cargo.toml"), CargoManifest, Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", directory, "--format", "json", "--no-external-evidence", "--group-by", "license");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            using var report = JsonDocument.Parse(stdout);
+            var discovery = report.RootElement.GetProperty("metadata").GetProperty("inputDiscovery");
+            var candidates = discovery.GetProperty("ignoredCandidates").EnumerateArray().Select(x => x.GetString() ?? string.Empty).ToArray();
+
+            await Assert.That(discovery.GetProperty("detectedFileCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(candidates).IsEquivalentTo(new[] { "Cargo.toml" });
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private const string NpmLockWithOneDependency =
+        """{ "name": "app", "lockfileVersion": 3, "packages": { "": { "name": "app", "dependencies": { "a": "1.0.0" } }, "node_modules/a": { "version": "1.0.0", "license": "MIT" } } }""";
+
+    private const string CargoManifest = "[package]\nname = \"x\"\nversion = \"0.1.0\"\n";
+
+    private const string ComposerManifest = """{ "name": "acme/app", "require": { "php": ">=8.0" } }""";
+
     [Test]
     public async Task Scan_WithInputDeclaringNoComponents_ReportsAnEmptyInputWarningInJson()
     {

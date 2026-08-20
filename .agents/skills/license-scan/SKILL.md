@@ -70,7 +70,7 @@ Read these before any license, cheapest first.
 
 | Signal | Question it answers |
 |---|---|
-| `Input discovery` line: detected files, ignored candidates, incomplete input sets, excluded paths, ecosystems | Did every ecosystem in the subject get scanned, and only those? An ignored candidate is an unscanned ecosystem. |
+| `metadata.inputDiscovery` (`Input discovery` line: detected files, ignored candidates, incomplete input sets; excluded paths are `metadata.inputScope`) | Did every ecosystem in the subject get scanned, and only those? An ignored candidate is an unscanned ecosystem. |
 | `summary.supply` (`Supplied by` line; `--verbose` splits it per ecosystem) | Did the second input earn its place? A large `sbomOnly` count means the generator catalogued things that are not dependencies. |
 | `warnings`, including `input_declares_no_components` | Did an input resolve nothing? Every count zero reads exactly like a clean project. |
 | `metadata.packageMetadata`, `packageArtifacts`, `declaredGitHubFiles`, `sourceRepository` | Separate collector failure from component status. `fetchErrorCount` above zero means the run is degraded. |

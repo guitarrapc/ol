@@ -217,6 +217,34 @@ internal static class KnownUnsupportedInputCandidates
         return count;
     }
 
+    /// <summary>Names the candidates a reader is asked to act on, in rule order, for the canonical report.</summary>
+    /// <remarks>
+    /// The values are directory patterns Ol declares rather than anything read from the file system, so the
+    /// result carries no path and is the same on every machine that discovered the same candidates. The report
+    /// and the stderr summary therefore name one vocabulary, and this runs once per scan rather than per file.
+    /// </remarks>
+    public static string[] GetUnresolvedNames(in InputCandidateDiagnostics diagnostics)
+    {
+        var count = GetUnresolvedCount(diagnostics);
+        if (count == 0) return [];
+
+        var names = new string[count];
+        var written = 0;
+        var unresolved = diagnostics.Unresolved;
+        for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
+        {
+            ref readonly var rule = ref Rules[ruleIndex];
+            if ((unresolved & rule.Bit) == 0 || IsSuperseded(rule, diagnostics))
+            {
+                continue;
+            }
+
+            names[written++] = rule.DirectoryPattern;
+        }
+
+        return names;
+    }
+
     public static void WriteUnresolvedNames(in InputCandidateDiagnostics diagnostics, TextWriter writer)
     {
         var unresolved = diagnostics.Unresolved;

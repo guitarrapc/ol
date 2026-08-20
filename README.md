@@ -410,6 +410,17 @@ ol check --report ol-report.json \
 
 This does not prove that the package is absent from a production artifact. Check the release artifact separately with the primary allow-list.
 
+**Scanning an SBOM alongside the lockfile does not withdraw the allowance.** An SBOM records no development scope, so it says nothing about reachability and its view of a component abstains rather than overruling the resolver. Only a resolver that classifies the component as runtime downgrades it. A component no input classified stays unknown, and this option never relaxes it.
+
+```text
+$ ol scan --input package-lock.json --input bom.cdx.json --format json > report.json
+$ ol check --report report.json --allow-licenses MIT --allow-dev-licenses CC-BY-4.0
+Allowed by development policy: 1 component.
+License check passed: 1 component satisfies the allow-list.
+```
+
+One thing to know: an SBOM covering more than the lockfile does can carry a runtime copy of the same package, and ol matches on package URL alone, so it would fold onto the development row. The `Supplied by` summary line shows whether the SBOM reached beyond the resolved inputs.
+
 ### Adopt a baseline for an existing project
 
 An existing project can contain components ol cannot resolve: a package on a private feed, a registry with no license field, a source outside GitHub. They fail closed, and you cannot fix them by editing your own code.

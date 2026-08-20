@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Ol.Core;
 using Ol.Core.Licensing;
@@ -195,6 +196,143 @@ public sealed class MixedInputScanTests
         await Assert.That(exitCode).IsEqualTo(0);
         await Assert.That(stderr).DoesNotContain("Supplied by:");
         await Assert.That(stderr).DoesNotContain("    npm: ");
+    }
+
+    /// <summary>
+    /// An SBOM that also lists a component folds onto the lockfile's row for evidence, but it observed no
+    /// installation and states no scope, so it must not cancel the resolver's classification. The two
+    /// recommended configurations — scanning an SBOM beside the resolved tree, and relaxing policy for
+    /// development-only dependencies — otherwise cannot be used together.
+    /// </summary>
+    [Test]
+    [Arguments("dev-direct", "development")]
+    [Arguments("dev-trans", "development")]
+    [Arguments("both-direct", "runtime")]
+    [Arguments("both-trans", "runtime")]
+    public async Task Scan_WithSbomFoldedOntoResolvedRow_KeepsTheResolverClassification(string name, string expected)
+    {
+        var root = FindRepositoryRoot();
+        var directory = await WriteDevelopmentUsageInputsAsync();
+        try
+        {
+            var report = await ScanUsageAsync(root, Path.Combine(directory, "package-lock.json"), Path.Combine(directory, "bom.cdx.json"));
+            await Assert.That(SelectUsage(report, name)).IsEqualTo(expected);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A package installed at two paths is two rows, and an SBOM component attaches its occurrence to the
+    /// first matching one. While that occurrence could cancel a classification, the same package at the
+    /// same version was development on one row and unclassified on the other, so a policy allowance applied
+    /// to one copy and not the other for no reason a reader could act on.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithSbomAndDuplicateInstalls_ClassifiesEveryCopyTheSame()
+    {
+        var root = FindRepositoryRoot();
+        var directory = await WriteDuplicateInstallInputsAsync();
+        try
+        {
+            var report = await ScanUsageAsync(root, Path.Combine(directory, "package-lock.json"), Path.Combine(directory, "bom.cdx.json"));
+            var usages = report.RootElement.GetProperty("components").EnumerateArray()
+                .Where(c => c.GetProperty("name").GetString() == "dup")
+                .Select(c => c.TryGetProperty("usage", out var usage) ? usage.GetString() : "(none)")
+                .ToArray();
+
+            await Assert.That(usages).Count().IsEqualTo(2);
+            await Assert.That(usages).IsEquivalentTo(new[] { "development", "development" });
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async Task<JsonDocument> ScanUsageAsync(string root, params string[] inputs)
+    {
+        var arguments = new List<string> { "scan" };
+        for (var i = 0; i < inputs.Length; i++)
+        {
+            arguments.Add("--input");
+            arguments.Add(inputs[i]);
+        }
+
+        arguments.AddRange(["--no-external-evidence", "--format", "json", "--quiet"]);
+        var (exitCode, stdout, stderr) = await RunOlAsync(root, [.. arguments]);
+        await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+        return JsonDocument.Parse(stdout);
+    }
+
+    private static string SelectUsage(JsonDocument report, string name)
+    {
+        foreach (var component in report.RootElement.GetProperty("components").EnumerateArray())
+        {
+            if (component.GetProperty("name").GetString() != name) continue;
+            return component.TryGetProperty("usage", out var usage) ? usage.GetString() ?? "(none)" : "(none)";
+        }
+
+        throw new InvalidOperationException($"Component '{name}' was not found in the report.");
+    }
+
+    /// <summary>Covers direct and transitive development reachability, each with and without a runtime path.</summary>
+    private static async Task<string> WriteDevelopmentUsageInputsAsync()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-usage-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "package-lock.json"), """
+            {
+              "name": "app", "version": "1.0.0", "lockfileVersion": 3, "requires": true,
+              "packages": {
+                "": { "name": "app", "version": "1.0.0",
+                  "dependencies": { "runtime-root": "1.0.0" },
+                  "devDependencies": { "dev-direct": "1.0.0", "both-direct": "1.0.0" } },
+                "node_modules/runtime-root": { "version": "1.0.0", "license": "MIT",
+                  "dependencies": { "both-direct": "1.0.0", "both-trans": "1.0.0" } },
+                "node_modules/dev-direct": { "version": "1.0.0", "license": "MIT", "dev": true,
+                  "dependencies": { "dev-trans": "1.0.0" } },
+                "node_modules/dev-trans": { "version": "1.0.0", "license": "MIT", "dev": true },
+                "node_modules/both-direct": { "version": "1.0.0", "license": "MIT" },
+                "node_modules/both-trans": { "version": "1.0.0", "license": "MIT" }
+              }
+            }
+            """, Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(directory, "bom.cdx.json"), """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "runtime-root", "version": "1.0.0", "purl": "pkg:npm/runtime-root@1.0.0" },
+              { "type": "library", "name": "dev-direct", "version": "1.0.0", "purl": "pkg:npm/dev-direct@1.0.0" },
+              { "type": "library", "name": "dev-trans", "version": "1.0.0", "purl": "pkg:npm/dev-trans@1.0.0" },
+              { "type": "library", "name": "both-direct", "version": "1.0.0", "purl": "pkg:npm/both-direct@1.0.0" },
+              { "type": "library", "name": "both-trans", "version": "1.0.0", "purl": "pkg:npm/both-trans@1.0.0" } ] }
+            """, Encoding.UTF8);
+        return directory;
+    }
+
+    /// <summary>One package installed at two paths, both reached only through development dependencies.</summary>
+    private static async Task<string> WriteDuplicateInstallInputsAsync()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ol-usage-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "package-lock.json"), """
+            {
+              "name": "app", "version": "1.0.0", "lockfileVersion": 3, "requires": true,
+              "packages": {
+                "": { "name": "app", "version": "1.0.0", "devDependencies": { "dev-a": "1.0.0", "dev-b": "1.0.0" } },
+                "node_modules/dev-a": { "version": "1.0.0", "license": "MIT", "dev": true, "dependencies": { "dup": "1.0.0" } },
+                "node_modules/dev-a/node_modules/dup": { "version": "1.0.0", "license": "MIT", "dev": true },
+                "node_modules/dev-b": { "version": "1.0.0", "license": "MIT", "dev": true, "dependencies": { "dup": "1.0.0" } },
+                "node_modules/dup": { "version": "1.0.0", "license": "MIT", "dev": true }
+              }
+            }
+            """, Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(directory, "bom.cdx.json"), """
+            { "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+              { "type": "library", "name": "dup", "version": "1.0.0", "purl": "pkg:npm/dup@1.0.0" } ] }
+            """, Encoding.UTF8);
+        return directory;
     }
 
     /// <summary>The stderr summary must state what the JSON document states, or the JSON exemption breaks.</summary>

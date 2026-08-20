@@ -26,6 +26,79 @@ public sealed class DependencyUsageResolverTests
         await Assert.That(usages[4]).IsEqualTo(DependencyUsage.Runtime);
     }
 
+    /// <summary>
+    /// An occurrence whose input determines no usage abstains instead of vetoing. It carries no observation
+    /// about reachability — its input kind has no vocabulary for one — so treating it as a competing claim
+    /// let an input that cannot speak overrule one that did.
+    /// </summary>
+    [Test]
+    public async Task Resolve_WithUndeterminedOccurrenceBesideDevelopment_KeepsDevelopment()
+    {
+        // Occurrence 0 is a lockfile entry classified development; occurrence 1 is the same component seen
+        // by an input that determines nothing, such as an SBOM folded onto the row.
+        var inventory = CreateInventory(
+            componentCount: 1,
+            occurrenceComponents: [0, 0],
+            developmentOccurrences: [0],
+            ranges: [new DependencyUsageRange(0, 1)]);
+
+        var usages = new DependencyUsage[1];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[0]).IsEqualTo(DependencyUsage.Development);
+    }
+
+    /// <summary>A determination that the component is reachable at runtime still wins; only silence abstains.</summary>
+    [Test]
+    public async Task Resolve_WithUndeterminedOccurrenceBesideRuntime_KeepsRuntime()
+    {
+        var inventory = CreateInventory(
+            componentCount: 1,
+            occurrenceComponents: [0, 0],
+            developmentOccurrences: [],
+            ranges: [new DependencyUsageRange(0, 1)]);
+
+        var usages = new DependencyUsage[1];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[0]).IsEqualTo(DependencyUsage.Runtime);
+    }
+
+    /// <summary>
+    /// Two determining inputs that resolved to one component still contradict each other, and runtime wins.
+    /// Abstention is about inputs that said nothing, never about inputs that disagreed.
+    /// </summary>
+    [Test]
+    public async Task Resolve_WithDevelopmentAndRuntimeFromDeterminingInputs_KeepsRuntime()
+    {
+        var inventory = CreateInventory(
+            componentCount: 1,
+            occurrenceComponents: [0, 0],
+            developmentOccurrences: [0],
+            ranges: [new DependencyUsageRange(0, 2)]);
+
+        var usages = new DependencyUsage[1];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[0]).IsEqualTo(DependencyUsage.Runtime);
+    }
+
+    /// <summary>A component only undetermined inputs saw has nothing to preserve and stays unknown.</summary>
+    [Test]
+    public async Task Resolve_WithOnlyUndeterminedOccurrences_LeavesComponentUnknown()
+    {
+        var inventory = CreateInventory(
+            componentCount: 1,
+            occurrenceComponents: [0, 0],
+            developmentOccurrences: [],
+            ranges: [new DependencyUsageRange(5, 1)]);
+
+        var usages = new DependencyUsage[1];
+        DependencyUsageResolver.Resolve(inventory, usages);
+
+        await Assert.That(usages[0]).IsEqualTo(DependencyUsage.Unknown);
+    }
+
     [Test]
     public async Task Resolve_WithOccurrenceOutsideEveryDeterminedRange_LeavesComponentUnknown()
     {

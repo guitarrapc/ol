@@ -247,6 +247,14 @@ This exists because `check` is the projection a policy gate reads, and a status 
 
 `--allow-dev-licenses` adds identifiers only for components proven development-only by resolver data persisted in the report. It uses the same identifier validation as `--allow-licenses`; a supplied empty value is invalid. Any runtime or usage-unknown occurrence keeps the component under the primary allow-list. Inputs without reliable development reachability therefore fail closed. When supplied, the count admitted by this policy is always printed.
 
+<a id="contract-development-usage-and-sbom"></a>
+
+**An input that determines no usage does not withdraw a determination another input made.** [SBOM inputs determine no usage](packagemanager.md#contract-package-manager-usage) and their occurrences [abstain](packagemanager.md#contract-undetermined-usage-abstains), so scanning an SBOM beside the resolved tree it describes leaves each component classified as its resolver classified it. What stays fail-closed is the component no input classified: it is unknown, and this option never relaxes it.
+
+This matters because the two recommendations otherwise point in opposite directions — scanning an SBOM together with the resolved tree, and relaxing policy for development-only dependencies. Measured across five ecosystems that determine usage, the same policy and the same dependency changed verdict when a second input merely mentioned it.
+
+The residual risk is stated in [packagemanager.md](packagemanager.md#contract-undetermined-usage-abstains): an SBOM whose scope exceeds the resolved inputs can fold a runtime installation onto a development row. The [supply tally](#contract-component-supply) is what shows whether an SBOM reached beyond the resolved inputs.
+
 `--exclude-packages` removes matching purls from policy evaluation, baseline generation, violation output, SARIF, and the passing count, but never changes the scan report. The excluded count is always printed when the option is supplied. This is a policy-scope decision; it is distinct from `scan --skip-evidence-packages`.
 
 <a id="contract-policy-baseline"></a>

@@ -21,7 +21,7 @@
 | 前計画の主張 | 実測 |
 |---|---|
 | `dotnet build` 後の Syft scan は noise が増える | **支持**。ただし build しなくても Unity `Assets/Plugins` などの commit 済み DLL から同じ noise が出るため、`bin`/`obj` 除外では防げない |
-| npm dev dependency は inventory に含める | **支持**。ただし SBOM を併記すると `--allow-dev-licenses` が機能しなくなる |
+| npm dev dependency は inventory に含める | **支持**。SBOM 併記で `--allow-dev-licenses` が機能しなくなる問題は優先度 6 で解消済み |
 | GitHub Actions cataloger を除外する | **部分的に支持**。真の noise 源は github ではなく binary cataloger だった |
 | allow-list と baseline の役割を分ける | **支持**。8 リポジトリで例外なく成立した |
 | Syft を第一候補にする | **反証**。Cysharp の 8 リポジトリで Syft の限界効用は負だった |
@@ -108,7 +108,9 @@ AIApiTracer で `usage=development` と判定された component 数:
 
 cataloger を `declared,-binary` に絞っても 1 のままだった。npm cataloger は `declared` なので SBOM は同じ lockfile を列挙し続け、[packagemanager.md:178](../specs/packagemanager.md:178) の「SBOM inputs leave usage unknown」と「any runtime or unknown occurrence wins」により、fold のたびに dev 判定が消える。仕様どおりの fail-closed であって bug ではないが、結果として **推奨構成が `--allow-dev-licenses` を機能しなくする**。
 
-前計画が AIApiTracer で `0BSD` と `BlueOak-1.0.0` を dev policy ではなく主 allow-list に入れたのは、この相互作用に押し出された結果と考えられる。Cysharp/Actions が `license-allow-dev-licenses` を input として公開している以上、この組み合わせは文書化されるか、設計として解消される必要がある。
+前計画が AIApiTracer で `0BSD` と `BlueOak-1.0.0` を dev policy ではなく主 allow-list に入れたのは、この相互作用に押し出された結果と考えられる。
+
+**この測定は後に設計として解消された。** 優先度 6 を参照。当初は「仕様どおりの fail-closed だから文書化のみ」と結論したが、規則の照準がずれていることが分かり、判定していない入力の occurrence は棄権するよう変更した。usage を判定する 5 エコシステムすべてで before/after を実証している。
 
 ## 測定 4: 残る 343 violations の正体
 
@@ -467,12 +469,69 @@ NativeCompressions の未解決 6 件のうち、**org.json が既に持つ 2 �
 - [x] `Cargo.toml` を検出し、`cargo metadata --format-version 1 > cargo-metadata.json` を案内する。
 - [x] `--locked` を案内文に含めるかは lockfile の有無で分ける。
 
-### 優先度 6: SBOM fold による development usage の消失を文書化する
+### 優先度 6 (実装済み): SBOM fold による development usage の消失を文書化する
 
-仕様としては fail-closed で正しいが、「SBOM と lockfile を併記する」推奨構成が「`--allow-dev-licenses` を使う」推奨構成を無効化することは、どの文書にも書かれていない。
+仕様としては fail-closed で正しいが、「SBOM と lockfile を併記する」推奨構成が「`--allow-dev-licenses` を使う」推奨構成を無効化することは、どの文書にも書かれていなかった。
 
-- [ ] `--allow-dev-licenses` の説明に、同じ ecosystem を SBOM も列挙している場合は usage が unknown に落ちて相殺されることを明記する。
-- [ ] 併記時に「dev 判定を持っていた component が fold で unknown になった件数」を warning として出せないか検討する。これは可視性の問題であり、挙動を変える提案ではない。
+- [x] [cli.md](../specs/cli.md) の `contract-development-usage-and-sbom` に契約として記述し、[packagemanager.md](../specs/packagemanager.md) の usage 判定にアンカーを付けて相互参照した。README 両言語にも同じ例を載せた。
+- [ ] 件数の warning は**保留**。`Allowed by development policy: N components.` はオプション指定時に必ず出るので、`0` が出ること自体が既に手掛かりになっている。`0` は「dev component が無かった」でも起きるため完全な信号ではないが、別 warning を足すだけの必要は実測できていない。
+
+#### 最小再現（改修前の挙動）
+
+測定 3 は AIApiTracer の 78 → 1 という規模で示したが、原因は 1 component で再現した。同じポリシー・同じ依存関係で、2 つ目の入力の有無だけが違う。
+
+```text
+# package-lock.json が build-tool を devDependency として記録
+$ ol check --report a.json --allow-licenses MIT --allow-dev-licenses CC-BY-4.0
+Allowed by development policy: 1 component.
+License check passed: 1 component satisfies the allow-list.
+
+# 同じ lockfile に、build-tool を列挙する SBOM を併記
+$ ol check --report b.json --allow-licenses MIT --allow-dev-licenses CC-BY-4.0
+Allowed by development policy: 0 components.
+License check failed: 1 violation.
+build-tool  1.0.0  npm  pkg:npm/build-tool@1.0.0  CC-BY-4.0  license is not allowed  -  -  -
+```
+
+#### その後、挙動そのものを直した
+
+当初は「仕様どおりの fail-closed だから文書化のみ」と結論したが、**規則の照準がずれていた**ことが後の検討で判明し、`ol` の挙動を変更した。
+
+**判定していない入力の occurrence は棄権する**（従来は「判定した入力の判定を打ち消す」）。SBOM occurrence は到達性について何も観測しておらず、入力種別に語彙が無いだけである。それを対立する主張として数えると、**語れない入力が語った入力を上書きする**。判定する入力どうしが食い違う場合は別で、そこは従来どおり runtime が勝つ。
+
+決め手になったのは、**現行規則が同一パッケージ内ですら一貫していない**という実測だった。同じ `dup@1.0.0` を 2 箇所に dev install した lockfile に SBOM を足すと:
+
+```text
+PM のみ:      development, development
+PM + SBOM:    (none), development      ← 片方だけ判定を失う
+check:        Allowed by development policy: 1 component. / License check failed: 1 violation.
+```
+
+SBOM occurrence は「入力順で最初に一致した行」にだけ付く（graph に端点を与えるための選択）。それが install パスの違いだけで policy を分けていた。
+
+**放棄したもの**: scope が解決済み入力より広い SBOM が、同じ purl の runtime install を別の場所で拾い、dev 行に fold されるケース。8 リポジトリの実測では npm/pnpm の fold は全件が「同じ lockfile を 2 度読んだ」もので、このケースは 0 件だった。`Supplied by` の内訳（優先度 2）が、SBOM が解決済み入力の外まで届いたかを示す唯一の手掛かりになる。
+
+**保たれたもの**: どの入力も判定しなかった component は unknown のままで、`--allow-dev-licenses` は緩和しない。
+
+#### 5 エコシステムでの実証
+
+「npm と同じはず」という推測を避け、usage を判定する 5 adapter すべてで before/after を測った。cargo・npm・maven は実物のツールチェーンで入力を生成し、pnpm・Composer は実形式に沿って構成した。
+
+| Ecosystem | 入力生成 | dev component | PM のみ | OLD + SBOM | NEW + SBOM |
+|---|---|---|---|---|---|
+| npm | `npm install --package-lock-only` | `left-pad@1.3.0` | development | `(none)` | **development** |
+| pnpm | 手構成（lockfileVersion 9） | `left-pad@1.3.0` | development | `(none)` | **development** |
+| Cargo | `cargo metadata` | `lazy_static@1.5.0` | development | `(none)` | **development** |
+| Maven | `maven-dependency-plugin:tree` | `junit@4.13.2`, `hamcrest-core@1.3` | development | `(none)` | **development** |
+| Composer | 手構成（`packages-dev`） | `phpunit/phpunit`, `sebastian/version` | development | `(none)` | **development** |
+
+OLD は scoop 導入済みの `ol 0.9.3` release。5/5 で同じ回帰が起きており、npm 固有ではなかった。
+
+#### 併せて確定した境界
+
+- **package-manager 入力どうしは fold しない。** npm(dev) + yarn(判定なし、同一 purl) は 2 行に分かれ、npm 側は `development` を保つ。したがって「判定しない入力が判定を打ち消す」現象は実質 SBOM fold でしか起きなかった。
+- **sourceId が衝突すると 1 component にマージされる。** npm(dev) + npm(runtime) を同一パスで与えると `runtime`。これは判定どうしの食い違いなので変更しない。
+- **SBOM 単独供給の component** は元から unknown。保持すべき判定が無く、対象外。
 
 ### 優先度 7: skill と README の polyglot 例
 
@@ -542,7 +601,7 @@ Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-m
 
 ### 残る差分
 
-再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 6・7 は未着手である。
+再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 7 は未着手である。
 
 ## 推奨する運用
 

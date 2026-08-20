@@ -413,6 +413,17 @@ ol check --report ol-report.json \
 
 これは「本番成果物に含まれない」ことの証明ではありません。リリース成果物は基本の許可リストで別途確認してください。
 
+**lockfileと一緒にSBOMをスキャンしても、この緩和は取り消されません。** SBOMは開発スコープを記録しないので到達性について何も述べておらず、その観測はresolverの判定を覆さず棄権します。componentを格下げできるのは、runtimeと判定したresolverだけです。どの入力も判定しなかったcomponentはunknownのままで、このオプションが緩和することはありません。
+
+```text
+$ ol scan --input package-lock.json --input bom.cdx.json --format json > report.json
+$ ol check --report report.json --allow-licenses MIT --allow-dev-licenses CC-BY-4.0
+Allowed by development policy: 1 component.
+License check passed: 1 component satisfies the allow-list.
+```
+
+ひとつ知っておくべき点があります。lockfileより広い範囲を含むSBOMは、同じパッケージのruntime installを抱えている可能性があり、olはpackage URLだけで照合するため、それが開発用の行にfoldされます。SBOMが解決済み入力の外まで届いたかどうかは`Supplied by`のサマリー行で確認できます。
+
 ### 既存プロジェクトへベースラインを導入する
 
 既存プロジェクトには、olが解決できないコンポーネントが残りえます。プライベートフィードのパッケージ、ライセンス欄のないレジストリ、GitHub以外のソースなどです。これらは安全側に倒して違反になりますが、自分のコードを直しても解消できません。

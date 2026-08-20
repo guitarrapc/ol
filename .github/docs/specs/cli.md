@@ -40,6 +40,12 @@ The summary's `Findings` line counts warnings on unresolved components separatel
 
 Unknown commands, command groups without a subcommand, and missing required command arguments exit `1`. `ol` with no arguments shows root help; explicit `--help` and `-h` show help and exit `0`. Group help lists only that group's subcommands.
 
+<a id="contract-repeated-option"></a>
+
+An option supplied more than once exits `1`, naming the option. The exceptions are the options documented as repeatable, which accumulate. Ol has no layer a later value could override — no configuration file, no environment defaults, and policy files are outside the `check` contract — so no invocation means "replace what I said before", and a repeat is either an accident or an intent to accumulate. Resolving it by position served neither: it changed the policy a run enforced while reporting nothing, and the same two flags in the other order gave a different answer. Measured on one report, `--allow-licenses` written twice yielded three violations or seven depending on order, and a second `--exclude-packages` silently discarded a prefix that matched thirty-six components. Everything after a `--` escape is a value, so a repeat there is not an invocation error.
+
+An option that accumulates is stated as such in its own contract; an option that does not is not made repeatable to serve a caller that wants to combine values, because the value syntax already does that where combining is meaningful. `--baseline` is deliberately not repeatable: a repository states the unresolved evidence it has accepted in one file, which is the artifact a reviewer reads and commits.
+
 <a id="contract-scan-failures"></a>
 
 A component whose evidence is missing, invalid, conflicting, or unavailable remains in the scan result. `scan` exits `1` only when it cannot produce a trustworthy complete result, for example when an input cannot be read or recognized, the dependency inventory cannot be extracted, SPDX data cannot be loaded, options are invalid, or stdout cannot be written. View options are validated before external evidence collection begins.

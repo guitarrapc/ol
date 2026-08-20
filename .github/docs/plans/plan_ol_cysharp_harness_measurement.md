@@ -13,7 +13,7 @@
 1. **現状の harness は 8 リポジトリすべてで失敗する**（`ol check` exit 2、合計 451 violations）。onboarding 手順が欠けているのであって、`ol` が壊れているのではない。
 2. **Syft SBOM は 129 個の phantom component と 108 件の violation を追加し、`ol` 単独が解決できなかった component を 1 つも解決しなかった。** 原因は Syft の binary cataloger であり、cataloger 選択の修正で phantom は 129 → 4 に減る。
 3. **残る 343 violations の大半は legacy .NET NuGet corpus**（`System.*` / `runtime.*` / 旧 xunit）で、`licenseUrl` が非ライセンス文書を指すため原理的に解決しない。prefix 除外では分離できず、baseline が唯一の正しい機構である。
-4. **129 entries / 76 KB の共有 baseline 1 個 + allow-list への 8 identifier 追加で、8 リポジトリすべてが exit 0 に到達する。** baseline はリポジトリ間で再利用でき、組織で 1 ファイルを共有できる。
+4. **129 entries 相当の baseline + allow-list への 8 identifier 追加で、8 リポジトリすべてが exit 0 に到達する。** baseline entry はリポジトリ間で技術的には再利用できるが、承認の帰属を明示するため各リポジトリが自分のファイルを持つ運用を採る。
 5. **`ol` は実用に足る。** 実用足る使い方は「Syft を第一入力にする」ではなく「`ol scan --input .` を主入力にし、Syft は `ol` が adapter を持たない ecosystem の補完として、binary cataloger を切って使う」である。
 
 ## 前計画のどれが支持され、どれが反証されたか
@@ -161,9 +161,13 @@ SBOM を外した状態の violation を名前で分類すると、.NET リポ�
 - baseline の `fingerprint` は status と evidence のハッシュで、identity（ecosystem/name/version/purl）とは別フィールドである。したがって同じ component は別リポジトリでも同じ entry になる。
 - report に存在しない entry を含む baseline はエラーにならない。LogicLooper の 11 entry baseline を csbindgen に適用して `Acknowledged by baseline: 1 component.` / exit 0 を確認した。
 
-つまり **Cysharp/Actions に共有 baseline を 1 個置き、リポジトリ側は原則ファイルを持たない**運用が今日の `ol` で成立する。「空なら空にしたい、作るのを求めたくない」という要件はこの形で満たせる。
+つまり技術的には **Cysharp/Actions に共有 baseline を 1 個置く**運用が今日の `ol` で成立する。
 
-ただし統合 129 entries には `minimal-lexical` の conflict が 1 件含まれている。`--update-baseline` は conflict も acknowledge するため、**onboarding の一括生成は本物の食い違いを埋めうる**。共有 baseline を作る作業は、生成コマンドを流すことではなく 129 件を読むことである。
+**ただし採らない。** policy owner の判断として、**各リポジトリが自分の baseline を 1 ファイルで管理する**ことを採る。baseline は「そのリポジトリが受け入れた未解決証拠」を述べる、レビュー対象かつ commit 対象の成果物であり、共有ファイルは「誰がどのリポジトリのために何を承認したか」を曖昧にする。リポジトリ A のレビュアーが承認した entry を、リポジトリ B が黙って継承するのは、共有 baseline の便利さと表裏である。
+
+「空なら空にしたい、作るのを求めたくない」という要件は、共有ファイルではなく **workflow が「ファイルがあるときだけ `--baseline` を付ける」**ことで満たす（不具合 7 の修正）。承認すべき未解決証拠が無いリポジトリはファイルを持たない。
+
+なお統合 129 entries には `minimal-lexical` の conflict が 1 件含まれていた。`--update-baseline` は conflict も acknowledge するため、**onboarding の一括生成は本物の食い違いを埋めうる**。baseline を作る作業は、生成コマンドを流すことではなく entry を読むことである。
 
 ## 測定 6: CI での実行コスト
 
@@ -282,7 +286,7 @@ job summary の実出力例（MagicOnion の実 report に対して検証済み�
 
 - **不具合 9（docs 依存の scope）**: MagicOnion の 1292 件を監査対象に含めるかは組織判断。
 - **allow-list の内容**: 測定 5 の 8 identifier を Cysharp の既定に加えるかは policy owner の判断。
-- **共有 baseline の作成**: 129 entries を人が読む作業。生成コマンドは通るが、`minimal-lexical` の conflict のような本物の食い違いが混ざる。
+- **各リポジトリの baseline 作成**: entry を人が読む作業。生成コマンドは通るが、`minimal-lexical` の conflict のような本物の食い違いが混ざる。
 
 ## `ol` への改善候補
 
@@ -393,20 +397,50 @@ evidence を変えるので baseline の fingerprint も変わる。実測で失
 
 baseline は purl なし component を名前だけで識別する（`purl: null`、`ecosystem: "-"`）。Windows で生成した `\sandbox\Assets\thing` は Linux CI の `/sandbox/...` と一致せず、review 済みの承認が失効する。しかし [cli.md](../specs/cli.md) の report-privacy 契約が「入力自身の記述を書き換えない」と定めているため、区切り文字の正規化は契約違反になる。cataloger 構成でこの母集団ごと消すのが正しい対処である。
 
-### 優先度 4: `--baseline` の重複指定が無言で last-wins
+### 優先度 4 (実装済み): 単数オプションの重複が無言で last-wins
+
+#### 当初の記述は範囲を誤っていた
+
+`--baseline` 固有として書いたが、実測すると**単数オプション全部**が同じで、しかも `--baseline` は最も害が小さい部類だった。
+
+| 実行 | 結果 |
+|---|---|
+| `--allow-licenses MIT --allow-licenses <7 個>` | 3 violations |
+| 逆順 | **7 violations** |
+| `--report missing.json --report real.json` | 成功。タイポした最初の指定が黙殺 |
+| `--exclude-packages pkg:cargo/ --exclude-packages pkg:npm/` | `pkg:cargo/` が黙って消える（**36 component が除外対象から外れる**） |
+| `--input-format spdx --input-format cyclonedx` | 後者 |
+
+**policy そのものである `--allow-licenses` が黙って差し替わり、順序で結果が割れる**ほうが重大である。
+
+#### ユースケースから逆算した設計
+
+last-wins が正当化されるのは「デフォルト層を上書きする」CLI（config file → 環境変数 → フラグ）である。`ol` にはその層が無い——[cli.md](../specs/cli.md) が「Policy files, deny-lists, per-package exceptions ... are outside this command's contract」と定め、設定ファイルを持たない設計である。したがって**「後の指定で前を上書きする」という意図を持つ invocation は存在しない**。
+
+重複が起きる経路は 2 つで、累積したい場合の表現手段は既に揃っている。
+
+| オプション | 累積の表現 |
+|---|---|
+| `--allow-licenses` / `--exclude-packages` / `--allow-dev-licenses` | カンマ区切り |
+| `--input` / `--exclude-input-path` | `CommandLineArguments.NormalizeRepeatedOption` が繰り返しを正規化 |
+| `--report` / `--sarif` / `--input-format` / `--cache-dir` | 累積に意味がない |
+
+#### 実装した内容
+
+- [x] **単数オプションの重複を invocation error にした。** `--baseline` 固有ではなく CLI 全体。`CommandLineRouting.TryValidate` に検証を追加した。
+- [x] **累積オプションの除外リストは持たない。** `NormalizeRepeatedInputs` が検証より先に走って繰り返しを 1 occurrence に畳むため、**この規則は「どのオプションが累積するか」を知る必要がない**。表を持たないので、累積オプションが増減しても規則が実態とずれない。
+- [x] `--` escape の後ろは値として扱う。オプション名の比較は parser と同じく大文字小文字を無視する。
 
 ```text
-$ ol check --report DFrame.json --baseline org.json --baseline zlinq.json
-Acknowledged by baseline: 1 component.   → 82 violations
-
-$ ol check --report DFrame.json --baseline zlinq.json --baseline org.json
-Acknowledged by baseline: 83 components. → passed
+$ ol check --report r.json --allow-licenses MIT --allow-licenses Apache-2.0
+Argument '--allow-licenses' was supplied more than once.
 ```
 
-警告もエラーも出ない。組織共有 baseline とリポジトリ固有 baseline を合成しようとした人が、順序次第で通ったり落ちたりする。[cli.md](../specs/cli.md) の「an unusable invocation ... is an explicit command failure」に従えば、単数オプションの重複は invocation error であるべきである。
+#### `--baseline` は repeatable にしない
 
-- [ ] 重複指定を exit 1 にする。
-- [ ] そのうえで、共有 baseline の需要（測定 5）に応えるなら `--baseline` を明示的に repeatable（union）にするかを設計判断する。fingerprint が identity と分離されている以上、union は今日でも意味論的に破綻しない。
+実測では需要が確認できなかった（測定 5 の共有 baseline 1 個で 8 リポジトリを充足でき、report に無い entry は許容される）。そのうえで方針として、**各リポジトリが自分の baseline を 1 ファイルで明示的に管理する**ことを採る。baseline は「そのリポジトリが受け入れた未解決証拠」を述べる、レビュー対象かつ commit 対象の成果物であり、複数ファイルの合成は誰が何を承認したかを曖昧にする。
+
+「エラーにする → 後で repeatable にする」は後方互換なので、必要が実測された時点で追加できる。逆順は壊れる。
 
 ### 優先度 5 (実装済み): `Cargo.toml` を candidate として検出する
 
@@ -490,7 +524,7 @@ Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-m
 
 ### 残る差分
 
-再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 4・6・7 は未着手である。
+再検証は本文書の他の結論を変えていない。violations の総数と内訳は測定 1・4 と一致し、Syft の限界効用（測定 2）も変わらない。優先度 6・7 は未着手である。
 
 ## 推奨する運用
 
@@ -515,16 +549,16 @@ step 3 は Cysharp の現行 8 リポジトリでは省略しても結果が変�
 
 ### baseline の運用
 
-- Cysharp/Actions に共有 baseline を 1 個置く（129 entries / 76 KB で現行 8 リポジトリを充足）。
-- リポジトリ側は原則ファイルを持たない。必要になったリポジトリだけ追加ファイルを持つ。
-- workflow は「ファイルがあれば `--baseline` を付ける」。存在必須にしない。
-- 共有 baseline の更新は人間が entry を読む作業とする。`--update-baseline` は CI で実行しない。
+- **各リポジトリが自分の baseline を 1 ファイルで持つ。** 共有ファイルは採らない（測定 5 の但し書きを参照）。`--baseline` は repeatable ではないので、この形が唯一の形でもある。
+- 承認すべき未解決証拠が無いリポジトリはファイルを持たない。workflow は「ファイルがあれば `--baseline` を付ける」で、存在必須にしない。
+- baseline の更新は人間が entry を読む作業とする。`--update-baseline` は CI で実行しない。
 - 生成時に conflict が混じることを前提に、conflict entry は個別に判断する（`minimal-lexical` が実例）。
+- 母集団は測定 4 のとおりリポジトリ間で大きく重複する（legacy .NET corpus）。同じ判断を 8 回書くことになるが、**誰がどのリポジトリのために承認したかが各ファイルに残る**ことをその対価として選ぶ。
 
 ### 段階導入
 
 1. `ol scan` + artifact 保存 + job summary のみ。`ol check` は `continue-on-error`。
-2. 共有 baseline と allow-list を確定させる。
+2. 各リポジトリの baseline と組織の allow-list を確定させる。
 3. `ol check` を必須にし、`pr-harness-check` の `needs` に入れる。
 4. `ol diff` で base ↔ head の regression 判定を足す。
 

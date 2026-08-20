@@ -19,7 +19,7 @@ public sealed class CliScanTests
         var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--help");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         await Assert.That(stdout).Contains("--input <string[]>");
         await Assert.That(stdout).Contains("Repeatable resolved dependency input files or directories. [Required]");
         await Assert.That(stdout).Contains("--input-format <string>");
@@ -83,7 +83,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             await Assert.That(stdout[^2]).IsEqualTo('}');
             await Assert.That(stdout[^1]).IsEqualTo('\n');
             using var report = JsonDocument.Parse(stdout);
@@ -573,7 +573,7 @@ public sealed class CliScanTests
             var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence", "--verbose");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr.Trim()).IsEqualTo("Detected input format: sbom/cyclonedx");
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEqualTo("Detected input format: sbom/cyclonedx");
         }
         finally
         {
@@ -590,7 +590,7 @@ public sealed class CliScanTests
         var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "auto", "--format", "json", "--no-external-evidence");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         using var report = JsonDocument.Parse(stdout);
         await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("nuget-assets");
     }
@@ -676,7 +676,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cyclonedx");
         }
@@ -698,7 +698,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "cyclonedx", "--format", "json", "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var input = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("sbom");
@@ -728,7 +728,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--input-format", "spdx", "--format", "json", "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var input = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("spdx");
@@ -832,7 +832,7 @@ public sealed class CliScanTests
             await Assert.That(sourceMetadata.GetProperty("targetCount").GetInt32()).IsEqualTo(1);
             await Assert.That(sourceMetadata.GetProperty("githubLicenseRequestCount").GetInt32()).IsEqualTo(0);
             await Assert.That(sourceMetadata.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -902,9 +902,10 @@ public sealed class CliScanTests
             await Assert.That(candidates).IsEquivalentTo(new[] { "Cargo.toml" });
             await Assert.That(discovery.GetProperty("incompleteInputSetCount").GetInt32()).IsEqualTo(0);
 
-            // The document and the summary describe one scan, so they state the same discovery.
+            // The document and the summary describe one scan, so they state the same discovery — and the JSON run
+            // writes that summary too, so the two projections agree on every stream.
             await Assert.That(textStderr).Contains("Input discovery: 1 detected file; 1 ignored candidate (Cargo.toml); 0 incomplete input sets");
-            await Assert.That(stderr).DoesNotContain("Input discovery");
+            await Assert.That(stderr).Contains("Input discovery: 1 detected file; 1 ignored candidate (Cargo.toml); 0 incomplete input sets");
         }
         finally
         {
@@ -981,6 +982,58 @@ public sealed class CliScanTests
     private const string CargoManifest = "[package]\nname = \"x\"\nversion = \"0.1.0\"\n";
 
     private const string ComposerManifest = """{ "name": "acme/app", "require": { "php": ">=8.0" } }""";
+
+    /// <summary>
+    /// The document and the terminal have different readers. A CI job redirects the report to a file and the person
+    /// reading the log cannot open it, so withholding the summary because the document repeats it left the
+    /// recommended path the one path that produced no trace of having run.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithJsonFormat_WritesTheSameStderrSummaryAsText()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [ { "type": "library", "name": "a", "version": "1.0.0", "purl": "pkg:npm/a@1.0.0", "licenses": [{ "expression": "MIT" }] } ] }""", Encoding.UTF8);
+
+        try
+        {
+            var json = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence");
+            var text = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--no-external-evidence");
+
+            await Assert.That(json.ExitCode).IsEqualTo(0);
+            await Assert.That(json.Stderr).Contains("Scan summary");
+
+            // One vocabulary describes the run whatever the report format is; only the stdout projection differs.
+            await Assert.That(json.Stderr).IsEqualTo(text.Stderr);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithJsonFormatAndQuiet_WritesNoStderrSummary()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [ { "type": "library", "name": "a", "version": "1.0.0", "purl": "pkg:npm/a@1.0.0", "licenses": [{ "expression": "MIT" }] } ] }""", Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "json", "--no-external-evidence", "--quiet");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+
+            // Strict, not DiagnosticsOnly: --quiet must suppress the summary itself, not merely leave it alone.
+            await Assert.That(stderr).IsEmpty();
+            await Assert.That(stdout).Contains("\"schemaVersion\"");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
 
     [Test]
     public async Task Scan_WithInputDeclaringNoComponents_ReportsAnEmptyInputWarningInJson()
@@ -1095,7 +1148,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var source = report.RootElement.GetProperty("metadata").GetProperty("sourceRepository");
             await Assert.That(source.GetProperty("targetCount").GetInt32()).IsEqualTo(1);
@@ -1151,7 +1204,7 @@ public sealed class CliScanTests
             await Assert.That(packageEvidence.GetProperty("cacheKeySha256").GetString()!.Length).IsEqualTo(64);
             await Assert.That(packageEvidence.GetProperty("collectedAt").GetDateTimeOffset()).IsGreaterThan(DateTimeOffset.MinValue);
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("packageMetadata").GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -1173,7 +1226,7 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).Contains("package-metadata cache cleared");
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             await Assert.That(Directory.Exists(cacheRoot)).IsFalse();
         }
         finally
@@ -1278,7 +1331,7 @@ public sealed class CliScanTests
             await Assert.That(component.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()))
                 .DoesNotContain("source_repository_unavailable");
             await Assert.That(component.GetProperty("warnings")[0].GetString()).IsEqualTo("deprecated_spdx_identifier");
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -1370,7 +1423,7 @@ public sealed class CliScanTests
             await Assert.That(evidence.TryGetProperty("attested", out _)).IsFalse();
             await Assert.That(components[1].GetProperty("licenseCandidates")[0].GetProperty("evidence").GetProperty("acknowledgement").GetString()).IsEqualTo("declared");
             await Assert.That(components[2].GetProperty("licenseCandidates")[0].GetProperty("evidence").TryGetProperty("acknowledgement", out _)).IsFalse();
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -1404,7 +1457,7 @@ public sealed class CliScanTests
 
             var (quietExitCode, _, quietStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "text", "--quiet");
             await Assert.That(quietExitCode).IsEqualTo(0);
-            await Assert.That(quietStderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(quietStderr)).IsEmpty();
         }
         finally
         {
@@ -1455,7 +1508,7 @@ public sealed class CliScanTests
             await Assert.That(metadata.GetProperty("spdx").GetProperty("licensesSha256").GetString()!.Length).IsEqualTo(64);
             await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("sourceId").GetString()).IsEqualTo("pkg:nuget/example@1.0.0");
             await Assert.That(report.RootElement.GetProperty("warnings").GetArrayLength()).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -1499,7 +1552,7 @@ public sealed class CliScanTests
             var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--group-by", "license", "--format", "json", "--no-external-evidence");
 
             await Assert.That(jsonExitCode).IsEqualTo(0);
-            await Assert.That(jsonStderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(jsonStderr)).IsEmpty();
             using var report = JsonDocument.Parse(jsonStdout);
             var metadata = report.RootElement.GetProperty("metadata");
             var tool = metadata.GetProperty("tool");
@@ -1639,7 +1692,7 @@ public sealed class CliScanTests
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("network").GetProperty("githubAuth").GetString()).IsEqualTo("none");
             await Assert.That(stdout).DoesNotContain(ignoredGitHubToken);
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("sourceRepository").GetProperty("fetchErrorCount").GetInt32()).IsEqualTo(1);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -1666,7 +1719,7 @@ public sealed class CliScanTests
             var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlWithCachesAsync(root, packageCacheRoot, sourceCacheRoot, "scan", "--input", sbomPath, "--format", "json");
 
             await Assert.That(jsonExitCode).IsEqualTo(0);
-            await Assert.That(jsonStderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(jsonStderr)).IsEmpty();
             using var report = JsonDocument.Parse(jsonStdout);
             await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("status").GetString()).IsEqualTo("error");
             await Assert.That(report.RootElement.GetProperty("summary").GetProperty("error").GetInt32()).IsEqualTo(1);
@@ -1696,7 +1749,7 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).Contains("source-repository cache cleared");
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             await Assert.That(Directory.Exists(sourceCacheRoot)).IsFalse();
         }
         finally
@@ -1720,7 +1773,7 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).Contains("github-file cache cleared");
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             await Assert.That(Directory.Exists(cacheRoot)).IsFalse();
         }
         finally
@@ -1749,7 +1802,7 @@ public sealed class CliScanTests
             await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("license").GetString()).IsEqualTo("MIT");
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("packageMetadata").GetProperty("cacheHitCount").GetInt32()).IsEqualTo(1);
             await Assert.That(stdout).DoesNotContain(cacheDirectory);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -1779,7 +1832,7 @@ public sealed class CliScanTests
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("packageMetadata").GetProperty("supportedComponentCount").GetInt32()).IsEqualTo(0);
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("sourceRepository").GetProperty("targetCount").GetInt32()).IsEqualTo(0);
             await Assert.That(await File.ReadAllTextAsync(unusedCacheFile)).IsEqualTo("must remain untouched");
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -1850,7 +1903,7 @@ public sealed class CliScanTests
             await Assert.That(File.Exists(sentinelPath)).IsTrue();
             await Assert.That(Directory.Exists(Path.Combine(cacheDirectory, "package-metadata"))).IsFalse();
             await Assert.That(Directory.Exists(Path.Combine(cacheDirectory, "source-repository"))).IsFalse();
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -1983,7 +2036,7 @@ public sealed class CliScanTests
         await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("nuget-assets");
         await Assert.That(input.TryGetProperty("sbomRef", out _)).IsFalse();
         await Assert.That(report.RootElement.GetProperty("components").EnumerateArray().Any(static component => component.GetProperty("purl").GetString() == "pkg:nuget/Native.Package@4.0.0")).IsTrue();
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
     }
 
     [Test]
@@ -1995,7 +2048,7 @@ public sealed class CliScanTests
         var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputDirectory, "--input-format", "npm-package-lock", "--no-external-evidence", "--format", "json");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         using var report = JsonDocument.Parse(stdout);
         var input = report.RootElement.GetProperty("metadata").GetProperty("input");
         await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
@@ -2024,7 +2077,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var input = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
@@ -2210,7 +2263,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var input = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("package-manager");
@@ -2234,7 +2287,7 @@ public sealed class CliScanTests
         var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", input, "--no-external-evidence", "--format", "json");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         using var report = JsonDocument.Parse(stdout);
         var metadata = report.RootElement.GetProperty("metadata").GetProperty("input");
         await Assert.That(metadata.GetProperty("kind").GetString()).IsEqualTo("package-manager");
@@ -2257,7 +2310,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var metadata = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(metadata.GetProperty("kind").GetString()).IsEqualTo("package-manager");
@@ -2288,7 +2341,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var metadata = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(metadata.GetProperty("kind").GetString()).IsEqualTo("package-manager");
@@ -2322,7 +2375,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--input-format", "npm-package-lock", "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var inventory = report.RootElement.GetProperty("inventory");
             await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(4);
@@ -2357,7 +2410,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var input = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(input.GetProperty("format").GetString()).IsEqualTo("nuget-assets");
@@ -2650,7 +2703,7 @@ public sealed class CliScanTests
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
             await Assert.That(report.RootElement.GetProperty("metadata").GetProperty("input").GetProperty("format").GetString()).IsEqualTo("cargo-metadata");
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -2777,7 +2830,7 @@ public sealed class CliScanTests
             var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json", "--quiet");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -2812,7 +2865,7 @@ public sealed class CliScanTests
                 "--quiet");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -2841,7 +2894,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", firstDirectory, "--input", secondDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var input = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo("2 inputs");
@@ -2968,7 +3021,7 @@ public sealed class CliScanTests
                 "json");
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var input = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(input.GetProperty("sourceRef").GetString()).IsEqualTo("Product-A");
@@ -3093,7 +3146,7 @@ public sealed class CliScanTests
                 "json");
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var components = report.RootElement.GetProperty("components");
             await Assert.That(components.GetArrayLength()).IsEqualTo(1);
@@ -3184,7 +3237,7 @@ public sealed class CliScanTests
                 "json");
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("name").GetString()).IsEqualTo("server-dependency");
             await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(1);
@@ -3339,7 +3392,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--input", projectDirectory, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var inventory = report.RootElement.GetProperty("inventory");
             await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
@@ -3404,7 +3457,7 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--input", assetsPath, "--no-external-evidence", "--format", "json");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var input = report.RootElement.GetProperty("metadata").GetProperty("input");
             await Assert.That(input.GetProperty("kind").GetString()).IsEqualTo("collection");
@@ -3772,7 +3825,7 @@ public sealed class CliScanTests
             await Assert.That(metadata.GetProperty("cacheHitCount").GetInt32()).IsEqualTo(4);
             await Assert.That(metadata.GetProperty("cacheMissCount").GetInt32()).IsEqualTo(0);
             await Assert.That(report.RootElement.GetProperty("components").EnumerateArray().Where(static component => component.GetProperty("ecosystem").GetString() == "nuget").All(static component => component.GetProperty("license").GetString() == "MIT")).IsTrue();
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         }
         finally
         {
@@ -3841,7 +3894,7 @@ public sealed class CliScanTests
                 "--retry", "0");
 
             await Assert.That(json.ExitCode).IsEqualTo(0).Because(json.Stderr);
-            await Assert.That(json.Stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(json.Stderr)).IsEmpty();
             using var report = JsonDocument.Parse(json.Stdout);
             var components = report.RootElement.GetProperty("components").EnumerateArray().ToArray();
             await Assert.That(components).Count().IsEqualTo(4);

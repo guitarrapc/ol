@@ -133,6 +133,10 @@ internal sealed class ScanCommands
         var componentUsages = viewUsages is null ? default : viewUsages.AsSpan(0, componentCount);
         var dependencyFilteredCount = dependency is null or "" ? 0 : scanResult.Inventory.Components.Length - components.Length;
         var groups = groupBy is null or "" ? null : ScanView.Group(viewComponents, viewUsages, componentCount, groupBy);
+        // The stderr summary is shared by every format. It was once withheld from JSON because the document
+        // repeats it, but the document and the terminal have different readers: a CI job redirects the report to a
+        // file, and the person reading the log cannot open it. Withholding it made the recommended path the one
+        // path that left no trace of having run. Redirecting stdout is unaffected, because the summary is stderr.
         if (format == ReportFormat.Json)
         {
             try
@@ -149,11 +153,8 @@ internal sealed class ScanCommands
                 Console.Error.WriteLine($"Unable to write report: {exception.Message}");
                 return 1;
             }
-
-            return 0;
         }
-
-        if (format == ReportFormat.Text)
+        else if (format == ReportFormat.Text)
         {
             try
             {

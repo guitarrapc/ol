@@ -145,7 +145,7 @@ internal sealed class CheckCommands
         {
             try
             {
-                File.WriteAllBytes(sarif, SarifRenderer.Render(inventory, components, violations, developmentAllowedComponents, ToolVersion));
+                File.WriteAllBytes(sarif, SarifRenderer.Render(inventory, components, violations, developmentAllowedComponents, ToolVersion, persisted.View));
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
             {

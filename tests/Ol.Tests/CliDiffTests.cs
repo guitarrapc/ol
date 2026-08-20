@@ -364,6 +364,153 @@ public sealed class CliDiffTests
         await Assert.That(result.Stderr.Trim()).IsEqualTo("Required argument 'current' was not specified.");
     }
 
+    /// <summary>
+    /// A report the producing scan narrowed with <c>--dependency</c> holds fewer components than it resolved, so a
+    /// diff over two of them compares populations rather than resolutions. Ol states the two views and whether they
+    /// match, and draws no conclusion: which components a comparison covers is the reader's decision.
+    /// </summary>
+    [Test]
+    public async Task Diff_WithDependencyFilteredReports_TextStatesBothEvaluatedViews()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "Apache-2.0");
+        try
+        {
+            await SetViewAsync(previous, "direct", excludedCount: 4, excludedUnknownCount: 0);
+            await SetViewAsync(current, "transitive", excludedCount: 2, excludedUnknownCount: 1);
+
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("Evaluated view:");
+            await Assert.That(result.Stdout).Contains("previous dependency filter: direct; 4 components excluded");
+            await Assert.That(result.Stdout).Contains("current dependency filter: transitive; 2 components excluded, 1 with an unknown relationship");
+            await Assert.That(result.Stdout).Contains("changed: yes");
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    [Arguments("direct", "direct", "no")]
+    [Arguments("direct", "transitive", "yes")]
+    public async Task Diff_WithDependencyFilters_ReportsWhetherTheViewChanged(string previousFilter, string currentFilter, string expected)
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
+        try
+        {
+            await SetViewAsync(previous, previousFilter, excludedCount: 1, excludedUnknownCount: 0);
+            await SetViewAsync(current, currentFilter, excludedCount: 1, excludedUnknownCount: 0);
+
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, "--format", "Json");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            using var document = JsonDocument.Parse(result.Stdout);
+            var view = document.RootElement.GetProperty("view");
+            await Assert.That(view.GetProperty("changed").GetBoolean()).IsEqualTo(expected == "yes");
+            await Assert.That(view.GetProperty("previous").GetProperty("dependencyFilter").GetString()).IsEqualTo(previousFilter);
+            await Assert.That(view.GetProperty("current").GetProperty("dependencyFilter").GetString()).IsEqualTo(currentFilter);
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    /// <summary>
+    /// One filtered side is a changed view even though the other states nothing to compare against, and a diff whose
+    /// components happen to match is exactly the case where the narrowed population is easiest to miss.
+    /// </summary>
+    [Test]
+    public async Task Diff_WithOneFilteredSideAndNoChanges_StillStatesTheView()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
+        try
+        {
+            await SetViewAsync(current, "direct", excludedCount: 3, excludedUnknownCount: 0);
+
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("previous dependency filter: none");
+            await Assert.That(result.Stdout).Contains("current dependency filter: direct; 3 components excluded");
+            await Assert.That(result.Stdout).Contains("changed: yes");
+            await Assert.That(result.Stdout).Contains("No component license changes.");
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    /// <summary>
+    /// <c>--dependency</c> is an unordered list that the view filter parses with entries trimmed, so two scans
+    /// configured the same way can spell it differently. Comparing the spelling rather than the set would report a
+    /// boundary change on a run that narrowed nothing differently — the same false positive the excluded input
+    /// paths above are compared as a set to avoid.
+    /// </summary>
+    [Test]
+    [Arguments("direct,transitive", "transitive, direct", false)]
+    [Arguments("direct,transitive", "direct", true)]
+    public async Task Diff_WithDependencyFiltersSpelledDifferently_ComparesTheFilterAsASet(string previousFilter, string currentFilter, bool expected)
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
+        try
+        {
+            await SetViewAsync(previous, previousFilter, excludedCount: 0, excludedUnknownCount: 0);
+            await SetViewAsync(current, currentFilter, excludedCount: 0, excludedUnknownCount: 0);
+
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, "--format", "Json");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            using var document = JsonDocument.Parse(result.Stdout);
+            await Assert.That(document.RootElement.GetProperty("view").GetProperty("changed").GetBoolean()).IsEqualTo(expected);
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WithUnfilteredReports_OmitsTheEvaluatedViewBlockAndReportsNoViewChange()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "Apache-2.0");
+        try
+        {
+            var text = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+            var json = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, "--format", "Json");
+
+            await Assert.That(text.Stdout).DoesNotContain("Evaluated view:");
+            using var document = JsonDocument.Parse(json.Stdout);
+            var view = document.RootElement.GetProperty("view");
+            await Assert.That(view.GetProperty("changed").GetBoolean()).IsFalse();
+            await Assert.That(view.GetProperty("previous").GetProperty("dependencyFilter").ValueKind).IsEqualTo(JsonValueKind.Null);
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    private static async Task SetViewAsync(string reportPath, string? dependencyFilter, int excludedCount, int excludedUnknownCount)
+    {
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(reportPath))!.AsObject();
+        document["metadata"]!["view"] = new JsonObject
+        {
+            ["dependencyFilter"] = dependencyFilter,
+            ["excludedCount"] = excludedCount,
+            ["excludedUnknownCount"] = excludedUnknownCount,
+        };
+        await File.WriteAllTextAsync(reportPath, document.ToJsonString());
+    }
+
     private static void Cleanup(params string[] paths)
     {
         foreach (var path in paths)

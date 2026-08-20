@@ -146,6 +146,17 @@ public sealed class ScanReportInputTests
         await Assert.That(error).Contains("metadata.view");
     }
 
+    /// <summary>
+    /// A default-constructed scope is the one a caller gets when it states no view, and it must read as unfiltered
+    /// rather than as an unusable value, because that is the only value the renderers' optional parameter can take.
+    /// </summary>
+    [Test]
+    public async Task ViewScope_WhenDefaultConstructed_StatesNoFilter()
+    {
+        await Assert.That(default(ScanReportViewScope).IsFiltered).IsFalse();
+        await Assert.That(new ScanReportViewScope(string.Empty, 0, 0).IsFiltered).IsFalse();
+    }
+
     [Test]
     public async Task TryRead_WithoutView_RestoresNoFilter()
     {

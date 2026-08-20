@@ -61,10 +61,15 @@ filtered report は refuse せず開示する。grouped report を refuse する
 
 `FoldDependencyType` は row の現在値ではなく **fold 前に控えた resolver の値** から判定する。row を読み返すと、同じ purl を二箇所に置く SBOM の二回目の fold で「resolver が determine した」と「一回目の fill-in が書いた」を区別できず、結果が SBOM の component 列挙順に依存する。実装時にこの defect を一度作り込んで検出した。`resolvedRelationships` の pooled snapshot はそのためにある。
 
-### 残っている既知のギャップ
+### filtered report の開示範囲
 
-- `check --sarif` は filtered report であることを SARIF に出さない。text の result にのみ開示行が出る。
-- `ol diff` も persisted report を読むが、filtered report を黙って比較する。母集団が違う二つの report を比較していることを述べない。
+`metadata.view` を読む consumer は三つあり、すべてが開示する。
+
+- `check` — 結果の前に filter と除外件数を出す。relationship が `unknown` のため除外された件数は別に数える。
+- `check --sarif` — run-level の `properties.evaluatedView`。development allowance と同じ property bag を共有する（bag を二つ書くと duplicate key になり、reader は片方だけを残す）。
+- `ol diff` — audit boundary の隣に `Evaluated view` block、JSON は `view` object。両者とも `--dependency` を**集合として**比較する。`inputScope` と同じく、綴りの違いを boundary の変更として報告しない。
+
+`view` が読めない report は command failure。`dependencyFilter` キーの presence を必須とし、「filter は無かった」と述べる文書と「何も述べていない」文書を区別する。
 
 ### 非目標（当時のまま）
 

@@ -31,7 +31,8 @@ internal static class SarifRenderer
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<LicensePolicyViolation> violations,
         ReadOnlySpan<int> developmentAllowedComponents,
-        string toolVersion)
+        string toolVersion,
+        ScanReportViewScope view = default)
     {
         var buffer = new ArrayBufferWriter<byte>(512 + (violations.Length * 320) + (developmentAllowedComponents.Length * 160));
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
@@ -59,13 +60,49 @@ internal static class SarifRenderer
             }
 
             writer.WriteEndArray();
-            WriteDevelopmentAllowances(writer, components, developmentAllowedComponents);
+            WriteRunProperties(writer, components, developmentAllowedComponents, view);
             writer.WriteEndObject();
             writer.WriteEndArray();
             writer.WriteEndObject();
         }
 
         return buffer.WrittenSpan.ToArray();
+    }
+
+    // What the run covered rather than what it found. A run has one properties bag, so everything run-level is
+    // written from here: a second bag would be a duplicate key that a reader resolves by keeping one of the two,
+    // silently dropping the other.
+    private static void WriteRunProperties(
+        Utf8JsonWriter writer,
+        ReadOnlySpan<ScanComponent> components,
+        ReadOnlySpan<int> developmentAllowedComponents,
+        in ScanReportViewScope view)
+    {
+        if (developmentAllowedComponents.Length == 0 && !view.IsFiltered)
+        {
+            return;
+        }
+
+        writer.WriteStartObject("properties"u8);
+        WriteEvaluatedView(writer, view);
+        WriteDevelopmentAllowances(writer, components, developmentAllowedComponents);
+        writer.WriteEndObject();
+    }
+
+    // A complete result set over a narrowed population reads exactly like a complete one, and a CI job that consumes
+    // only the SARIF file has nothing else to learn the difference from.
+    private static void WriteEvaluatedView(Utf8JsonWriter writer, in ScanReportViewScope view)
+    {
+        if (!view.IsFiltered)
+        {
+            return;
+        }
+
+        writer.WriteStartObject("evaluatedView"u8);
+        writer.WriteString("dependencyFilter"u8, view.DependencyFilter);
+        writer.WriteNumber("excludedCount"u8, view.ExcludedCount);
+        writer.WriteNumber("excludedUnknownCount"u8, view.ExcludedUnknownCount);
+        writer.WriteEndObject();
     }
 
     // Components admitted by the development allow-list are not violations, so they are not SARIF results. They are
@@ -78,7 +115,6 @@ internal static class SarifRenderer
             return;
         }
 
-        writer.WriteStartObject("properties"u8);
         writer.WriteStartArray("developmentPolicyAllowances"u8);
         for (var i = 0; i < developmentAllowedComponents.Length; i++)
         {
@@ -95,7 +131,6 @@ internal static class SarifRenderer
         }
 
         writer.WriteEndArray();
-        writer.WriteEndObject();
     }
 
     private static void WriteRules(Utf8JsonWriter writer)

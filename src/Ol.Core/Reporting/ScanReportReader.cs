@@ -26,7 +26,11 @@ public readonly record struct ScanReport(
     ScanReportViewScope View = default);
 
 /// <summary>Describes how the producing scan narrowed the components it wrote.</summary>
-/// <param name="DependencyFilter">The <c>--dependency</c> filter the scan applied, or empty when it applied none.</param>
+/// <param name="DependencyFilter">
+/// The <c>--dependency</c> filter the scan applied. Empty when it applied none, and null on a default-constructed
+/// value, which is what a caller that states no view produces; both read as unfiltered through
+/// <see cref="IsFiltered"/>, which is the only member that should decide on this field.
+/// </param>
 /// <param name="ExcludedCount">Components the filter removed from the report.</param>
 /// <param name="ExcludedUnknownCount">Components among them whose relationship no input determined.</param>
 public readonly record struct ScanReportViewScope(

@@ -53,7 +53,11 @@ internal static class CommandLineArguments
     public static string[] NormalizeRepeatedInputs(string[] args)
     {
         args = NormalizeRepeatedOption(args, "--input");
-        return NormalizeRepeatedOption(args, "--exclude-input-path");
+        args = NormalizeRepeatedOption(args, "--exclude-input-path");
+
+        // Baselines compose, so repeats accumulate here rather than reaching the single-use rule in
+        // CommandLineRouting. Registering an option in this list is what makes it repeatable.
+        return NormalizeRepeatedOption(args, "--baseline");
     }
 
     private static string[] NormalizeRepeatedOption(string[] args, string option)

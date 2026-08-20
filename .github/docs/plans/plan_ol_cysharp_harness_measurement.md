@@ -13,7 +13,7 @@
 1. **現状の harness は 8 リポジトリすべてで失敗する**（`ol check` exit 2、合計 451 violations）。onboarding 手順が欠けているのであって、`ol` が壊れているのではない。
 2. **Syft SBOM は 129 個の phantom component と 108 件の violation を追加し、`ol` 単独が解決できなかった component を 1 つも解決しなかった。** 原因は Syft の binary cataloger であり、cataloger 選択の修正で phantom は 129 → 4 に減る。
 3. **残る 343 violations の大半は legacy .NET NuGet corpus**（`System.*` / `runtime.*` / 旧 xunit）で、`licenseUrl` が非ライセンス文書を指すため原理的に解決しない。prefix 除外では分離できず、baseline が唯一の正しい機構である。
-4. **129 entries 相当の baseline + allow-list への 8 identifier 追加で、8 リポジトリすべてが exit 0 に到達する。** baseline entry はリポジトリ間で技術的には再利用できるが、承認の帰属を明示するため各リポジトリが自分のファイルを持つ運用を採る。
+4. **129 entries 相当の baseline + allow-list への 8 identifier 追加で、8 リポジトリすべてが exit 0 に到達する。** baseline entry はリポジトリ間で再利用できるため、組織 baseline とリポジトリ固有 delta を `--baseline` の合成で重ねる運用を採る。
 5. **`ol` は実用に足る。** 実用足る使い方は「Syft を第一入力にする」ではなく「`ol scan --input .` を主入力にし、Syft は `ol` が adapter を持たない ecosystem の補完として、binary cataloger を切って使う」である。
 
 ## 前計画のどれが支持され、どれが反証されたか
@@ -161,11 +161,11 @@ SBOM を外した状態の violation を名前で分類すると、.NET リポ�
 - baseline の `fingerprint` は status と evidence のハッシュで、identity（ecosystem/name/version/purl）とは別フィールドである。したがって同じ component は別リポジトリでも同じ entry になる。
 - report に存在しない entry を含む baseline はエラーにならない。LogicLooper の 11 entry baseline を csbindgen に適用して `Acknowledged by baseline: 1 component.` / exit 0 を確認した。
 
-つまり技術的には **Cysharp/Actions に共有 baseline を 1 個置く**運用が今日の `ol` で成立する。
+つまり **Cysharp/Actions に組織 baseline を 1 個置く**運用が成立する。
 
-**ただし採らない。** policy owner の判断として、**各リポジトリが自分の baseline を 1 ファイルで管理する**ことを採る。baseline は「そのリポジトリが受け入れた未解決証拠」を述べる、レビュー対象かつ commit 対象の成果物であり、共有ファイルは「誰がどのリポジトリのために何を承認したか」を曖昧にする。リポジトリ A のレビュアーが承認した entry を、リポジトリ B が黙って継承するのは、共有 baseline の便利さと表裏である。
+当初はこれを「承認の帰属が曖昧になる」として採らず、各リポジトリが 1 ファイルを持つ方針にしたが、**撤回した**。測定 4 のとおり legacy .NET corpus はリポジトリ間で同一の母集団であり、各ファイルに複製すると 1 度で済む組織レビューが repo ごとの書き写しになる。優先度 4 で `--baseline` を repeatable（union 合成）にしたので、**組織ファイルとリポジトリ固有ファイルの両方を渡す**形が採れる。帰属は「どちらのファイルに entry があるか」で表現される。
 
-「空なら空にしたい、作るのを求めたくない」という要件は、共有ファイルではなく **workflow が「ファイルがあるときだけ `--baseline` を付ける」**ことで満たす（不具合 7 の修正）。承認すべき未解決証拠が無いリポジトリはファイルを持たない。
+「空なら空にしたい、作るのを求めたくない」という要件は、**workflow が「ファイルがあるときだけ `--baseline` を付ける」**ことで満たす（不具合 7 の修正）。組織 baseline の外に承認すべき未解決証拠が無いリポジトリはファイルを持たない。
 
 なお統合 129 entries には `minimal-lexical` の conflict が 1 件含まれていた。`--update-baseline` は conflict も acknowledge するため、**onboarding の一括生成は本物の食い違いを埋めうる**。baseline を作る作業は、生成コマンドを流すことではなく entry を読むことである。
 
@@ -436,11 +436,29 @@ $ ol check --report r.json --allow-licenses MIT --allow-licenses Apache-2.0
 Argument '--allow-licenses' was supplied more than once.
 ```
 
-#### `--baseline` は repeatable にしない
+#### `--baseline` は repeatable にした
 
-実測では需要が確認できなかった（測定 5 の共有 baseline 1 個で 8 リポジトリを充足でき、report に無い entry は許容される）。そのうえで方針として、**各リポジトリが自分の baseline を 1 ファイルで明示的に管理する**ことを採る。baseline は「そのリポジトリが受け入れた未解決証拠」を述べる、レビュー対象かつ commit 対象の成果物であり、複数ファイルの合成は誰が何を承認したかを曖昧にする。
+当初は「各リポジトリが 1 ファイルで管理する」方針で repeatable にしない判断をしたが、**撤回した**。決め手は測定 4 である。legacy .NET NuGet corpus は netstandard2.0 を対象とするリポジトリで**同一の母集団**であり、各リポジトリのファイルに複製すると、1 度で済むはずの組織レビューが repo ごとの書き写しになる。
 
-「エラーにする → 後で repeatable にする」は後方互換なので、必要が実測された時点で追加できる。逆順は壊れる。
+- [x] `--baseline` を repeatable にし、**union** で合成する。component はいずれかの baseline が述べていれば承認される。entry は identity と evidence fingerprint で自己識別するため、合成に調停規則は要らず、**順序にも依存しない**。
+- [x] 累積オプションの登録は `NormalizeRepeatedInputs` に 1 行加えるだけで済んだ。単数オプション規則（優先度 4 の本体）は正規化の後に走るので、**登録した時点で自動的に対象外**になる。
+- [x] `--update-baseline` は**最後の** `--baseline` を書き、**それより前のファイルが既に承認している entry は書かない**。完全 snapshot を書くと共有母集団が合成相手のファイルに複製され、合成する意味が消えるため。baseline が 1 つなら引く対象が無いので完全 snapshot となり、**従来の挙動と一致する**。
+- [x] 最後より前のファイルは読むだけで書かない。共有母集団は、それを作ったレビューの下に留まる。
+
+#### 実データでの確認
+
+UniTask から生成した 94 entry を組織 baseline とし、NativeCompressions に合成した。
+
+```text
+$ ol check --report NativeCompressions.json --allow-licenses ... \
+    --baseline org.json --baseline local.json --update-baseline
+Acknowledged by baseline: 6 components.
+License check passed: 169 components satisfy the allow-list.
+
+local.json: 4 entries -> liblz4, libopenzl, libzstd, minimal-lexical
+```
+
+NativeCompressions の未解決 6 件のうち、**org.json が既に持つ 2 件は local.json に複製されていない**。
 
 ### 優先度 5 (実装済み): `Cargo.toml` を candidate として検出する
 
@@ -549,16 +567,23 @@ step 3 は Cysharp の現行 8 リポジトリでは省略しても結果が変�
 
 ### baseline の運用
 
-- **各リポジトリが自分の baseline を 1 ファイルで持つ。** 共有ファイルは採らない（測定 5 の但し書きを参照）。`--baseline` は repeatable ではないので、この形が唯一の形でもある。
-- 承認すべき未解決証拠が無いリポジトリはファイルを持たない。workflow は「ファイルがあれば `--baseline` を付ける」で、存在必須にしない。
+- **Cysharp/Actions に組織 baseline を 1 個置き、リポジトリは自分の delta ファイルだけを持つ。** `--baseline` は repeatable になったので、両方を渡して合成する。
+
+  ```bash
+  ol check --report ol-report.json --allow-licenses ... \
+      --baseline <organization>/ol-baseline.json --baseline ol-baseline.json
+  ```
+
+- 組織 baseline は測定 4 の legacy .NET corpus を担う。リポジトリ側は**組織 baseline が持たないものだけ**を持つ（実測: NativeCompressions は 6 件中 4 件）。
+- delta の生成は `--baseline <organization> --baseline <local> --update-baseline`。最後のファイルだけが書かれ、組織ファイルは読むだけである。
+- 承認すべき未解決証拠が組織 baseline の外に無いリポジトリはファイルを持たない。workflow は「ファイルがあれば `--baseline` を付ける」で、存在必須にしない。
 - baseline の更新は人間が entry を読む作業とする。`--update-baseline` は CI で実行しない。
-- 生成時に conflict が混じることを前提に、conflict entry は個別に判断する（`minimal-lexical` が実例）。
-- 母集団は測定 4 のとおりリポジトリ間で大きく重複する（legacy .NET corpus）。同じ判断を 8 回書くことになるが、**誰がどのリポジトリのために承認したかが各ファイルに残る**ことをその対価として選ぶ。
+- 生成時に conflict が混じることを前提に、conflict entry は個別に判断する（`minimal-lexical` が実例。上の実測では local 側の delta に入っている）。
 
 ### 段階導入
 
 1. `ol scan` + artifact 保存 + job summary のみ。`ol check` は `continue-on-error`。
-2. 各リポジトリの baseline と組織の allow-list を確定させる。
+2. 組織 baseline・リポジトリ固有 delta・組織 allow-list を確定させる。
 3. `ol check` を必須にし、`pr-harness-check` の `needs` に入れる。
 4. `ol diff` で base ↔ head の regression 判定を足す。
 

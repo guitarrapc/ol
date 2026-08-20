@@ -32,7 +32,6 @@ public sealed class CliRoutingTests
     [Arguments("check --report a.json --report b.json --allow-licenses MIT", "--report")]
     [Arguments("check --report a.json --allow-licenses MIT --allow-licenses Apache-2.0", "--allow-licenses")]
     [Arguments("check --report a.json --allow-licenses MIT --exclude-packages pkg:npm/ --exclude-packages pkg:nuget/", "--exclude-packages")]
-    [Arguments("check --report a.json --allow-licenses MIT --baseline a.json --baseline b.json", "--baseline")]
     [Arguments("scan --input a --format json --format text", "--format")]
     [Arguments("scan --input a --verbose --verbose", "--verbose")]
     [Arguments("diff --previous a.json --previous b.json --current c.json", "--previous")]
@@ -76,6 +75,20 @@ public sealed class CliRoutingTests
         var result = await RunOlAsync(root, commandLine.Split(' '));
 
         await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+    }
+
+    /// <summary>
+    /// Baselines compose, so a repeat is a value the run uses rather than an invocation error. The command
+    /// may still fail on what it was pointed at; it must not fail on having been pointed at twice.
+    /// </summary>
+    [Test]
+    public async Task Route_WithRepeatedBaseline_IsNotAnInvocationError()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunOlAsync(root, "check", "--report", "missing.json", "--allow-licenses", "MIT", "--baseline", "a.json", "--baseline", "b.json");
+
+        await Assert.That(result.Stderr).DoesNotContain("was supplied more than once");
     }
 
     /// <summary>Everything after the escape is a value, so a repeat there is not an invocation error.</summary>

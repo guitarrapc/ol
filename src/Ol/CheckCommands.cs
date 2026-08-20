@@ -20,8 +20,8 @@ internal sealed class CheckCommands
     /// <param name="excludePackages">Comma-separated package URL prefixes whose components are not evaluated. A prefix may stop at the ecosystem, as in pkg:github/.</param>
     /// <param name="spdxData">Directory containing licenses.json and exceptions.json.</param>
     /// <param name="verbose">Include persisted report diagnostics.</param>
-    /// <param name="baseline">Baseline file acknowledging already reviewed unresolved components.</param>
-    /// <param name="updateBaseline">Rewrite the baseline file as a complete snapshot.</param>
+    /// <param name="baseline">Repeatable baseline files acknowledging already reviewed unresolved components. A component is acknowledged when any of them states it.</param>
+    /// <param name="updateBaseline">Rewrite the last baseline file, holding what the earlier ones do not already acknowledge.</param>
     /// <param name="sarif">Write violations as SARIF to this file for CI code scanning.</param>
     [Command("check")]
     public int Check(
@@ -31,7 +31,7 @@ internal sealed class CheckCommands
         string? excludePackages = null,
         string? spdxData = null,
         bool verbose = false,
-        string? baseline = null,
+        [InputPathsParser] string[]? baseline = null,
         bool updateBaseline = false,
         string? sarif = null)
     {
@@ -50,8 +50,8 @@ internal sealed class CheckCommands
             ? []
             : excludePackages.Split(',', StringSplitOptions.None);
 
-        var baselinePath = string.IsNullOrWhiteSpace(baseline) ? null : baseline;
-        if (updateBaseline && baselinePath is null)
+        var baselinePaths = NormalizeBaselinePaths(baseline);
+        if (updateBaseline && baselinePaths.Length == 0)
         {
             Console.Error.WriteLine("Invalid license policy: --update-baseline requires --baseline.");
             return 1;
@@ -85,9 +85,10 @@ internal sealed class CheckCommands
         }
 
         // An unusable baseline is a command failure rather than a silently empty baseline, so a mistyped
-        // path is reported instead of changing which components fail.
-        LicenseBaseline? acknowledgements = null;
-        if (baselinePath is not null && !updateBaseline && !BaselineFile.TryRead(baselinePath, out acknowledgements, out var baselineError))
+        // path is reported instead of changing which components fail. When updating, the last file is the
+        // one being replaced, so only the files before it are read.
+        var readCount = updateBaseline ? baselinePaths.Length - 1 : baselinePaths.Length;
+        if (!TryComposeBaselines(baselinePaths.AsSpan(0, readCount), out var acknowledgements, out var baselineError))
         {
             Console.Error.WriteLine(baselineError);
             return 1;
@@ -95,14 +96,17 @@ internal sealed class CheckCommands
 
         if (updateBaseline)
         {
-            var entries = LicenseBaseline.CreateEntries(components, policy);
-            if (!BaselineFile.TryWrite(baselinePath!, entries, licenseListVersion, out var writeError))
+            // Only what the earlier files do not already state. Writing the complete snapshot would copy
+            // the shared population into the file that composes with it, which is the duplication
+            // composing them removes.
+            var entries = LicenseBaseline.CreateEntries(SelectUnacknowledged(components, acknowledgements), policy);
+            if (!BaselineFile.TryWrite(baselinePaths[^1], entries, licenseListVersion, out var writeError))
             {
                 Console.Error.WriteLine(writeError);
                 return 1;
             }
 
-            acknowledgements = LicenseBaseline.FromEntries(entries);
+            acknowledgements = Compose(acknowledgements, LicenseBaseline.FromEntries(entries));
         }
 
         int acknowledgedCount;
@@ -159,7 +163,7 @@ internal sealed class CheckCommands
                 components,
                 violations,
                 policyComponentCount,
-                baselinePath is null ? -1 : acknowledgedCount,
+                baselinePaths.Length == 0 ? -1 : acknowledgedCount,
                 developmentAllowedCount,
                 excludePackages is null ? -1 : excludedCount,
                 ambiguityAllowedCount,
@@ -176,6 +180,55 @@ internal sealed class CheckCommands
         // A run whose only findings are collection failures resolved nothing and proved nothing; reporting it as a
         // policy violation would make a registry outage indistinguishable from a forbidden license in CI.
         return CheckRenderer.IsIncomplete(violations) ? 3 : 2;
+    }
+
+    /// <summary>Drops empty entries so a supplied-but-blank option is not read as a path.</summary>
+    private static string[] NormalizeBaselinePaths(string[]? baseline)
+    {
+        if (baseline is null || baseline.Length == 0) return [];
+
+        var paths = new List<string>(baseline.Length);
+        for (var i = 0; i < baseline.Length; i++)
+        {
+            if (!string.IsNullOrWhiteSpace(baseline[i])) paths.Add(baseline[i]);
+        }
+
+        return [.. paths];
+    }
+
+    /// <summary>Reads every supplied baseline and unions them, or reports the first that cannot be read.</summary>
+    private static bool TryComposeBaselines(ReadOnlySpan<string> paths, out LicenseBaseline? composed, out string error)
+    {
+        composed = null;
+        error = string.Empty;
+        if (paths.IsEmpty) return true;
+
+        var baselines = new LicenseBaseline[paths.Length];
+        for (var i = 0; i < paths.Length; i++)
+        {
+            if (!BaselineFile.TryRead(paths[i], out var parsed, out error)) return false;
+            baselines[i] = parsed!;
+        }
+
+        composed = LicenseBaseline.Compose(baselines);
+        return true;
+    }
+
+    private static LicenseBaseline Compose(LicenseBaseline? earlier, LicenseBaseline written)
+        => earlier is null ? written : LicenseBaseline.Compose([earlier, written]);
+
+    /// <summary>Returns the components no already-supplied baseline acknowledges.</summary>
+    private static ScanComponent[] SelectUnacknowledged(ScanComponent[] components, LicenseBaseline? acknowledgements)
+    {
+        if (acknowledgements is null || acknowledgements.Count == 0) return components;
+
+        var remaining = new List<ScanComponent>(components.Length);
+        for (var i = 0; i < components.Length; i++)
+        {
+            if (!acknowledgements.IsAcknowledged(components[i])) remaining.Add(components[i]);
+        }
+
+        return [.. remaining];
     }
 
     private static void WriteExclusionMatches(LicenseAllowPolicy policy, ReadOnlySpan<ScanComponent> components)

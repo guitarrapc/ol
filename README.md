@@ -214,8 +214,8 @@ Options:
   --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. A prefix may stop at the ecosystem, as in pkg:github/. [Default: null]
   --spdx-data <string?>             Directory containing licenses.json and exceptions.json. [Default: null]
   --verbose                         Include persisted report diagnostics.
-  --baseline <string?>              Baseline file acknowledging already reviewed unresolved components. [Default: null]
-  --update-baseline                 Rewrite the baseline file as a complete snapshot.
+  --baseline <string[]?>            Repeatable baseline files acknowledging already reviewed unresolved components. A component is acknowledged when any of them states it. [Default: null]
+  --update-baseline                 Rewrite the last baseline file, holding what the earlier ones do not already acknowledge.
   --sarif <string?>                 Write violations as SARIF to this file for CI code scanning. [Default: null]
 ```
 

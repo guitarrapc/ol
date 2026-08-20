@@ -187,6 +187,87 @@ timeout 10 分には収まる。問題は GitHub API で、Actions の `GITHUB_T
 
 これは 2 つの帰結を生む。evidence cache の CI 復元は最適化ではなく前提条件であること。そして rate limit で collection が落ちた run は `error` status になり `ol check` は exit **3** を返すため、exit 3 の扱いを決めていない harness は「registry 障害」と「ライセンス違反」を区別できないこと。
 
+## 測定 7: 各エコシステム推奨の事前解決を行った基準線と、そこへの Syft 追加
+
+測定 1〜2 の基準線は「単一 solution の restore + `--input .`」だった。これを各言語が推奨する解決手順に揃え直して測り直した。全 solution の `dotnet restore`、Cargo workspace ごとの `cargo metadata`（lockfile が commit されている場合のみ `--locked`）、npm/pnpm は commit 済み lockfile。
+
+### 事前解決を正すと取りこぼしが消える
+
+| Repository | 旧基準線 | 正しい事前解決 | 差 | 原因 |
+|---|---:|---:|---:|---|
+| csbindgen | 15 | **61** | +46 | Rust 48 crates。従来は**完全に未監査** |
+| ZLinq | 109 | **122** | +13 | 2 つ目の solution `tests/System.Linq.Tests` の xunit.v3 系 |
+
+8/8 で `0 ignored candidates` に到達した。`license is not allowed` は 8 リポジトリで 0 件で、残る 269 violations はすべて未解決の証拠である。
+
+### 正しい基準線の上で Syft を足すとどうなるか
+
+|  | PM のみ | | + Syft(推奨) | | + Syft(既定) | |
+|---|---:|---:|---:|---:|---:|---:|
+| Repository | comp | viol | comp | viol | comp | viol |
+| AIApiTracer | 100 | 0 | 102 | 0 | 115 | 13 |
+| csbindgen | 61 | 2 | 64 | 4 | 75 | 15 |
+| DFrame | 189 | 83 | 190 | 83 | 236 | 124 |
+| LogicLooper | 50 | 11 | 51 | 11 | 65 | 25 |
+| MagicOnion | 1590 | 73 | 1591 | 73 | 1709 | 177 |
+| NativeCompressions | 166 | 3 | 170 | 6 | 209 | 44 |
+| UniTask | 141 | 94 | 142 | 94 | 167 | 119 |
+| ZLinq | 122 | 3 | 123 | 3 | 139 | 19 |
+| **合計 violations** | | **269** | | **274** | | **516** |
+| **合計 sbom-only** | | **0** | | **13** | | **296** |
+
+**推奨 cataloger 構成なら劣化は +5 violations で、6/8 は完全に不変。** 増分は csbindgen +2、NativeCompressions +3 のみで、内訳は全部**リポジトリ自身の Cargo workspace member**だった（`csbindgen`、`csbindgen-tests`、`liblz4`、`libopenzl`、`libzstd`）。`cargo metadata` は workspace member を監査対象そのものとして除外するが、Syft の `rust-cargo-lock-cataloger` は Cargo.lock を読むため含める。generator と resolver の意味論の差であり、`package_metadata_no_purl` として正しく報告される。Rust を含まない 6 リポジトリでは Syft が足したのは scan root 1 個だけだった。
+
+**既定構成では 269 → 516（+92%）。** 同じツール・同じ入力で、cataloger 選択の違いだけでこの差が出る。したがって「Syft は結果を大きく劣化させない」は**推奨構成に限った命題**であり、無条件には成り立たない。`sbomOnly` が診断指標として機能することも確認できた（推奨 0〜4、既定 15〜119）。
+
+### 入力を自動検出に置き換えても結果は同一
+
+harness が受け取っている path 入力が本当に必要かを測った。`git ls-files` から `*.sln` / `*.slnx` と、`[workspace]` を含む `Cargo.toml` を拾うだけの、**入力ゼロ**の手順で 8 リポジトリを再測定した。
+
+| Repository | 手動指定 | 自動検出 | 一致 |
+|---|---:|---:|:---:|
+| AIApiTracer | 100 | 100 | OK |
+| csbindgen | 61 | 61 | OK |
+| DFrame | 189 | 189 | OK |
+| LogicLooper | 50 | 50 | OK |
+| MagicOnion | 1590 | 1590 | OK |
+| NativeCompressions | 166 | 166 | OK |
+| UniTask | 141 | 141 | OK |
+| ZLinq | 122 | 122 | OK |
+
+**8/8 で component 数が完全一致。** MagicOnion と ZLinq の 2 つ目の solution、NativeCompressions の `bindgen/Cargo.toml` も自動で拾えた。自動検出のほうが網羅的でもある——本文書が最初に書いた手動パス表は ZLinq の 2 つ目の solution を落としており、それは不具合 8 として別途記録されている。
+
+したがって `license-dotnet-path` と `license-cargo-manifest-path` は**入力として存在する必要がない**。`--locked` の要否も lockfile の有無で判定でき、不具合 2 の分岐も入力を介さずに書ける。
+
+### 現状 harness の規模と、削減できる範囲
+
+`pr-harness.yaml` の `license-check` job は 169 行 / 14 step / 9 input（commit `21e60ea` 時点）。測定に照らすと次が削れる。
+
+| 対象 | 判断 | 根拠 |
+|---|---|---|
+| `license-dotnet-path`, `license-cargo-manifest-path` | 削除 | 上記の自動検出で同一結果 |
+| Syft の 2 step と `license-syft-version` | 削除 | 測定 7 のとおり寄与ゼロ。推奨構成で +5 violations、既定構成で +247 |
+| `license-scan-path` | 削除（`.` 固定） | 8/8 で `0 ignored candidates` |
+| `Validate license check inputs` step | 削除 | 残る必須入力は allow-list だけで、`ol` 自身が空を弾く |
+| `license-allow-dev-licenses` | 保留 | Cysharp では 8/8 で発火しない。使う repo が出るまで不要 |
+
+残す入力は `license-check` / `license-allow-licenses` / `license-baseline-path` / `license-ol-version` の 4 つ。**削らないもの**は測定に裏付けがある: evidence cache（測定 6 の 821 req）、exit 3 の分岐（同）、`ignored candidates` と ecosystem 一覧の job summary（取りこぼし検出の唯一の手段）、`pr-harness-check` の `needs` 判定（不具合 1）。
+
+Syft を外すと、`ol` が adapter を持たないエコシステム（Go、Python、Swift など）が将来入ったとき、自動検出はその存在に気づけない。`ol` の候補検出は `Cargo.toml` と `*.csproj` に限られるためである。保険は Syft の常設ではなく、job summary の ecosystem 一覧を人が見ることとする。
+
+### csbindgen に Cargo.lock を commit すると改善するか
+
+**ol の出力は変わらない。** `cargo metadata` は lockfile が無ければ副作用で生成してから解決するため、その回の結果は同一である（metadata が byte 単位で一致、48 components / 全 matched）。
+
+変わるのは**再現性**である。lockfile が無いと解決は実行時点の最新 semver 互換版になる。
+
+```text
+Cargo.toml の宣言:  syn = "2.0.68",  regex = "1.10.5"
+実際に解決された版:  syn 2.0.119,     regex 1.13.1
+```
+
+これは 3 つの帰結を持つ。`--locked` が使えず CI の解決が固定されない。`ol diff` が「依存の変更」と「解決の揺れ」を区別できない。baseline の fingerprint は version を含むため、揺れるたびに acknowledgement が失効する。ライセンス監査を CI に置くなら、lockfile を commit するか、揺れを受け入れるかの選択になる。
+
 ## Cysharp/Actions `pr-harness.yaml` の不具合
 
 重大な順に挙げる。

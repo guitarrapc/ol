@@ -610,6 +610,62 @@ public sealed class MixedInputScanTests
         await Assert.That(OccurrenceCount(mixed)).IsEqualTo(expectedOccurrences);
     }
 
+    /// <summary>
+    /// A package-manager input listing a component is itself the determination that the component is a dependency of
+    /// the scanned resolution. An SBOM's root is the root of the SBOM's own graph, so folding it onto that row must
+    /// not restate the row as the subject of the scan — <see href="cli.md#contract-policy-checks">policy skips a root</see>,
+    /// so the promotion would withdraw the component from the gate on evidence that never described this resolution.
+    /// </summary>
+    [Test]
+    [Arguments("package-lock.json", "mixed-npm-root-direct.cdx.json", "pkg:npm/alpha@1.0.0", "direct")]
+    [Arguments("pip-inspect.json", "mixed-pypi-root-transitive.cdx.json", "pkg:pypi/urllib3@2.5.0", "transitive")]
+    [Arguments("Package.resolved", "mixed-swift-root-unknown.cdx.json", "pkg:swift/github.com/apple/swift-log@1.6.2", "unknown")]
+    public async Task Scan_WithSbomRootFoldedOntoResolvedRow_KeepsTheResolverRelationship(
+        string packageManagerFixture,
+        string sbomFixture,
+        string purl,
+        string expected)
+    {
+        var report = await ScanMixedAsync(packageManagerFixture, sbomFixture);
+
+        var rows = FindComponents(report, purl);
+        await Assert.That(rows).Count().IsEqualTo(1);
+        await Assert.That(rows[0].GetProperty("dependency").GetString()).IsEqualTo(expected);
+        await Assert.That(SuppliedBy(rows[0])).IsEquivalentTo(new[] { "sbom", "package-manager" });
+    }
+
+    /// <summary>
+    /// An SBOM states one root and a package manager tracks the same package at two paths, so the fan-out reaches
+    /// rows the resolver classified differently. Each keeps its own relationship rather than every copy collapsing
+    /// onto the one value the SBOM happened to state.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithSbomRootFoldedOntoSeveralInstallations_KeepsEachResolverRelationship()
+    {
+        var report = await ScanMixedAsync("package-lock.json", "mixed-npm-root-installations.cdx.json");
+
+        var relationships = FindComponents(report, "pkg:npm/shared@1.0.0")
+            .Select(row => row.GetProperty("dependency").GetString())
+            .ToArray();
+
+        await Assert.That(relationships).IsEquivalentTo(new[] { "direct", "transitive" });
+    }
+
+    /// <summary>
+    /// The rule is about the receiving row, not about the value: an SBOM root no package-manager input answers for
+    /// keeps its own row and stays a root, exactly as it does when the SBOM is scanned alone.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithSbomRootMatchingNoResolvedRow_KeepsItAsARootRow()
+    {
+        var report = await ScanMixedAsync("package-lock.json", "mixed-npm-root-unmatched.cdx.json");
+
+        var rows = FindComponents(report, "pkg:npm/standalone@2.0.0");
+        await Assert.That(rows).Count().IsEqualTo(1);
+        await Assert.That(rows[0].GetProperty("dependency").GetString()).IsEqualTo("root");
+        await Assert.That(SuppliedBy(rows[0])).IsEquivalentTo(new[] { "sbom" });
+    }
+
     [Test]
     public async Task Scan_WithSbomRootComponentWithoutPurl_KeepsItAsItsOwnRow()
     {

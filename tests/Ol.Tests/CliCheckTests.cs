@@ -152,6 +152,27 @@ public sealed class CliCheckTests
         }
     }
 
+    /// <summary>
+    /// Policy skips a root, so an SBOM that names a resolved dependency as its own root must not be able to withdraw
+    /// that dependency from the gate. Scanning an SBOM beside the resolved tree is a recommended configuration, and a
+    /// second input merely mentioning a component may not change the verdict on it.
+    /// </summary>
+    [Test]
+    public async Task Check_WithSbomRootNamingAResolvedDependency_StillEvaluatesThatDependency()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunCheckWorkflowAsync(
+            root,
+            "--input", FixturePath("package-lock.json"),
+            "--input", FixturePath("mixed-npm-root-direct.cdx.json"),
+            "--allow-licenses", "Apache-2.0",
+            "--no-external-evidence");
+
+        await Assert.That(result.ExitCode).IsEqualTo(2);
+        await Assert.That(result.Stdout).Contains("pkg:npm/alpha@1.0.0");
+    }
+
     [Test]
     public async Task Check_WithForbiddenLicense_ReturnsTwoAndCompleteViolation()
     {
@@ -1475,6 +1496,9 @@ public sealed class CliCheckTests
         await File.WriteAllTextAsync(inputPath, Json, Encoding.UTF8);
         return inputPath;
     }
+
+    private static string FixturePath(string fileName)
+        => Path.Combine(AppContext.BaseDirectory, "Fixtures", fileName);
 
     private static async Task<string> WriteCycloneDxAsync(string? license, string version = "1.0.0")
     {

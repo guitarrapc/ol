@@ -1,0 +1,16 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "bom-ref": "root-swift-log",
+      "type": "library",
+      "name": "swift-log",
+      "version": "1.6.2",
+      "purl": "pkg:swift/github.com/apple/swift-log@1.6.2"
+    }
+  },
+  "components": [],
+  "dependencies": [{ "ref": "root-swift-log", "dependsOn": [] }]
+}

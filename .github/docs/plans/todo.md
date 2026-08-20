@@ -1,230 +1,99 @@
 # TODO
 
-## Native resolved graph と SBOM の inventory 構造上の関係を明文化する
+## mixed input における `DependencyType` の代表値
 
 ### Status
 
-- 状態: 検討待ち
-- 対象: inventory combination contract、`DependencyType` reconciliation
-- 発見契機: [Microsoft Component Detection の分析](../references/component_detection.md)
+- 状態: P0 / P1 完了、P2 は判断待ち
+- 対象: cross-input relationship merge、`DependencyInventoryCombiner`
+- 発見契機: [Microsoft Component Detection の分析](../references/component_detection.md)、およびその分析に対する敵対的レビュー
 
-### 背景
+### この文書の前提
 
-Ol は resolved package-manager input と SBOM を同じ dependency inventory input として受け取り、一つの scan で結合できる。現在の architecture は [inputs combine rather than compete](../Architecture.md#decision-input-combination) を原則とし、片方を捨てずに component population、graph、license evidence の差を観測可能にする。
+初版はこの節を「native resolved graph > SBOM projection」という入力種別のヒエラルキーとして立てていた。その定式化は採用しない。理由は二つある。
 
-ただし「入力を競合させない」ことと「すべての情報について両入力を同格に扱う」ことは同じではない。resolved package-manager output は通常、SBOM への変換後には失われ得る次の構造を持つ。
+一つ目。プロジェクトはすでに同じ問題に対する原則を持っており、それは入力種別の優劣ではない。[開発用途の判定](../specs/cli.md#contract-development-usage-and-sbom)で確立された規則は **「fact を determine した input がそれを所有し、何も determine していない input はそれを取り消さない」** である。軸は native 対 SBOM ではなく determined 対 undetermined であり、この軸のほうが扱える case が広い。package-manager input が `unknown`、SBOM が `direct` の場合、入力種別のヒエラルキーは SBOM の determination を捨てるが、determined 対 undetermined は捨てない。
 
-- resolver-native package identity と source identifier。
-- 同一 package/version の複数 installation / occurrence。
-- project、workspace、target、runtime、platform ごとの resolution context。
-- root、direct、transitive を証明する dependency edge。
-- development / runtime usage、optional、peer、feature 等の resolver condition。
-- package manager が実際に選択した version と graph。
+二つ目。初版は `direct` 対 `transitive` の精度を論じることに大半を費やしていたが、その二値は表示列と `--dependency` filter にしか影響しない。exit code に影響するのは `root` だけであり、初版はその rung を「検討する問い」の 7 番目に分類学の質問として置いただけだった。
 
-SBOM は標準的な交換形式として有用であり、artifact scanner が package-manager graph にない OS package、vendored component、embedded binary、別 subproject を観測することもある。一方、generator によって component identity、occurrence、edge、scope、context が省略・平坦化・誤変換される。したがって inventory 構造については、両者を単純に同格と表現すると Ol の実装意図を誤解させる。
+### P0 として解消した defect（完了）
 
-この原則は **license evidence の優先順位を意味しない**。license fact がどこにあるかは ecosystem と generator によって異なる。SBOM が package contents から得た license claim を持ち、resolved input が何も持たない場合もある。現在どおり SBOM、dependency input、registry、package artifact、source repository の claim は provenance 付きの独立 candidate として保存し、共通 reconciliation に通す必要がある。
+`MergeDependencyType` は input 境界を跨いで `root > direct > transitive > unknown` を適用していた。ここで次の二つが重なっていた。
 
-明文化したい関係は次である。
+- `DependencyType.Root` を生成するのは SBOM parser だけである。package-manager adapter は 14 個どれも生成しない。
+- `Root` は [policy 評価から除外される](../specs/cli.md#contract-policy-checks)。他の三値に policy 影響はない。
 
-```text
-Inventory structure and resolver facts
-    native resolved package-manager graph > SBOM projection
+したがって、SBOM が resolved dependency と同じ purl を自身の root として述べると、その component が gate から消えた。再現は単純で、`pkg:npm/alpha@1.0.0` を `metadata.component` に持つ artifact SBOM を、alpha に依存する lockfile と一緒に scan すると、`check` が exit 2 から exit 0 に変わる。scan の表には該当行が残るため、人間の view では気づけるが CI は黙る。
 
-Artifact observation and additional population
-    SBOM supplements the native graph; SBOM-only components remain visible
+Ol は他の未確定 case をすべて fail-closed に倒しているので、姿勢としても例外だった。`suppliedBy` は正常な fold と区別できないため、usage risk に対する緩和策として仕様が挙げる supply tally もここでは効かない。
 
-License evidence
-    no blanket precedence; preserve and reconcile every supported claim
-```
+**採用した規則**: package-manager input が供給した row に対して、SBOM の `root` は適用しない。package-manager input が component を列挙したこと自体が「これは scan 対象 resolution の依存である」という determination であり、SBOM の root はその SBOM 自身の graph の root にすぎない。受け手の row には沈黙以上のことを述べていないので、merge せず捨てる。package-manager input が答えない SBOM root は fold が発生しないため影響を受けず、従来どおり自身の row を保って `root` のままになる。
 
-ここで `>` は「常に正しい」「SBOM の component を捨てる」という意味ではない。両方が同じ resolved population を述べる場合に、package-manager input がより細粒度な row、occurrence、context、edge、resolver classification を所有するという構造上の原則である。
+仕様は [folded relationship](../specs/cli.md#contract-folded-relationship) に記載した。regression は `MixedInputScanTests` の relationship 系 6 件と `CliCheckTests.Check_WithSbomRootNamingAResolvedDependency_StillEvaluatesThatDependency` が固定している。cross-input fold の等価クラスは次のとおり。
 
-### 現在の実装
+| package-manager | SBOM | 修正前 | 修正後 |
+|---|---|---|---|
+| unknown | root | `root` | `unknown` |
+| direct | root | `root` | `direct` |
+| transitive | root | `root` | `transitive` |
+| （対応 row なし） | root | `root` | `root`（fold 不発） |
+| unknown | direct / transitive | 強い方 | 変更なし |
+| direct / transitive | 相互に不一致 | 強い方 | 変更なし（P2） |
 
-[`DependencyInventoryCombiner`](../../../src/Ol.Core/DependencyInventoryCombiner.cs) はすでにこの原則の大部分を実装している。
+`CombineSbomWithPackageManagerInputs` benchmark は 1024 components で 542.4 → 547.7 μs、4096 components で 1897.3 → 1883.0 μs、allocation は実質同値だった（`IterationCount=1` の単発測定）。
 
-- package-manager component を先に割り当て、SBOM component を後から purl identity で fold する。
-- matching row の identity、purl spelling、qualifier、source ID は package-manager input が所有する。
-- package manager が区別する複数 installation を SBOM の一 row へ collapse せず、SBOM evidence を各 matching row へ fan-out する。
-- SBOM にしかない component と purl のない component は `sbom` supply の独立 row として残す。
-- package-manager input にしかない component も残す。
-- 各 input の context、occurrence、edge を保持し、input 間の edge は発明しない。
-- matching row には SBOM の license candidate を追加するが、package-manager candidate を上書きしない。
-- package-manager側に repository URL がある場合は維持し、ない場合だけ SBOM の URL で補う。
-- `suppliedBy` と summary の `sbomOnly` / `packageManagerOnly` / `both` で population の差を公開する。
+### P1 として明文化した内容（完了）
 
-これらは [CLI input combination contract](../specs/cli.md#contract-input-combination) と [`MixedInputScanTests`](../../../tests/Ol.Tests/MixedInputScanTests.cs) で固定されている。特に仕様は「package-manager inputs own the resulting rows and the SBOM folds into them」と述べている。
+- [Architecture の input combination decision](../Architecture.md#decision-input-combination) に、combine が入力種別の ranking ではないこと、determine した input が所有し、何も determine していない input は取り消さないことを追記した。
+- [CLI input combination contract](../specs/cli.md#contract-input-combination) に [folded relationship](../specs/cli.md#contract-folded-relationship) を追加した。
+- [contract-development-usage-and-sbom](../specs/cli.md#contract-development-usage-and-sbom) に、同じ規則が relationship にも及ぶこと、license evidence はそのどちらとも別で入力種別による選別を行わないことを追記した。combined scan は同じ component について三つの別の規則を述べており、そのいずれも SBOM 対 package-manager の勝敗ではない。
+- [Package-manager の lessons learned](../specs/packagemanager.md#lessons-learned) の「Neither input path is generally better」が license evidence の観測に限定された結論であることを明記した。この bullet を入力種別全体の parity と読んだことが P0 の defect の遠因である。
+- `DependencyType` の XML doc が全 4 値を「SBOM root component 相対」と定義していたため、graph 相対の記述に直した。`Root` を述べるのが SBOM だけである理由もそこに書いた。
 
-一方、[package-manager evidence の lessons learned](../specs/packagemanager.md#lessons-learned) にある「Neither input path is generally better」は license resolution の実測結果を述べたものだが、inventory fidelity まで同格であるようにも読める。仕様上、次の二点を分けて明示する必要がある。
+### P2 として残る問い（判断待ち）
 
-1. inventory identity / occurrence / context / graph の骨格は native resolved graph が所有する。
-2. license evidence の有用性には入力種別全体での優先順位を付けない。
+残る唯一の実質的な設計問題は次である。
 
-### 未解決点: `DependencyType` の strongest-wins merge
+**package-manager input と SBOM が両方 relationship を determine していて食い違うとき、component-level の代表値をどうするか。**
 
-現在の [`MergeDependencyType`](../../../src/Ol.Core/DependencyInventoryCombiner.cs) は、同じ component について複数 input が異なる分類を供給したとき、出典に関係なく次の強い値を combined component に採用する。
+現在は strongest-wins のまま、`direct` が `transitive` に勝つ。この値は表示列、`--dependency` filter、sort、group にのみ影響し、exit code には影響しない。したがって急ぐ理由はない。
 
-```text
-root > direct > transitive > unknown
-```
+判断する前に答える問い。
 
-そのため package-manager graph が `transitive`、SBOM が `direct` と述べる component は `direct` と表示される。この動作は [`Scan_WithSbomDirectAndPackageManagerTransitive_KeepsTheStrongerRelationship`](../../../tests/Ol.Tests/MixedInputScanTests.cs) で明示的に固定されている。
+1. component-level の `DependencyType` は「どれか一つの input が観測した最も root に近い relationship」か、「代表 resolved graph が証明した relationship」か。
+2. artifact-specific SBOM が repository-wide package-manager graph とは別の配布 artifact について `direct` を述べている場合、その値を同じ component-level 分類に畳んでよいか。
+3. relationship の不一致を warning、structured provenance、通常状態のどれとして公開するか。
 
-この merge は「少なくとも一つの graph から root/direct と観測された」という集約値としては合理的である。しかし native graph を inventory 構造の基準とする原則とは緊張関係がある。
+選択肢は初版から変わらない。
 
-- `direct` は常に `transitive` より正確な値ではない。異なる root、workspace、artifact scope を述べている可能性がある。
-- SBOM generator が edge や root を平坦化した結果、transitive package を direct と出力している可能性がある。
-- package-manager classification を SBOM classification で強めると、combined component の代表値から resolver-native fact が見えなくなる。
-- 一方で artifact-specific SBOM が、root package-manager graph とは別の実際の配布 artifact に対する direct relationship を述べている可能性もあり、SBOM の値を一律に無視するのも情報損失になる。
-- graph、context、occurrence は input ごとに保持されるため、component-level の単一 `DependencyType` に異なる graph-relative relationship を畳むこと自体が問題かもしれない。
+- **A. package-manager classification を代表値にする**。native graph が inventory structure を所有する原則と単純に一致するが、artifact-specific SBOM の異なる relationship が default view から見えなくなる。
+- **B. strongest-wins を維持し、出典と不一致を明示する**。human output と policy behavior の変更が最小。provenance field と disagreement state が増える。
+- **C. component-level の単一分類を graph-derived view にする**。canonical JSON、filter、group、summary、`check` の dependency filtering まで波及する大きな contract change。graph を持たない input と legacy report の扱いも必要になる。
 
-### 検討する選択肢
+現時点で C を正当化する根拠はない。動機が概念的な正しさのみで、exit code に効かない値のために report contract 全体を変えることになる。判断のために実測が必要なのは B と A の差だけであり、その実測は「ecosystem 別に native resolved input と SBOM を対にして `direct` / `transitive` の不一致を数え、missing edge・異なる root scope・workspace 差・artifact 差・generator defect に分類する」ことに限定できる。初版の Phase 2 が計画していた全 rung の実測は不要になった。
 
-#### A. package-manager classification を代表値にする
+### 付随して残る整理（優先度低）
 
-matching component が package-manager input に存在するときは、その `DependencyType` を combined component の代表値とする。SBOM-only component だけは SBOM の分類を使う。
-
-利点:
-
-- native graph が inventory structure を所有する原則と最も単純に一致する。
-- lossy generator が package-manager classification を上書きしない。
-
-欠点:
-
-- artifact-specific SBOM の異なる relationship が default view から見えにくくなる。
-- 複数 package-manager input の classification をどう代表させるかは別途必要になる。ただし現在は異なる package-manager input の同一 purl を別 row として維持するため、SBOM boundary より問題は限定される。
-
-#### B. strongest-wins を維持し、出典と不一致を明示する
-
-combined display は現在どおり strongest-wins とするが、各 input / occurrence の classification と disagreement を canonical JSON や warning に残す。
-
-利点:
-
-- root/direct dependency を default view で見落としにくい。
-- 現在の human output と policy behavior の変更が小さい。
-
-欠点:
-
-- `stronger` が `more authoritative` と誤解される。
-- provenance field と disagreement state が増え、report contract が複雑になる。
-
-#### C. component-level の単一分類を graph-derived view にする
-
-canonical inventory では relationship を occurrence / edge / context の fact として扱い、component-level `DependencyType` は selected view の graph set から導出する。input 別または context 別 view ならそれぞれ異なる値を表示できる。
-
-利点:
-
-- graph-relative な概念を package identity に固定しない。
-- package-manager graph と artifact SBOM graph の不一致を失わない。
-
-欠点:
-
-- canonical JSON、filter、group、summary、`check` の dependency filtering まで影響する大きな contract change になる。
-- graph を持たない input と legacy report の扱いが必要になる。
-- performance、report size、migration cost の評価が必要になる。
-
-### 判断時に答える問い
-
-1. `DependencyType` は「どれか一つの input が観測した最も近い root relationship」か、「代表 resolved graph が証明した relationship」か。
-2. mixed input scan で代表 graph を選ぶのか、それとも代表値という概念を廃止するのか。
-3. artifact-specific SBOM と repository-wide package-manager graph が異なる population / root を述べる場合、両者を同じ component-level分類へ畳んでよいか。
-4. dependency filter と `--allow-dev-licenses` は combined component、occurrence、どの input の classification を評価すべきか。
-5. relationship disagreement は warning、structured provenance、通常状態のどれとして公開するか。
-6. package-manager input が `unknown`、SBOM が `direct` の場合も package-manager値を優先するのか。`unknown` は否定ではなく未証明なので、`transitive`対`direct`とは分ける必要があるか。
-7. root componentを含むSBOMと、root packageをinventory componentに含めないpackage-manager inputをどう比較するか。
-
-### 優先度付き対応フェーズ
-
-#### Phase 1 — P1: 仕様上の原則を明確化する
-
-目的: behaviorを変えず、現在すでに実装されている構造上の主従とevidenceの非優先を明文化する。
-
-- [ ] [Architecture](../Architecture.md) の input combination decision に、native resolved graph が matching inventory row / occurrence granularity / context / edge を所有することを追記する。
-- [ ] [CLI input combination contract](../specs/cli.md#contract-input-combination) に、優先対象が inventory structure であり、SBOM-only population と SBOM graph を捨てないことを追記する。
-- [ ] [Package-manager specification](../specs/packagemanager.md) の「Neither input path is generally better」が license evidence の観測に限定された結論であることを明確化する。
-- [ ] license candidateには blanket precedenceを導入しないことを明記する。
-
-完了条件:
-
-- inventory structure、artifact observation、license evidence の三つが別の規則として読める。
-- 「Native graph > SBOM」がSBOM-only componentの削除やSBOM evidenceの無視を意味しない。
-- 現行behaviorを変更しないため、このphaseではreport schema versionを変更しない。
-
-#### Phase 2 — P1: `DependencyType` semanticsを実測・監査する
-
-目的: 実装変更の前に strongest-wins が実際の mixed input で何を隠すかを確認し、A/B/C のいずれを採るか決める。
-
-- [ ] ecosystem別に、同一projectのnative resolved inputとnative-generator / general scanner SBOMを対にしたfixtureまたはharnessを用意する。
-- [ ] `root/direct/transitive/unknown` の一致・不一致をcomponent supply別に集計する。
-- [ ] 不一致について、missing edge、異なるroot scope、workspace差、artifact差、generator defectを分類する。
-- [ ] dependency filter、development-only policy、summaryへの影響を確認する。
-- [ ] A/B/C をcorrectness、explainability、compatibility、performanceで比較し、decision recordを残す。
-
-最低限のcase:
-
-- package-manager `transitive` / SBOM `direct`。
-- package-manager `direct` / SBOM `transitive`。
-- package-manager `unknown` / SBOM `direct`。
-- package-manager `direct` / SBOM `unknown`。
-- package-managerに複数installation、SBOMに一component。
-- SBOM-only component。
-- SBOMにroot componentがあるがpackage-manager側には対応package rowがない場合。
-- 同じpurlだが異なるworkspace / target / artifact graphに属する場合。
-
-完了条件:
-
-- strongest-winsを維持または変更する根拠がreal inputの観測と明示的semanticsで説明できる。
-- `DependencyType`を読む利用者が何を証明された値として扱えるか定義されている。
-- implementation phaseのcompatibility要件とschema影響が確定している。
-
-#### Phase 3 — P2: 決定したbehaviorをtest-firstで実装する
-
-目的: Phase 2のdecisionを最小のmodel変更で実装する。
-
-- [ ] 先に mixed-input regression test を新しい期待値で追加または更新する。
-- [ ] combiner、report projection、filter / grouping / policyへの影響を必要な範囲だけ変更する。
-- [ ] package-manager-only、SBOM-only、複数package-manager inputの既存contractを維持する。
-- [ ] purl identity、installation fan-out、candidate reconciliation、`suppliedBy` tallyが変わらないことを確認する。
-- [ ] canonical JSONのobservable changeがある場合はschema versionとmigration policyを更新する。
-
-完了条件:
-
-- Phase 2で選んだsemanticsをunit / CLI testが再現する。
-- inventoryのoccurrence / edge indexが全inputで正しくremapされる。
-- license conflict、SBOM-only population、package-manager installation granularityを失わない。
-- representative mixed-input benchmarkに有意なregressionがない。
-
-#### Phase 4 — P2: 利用者向けguidanceと検証を更新する
-
-目的: 入力の選び方を単純なSBOM対package-managerの勝敗ではなく、目的別に説明する。
-
-- [ ] README / skill / CLI guidanceで、inventory骨格にはnative resolved outputを推奨する。
-- [ ] artifact inclusionやpackage-manager外componentの観測にはartifact-derived SBOMを併用することを案内する。
-- [ ] license completenessはecosystemとSBOM generatorに依存するため、`suppliedBy`とcandidate provenanceを確認するよう案内する。
-- [ ] mixed-input verification corpusとbenchmarkを継続実行できる形にする。
-
-完了条件:
-
-- 利用者が「SBOMだけ」「package-managerだけ」「両方」の選択を、population、graph fidelity、license evidenceの目的から判断できる。
-- 文書が一律に「SBOMが上」「package-managerが上」と推奨しない。
+`DependencyTypes.Merge` と `DependencyInventoryCombiner.MergeDependencyType` は同一実装が二箇所にある。前者は一つの graph の複数観測を集約する intra-input 用、後者は input 境界を跨ぐ cross-input 用で、意味が異なる。P0 で cross-input 側の入口を `FoldDependencyType` として名前で分けたが、実装の重複自体は残っている。P2 の判断が A か C になった場合、この二つは別々の規則になるため統合してはならない。B になった場合のみ統合を検討できる。
 
 ### 非目標
 
-- SBOM入力supportを廃止すること。
-- SBOM-only componentをinventoryから削除すること。
-- SBOM graphやoccurrenceをpackage-manager graphへ推測で接続すること。
-- package-manager license claimを常にSBOM claimより優先すること。
-- SBOM generatorの品質差をOlが暗黙に補正・推測すること。
-- dependency resolutionをOl内部で実行すること。
+- SBOM 入力 support を廃止すること。
+- SBOM-only component を inventory から削除すること。
+- SBOM graph や occurrence を package-manager graph へ推測で接続すること。
+- package-manager license claim を常に SBOM claim より優先すること。
+- SBOM generator の品質差を Ol が暗黙に補正・推測すること。
+- dependency resolution を Ol 内部で実行すること。
 
 ### 関連実装と仕様
 
 - [Architecture: input combination](../Architecture.md#decision-input-combination)
 - [CLI: component supply](../specs/cli.md#contract-component-supply)
 - [CLI: input combination](../specs/cli.md#contract-input-combination)
+- [CLI: folded relationship](../specs/cli.md#contract-folded-relationship)
+- [CLI: development usage and SBOM](../specs/cli.md#contract-development-usage-and-sbom)
 - [Package-manager evidence lessons](../specs/packagemanager.md#lessons-learned)
 - [`DependencyInventoryCombiner`](../../../src/Ol.Core/DependencyInventoryCombiner.cs)
-- [`DependencyInventory`](../../../src/Ol.Core/DependencyInventory.cs)
+- [`DependencyType`](../../../src/Ol.Core/DependencyType.cs)
 - [`MixedInputScanTests`](../../../tests/Ol.Tests/MixedInputScanTests.cs)
 - [Component Detection comparison](../references/component_detection.md)

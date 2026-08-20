@@ -480,7 +480,7 @@ public static class DependencyInventoryCombiner
     {
         var merged = target with
         {
-            DependencyType = MergeDependencyType(target.DependencyType, source.DependencyType),
+            DependencyType = FoldDependencyType(target.DependencyType, source.DependencyType),
             SuppliedBy = target.SuppliedBy | source.SuppliedBy,
             RepositoryUrl = target.RepositoryUrl.IsEmpty ? source.RepositoryUrl : target.RepositoryUrl,
         };
@@ -492,6 +492,15 @@ public static class DependencyInventoryCombiner
 
         return merged;
     }
+
+    // Merging across the SBOM boundary is not the same operation as merging two observations of one graph. A
+    // package-manager input listing a component is itself the determination that the component is a dependency of the
+    // scanned resolution, and only an SBOM ever states Root. The SBOM's root is the root of its own graph, so it
+    // describes the receiving row no better than silence does and is dropped rather than merged. Policy skips a root,
+    // so merging it would let a second input withdraw a resolved dependency from the gate. An SBOM root that no
+    // package-manager input answers for never reaches here: it keeps its own row, and its own relationship with it.
+    private static DependencyType FoldDependencyType(DependencyType resolved, DependencyType sbom)
+        => sbom == DependencyType.Root ? resolved : MergeDependencyType(resolved, sbom);
 
     private static DependencyType MergeDependencyType(DependencyType left, DependencyType right)
     {

@@ -548,6 +548,8 @@ ol diff --previous before.json --current after.json --format json
 
 `diff` reports additions, removals, and version, status, license, or evidence changes. It exits `0` when comparison succeeds even when changes exist; policy enforcement belongs to `check`.
 
+Before the changes it states the boundary each report was produced under — excluded input paths, `--dependency` filter, and input coverage — whenever the two reports do not obviously describe the same population. A report that read fewer inputs holds fewer components, and every one of them shows up as a removal, so without the boundary "an input was not read" and "a dependency was removed" are the same diff.
+
 ### Write SARIF
 
 ```bash

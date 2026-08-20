@@ -108,8 +108,16 @@ public sealed class CliDiffTests
             var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
+
+            // The addition here is the previous report having resolved nothing, so the baseline is what changed
+            // rather than the dependency set. The boundary states it on whichever side it happened.
             await Assert.That(result.Stdout).IsEqualTo(string.Join(Environment.NewLine,
             [
+                "Input coverage:",
+                "  previous: no resolved dependencies; 1 detected file; no ignored candidates; no incomplete input sets",
+                "  current: 1 detected file; no ignored candidates; no incomplete input sets",
+                "  changed: yes",
+                "",
                 "License-relevant changes: 1 change in 1 component.",
                 "",
                 "+ npm:example@2.0.0",
@@ -135,8 +143,16 @@ public sealed class CliDiffTests
             var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
+
+            // The removal here is the current report resolving nothing, not a dependency being dropped. The
+            // changes list cannot tell those apart, so the coverage boundary states which one happened.
             await Assert.That(result.Stdout).IsEqualTo(string.Join(Environment.NewLine,
             [
+                "Input coverage:",
+                "  previous: 1 detected file; no ignored candidates; no incomplete input sets",
+                "  current: no resolved dependencies; 1 detected file; no ignored candidates; no incomplete input sets",
+                "  changed: yes",
+                "",
                 "License-relevant changes: 1 change in 1 component.",
                 "",
                 "- npm:example@1.0.0",
@@ -497,6 +513,188 @@ public sealed class CliDiffTests
         {
             Cleanup(previous, current);
         }
+    }
+
+    /// <summary>
+    /// Discovery that ignored nothing, skipped nothing, and read the same number of files on both sides drew no
+    /// boundary, so there is nothing to state. This is the same rule the two boundaries above follow; only what
+    /// counts as "no boundary" differs, because a detected-file count is never zero the way an exclusion list is.
+    /// </summary>
+    [Test]
+    public async Task Diff_WithMatchingInputCoverage_OmitsTheBoundary()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "Apache-2.0");
+        try
+        {
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).DoesNotContain("Input coverage:");
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    /// <summary>
+    /// A report that read fewer files holds fewer components, and every one of them is reported as removed. Without
+    /// the count, "an input was not read" and "a dependency was removed" are the same diff.
+    /// </summary>
+    [Test]
+    public async Task Diff_WithDifferentDetectedFileCount_StatesTheInputCoverageBoundary()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
+        try
+        {
+            await SetInputDiscoveryAsync(previous, detectedFileCount: 3);
+            await SetInputDiscoveryAsync(current, detectedFileCount: 1);
+
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("Input coverage:");
+            await Assert.That(result.Stdout).Contains("previous: 3 detected files; no ignored candidates; no incomplete input sets");
+            await Assert.That(result.Stdout).Contains("current: 1 detected file; no ignored candidates; no incomplete input sets");
+            await Assert.That(result.Stdout).Contains("changed: yes");
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WithIgnoredCandidateOnOneSide_NamesItInTheInputCoverageBoundary()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
+        try
+        {
+            await SetInputDiscoveryAsync(previous, detectedFileCount: 1);
+            await SetInputDiscoveryAsync(current, detectedFileCount: 1, ignoredCandidates: ["Cargo.toml"]);
+
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("current: 1 detected file; 1 ignored candidate (Cargo.toml); no incomplete input sets");
+            await Assert.That(result.Stdout).Contains("changed: yes");
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    /// <summary>
+    /// The case the boundary exists for: a report that resolved nothing makes every component on the other side
+    /// read as removed, and the changes list alone cannot say which of the two happened.
+    /// </summary>
+    [Test]
+    public async Task Diff_WithCurrentReportDeclaringNoComponents_StatesItInTheInputCoverageBoundary()
+    {
+        var root = FindRepositoryRoot();
+        var previous = await WriteReportAsync(root, "MIT");
+        var current = await WriteReportAsync(root, "MIT", includeComponent: false);
+        try
+        {
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("Input coverage:");
+            await Assert.That(result.Stdout).Contains("current: no resolved dependencies;");
+            await Assert.That(result.Stdout).Contains("changed: yes");
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    [Test]
+    public async Task Diff_WithJsonFormat_WritesInputCoverageUnconditionally()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "Apache-2.0");
+        try
+        {
+            var result = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, "--format", "Json");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            using var document = JsonDocument.Parse(result.Stdout);
+            var coverage = document.RootElement.GetProperty("inputCoverage");
+
+            await Assert.That(coverage.GetProperty("changed").GetBoolean()).IsFalse();
+            var currentSide = coverage.GetProperty("current");
+            await Assert.That(currentSide.GetProperty("declaresNoComponents").GetBoolean()).IsFalse();
+            await Assert.That(currentSide.GetProperty("inputDiscovery").GetProperty("detectedFileCount").GetInt32()).IsEqualTo(1);
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    /// <summary>
+    /// An older Ol detected input files without recording how many, so reading the absent object as zeros would
+    /// state something the report never said. A comparison that could not be made is not the same claim as a
+    /// comparison that found nothing, so the boundary appears and reports its own limit instead of "no".
+    /// </summary>
+    [Test]
+    public async Task Diff_WithReportPredatingInputDiscovery_StatesTheBoundaryAsUnstated()
+    {
+        var root = FindRepositoryRoot();
+        var (previous, current) = await WriteReportsAsync(root, "MIT", "MIT");
+        try
+        {
+            await RemoveInputDiscoveryAsync(previous);
+
+            var text = await RunOlAsync(root, "diff", "--previous", previous, "--current", current);
+            var json = await RunOlAsync(root, "diff", "--previous", previous, "--current", current, "--format", "Json");
+
+            await Assert.That(text.ExitCode).IsEqualTo(0);
+            await Assert.That(text.Stdout).Contains("previous: not stated");
+            await Assert.That(text.Stdout).Contains("changed: unknown");
+
+            using var document = JsonDocument.Parse(json.Stdout);
+            var coverage = document.RootElement.GetProperty("inputCoverage");
+            await Assert.That(coverage.GetProperty("changed").ValueKind).IsEqualTo(JsonValueKind.Null);
+            await Assert.That(coverage.GetProperty("previous").GetProperty("inputDiscovery").ValueKind).IsEqualTo(JsonValueKind.Null);
+            await Assert.That(coverage.GetProperty("previous").GetProperty("declaresNoComponents").GetBoolean()).IsFalse();
+        }
+        finally
+        {
+            Cleanup(previous, current);
+        }
+    }
+
+    private static async Task SetInputDiscoveryAsync(
+        string reportPath,
+        int detectedFileCount,
+        string[]? ignoredCandidates = null,
+        int incompleteInputSetCount = 0)
+    {
+        ignoredCandidates ??= [];
+        var candidates = new JsonArray();
+        for (var i = 0; i < ignoredCandidates.Length; i++) candidates.Add(ignoredCandidates[i]);
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(reportPath))!.AsObject();
+        document["metadata"]!["inputDiscovery"] = new JsonObject
+        {
+            ["detectedFileCount"] = detectedFileCount,
+            ["ignoredCandidateCount"] = ignoredCandidates.Length,
+            ["ignoredCandidates"] = candidates,
+            ["incompleteInputSetCount"] = incompleteInputSetCount,
+        };
+        await File.WriteAllTextAsync(reportPath, document.ToJsonString());
+    }
+
+    private static async Task RemoveInputDiscoveryAsync(string reportPath)
+    {
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(reportPath))!.AsObject();
+        document["metadata"]!.AsObject().Remove("inputDiscovery");
+        await File.WriteAllTextAsync(reportPath, document.ToJsonString());
     }
 
     private static async Task SetViewAsync(string reportPath, string? dependencyFilter, int excludedCount, int excludedUnknownCount)

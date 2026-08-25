@@ -81,9 +81,8 @@ internal static class KnownUnsupportedInputCandidates
         }
     }
 
-    public static void DetectFile(string path, ref InputCandidateDiagnostics diagnostics)
+    public static void DetectFileName(ReadOnlySpan<char> fileName, ref InputCandidateDiagnostics diagnostics)
     {
-        var fileName = Path.GetFileName(path.AsSpan());
         var extension = Path.GetExtension(fileName);
         for (var ruleIndex = 0; ruleIndex < Rules.Length; ruleIndex++)
         {

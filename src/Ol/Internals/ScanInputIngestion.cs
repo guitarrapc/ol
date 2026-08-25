@@ -397,7 +397,7 @@ internal static class ScanInputIngestion
         excludedInputPaths = exclusions.LogicalPaths;
         var enumerationOptions = new EnumerationOptions
         {
-            RecurseSubdirectories = false,
+            RecurseSubdirectories = true,
             AttributesToSkip = FileAttributes.ReparsePoint,
             IgnoreInaccessible = false,
             MatchCasing = MatchCasing.CaseInsensitive,
@@ -429,11 +429,11 @@ internal static class ScanInputIngestion
             {
                 // An explicit format is an assertion about what to scan, so detecting the candidates it
                 // excludes would report a deliberate choice as an oversight.
-                DiscoverDirectoryFiles(inputPath, rootName, [selection.ExpectedHandler], enumerationOptions, exclusions.FullPaths, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: false);
+                DiscoverDirectoryFiles(inputPath, rootName, selection.ExpectedHandler, enumerationOptions, exclusions.FullPaths, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: false);
                 continue;
             }
 
-            DiscoverDirectoryFiles(inputPath, rootName, DependencyInputRegistry.Default.RegisteredHandlers, enumerationOptions, exclusions.FullPaths, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: true);
+            DiscoverDirectoryFiles(inputPath, rootName, default, enumerationOptions, exclusions.FullPaths, collectedByPath, ref inputCandidateDiagnostics, detectUnsupportedCandidates: true);
         }
 
         if (collectedByPath.Count == 0)
@@ -460,59 +460,44 @@ internal static class ScanInputIngestion
     private static void DiscoverDirectoryFiles(
         string directory,
         string rootName,
-        ReadOnlySpan<DependencyInputHandler> handlers,
+        DependencyInputHandler expectedHandler,
         EnumerationOptions options,
         string[] excludedPaths,
         Dictionary<string, CollectedInputFile> collectedByPath,
         ref InputCandidateDiagnostics inputCandidateDiagnostics,
         bool detectUnsupportedCandidates)
     {
-        var pendingDirectories = new Stack<string>();
-        pendingDirectories.Push(directory);
-        while (pendingDirectories.Count > 0)
+        var matcher = new DirectoryDiscoveryMatcher(directory, rootName, expectedHandler, excludedPaths, inputCandidateDiagnostics, detectUnsupportedCandidates);
+        var entries = new FileSystemEnumerable<CollectedInputFile>(directory, matcher.Transform, options)
         {
-            var currentDirectory = pendingDirectories.Pop();
-            foreach (var path in Directory.EnumerateFiles(currentDirectory, "*", options))
-            {
-                var fullPath = Path.GetFullPath(path);
-                if (IsExcluded(fullPath, excludedPaths))
-                {
-                    continue;
-                }
-
-                if (detectUnsupportedCandidates)
-                {
-                    KnownUnsupportedInputCandidates.DetectFile(fullPath, ref inputCandidateDiagnostics);
-                }
-
-                if (!MatchesRegisteredFileName(Path.GetFileName(fullPath.AsSpan()), handlers)) continue;
-
-                var relativePath = Path.GetRelativePath(directory, fullPath).Replace('\\', '/');
-                AddCollectedFile(collectedByPath, fullPath, string.Concat(rootName, "/", relativePath), discovered: true);
-            }
-
-            foreach (var path in Directory.EnumerateDirectories(currentDirectory, "*", options))
-            {
-                var fullPath = Path.GetFullPath(path);
-                if (!IsExcluded(fullPath, excludedPaths))
-                {
-                    pendingDirectories.Push(fullPath);
-                }
-            }
+            ShouldIncludePredicate = matcher.ShouldInclude,
+            ShouldRecursePredicate = matcher.ShouldRecurse,
+        };
+        foreach (var file in entries)
+        {
+            AddCollectedFile(collectedByPath, file.Path, file.LogicalPath, discovered: true);
         }
+
+        inputCandidateDiagnostics = matcher.Diagnostics;
     }
 
     private static bool MatchesRegisteredFileName(ReadOnlySpan<char> fileName, ReadOnlySpan<DependencyInputHandler> handlers)
     {
         for (var handlerIndex = 0; handlerIndex < handlers.Length; handlerIndex++)
         {
-            var registeredFileNames = handlers[handlerIndex].DirectoryFileNames.Span;
-            for (var fileNameIndex = 0; fileNameIndex < registeredFileNames.Length; fileNameIndex++)
+            if (MatchesRegisteredFileName(fileName, handlers[handlerIndex].DirectoryFileNames.Span)) return true;
+        }
+
+        return false;
+    }
+
+    private static bool MatchesRegisteredFileName(ReadOnlySpan<char> fileName, ReadOnlySpan<string> registeredFileNames)
+    {
+        for (var fileNameIndex = 0; fileNameIndex < registeredFileNames.Length; fileNameIndex++)
+        {
+            if (fileName.Equals(registeredFileNames[fileNameIndex], StringComparison.OrdinalIgnoreCase))
             {
-                if (fileName.Equals(registeredFileNames[fileNameIndex], StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
+                return true;
             }
         }
 
@@ -833,15 +818,43 @@ internal static class ScanInputIngestion
     }
 
     private static bool IsDescendant(string path, string directory)
+        => IsDescendant(path.AsSpan(), directory.AsSpan());
+
+    private static bool IsDescendant(ReadOnlySpan<char> path, ReadOnlySpan<char> directory)
     {
-        if (path.Length <= directory.Length || !path.AsSpan(0, directory.Length).Equals(directory, StringComparison.Ordinal))
+        if (path.Length <= directory.Length || !path[..directory.Length].Equals(directory, StringComparison.Ordinal))
         {
             return false;
         }
 
         var separator = path[directory.Length];
-        return separator == Path.DirectorySeparatorChar || separator == Path.AltDirectorySeparatorChar;
+        return IsDirectorySeparator(separator);
     }
+
+    private static bool EntryPathEquals(ReadOnlySpan<char> directory, ReadOnlySpan<char> fileName, ReadOnlySpan<char> path)
+    {
+        if (!path.StartsWith(directory, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var fileNameOffset = directory.Length;
+        if (fileNameOffset > 0 && !IsDirectorySeparator(directory[^1]))
+        {
+            if (path.Length <= fileNameOffset || !IsDirectorySeparator(path[fileNameOffset]))
+            {
+                return false;
+            }
+
+            fileNameOffset++;
+        }
+
+        return path.Length == fileNameOffset + fileName.Length
+            && path[fileNameOffset..].Equals(fileName, StringComparison.Ordinal);
+    }
+
+    private static bool IsDirectorySeparator(char value)
+        => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
 
     private static void AddCollectedFile(Dictionary<string, CollectedInputFile> collectedByPath, string path, string logicalPath, bool discovered)
     {
@@ -890,6 +903,70 @@ internal static class ScanInputIngestion
     }
 
     private readonly record struct ResolvedFileSystemEntry(string? FullPath, bool IsDirectory);
+
+    private sealed class DirectoryDiscoveryMatcher(
+        string directory,
+        string rootName,
+        DependencyInputHandler expectedHandler,
+        string[] excludedPaths,
+        InputCandidateDiagnostics diagnostics,
+        bool detectUnsupportedCandidates)
+    {
+        private InputCandidateDiagnostics diagnostics = diagnostics;
+        private readonly bool hasExpectedFormat = !string.IsNullOrEmpty(expectedHandler.Format.Name);
+
+        public InputCandidateDiagnostics Diagnostics => diagnostics;
+
+        public bool ShouldInclude(ref FileSystemEntry entry)
+        {
+            if (entry.IsDirectory || IsExcluded(ref entry))
+            {
+                return false;
+            }
+
+            var fileName = entry.FileName;
+            if (detectUnsupportedCandidates)
+            {
+                KnownUnsupportedInputCandidates.DetectFileName(fileName, ref diagnostics);
+            }
+
+            return hasExpectedFormat
+                ? MatchesRegisteredFileName(fileName, expectedHandler.DirectoryFileNames.Span)
+                : MatchesRegisteredFileName(fileName, DependencyInputRegistry.Default.RegisteredHandlers);
+        }
+
+        public bool ShouldRecurse(ref FileSystemEntry entry) => entry.IsDirectory && !IsExcluded(ref entry);
+
+        public CollectedInputFile Transform(ref FileSystemEntry entry)
+        {
+            var fullPath = entry.ToFullPath();
+            var relativePath = Path.GetRelativePath(directory, fullPath).Replace('\\', '/');
+            return new CollectedInputFile(fullPath, string.Concat(rootName, "/", relativePath), Discovered: true);
+        }
+
+        private bool IsExcluded(ref FileSystemEntry entry)
+        {
+            if (excludedPaths.Length == 0)
+            {
+                return false;
+            }
+
+            var entryDirectory = entry.Directory;
+            var entryName = entry.FileName;
+            for (var excludedIndex = 0; excludedIndex < excludedPaths.Length; excludedIndex++)
+            {
+                var excludedPath = excludedPaths[excludedIndex].AsSpan();
+                if (entryDirectory.Equals(excludedPath, StringComparison.Ordinal)
+                    || IsDescendant(entryDirectory, excludedPath)
+                    || EntryPathEquals(entryDirectory, entryName, excludedPath))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
 
     private sealed class RequestedPathSegmentMatcher(PendingPathResolution[] requests, List<int> requestIndexes)
     {

@@ -909,10 +909,10 @@ internal static class ScanInputIngestion
         string rootName,
         DependencyInputHandler expectedHandler,
         string[] excludedPaths,
-        InputCandidateDiagnostics diagnostics,
+        InputCandidateDiagnostics initialDiagnostics,
         bool detectUnsupportedCandidates)
     {
-        private InputCandidateDiagnostics diagnostics = diagnostics;
+        private InputCandidateDiagnostics diagnostics = initialDiagnostics;
         private readonly bool hasExpectedFormat = !string.IsNullOrEmpty(expectedHandler.Format.Name);
 
         public InputCandidateDiagnostics Diagnostics => diagnostics;

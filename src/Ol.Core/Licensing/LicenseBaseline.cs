@@ -400,6 +400,12 @@ public sealed class LicenseBaseline
         return result != 0 ? result : Utf8Slice.CompareOrdinal(leftReference.Value, rightReference.Value);
     }
 
+    /// <summary>Maps a declared reference kind to the token the fingerprint and the baseline entry name it by.</summary>
+    /// <remarks>
+    /// A reference is null when nothing was declared, so <see cref="DeclaredLicenseReferenceKind.None"/> never reaches
+    /// here and the one remaining kind is the fallback. The tokens are the ones the report writes and reads back, so a
+    /// fingerprint and the report that explains it name the same reference the same way.
+    /// </remarks>
     private static ReadOnlySpan<byte> DeclaredReferenceKindToUtf8(DeclaredLicenseReferenceKind kind) => kind switch
     {
         DeclaredLicenseReferenceKind.Location => "location"u8,

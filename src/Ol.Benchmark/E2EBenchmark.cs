@@ -71,6 +71,7 @@ public class E2EBenchmark : IDisposable
             """;
         File.WriteAllText(Path.Combine(directoryInputPath, "server", "package-lock.json"), packageLock);
         File.WriteAllText(Path.Combine(excludedDirectoryPath, "package-lock.json"), packageLock);
+        CreateExcludedDirectoryNoise();
         var cache = new PackageMetadataCache(cacheRoot);
         cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []))
             .GetAwaiter()
@@ -98,8 +99,13 @@ public class E2EBenchmark : IDisposable
     [Benchmark]
     public int ScanNuGetJsonWithCachedMetadata() => RunNuGet(ReportFormat.Json);
 
+    // Keep an unfiltered directory scan beside the excluded scan. A single excluded case cannot tell whether
+    // pruning paid for itself or merely added option handling overhead.
+    [Benchmark(Baseline = true)]
+    public int ScanDirectoryWithoutExcludedSubtree() => RunDirectory(ReportFormat.Json, excludeInputPath: false);
+
     [Benchmark]
-    public int ScanDirectoryWithExcludedSubtree() => RunDirectory(ReportFormat.Json);
+    public int ScanDirectoryWithExcludedSubtree() => RunDirectory(ReportFormat.Json, excludeInputPath: true);
 
     public void Dispose()
     {
@@ -138,7 +144,7 @@ public class E2EBenchmark : IDisposable
         }
     }
 
-    private int RunDirectory(ReportFormat format)
+    private int RunDirectory(ReportFormat format, bool excludeInputPath)
     {
         var standardOut = Console.Out;
         try
@@ -146,7 +152,7 @@ public class E2EBenchmark : IDisposable
             Console.SetOut(TextWriter.Null);
             return scanCommands.Scan(
                 input: [directoryInputPath],
-                excludeInputPath: [excludedDirectoryPath],
+                excludeInputPath: excludeInputPath ? [excludedDirectoryPath] : null,
                 format: format,
                 quiet: true,
                 noExternalEvidence: true,
@@ -156,6 +162,29 @@ public class E2EBenchmark : IDisposable
         finally
         {
             Console.SetOut(standardOut);
+        }
+    }
+
+    private void CreateExcludedDirectoryNoise()
+    {
+        // A monorepo documentation tree is usually both deep and file-heavy. Keep it outside the timed section,
+        // while making enough entries for directory enumeration and pruning to be visible in the measurement.
+        const int branchCount = 8;
+        const int depth = 3;
+        const int filesPerDirectory = 32;
+        for (var branch = 0; branch < branchCount; branch++)
+        {
+            var directory = Path.Combine(excludedDirectoryPath, $"site-{branch}");
+            for (var level = 0; level < depth; level++)
+            {
+                Directory.CreateDirectory(directory);
+                for (var file = 0; file < filesPerDirectory; file++)
+                {
+                    File.WriteAllText(Path.Combine(directory, $"generated-{file}.json"), "{}\n");
+                }
+
+                directory = Path.Combine(directory, $"section-{level}");
+            }
         }
     }
 }

@@ -146,10 +146,43 @@ public sealed class LicenseBaselineTests
     }
 
     [Test]
+    public async Task ComputeFingerprint_WithDifferentDeclaredReferenceOrder_IsStable()
+    {
+        var firstReference = CandidateWithDeclaredReference("https://licenses.example.test/first");
+        var secondReference = CandidateWithDeclaredReference("https://licenses.example.test/second");
+        var first = CreateComponent(LicenseStatus.Unknown, firstReference, secondReference);
+        var second = CreateComponent(LicenseStatus.Unknown, secondReference, firstReference);
+
+        await Assert.That(LicenseBaseline.ComputeFingerprint(first)).IsEqualTo(LicenseBaseline.ComputeFingerprint(second));
+    }
+
+    [Test]
     public async Task ComputeFingerprint_WhenRawValueChanges_Changes()
     {
         var before = CreateComponent(LicenseStatus.Unknown, Candidate(LicenseCandidateSource.NpmRegistry, string.Empty, string.Empty));
         var after = CreateComponent(LicenseStatus.Unknown, Candidate(LicenseCandidateSource.NpmRegistry, "MIT-0", string.Empty));
+
+        await Assert.That(LicenseBaseline.ComputeFingerprint(before)).IsNotEqualTo(LicenseBaseline.ComputeFingerprint(after));
+    }
+
+    [Test]
+    public async Task ComputeFingerprint_WithoutDeclaredReference_RemainsCompatible()
+    {
+        var component = CreateComponent(LicenseStatus.Unknown, Candidate(LicenseCandidateSource.NuGetRegistry, string.Empty, string.Empty));
+
+        await Assert.That(LicenseBaseline.ComputeFingerprint(component))
+            .IsEqualTo("bd8b170cf7dab400eef16e3d8cd9f4f3b39e2bfbc08e7c9ec82ce9bd9e3ad6a4");
+    }
+
+    [Test]
+    public async Task ComputeFingerprint_WhenDeclaredLicenseReferenceChanges_Changes()
+    {
+        var before = CreateComponent(
+            LicenseStatus.Unknown,
+            CandidateWithDeclaredReference("http://go.microsoft.com/fwlink/?LinkId=329770"));
+        var after = CreateComponent(
+            LicenseStatus.Unknown,
+            CandidateWithDeclaredReference("https://licenses.example.test/MIT"));
 
         await Assert.That(LicenseBaseline.ComputeFingerprint(before)).IsNotEqualTo(LicenseBaseline.ComputeFingerprint(after));
     }
@@ -265,6 +298,21 @@ public sealed class LicenseBaselineTests
         await Assert.That(text).Contains("\"raw\": \"BSD\"");
         await Assert.That(text).Contains("\"source\": \"sbom\"");
         await Assert.That(text).Contains("\"status\": \"ambiguous\"");
+    }
+
+    [Test]
+    public async Task Serialize_RetainsDeclaredLicenseReferenceForReviewWithoutTreatingItAsRawLicense()
+    {
+        var policy = CreatePolicy("MIT");
+        var component = CreateComponent(
+            LicenseStatus.Unknown,
+            CandidateWithDeclaredReference("http://go.microsoft.com/fwlink/?LinkId=329770"));
+
+        var text = Encoding.UTF8.GetString(LicenseBaseline.Serialize(LicenseBaseline.CreateEntries([component], policy), "1.0.0", "x"));
+
+        await Assert.That(text).Contains("\"raw\": \"\"");
+        await Assert.That(text).Contains("\"declaredLicenseReferenceKind\": \"location\"");
+        await Assert.That(text).Contains("\"declaredLicenseReference\": \"http://go.microsoft.com/fwlink/?LinkId=329770\"");
     }
 
     [Test]
@@ -422,6 +470,14 @@ public sealed class LicenseBaselineTests
 
     private static LicenseCandidate Candidate(LicenseCandidateSource source, string raw, string normalized)
         => new(source, LicenseCandidateKind.License, raw, normalized, LicenseStatus.Unknown, false, LicenseCandidateWarnings.None);
+
+    private static LicenseCandidate CandidateWithDeclaredReference(string reference)
+        => Candidate(LicenseCandidateSource.NuGetRegistry, string.Empty, string.Empty) with
+        {
+            Evidence = new LicenseEvidence(
+                LicenseEvidenceKind.PackageRegistry,
+                DeclaredReference: new DeclaredLicenseReference(DeclaredLicenseReferenceKind.Location, Utf8Slice.FromString(reference))),
+        };
 
     private static LicenseCandidate ListingCandidate(string raw)
         => LicenseCandidateFactory.CreateLicenseSet(LicenseCandidateSource.DepsDev, Utf8Slice.FromString(raw), Spdx);

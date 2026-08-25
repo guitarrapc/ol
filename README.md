@@ -453,7 +453,7 @@ Acknowledged by baseline: 1 component.
 License check passed: 2 components satisfy the allow-list.
 ```
 
-`ol-baseline.json` now records that component with the evidence that produced it, plus a fingerprint of that evidence. Commit the file; the raw claims are in it, so a reviewer can judge a future change from the pull request diff alone.
+`ol-baseline.json` now records that component with the evidence that produced it, plus a fingerprint of that evidence. Commit the file; its raw claims and any publisher-declared license references are in it, so a reviewer can judge a future change from the pull request diff alone.
 
 ```json
 {

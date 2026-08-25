@@ -456,7 +456,7 @@ Acknowledged by baseline: 1 component.
 License check passed: 2 components satisfy the allow-list.
 ```
 
-`ol-baseline.json`には、対象コンポーネントと、その結論を生んだ証拠、そして証拠の指紋が記録されます。このファイルをバージョン管理へ追加します。生の証拠値が入っているため、以降の変更はPRのdiffだけで判断できます。
+`ol-baseline.json`には、対象コンポーネントと、その結論を生んだ証拠、そして証拠の指紋が記録されます。このファイルをバージョン管理へ追加します。生の証拠値と、パブリッシャーが宣言したライセンス参照先が入っているため、以降の変更はPRのdiffだけで判断できます。
 
 ```json
 {

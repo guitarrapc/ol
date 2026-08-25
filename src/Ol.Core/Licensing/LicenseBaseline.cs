@@ -6,12 +6,20 @@ using System.Text.Json;
 
 namespace Ol.Core.Licensing;
 
-/// <summary>Represents one raw license claim retained for review inside a baseline entry.</summary>
+/// <summary>Represents one license evidence item retained for review inside a baseline entry.</summary>
 /// <param name="Source">The evidence source token.</param>
 /// <param name="Kind">The evidence kind token.</param>
 /// <param name="Raw">The raw claim, truncated for display when overlong.</param>
 /// <param name="Truncated">Whether <paramref name="Raw"/> was shortened.</param>
-public readonly record struct LicenseBaselineEvidence(string Source, string Kind, string Raw, bool Truncated);
+/// <param name="DeclaredLicenseReferenceKind">What sort of license reference the publisher declared.</param>
+/// <param name="DeclaredLicenseReference">The declared license reference, exactly as the publisher wrote it.</param>
+public readonly record struct LicenseBaselineEvidence(
+    string Source,
+    string Kind,
+    string Raw,
+    bool Truncated,
+    string DeclaredLicenseReferenceKind = "",
+    string DeclaredLicenseReference = "");
 
 /// <summary>Represents one acknowledged unresolved component.</summary>
 /// <param name="Ecosystem">The package ecosystem, when known.</param>
@@ -19,8 +27,8 @@ public readonly record struct LicenseBaselineEvidence(string Source, string Kind
 /// <param name="Version">The component version.</param>
 /// <param name="Purl">The versioned package URL, when available.</param>
 /// <param name="Status">The acknowledged unresolved status token.</param>
-/// <param name="Evidence">The raw claims that produced the status.</param>
-/// <param name="Fingerprint">The lowercase hex SHA-256 over the status and untruncated claims.</param>
+/// <param name="Evidence">The claims and declared references that produced the status.</param>
+/// <param name="Fingerprint">The lowercase hex SHA-256 over the status and untruncated evidence.</param>
 public sealed record LicenseBaselineEntry(
     string Ecosystem,
     string Name,
@@ -58,7 +66,7 @@ public sealed class LicenseBaseline
 
     /// <summary>
     /// Computes the fingerprint that makes an acknowledgement expire by itself. It covers the status and
-    /// every raw claim, so a version bump, a corrected registry record, or a changed license file drops
+    /// every raw claim and declared reference, so a version bump, a corrected registry record, or a changed license file drops
     /// the entry and the component fails again until it is reviewed anew.
     /// </summary>
     public static string ComputeFingerprint(in ScanComponent component)
@@ -81,6 +89,13 @@ public sealed class LicenseBaseline
             Write(buffer, candidate.Kind.ToUtf8());
             buffer.Write([FieldSeparator]);
             Write(buffer, candidate.Raw.Span);
+            if (candidate.Evidence.DeclaredReference is { } declaredReference)
+            {
+                buffer.Write([FieldSeparator]);
+                Write(buffer, DeclaredReferenceKindToUtf8(declaredReference.Kind));
+                buffer.Write([FieldSeparator]);
+                Write(buffer, declaredReference.Value.Span);
+            }
             buffer.Write([RecordSeparator]);
         }
 
@@ -189,6 +204,11 @@ public sealed class LicenseBaseline
                     writer.WriteString("kind"u8, evidence.Kind);
                     writer.WriteString("raw"u8, evidence.Raw);
                     if (evidence.Truncated) writer.WriteBoolean("truncated"u8, true);
+                    if (evidence.DeclaredLicenseReferenceKind.Length != 0)
+                    {
+                        writer.WriteString("declaredLicenseReferenceKind"u8, evidence.DeclaredLicenseReferenceKind);
+                        writer.WriteString("declaredLicenseReference"u8, evidence.DeclaredLicenseReference);
+                    }
                     writer.WriteEndObject();
                 }
 
@@ -316,11 +336,14 @@ public sealed class LicenseBaseline
             var candidate = component.GetCandidate(i);
             var raw = candidate.Raw.ToString();
             var truncated = raw.Length > MaxRawLength;
+            var declaredReference = candidate.Evidence.DeclaredReference;
             evidence[i] = new LicenseBaselineEvidence(
                 Encoding.UTF8.GetString(candidate.Source.ToUtf8()),
                 Encoding.UTF8.GetString(candidate.Kind.ToUtf8()),
                 truncated ? raw[..MaxRawLength] : raw,
-                truncated);
+                truncated,
+                declaredReference is null ? string.Empty : Encoding.UTF8.GetString(DeclaredReferenceKindToUtf8(declaredReference.Kind)),
+                declaredReference?.Value.ToString() ?? string.Empty);
         }
 
         Array.Sort(evidence, static (left, right) =>
@@ -328,7 +351,11 @@ public sealed class LicenseBaseline
             var result = string.CompareOrdinal(left.Source, right.Source);
             if (result != 0) return result;
             result = string.CompareOrdinal(left.Kind, right.Kind);
-            return result != 0 ? result : string.CompareOrdinal(left.Raw, right.Raw);
+            if (result != 0) return result;
+            result = string.CompareOrdinal(left.Raw, right.Raw);
+            if (result != 0) return result;
+            result = string.CompareOrdinal(left.DeclaredLicenseReferenceKind, right.DeclaredLicenseReferenceKind);
+            return result != 0 ? result : string.CompareOrdinal(left.DeclaredLicenseReference, right.DeclaredLicenseReference);
         });
 
         return new LicenseBaselineEntry(
@@ -360,8 +387,25 @@ public sealed class LicenseBaseline
         var result = left.Source.ToUtf8().SequenceCompareTo(right.Source.ToUtf8());
         if (result != 0) return result;
         result = left.Kind.ToUtf8().SequenceCompareTo(right.Kind.ToUtf8());
-        return result != 0 ? result : Utf8Slice.CompareOrdinal(left.Raw, right.Raw);
+        if (result != 0) return result;
+        result = Utf8Slice.CompareOrdinal(left.Raw, right.Raw);
+        if (result != 0) return result;
+
+        var leftReference = left.Evidence.DeclaredReference;
+        var rightReference = right.Evidence.DeclaredReference;
+        if (leftReference is null) return rightReference is null ? 0 : -1;
+        if (rightReference is null) return 1;
+
+        result = leftReference.Kind.CompareTo(rightReference.Kind);
+        return result != 0 ? result : Utf8Slice.CompareOrdinal(leftReference.Value, rightReference.Value);
     }
+
+    private static ReadOnlySpan<byte> DeclaredReferenceKindToUtf8(DeclaredLicenseReferenceKind kind) => kind switch
+    {
+        DeclaredLicenseReferenceKind.Location => "location"u8,
+        DeclaredLicenseReferenceKind.InlineText => "inline-text"u8,
+        _ => "artifact-path"u8,
+    };
 
     private static string BuildLookupKey(in ScanComponent component, string fingerprint)
         => BuildLookupKey(component.Ecosystem ?? string.Empty, component.Name.ToString(), component.Version.ToString(), component.Purl.ToString(), fingerprint);

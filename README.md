@@ -384,7 +384,7 @@ ol scan --input product-a --input product-b \
   --exclude-input-path product-b/docs
 ```
 
-Paths are exact, existing files or directories relative to the current working directory; globs are not supported. This affects only ol's directory discovery, so apply the same exclusion when generating a repository-wide SBOM.
+Paths are exact, existing files or directories relative to the current working directory; globs are not supported. An explicitly named directory that is itself inside an exclusion is skipped, while an explicitly named file inside one is rejected. This affects only ol's directory discovery, so apply the same exclusion when generating a repository-wide SBOM.
 
 ## Common operations
 

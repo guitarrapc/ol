@@ -3015,6 +3015,76 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithExplicitDirectoryInsideExcludedPath_SkipsThatInput()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-explicit-excluded-directory-{Guid.NewGuid():N}");
+        var includedDirectory = Path.Combine(temporaryDirectory, "server");
+        var excludedDirectory = Path.Combine(temporaryDirectory, "documents");
+        Directory.CreateDirectory(includedDirectory);
+        Directory.CreateDirectory(excludedDirectory);
+        await File.WriteAllTextAsync(Path.Combine(includedDirectory, "package-lock.json"), CreatePackageLock("server", "server-dependency"), Encoding.UTF8);
+        await File.WriteAllTextAsync(Path.Combine(excludedDirectory, "package-lock.json"), CreatePackageLock("documents", "documents-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                temporaryDirectory,
+                "--input",
+                excludedDirectory,
+                "--exclude-input-path",
+                excludedDirectory,
+                "--no-external-evidence",
+                "--format",
+                "json");
+
+            await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
+            await Assert.That(stderr).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            await Assert.That(report.RootElement.GetProperty("components")[0].GetProperty("name").GetString()).IsEqualTo("server-dependency");
+            await Assert.That(report.RootElement.GetProperty("components").GetArrayLength()).IsEqualTo(1);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithOnlyExplicitDirectoryInsideExcludedPath_ReportsNoInputs()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-only-explicit-excluded-directory-{Guid.NewGuid():N}");
+        var excludedDirectory = Path.Combine(temporaryDirectory, "documents");
+        var nestedDirectory = Path.Combine(excludedDirectory, "site");
+        Directory.CreateDirectory(nestedDirectory);
+        await File.WriteAllTextAsync(Path.Combine(nestedDirectory, "package-lock.json"), CreatePackageLock("documents", "documents-dependency"), Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(
+                root,
+                "scan",
+                "--input",
+                nestedDirectory,
+                "--exclude-input-path",
+                excludedDirectory,
+                "--no-external-evidence");
+
+            await Assert.That(exitCode).IsEqualTo(1);
+            await Assert.That(stdout).IsEmpty();
+            await Assert.That(stderr).Contains("No registered dependency input files were found in the input directories.");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithExcludedPathOutsideStrictDescendant_ReturnsInputError()
     {
         var root = FindRepositoryRoot();
@@ -3035,7 +3105,7 @@ public sealed class CliScanTests
 
             await Assert.That(self.ExitCode).IsEqualTo(1);
             await Assert.That(self.Stdout).IsEmpty();
-            await Assert.That(self.Stderr).Contains("cannot exclude itself");
+            await Assert.That(self.Stderr).Contains("No registered dependency input files were found in the input directories.");
 
             var outside = await RunOlAsync(
                 root,

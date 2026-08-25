@@ -419,6 +419,11 @@ internal static class ScanInputIngestion
                 continue;
             }
 
+            if (exclusions.SkippedDirectoryInputs is { } skippedDirectoryInputs && skippedDirectoryInputs[inputIndex])
+            {
+                continue;
+            }
+
             var rootName = new DirectoryInfo(inputPath).Name;
             if (selection.HasExpectedFormat)
             {
@@ -744,30 +749,46 @@ internal static class ScanInputIngestion
     {
         if (selection.ExcludedPaths.Length == 0)
         {
-            return new ResolvedInputExclusions([], []);
+            return new ResolvedInputExclusions([], [], null);
         }
 
         var fullPaths = new List<string>(selection.ExcludedPaths.Length);
         var fullPathSet = new HashSet<string>(StringComparer.Ordinal);
         var logicalPaths = new List<string>(selection.ExcludedPaths.Length);
+        var skippedDirectoryInputs = new bool[selection.Paths.Length];
         for (var excludedIndex = 0; excludedIndex < selection.ExcludedPaths.Length; excludedIndex++)
         {
             var excludedPath = selection.ExcludedPaths[excludedIndex];
             var fullExcludedPath = resolvedPaths.ExcludedPaths[excludedIndex];
 
-            var matchedDirectoryInput = false;
+            var matchedInput = false;
             string? logicalPath = null;
             for (var inputIndex = 0; inputIndex < selection.Paths.Length; inputIndex++)
             {
                 var inputRoot = resolvedPaths.InputPaths[inputIndex];
+                if (File.Exists(inputRoot))
+                {
+                    if (string.Equals(inputRoot, fullExcludedPath, StringComparison.Ordinal) || IsDescendant(inputRoot, fullExcludedPath))
+                    {
+                        matchedInput = true;
+                    }
+
+                    continue;
+                }
+
                 if (!Directory.Exists(inputRoot))
                 {
                     continue;
                 }
 
-                if (string.Equals(inputRoot, fullExcludedPath, StringComparison.Ordinal))
+                if (string.Equals(inputRoot, fullExcludedPath, StringComparison.Ordinal) || IsDescendant(inputRoot, fullExcludedPath))
                 {
-                    throw new InvalidOperationException($"An input directory cannot exclude itself: {excludedPath}");
+                    // An explicit directory that is itself inside an exclusion is intentionally skipped. This
+                    // keeps an excluded subtree from being traversed a second time through a narrower input.
+                    skippedDirectoryInputs[inputIndex] = true;
+                    matchedInput = true;
+                    logicalPath ??= Path.GetRelativePath(Environment.CurrentDirectory, fullExcludedPath).Replace('\\', '/');
+                    continue;
                 }
 
                 if (!IsDescendant(fullExcludedPath, inputRoot))
@@ -775,16 +796,18 @@ internal static class ScanInputIngestion
                     continue;
                 }
 
-                matchedDirectoryInput = true;
+                matchedInput = true;
                 logicalPath ??= (Path.IsPathRooted(excludedPath)
                     ? Path.GetRelativePath(inputRoot, fullExcludedPath)
                     : Path.GetRelativePath(Environment.CurrentDirectory, fullExcludedPath)).Replace('\\', '/');
             }
 
-            if (!matchedDirectoryInput)
+            if (!matchedInput)
             {
                 throw new InvalidOperationException($"Excluded input path must be inside a directory input: {excludedPath}");
             }
+
+            logicalPath ??= Path.GetRelativePath(Environment.CurrentDirectory, fullExcludedPath).Replace('\\', '/');
 
             if (fullPathSet.Add(fullExcludedPath))
             {
@@ -793,7 +816,7 @@ internal static class ScanInputIngestion
             }
         }
 
-        return new ResolvedInputExclusions(fullPaths.ToArray(), logicalPaths.ToArray());
+        return new ResolvedInputExclusions(fullPaths.ToArray(), logicalPaths.ToArray(), skippedDirectoryInputs);
     }
 
     private static bool IsExcluded(string path, string[] excludedPaths)
@@ -851,7 +874,7 @@ internal static class ScanInputIngestion
     private readonly record struct CollectedInputFile(string Path, string LogicalPath, bool Discovered);
 
     /// <summary>Canonical paths used for pruning and logical paths persisted in the report.</summary>
-    private readonly record struct ResolvedInputExclusions(string[] FullPaths, string[] LogicalPaths);
+    private readonly record struct ResolvedInputExclusions(string[] FullPaths, string[] LogicalPaths, bool[]? SkippedDirectoryInputs);
 
     /// <summary>Actual file-system paths for named inputs and exclusions, preserving the casing returned by enumeration.</summary>
     private readonly record struct ResolvedScanPaths(string[] InputPaths, string[] ExcludedPaths);

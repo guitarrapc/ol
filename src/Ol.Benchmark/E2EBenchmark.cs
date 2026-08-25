@@ -8,6 +8,8 @@ public class E2EBenchmark : IDisposable
     private readonly ScanCommands scanCommands = new(Stream.Null);
     private readonly string nugetAssetsPath;
     private readonly string sbomPath;
+    private readonly string directoryInputPath;
+    private readonly string excludedDirectoryPath;
     private readonly string workingDirectory;
 
     public E2EBenchmark()
@@ -16,7 +18,11 @@ public class E2EBenchmark : IDisposable
         cacheRoot = Path.Combine(workingDirectory, "package-metadata");
         sbomPath = Path.Combine(workingDirectory, "bom.json");
         nugetAssetsPath = Path.Combine(workingDirectory, "project.assets.json");
+        directoryInputPath = Path.Combine(workingDirectory, "directory-input");
+        excludedDirectoryPath = Path.Combine(directoryInputPath, "documents");
         Directory.CreateDirectory(workingDirectory);
+        Directory.CreateDirectory(Path.Combine(directoryInputPath, "server"));
+        Directory.CreateDirectory(excludedDirectoryPath);
         File.WriteAllText(
             sbomPath,
             """
@@ -50,6 +56,21 @@ public class E2EBenchmark : IDisposable
               }
             }
             """);
+        const string packageLock =
+            """
+            {
+              "name": "benchmark-app",
+              "version": "1.0.0",
+              "lockfileVersion": 3,
+              "requires": true,
+              "packages": {
+                "": { "name": "benchmark-app", "version": "1.0.0", "dependencies": { "example": "1.0.0" } },
+                "node_modules/example": { "version": "1.0.0", "license": "MIT" }
+              }
+            }
+            """;
+        File.WriteAllText(Path.Combine(directoryInputPath, "server", "package-lock.json"), packageLock);
+        File.WriteAllText(Path.Combine(excludedDirectoryPath, "package-lock.json"), packageLock);
         var cache = new PackageMetadataCache(cacheRoot);
         cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []))
             .GetAwaiter()
@@ -76,6 +97,9 @@ public class E2EBenchmark : IDisposable
 
     [Benchmark]
     public int ScanNuGetJsonWithCachedMetadata() => RunNuGet(ReportFormat.Json);
+
+    [Benchmark]
+    public int ScanDirectoryWithExcludedSubtree() => RunDirectory(ReportFormat.Json);
 
     public void Dispose()
     {
@@ -107,6 +131,27 @@ public class E2EBenchmark : IDisposable
         {
             Console.SetOut(TextWriter.Null);
             return scanCommands.Scan(input: [nugetAssetsPath], inputFormat: "nuget-assets", format: format, quiet: true, concurrency: 1, retry: 0);
+        }
+        finally
+        {
+            Console.SetOut(standardOut);
+        }
+    }
+
+    private int RunDirectory(ReportFormat format)
+    {
+        var standardOut = Console.Out;
+        try
+        {
+            Console.SetOut(TextWriter.Null);
+            return scanCommands.Scan(
+                input: [directoryInputPath],
+                excludeInputPath: [excludedDirectoryPath],
+                format: format,
+                quiet: true,
+                noExternalEvidence: true,
+                concurrency: 1,
+                retry: 0);
         }
         finally
         {

@@ -32,7 +32,8 @@ internal static class SarifRenderer
         ReadOnlySpan<LicensePolicyViolation> violations,
         ReadOnlySpan<int> developmentAllowedComponents,
         string toolVersion,
-        ScanReportViewScope view = default)
+        ScanReportViewScope view = default,
+        ReadOnlySpan<string> excludedInputPaths = default)
     {
         var buffer = new ArrayBufferWriter<byte>(512 + (violations.Length * 320) + (developmentAllowedComponents.Length * 160));
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
@@ -60,7 +61,7 @@ internal static class SarifRenderer
             }
 
             writer.WriteEndArray();
-            WriteRunProperties(writer, components, developmentAllowedComponents, view);
+            WriteRunProperties(writer, components, developmentAllowedComponents, view, excludedInputPaths);
             writer.WriteEndObject();
             writer.WriteEndArray();
             writer.WriteEndObject();
@@ -76,16 +77,38 @@ internal static class SarifRenderer
         Utf8JsonWriter writer,
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<int> developmentAllowedComponents,
-        in ScanReportViewScope view)
+        in ScanReportViewScope view,
+        ReadOnlySpan<string> excludedInputPaths)
     {
-        if (developmentAllowedComponents.Length == 0 && !view.IsFiltered)
+        if (developmentAllowedComponents.Length == 0 && !view.IsFiltered && excludedInputPaths.IsEmpty)
         {
             return;
         }
 
         writer.WriteStartObject("properties"u8);
+        WriteInputScope(writer, excludedInputPaths);
         WriteEvaluatedView(writer, view);
         WriteDevelopmentAllowances(writer, components, developmentAllowedComponents);
+        writer.WriteEndObject();
+    }
+
+    /// <summary>Records the repository paths omitted before input discovery, so SARIF remains auditable on its own.</summary>
+    private static void WriteInputScope(Utf8JsonWriter writer, ReadOnlySpan<string> excludedInputPaths)
+    {
+        if (excludedInputPaths.IsEmpty)
+        {
+            return;
+        }
+
+        writer.WriteStartObject("inputScope"u8);
+        writer.WriteNumber("excludedPathCount"u8, excludedInputPaths.Length);
+        writer.WriteStartArray("excludedPaths"u8);
+        for (var i = 0; i < excludedInputPaths.Length; i++)
+        {
+            writer.WriteStringValue(excludedInputPaths[i]);
+        }
+
+        writer.WriteEndArray();
         writer.WriteEndObject();
     }
 

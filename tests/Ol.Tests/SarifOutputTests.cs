@@ -285,6 +285,42 @@ public sealed class SarifOutputTests
         }
     }
 
+    [Test]
+    public async Task Sarif_WithExcludedInputPaths_RecordsTheAuditBoundaryInRunProperties()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "GPL-3.0-only", transitiveLicense: "MIT");
+        var scanRoot = Path.Combine(Path.GetTempPath(), $"ol-sarif-scope-{Guid.NewGuid():N}");
+        var excludedDirectory = Path.Combine(scanRoot, "documents");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        Directory.CreateDirectory(excludedDirectory);
+        var includedDirectory = Path.Combine(scanRoot, "server");
+        Directory.CreateDirectory(includedDirectory);
+        File.Copy(input, Path.Combine(includedDirectory, "package-lock.json"));
+        File.Copy(input, Path.Combine(excludedDirectory, "package-lock.json"));
+
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", scanRoot, "--exclude-input-path", excludedDirectory, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, scan.Stdout);
+
+            var check = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+            var properties = document.RootElement.GetProperty("runs")[0].GetProperty("properties");
+            var inputScope = properties.GetProperty("inputScope");
+
+            await Assert.That(check.ExitCode).IsEqualTo(2).Because($"{check.Stderr}\n{check.Stdout}");
+            await Assert.That(inputScope.GetProperty("excludedPathCount").GetInt32()).IsEqualTo(1);
+            await Assert.That(inputScope.GetProperty("excludedPaths")[0].GetString()).IsEqualTo("documents");
+        }
+        finally
+        {
+            Cleanup(input, scanRoot, reportPath, sarifPath);
+        }
+    }
+
     /// <summary>
     /// Both facts are run-level metadata, so they share one <c>properties</c> object. Writing a second one would
     /// emit a duplicate key that a reader resolves by taking whichever came first, silently losing the other.

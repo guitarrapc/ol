@@ -4,16 +4,16 @@
 class Ol < Formula
   desc "Check open-source licenses in resolved dependencies and SBOMs"
   homepage "https://github.com/guitarrapc/ol"
-  version "0.9.3"
+  version "0.9.4"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/guitarrapc/ol/releases/download/v0.9.3/ol-osx-arm64.tar.gz"
-      sha256 "69913f702b215e8addfb1aeae6f21145ed12dc18294ad34da40d85c08a9dc6c8"
+      url "https://github.com/guitarrapc/ol/releases/download/v0.9.4/ol-osx-arm64.tar.gz"
+      sha256 "594db413a0d2a14f4e66c4eac206ad6b153b387d60b0bb851eb011c92b7db8d8"
     elsif Hardware::CPU.intel?
-      url "https://github.com/guitarrapc/ol/releases/download/v0.9.3/ol-osx-amd64.tar.gz"
-      sha256 "1f877be3a921a594314252f7f933e13ac47c99da9ccd85282542747c7136a9ff"
+      url "https://github.com/guitarrapc/ol/releases/download/v0.9.4/ol-osx-amd64.tar.gz"
+      sha256 "8aa0540087af485caba8fc4e2e082ade20b7069bbeb6db0b1e837b3650805ed5"
     else
       odie "ol: unsupported macOS CPU"
     end
@@ -21,11 +21,11 @@ class Ol < Formula
 
   on_linux do
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/guitarrapc/ol/releases/download/v0.9.3/ol-linux-arm64.tar.gz"
-      sha256 "bcf82c3aa1a5b8f9936022bdf44a72118a8584cd01d00865b5961f5cb15c7359"
+      url "https://github.com/guitarrapc/ol/releases/download/v0.9.4/ol-linux-arm64.tar.gz"
+      sha256 "8df50f6dfd427825f1e4a34423235ebb2373a7c2726285f5a2ca270cc94ee03b"
     elsif Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/guitarrapc/ol/releases/download/v0.9.3/ol-linux-amd64.tar.gz"
-      sha256 "30809bba6dae161b19c4e45ea1c27e961f0d87af3a7462359f0f1d54a5ea28ae"
+      url "https://github.com/guitarrapc/ol/releases/download/v0.9.4/ol-linux-amd64.tar.gz"
+      sha256 "c7a4f896e09d0eacca35f4f0a5ff515b21d01ad528b9323fd2c4baed1be46fb3"
     else
       odie "ol: unsupported Linux CPU"
     end

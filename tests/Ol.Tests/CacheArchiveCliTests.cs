@@ -204,6 +204,7 @@ public sealed class CacheArchiveCliTests
             var directory = await RunOlAsync("cache", "info", source);
             var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
             var packed = await RunOlAsync("cache", "info", archive);
+            var packedMarkdown = await RunOlAsync("cache", "info", archive, "--format", "markdown");
 
             await Assert.That(directory.ExitCode).IsEqualTo(0).Because(directory.Stderr);
             await Assert.That(directory.Stdout).Contains("Cache directory");
@@ -218,6 +219,37 @@ public sealed class CacheArchiveCliTests
             await Assert.That(packed.Stdout).Contains("Categories:");
             await Assert.That(packed.Stdout).Contains("package-metadata");
             await Assert.That(packed.Stdout).Contains(cacheKey);
+            await Assert.That(packedMarkdown.ExitCode).IsEqualTo(0).Because(packedMarkdown.Stderr);
+            await Assert.That(packedMarkdown.Stdout.ReplaceLineEndings("\n")).StartsWith("# Cache archive\n\n| Property | Value |\n|---|---|\n");
+            await Assert.That(packedMarkdown.Stdout).Contains("| Archive size | ");
+            await Assert.That(packedMarkdown.Stdout).Contains(cacheKey);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithMarkdownFormat_RendersSummaryAndEntriesAsTables()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-markdown-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source, "--format", "markdown");
+            var output = result.Stdout.ReplaceLineEndings("\n");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(output).StartsWith("# Cache directory\n\n| Property | Value |\n|---|---|\n");
+            await Assert.That(output).Contains("## Categories\n\n| Category | Path | Entries | Size | Unmanaged files |");
+            await Assert.That(output).Contains("## Entries\n\n| Category | Cache key | Fetched at | Size | Status | Details |");
+            await Assert.That(output).Contains(cacheKey);
+            await Assert.That(output).DoesNotContain("fetched-at=");
         }
         finally
         {

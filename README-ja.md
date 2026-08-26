@@ -172,7 +172,7 @@ Commands:
 | `ol skill export-plugin` | SkillをポータブルなAgent Pluginとして出力する。 |
 | `ol cache clear` | olが管理する証拠キャッシュを削除する。 |
 | `ol cache list` | cacheの場所、エントリ数、サイズを一覧表示する。 |
-| `ol cache info` | cacheディレクトリまたは`.olcache`アーカイブの内容を表示する。 |
+| `ol cache info` | cacheディレクトリまたは`.olcache`アーカイブの内容を表示する。`--format markdown`でテーブル表示できる。 |
 | `ol cache pack` | 証拠キャッシュを決定的な`.olcache`アーカイブにまとめる。 |
 | `ol cache prune` | 指定した期間より古い管理対象キャッシュを削除する。`--dry-run`で削除対象とサイズを事前確認できる。 |
 | `ol cache unpack` | `.olcache`アーカイブを分離されたキャッシュディレクトリへ復元する。 |
@@ -286,7 +286,8 @@ olは依存関係を何度も問い合わせないようキャッシュを生成
 ```bash
 ol cache list
 ol cache info
-ol cache info shared-cache.olcache
+ol cache info --format markdown
+ol cache info shared-cache.olcache --format markdown
 ol cache prune --max-age 30d --dry-run
 ```
 

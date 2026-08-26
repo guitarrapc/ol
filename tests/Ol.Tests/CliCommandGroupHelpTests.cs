@@ -98,6 +98,8 @@ public sealed class CliCommandGroupHelpTests
         await Assert.That(info.ExitCode).IsEqualTo(0);
         await Assert.That(info.Stdout).Contains("Usage: cache info [arguments...] [options...]");
         await Assert.That(info.Stdout).Contains("Cache directory or .olcache archive path");
+        await Assert.That(info.Stdout).Contains("--format <CacheInfoFormat>");
+        await Assert.That(info.Stdout).Contains("Output format: text or markdown.");
         await Assert.That(list.ExitCode).IsEqualTo(0);
         await Assert.That(list.Stdout).Contains("Usage: cache list [options...]");
         await Assert.That(pack.Stdout).Contains("Usage: cache pack [arguments...] [options...]");

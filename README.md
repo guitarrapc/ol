@@ -173,7 +173,7 @@ Commands:
 | `ol skill export-plugin` | Export the skill as a portable Agent Plugin package. |
 | `ol cache clear` | Clear evidence caches managed by ol. |
 | `ol cache list` | List resolved cache locations, entry counts, and sizes. |
-| `ol cache info` | Show the contents of a cache directory or `.olcache` archive. |
+| `ol cache info` | Show the contents of a cache directory or `.olcache` archive; `--format markdown` renders tables. |
 | `ol cache pack` | Pack evidence caches into a deterministic `.olcache` archive. |
 | `ol cache prune` | Remove managed cache entries older than a specified age; `--dry-run` previews the entries and bytes without deleting. |
 | `ol cache unpack` | Restore a `.olcache` archive into an isolated cache directory. |
@@ -285,7 +285,8 @@ ol caches collected license evidence to avoid repeating the same requests. Users
 ```bash
 ol cache list
 ol cache info
-ol cache info shared-cache.olcache
+ol cache info --format markdown
+ol cache info shared-cache.olcache --format markdown
 ol cache prune --max-age 30d --dry-run
 ```
 

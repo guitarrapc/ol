@@ -51,6 +51,16 @@ internal sealed class CacheCommands
                 ? FormattableString.Invariant($"{bytes / 1024d:F1} KiB")
                 : $"{bytes} bytes";
 
+    private static string FormatEntryCount(int count)
+        => FormattableString.Invariant($"{count} {(count == 1 ? "entry" : "entries")}");
+
+    private static long GetCategoryBytes(CacheCategoryInfo category)
+    {
+        long bytes = 0;
+        for (var i = 0; i < category.Entries.Count; i++) bytes = checked(bytes + category.Entries[i].Bytes);
+        return bytes;
+    }
+
     /// <summary>
     /// Unpacks one Ol cache archive into the managed cache directories.
     /// </summary>
@@ -73,12 +83,87 @@ internal sealed class CacheCommands
     }
 
     /// <summary>
+    /// Lists managed cache locations and their sizes.
+    /// </summary>
+    /// <param name="cacheDir">Root directory containing the managed cache categories.</param>
+    [Command("list")]
+    public int List(string? cacheDir = null)
+    {
+        try
+        {
+            var result = CacheArchive.Inspect(CachePaths.Resolve(cacheDir));
+            Console.WriteLine("Cache locations:");
+            for (var i = 0; i < result.Categories.Count; i++)
+            {
+                var category = result.Categories[i];
+                Console.WriteLine($"  {category.Category}: {category.Path} ({FormatEntryCount(category.Entries.Count)}, {FormatBytes(GetCategoryBytes(category))})");
+            }
+
+            Console.WriteLine($"Total: {FormatEntryCount(result.EntryCount)} ({FormatBytes(result.TotalBytes)})");
+            return 0;
+        }
+        catch (Exception exception) when (CacheArchive.IsExpectedFailure(exception))
+        {
+            Console.Error.WriteLine($"Cache list failed: {exception.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// Shows the contents of a cache directory or archive.
+    /// </summary>
+    /// <param name="path">Cache directory or .olcache archive path. Defaults to the resolved cache location.</param>
+    /// <param name="cacheDir">Root directory containing the managed cache categories when path is omitted.</param>
+    [Command("info")]
+    public int Info([Argument] string? path = null, string? cacheDir = null)
+    {
+        try
+        {
+            var result = path is null
+                ? CacheArchive.Inspect(CachePaths.Resolve(cacheDir), cacheDir is null ? null : Path.GetFullPath(cacheDir))
+                : CacheArchive.Inspect(path);
+            Console.WriteLine($"Type: {(result.IsArchive ? "cache archive" : "cache directory")}");
+            if (!string.IsNullOrEmpty(result.Path)) Console.WriteLine($"Path: {result.Path}");
+            Console.WriteLine($"Entries: {FormatEntryCount(result.EntryCount)} ({FormatBytes(result.TotalBytes)})");
+            for (var i = 0; i < result.Categories.Count; i++)
+            {
+                var category = result.Categories[i];
+                Console.WriteLine($"{category.Category}: {category.Path} ({FormatEntryCount(category.Entries.Count)})");
+                for (var j = 0; j < category.Entries.Count; j++)
+                {
+                    var entry = category.Entries[j];
+                    if (entry.Error is not null)
+                    {
+                        Console.WriteLine($"  {entry.Name}: invalid ({FormatBytes(entry.Bytes)}) - {entry.Error}");
+                        continue;
+                    }
+
+                    Console.WriteLine($"  {entry.CacheKey}  fetched-at={entry.FetchedAt:O}  size={FormatBytes(entry.Bytes)}");
+                }
+
+                if (category.UnmanagedFileCount > 0)
+                {
+                    Console.WriteLine($"  unmanaged files: {category.UnmanagedFileCount}");
+                }
+            }
+
+            return 0;
+        }
+        catch (Exception exception) when (CacheArchive.IsExpectedFailure(exception))
+        {
+            Console.Error.WriteLine($"Cache info failed: {exception.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>
     /// Removes managed cache entries older than the specified age.
     /// </summary>
     /// <param name="maxAge">Remove entries older than this duration, such as 30d, 12h, or 90m.</param>
+    /// <param name="dryRun">Report the entries and bytes that would be removed without changing the cache.</param>
     /// <param name="cacheDir">Root directory containing the managed cache categories.</param>
     [Command("prune")]
-    public int Prune(string maxAge, string? cacheDir = null)
+    public int Prune(string maxAge, bool dryRun = false, string? cacheDir = null)
     {
         if (!CacheArchive.TryParseMaxAge(maxAge, out var maximumAge))
         {
@@ -88,8 +173,10 @@ internal sealed class CacheCommands
 
         try
         {
-            var count = CacheArchive.Prune(CachePaths.Resolve(cacheDir), maximumAge!.Value, DateTimeOffset.UtcNow);
-            Console.WriteLine($"Pruned {count} cache {(count == 1 ? "entry" : "entries")}");
+            var result = CacheArchive.Prune(CachePaths.Resolve(cacheDir), maximumAge!.Value, DateTimeOffset.UtcNow, dryRun);
+            var verb = dryRun ? "Would prune" : "Pruned";
+            var reclaimed = dryRun ? "free" : "freed";
+            Console.WriteLine($"{verb} {result.PrunedCount} cache {(result.PrunedCount == 1 ? "entry" : "entries")} ({reclaimed} {FormatBytes(result.ReclaimedBytes)}; managed cache {FormatBytes(result.BeforeBytes)} -> {FormatBytes(result.AfterBytes)})");
             return 0;
         }
         catch (Exception exception) when (CacheArchive.IsExpectedFailure(exception))

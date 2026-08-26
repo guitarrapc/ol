@@ -167,6 +167,87 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
+    public async Task CacheList_WithCacheDirectory_ShowsLocationsAndManagedEntrySizes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-list-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "list", "--cache-dir", source);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains($"package-metadata: {Path.Combine(source, "package-metadata")}");
+            await Assert.That(result.Stdout).Contains("1 entry");
+            await Assert.That(result.Stdout).Contains("Total: 1 entry");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithDirectoryAndArchive_ShowsLogicalEntries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var archive = Path.Combine(root, "cache.olcache");
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var directory = await RunOlAsync("cache", "info", source);
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+            var packed = await RunOlAsync("cache", "info", archive);
+
+            await Assert.That(directory.ExitCode).IsEqualTo(0).Because(directory.Stderr);
+            await Assert.That(directory.Stdout).Contains("Type: cache directory");
+            await Assert.That(directory.Stdout).Contains(cacheKey);
+            await Assert.That(pack.ExitCode).IsEqualTo(0).Because(pack.Stderr);
+            await Assert.That(packed.ExitCode).IsEqualTo(0).Because(packed.Stderr);
+            await Assert.That(packed.Stdout).Contains("Type: cache archive");
+            await Assert.That(packed.Stdout).Contains("package-metadata");
+            await Assert.That(packed.Stdout).Contains(cacheKey);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Prune_WithDryRun_ReportsReclaimedBytesWithoutDeleting()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-prune-dry-run-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        const string cacheKey = "pkg:npm/old@1.0.0";
+        var cache = new PackageMetadataCache(category);
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], [], FetchedAt: DateTimeOffset.UtcNow.AddDays(-31)));
+        var entryPath = cache.GetPath(cacheKey);
+
+        try
+        {
+            var result = await RunOlAsync("cache", "prune", "--cache-dir", source, "--max-age", "30d", "--dry-run");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Would prune 1 cache entry");
+            await Assert.That(result.Stdout).Contains("free");
+            await Assert.That(result.Stdout).Contains("->");
+            await Assert.That(File.Exists(entryPath)).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Pack_WithMaxAge_IncludesOnlyRecentEntries()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-max-age-{Guid.NewGuid():N}");

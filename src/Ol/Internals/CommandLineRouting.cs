@@ -152,7 +152,7 @@ internal static class CommandLineRouting
             return false;
         }
 
-        if (IsFrameworkOutput(args[1]) || args[1] == "clear")
+        if (IsFrameworkOutput(args[1]) || args[1] is "clear" or "list")
         {
             error = string.Empty;
             return true;
@@ -180,9 +180,9 @@ internal static class CommandLineRouting
             return false;
         }
 
-        if (args[1] is "pack" or "unpack")
+        if (args[1] is "info" or "pack" or "unpack")
         {
-            if (args.Length > 2)
+            if (args[1] == "info" || args.Length > 2)
             {
                 error = string.Empty;
                 return true;

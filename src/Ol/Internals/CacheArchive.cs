@@ -21,6 +21,59 @@ internal readonly record struct CachePackResult(
     int SourceRepositoryCount,
     int GitHubFileCount);
 
+internal readonly record struct CachePruneResult(
+    int PrunedCount,
+    long BeforeBytes,
+    long AfterBytes)
+{
+    public long ReclaimedBytes => BeforeBytes - AfterBytes;
+}
+
+internal readonly record struct CacheEntryInfo(
+    string Category,
+    string Name,
+    string? CacheKey,
+    DateTimeOffset? FetchedAt,
+    long Bytes,
+    string? Error);
+
+internal readonly record struct CacheCategoryInfo(
+    string Category,
+    string Path,
+    IReadOnlyList<CacheEntryInfo> Entries,
+    int UnmanagedFileCount);
+
+internal readonly record struct CacheInspectionResult(
+    bool IsArchive,
+    string Path,
+    IReadOnlyList<CacheCategoryInfo> Categories)
+{
+    public int EntryCount
+    {
+        get
+        {
+            var count = 0;
+            for (var i = 0; i < Categories.Count; i++) count += Categories[i].Entries.Count;
+            return count;
+        }
+    }
+
+    public long TotalBytes
+    {
+        get
+        {
+            long bytes = 0;
+            for (var i = 0; i < Categories.Count; i++)
+            {
+                var entries = Categories[i].Entries;
+                for (var j = 0; j < entries.Count; j++) bytes = checked(bytes + entries[j].Bytes);
+            }
+
+            return bytes;
+        }
+    }
+}
+
 internal static class CacheArchive
 {
     private const string ManifestName = "ol-cache-manifest.json";
@@ -158,6 +211,115 @@ internal static class CacheArchive
         }
     }
 
+    public static CacheInspectionResult Inspect(CacheDirectories directories, string? displayPath = null)
+    {
+        ValidateCachePaths(directories);
+        var categories = new List<CacheCategoryInfo>(Categories.Length);
+        for (var i = 0; i < Categories.Length; i++)
+        {
+            var category = Categories[i].Name;
+            categories.Add(InspectCategory(category, GetCategoryRoot(category, directories)));
+        }
+
+        return new(false, displayPath ?? string.Empty, categories);
+    }
+
+    public static CacheInspectionResult Inspect(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var fullPath = Path.GetFullPath(path);
+        ValidateLinkFreePath(fullPath, "Cache target");
+        if (Directory.Exists(fullPath))
+        {
+            for (var i = 0; i < Categories.Length; i++)
+            {
+                if (string.Equals(Path.GetFileName(fullPath), Categories[i].Name, StringComparison.Ordinal))
+                {
+                    return new(false, fullPath, [InspectCategory(Categories[i].Name, fullPath)]);
+                }
+            }
+
+            var directories = new CacheDirectories(
+                Path.Combine(fullPath, Categories[0].Name),
+                Path.Combine(fullPath, Categories[1].Name),
+                Path.Combine(fullPath, Categories[2].Name));
+            return Inspect(directories, fullPath);
+        }
+
+        if (File.Exists(fullPath)) return InspectArchive(fullPath);
+        throw new FileNotFoundException("Cache directory or archive was not found.", fullPath);
+    }
+
+    private static CacheInspectionResult InspectArchive(string archivePath)
+    {
+        ValidateLinkFreePath(archivePath, "Archive");
+        var archiveLength = new FileInfo(archivePath).Length;
+        if (archiveLength <= 0 || archiveLength > DefaultLimits.MaximumArchiveBytes)
+        {
+            throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
+        }
+
+        var stagingRoot = CreatePrivateStagingDirectory();
+        try
+        {
+            var stagedEntries = ReadArchive(archivePath, stagingRoot, DefaultLimits);
+            var categories = new List<CacheCategoryInfo>(Categories.Length);
+            for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
+            {
+                var category = Categories[categoryIndex].Name;
+                var entries = new List<CacheEntryInfo>();
+                for (var i = 0; i < stagedEntries.Count; i++)
+                {
+                    if (!string.Equals(stagedEntries[i].Category, category, StringComparison.Ordinal)) continue;
+                    var staged = stagedEntries[i];
+                    var metadata = ReadCacheEntryMetadata(staged.SourcePath, staged.FileName.AsSpan(0, 64), DefaultLimits.MaximumEntryBytes);
+                    entries.Add(new(category, staged.FileName, metadata.CacheKey, metadata.FetchedAt, new FileInfo(staged.SourcePath).Length, null));
+                }
+
+                entries.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
+                categories.Add(new(category, category, entries, 0));
+            }
+
+            return new(true, archivePath, categories);
+        }
+        finally
+        {
+            if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    private static CacheCategoryInfo InspectCategory(string category, string root)
+    {
+        var entries = new List<CacheEntryInfo>();
+        var unmanagedFileCount = 0;
+        if (!Directory.Exists(root)) return new(category, root, entries, unmanagedFileCount);
+
+        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))
+        {
+            var fileName = Path.GetFileName(path);
+            if (!IsCacheFileName(fileName))
+            {
+                unmanagedFileCount++;
+                continue;
+            }
+
+            ValidateLinkFreePath(path);
+            var bytes = new FileInfo(path).Length;
+            try
+            {
+                var metadata = ReadCacheEntryMetadata(path, fileName.AsSpan(0, 64), DefaultLimits.MaximumEntryBytes);
+                entries.Add(new(category, fileName, metadata.CacheKey, metadata.FetchedAt, bytes, null));
+            }
+            catch (Exception exception) when (IsExpectedFailure(exception))
+            {
+                entries.Add(new(category, fileName, null, null, bytes, exception.Message));
+            }
+        }
+
+        entries.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
+        return new(category, root, entries, unmanagedFileCount);
+    }
+
     public static bool TryParseMaxAge(string? value, out TimeSpan? maximumAge)
     {
         maximumAge = null;
@@ -187,10 +349,15 @@ internal static class CacheArchive
         => Directory.CreateTempSubdirectory("ol-cache-unpack-").FullName;
 
     public static int Prune(CacheDirectories directories, TimeSpan maximumAge, DateTimeOffset now)
+        => Prune(directories, maximumAge, now, dryRun: false).PrunedCount;
+
+    public static CachePruneResult Prune(CacheDirectories directories, TimeSpan maximumAge, DateTimeOffset now, bool dryRun)
     {
         ValidateCachePaths(directories);
         var cutoff = GetCutoff(maximumAge, now);
         var count = 0;
+        long beforeBytes = 0;
+        long reclaimedBytes = 0;
         for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
         {
             var root = GetCategoryRoot(Categories[categoryIndex].Name, directories);
@@ -202,15 +369,18 @@ internal static class CacheArchive
                 if (!IsCacheFileName(fileName)) continue;
                 ValidateLinkFreePath(path);
                 var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), DefaultLimits.MaximumEntryBytes);
+                var bytes = new FileInfo(path).Length;
+                beforeBytes = checked(beforeBytes + bytes);
                 if (fetchedAt >= cutoff) continue;
 
+                reclaimedBytes = checked(reclaimedBytes + bytes);
                 ValidateLinkFreePath(path);
-                File.Delete(path);
+                if (!dryRun) File.Delete(path);
                 count = checked(count + 1);
             }
         }
 
-        return count;
+        return new(count, beforeBytes, beforeBytes - reclaimedBytes);
     }
 
     internal static void ValidateArchiveOutputPaths(string outputPath, string temporaryPath)
@@ -340,6 +510,9 @@ internal static class CacheArchive
     }
 
     private static DateTimeOffset ValidateCacheEntry(string path, ReadOnlySpan<char> expectedHash, long maximumEntryBytes)
+        => ReadCacheEntryMetadata(path, expectedHash, maximumEntryBytes).FetchedAt;
+
+    private static CacheEntryMetadata ReadCacheEntryMetadata(string path, ReadOnlySpan<char> expectedHash, long maximumEntryBytes)
     {
         var length = new FileInfo(path).Length;
         if (length <= 0 || length > maximumEntryBytes) throw new InvalidDataException($"Cache entry size is invalid: {Path.GetFileName(path)}.");
@@ -374,7 +547,7 @@ internal static class CacheArchive
             throw new InvalidDataException($"Cache entry FetchedAt must be a UTC timestamp: {Path.GetFileName(path)}.");
         }
 
-        return fetchedAt;
+        return new(cacheKey, fetchedAt);
     }
 
     private static void ValidateCacheFileName(string fileName)
@@ -492,4 +665,5 @@ internal static class CacheArchive
     private readonly record struct CacheCategory(string Name);
     private readonly record struct ArchiveSourceEntry(string SourcePath, string ArchivePath, int CategoryIndex);
     private readonly record struct StagedEntry(string Category, string FileName, string SourcePath);
+    private readonly record struct CacheEntryMetadata(string CacheKey, DateTimeOffset FetchedAt);
 }

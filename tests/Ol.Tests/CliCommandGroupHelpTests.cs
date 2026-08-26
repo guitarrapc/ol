@@ -17,6 +17,8 @@ public sealed class CliCommandGroupHelpTests
           pack      Packs managed cache entries into one deterministic archive.
           prune     Removes managed cache entries older than the specified age.
           unpack    Unpacks an Ol cache archive into the managed cache directories.
+          info      Shows the contents of a cache directory or archive.
+          list      Lists managed cache locations and sizes.
         """)]
     [Arguments("spdx", """
         Usage: spdx [command] [-h|--help] [--version]
@@ -87,20 +89,30 @@ public sealed class CliCommandGroupHelpTests
         var root = FindRepositoryRoot();
 
         var pack = await RunOlAsync(root, "cache", "pack", "--help");
+        var info = await RunOlAsync(root, "cache", "info", "--help");
+        var list = await RunOlAsync(root, "cache", "list", "--help");
         var prune = await RunOlAsync(root, "cache", "prune", "--help");
         var unpack = await RunOlAsync(root, "cache", "unpack", "--help");
 
         await Assert.That(pack.ExitCode).IsEqualTo(0);
+        await Assert.That(info.ExitCode).IsEqualTo(0);
+        await Assert.That(info.Stdout).Contains("Usage: cache info [arguments...] [options...]");
+        await Assert.That(info.Stdout).Contains("Cache directory or .olcache archive path");
+        await Assert.That(list.ExitCode).IsEqualTo(0);
+        await Assert.That(list.Stdout).Contains("Usage: cache list [options...]");
         await Assert.That(pack.Stdout).Contains("Usage: cache pack [arguments...] [options...]");
         await Assert.That(pack.Stdout).Contains("[0] <string>    Output .olcache archive path.");
         await Assert.That(pack.Stdout).Contains("--max-age <string?>");
         await Assert.That(prune.ExitCode).IsEqualTo(0);
         await Assert.That(prune.Stdout).Contains("Usage: cache prune [options...]");
         await Assert.That(prune.Stdout).Contains("--max-age <string>");
+        await Assert.That(prune.Stdout).Contains("--dry-run");
         await Assert.That(unpack.ExitCode).IsEqualTo(0);
         await Assert.That(unpack.Stdout).Contains("Usage: cache unpack [arguments...] [options...]");
         await Assert.That(unpack.Stdout).Contains("[0] <string>    Input .olcache archive path.");
         await Assert.That(pack.Stderr).IsEmpty();
+        await Assert.That(info.Stderr).IsEmpty();
+        await Assert.That(list.Stderr).IsEmpty();
         await Assert.That(prune.Stderr).IsEmpty();
         await Assert.That(unpack.Stderr).IsEmpty();
     }

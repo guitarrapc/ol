@@ -169,7 +169,7 @@ internal static class CommandLineRouting
             for (var i = 2; i < args.Length; i++)
             {
                 if (args[i] == "--max-age"
-                    || (args[i].StartsWith("--max-age=", StringComparison.Ordinal) && args[i].Length > "--max-age=".Length))
+                    || args[i].StartsWith("--max-age=", StringComparison.Ordinal))
                 {
                     error = string.Empty;
                     return true;

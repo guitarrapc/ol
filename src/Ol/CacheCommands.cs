@@ -267,7 +267,7 @@ internal sealed class CacheCommands
                 return 0;
             default:
                 Console.Error.WriteLine("Cache category must be package-metadata, source-repository, github-file, or all.");
-            return 1;
+                return 1;
         }
     }
 

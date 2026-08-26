@@ -53,6 +53,7 @@ internal sealed class MaximumLengthWriteStream(Stream destination, long maximumL
     public override async ValueTask DisposeAsync()
     {
         if (!leaveOpen) await destination.DisposeAsync().ConfigureAwait(false);
+        base.Dispose(disposing: true);
         GC.SuppressFinalize(this);
     }
 

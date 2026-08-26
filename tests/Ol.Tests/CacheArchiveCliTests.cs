@@ -34,6 +34,19 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task MaximumLengthWriteStream_DisposeAsync_HonorsLeaveOpen(bool leaveOpen)
+    {
+        using var destination = new MemoryStream();
+        var bounded = new MaximumLengthWriteStream(destination, maximumLength: 4, leaveOpen);
+
+        await bounded.DisposeAsync();
+
+        await Assert.That(destination.CanWrite).IsEqualTo(leaveOpen);
+    }
+
+    [Test]
     public async Task CreatePrivateStagingDirectory_OnUnix_UsesOwnerOnlyPermissions()
     {
         var stagingRoot = CacheArchive.CreatePrivateStagingDirectory();

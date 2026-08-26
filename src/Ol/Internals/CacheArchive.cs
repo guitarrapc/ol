@@ -455,7 +455,7 @@ internal static class CacheArchive
     {
         var fullPath = Path.GetFullPath(path);
         var root = Path.GetPathRoot(fullPath);
-        if (string.IsNullOrEmpty(root)) throw new InvalidDataException("Cache path must be absolute.");
+        if (string.IsNullOrEmpty(root)) throw new InvalidDataException($"{pathKind} path must be absolute.");
 
         var current = root;
         var components = fullPath[root.Length..].Split(

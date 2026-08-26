@@ -359,7 +359,7 @@ ol cache prune --max-age <duration> [--cache-dir <directory>]
 ol cache unpack <archive.olcache> [--cache-dir <directory>]
 ```
 
-The archive path for `pack` and `unpack` must be outside the three managed cache category directories and must not contain symbolic links or reparse points.
+The archive path for `pack` and `unpack` must be outside the three managed cache category directories and must not contain symbolic links or reparse points. After creating the output directory, `pack` revalidates the resolved output and temporary paths before writing.
 
 The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root.
 

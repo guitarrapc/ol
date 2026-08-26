@@ -61,6 +61,52 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
+    public async Task ValidateArchiveOutputPaths_WhenCreatedDirectoryWasReplacedByLink_Rejects()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-output-link-{Guid.NewGuid():N}");
+        var outputDirectory = Path.Combine(root, "output");
+        var outside = Path.Combine(root, "outside");
+        var outputPath = Path.Combine(outputDirectory, "cache.olcache");
+        var temporaryPath = Path.Combine(outputDirectory, ".cache.olcache.tmp");
+        Directory.CreateDirectory(outputDirectory);
+        Directory.CreateDirectory(outside);
+        Directory.Delete(outputDirectory);
+        Directory.CreateSymbolicLink(outputDirectory, outside);
+
+        try
+        {
+            await Assert.That(() => CacheArchive.ValidateArchiveOutputPaths(outputPath, temporaryPath)).Throws<InvalidDataException>();
+        }
+        finally
+        {
+            if (Directory.Exists(outputDirectory)) Directory.Delete(outputDirectory);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task ValidateArchiveOutputPaths_WhenTemporaryPathIsLink_Rejects()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-temporary-link-{Guid.NewGuid():N}");
+        var outputPath = Path.Combine(root, "cache.olcache");
+        var temporaryPath = Path.Combine(root, ".cache.olcache.tmp");
+        var outside = Path.Combine(root, "outside.tmp");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(outside, "keep", Encoding.UTF8);
+        File.CreateSymbolicLink(temporaryPath, outside);
+
+        try
+        {
+            await Assert.That(() => CacheArchive.ValidateArchiveOutputPaths(outputPath, temporaryPath)).Throws<InvalidDataException>();
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task PackAndUnpack_ValidCache_RoundTripsDeterministically()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-archive-{Guid.NewGuid():N}");

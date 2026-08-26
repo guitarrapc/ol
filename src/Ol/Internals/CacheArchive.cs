@@ -54,6 +54,7 @@ internal static class CacheArchive
         var outputDirectory = Path.GetDirectoryName(outputPath)!;
         Directory.CreateDirectory(outputDirectory);
         var temporaryPath = Path.Combine(outputDirectory, $".{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp");
+        ValidateArchiveOutputPaths(outputPath, temporaryPath);
         try
         {
             using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
@@ -210,6 +211,12 @@ internal static class CacheArchive
         }
 
         return count;
+    }
+
+    internal static void ValidateArchiveOutputPaths(string outputPath, string temporaryPath)
+    {
+        ValidateLinkFreePath(outputPath, "Archive");
+        ValidateLinkFreePath(temporaryPath, "Archive temporary");
     }
 
     public static bool IsExpectedFailure(Exception exception)

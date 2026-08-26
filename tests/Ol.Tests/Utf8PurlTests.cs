@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Ol.Core;
 
 namespace Ol.Tests;

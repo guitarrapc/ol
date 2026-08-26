@@ -1,4 +1,4 @@
-namespace Ol.Core;
+﻿namespace Ol.Core;
 
 /// <summary>
 /// Writes package URL components as percent-encoded UTF-8.

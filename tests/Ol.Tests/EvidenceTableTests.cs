@@ -1,4 +1,4 @@
-using Ol.Core.GitHub;
+﻿using Ol.Core.GitHub;
 using Ol.Core.PackageManagers;
 using Ol.Internals;
 

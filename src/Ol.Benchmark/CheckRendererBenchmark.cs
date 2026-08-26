@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;

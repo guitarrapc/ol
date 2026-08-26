@@ -1,4 +1,4 @@
-namespace Ol.Core.GitHub;
+﻿namespace Ol.Core.GitHub;
 
 /// <summary>Identifies one exact file named by a trusted public GitHub URL.</summary>
 public readonly record struct DeclaredGitHubFileTarget(string Owner, string Name, string Ref, string Path)

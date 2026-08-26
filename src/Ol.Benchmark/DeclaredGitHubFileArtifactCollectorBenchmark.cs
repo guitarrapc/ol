@@ -1,10 +1,9 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
-using Ol.Core.SourceRepository;
 using Ol.Core.Spdx;
 
 [MemoryDiagnoser]

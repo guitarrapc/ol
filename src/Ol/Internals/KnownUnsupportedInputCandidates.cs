@@ -1,5 +1,4 @@
-using System.Numerics;
-using Ol.Core;
+﻿using Ol.Core;
 
 namespace Ol.Internals;
 

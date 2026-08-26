@@ -50,6 +50,8 @@ Keep external evidence enabled for the primary result. `--no-external-evidence` 
 
 Use `--refresh` only when stale evidence is suspected, and lower `--concurrency` when a service rate-limits. In CI, persist `--cache-dir` between runs: a cold cache costs hundreds of GitHub requests on a large repository, and `GITHUB_TOKEN` allows 1,000 per hour per repository.
 
+For a centrally maintained read-only seed, distribute an Ol cache archive instead of granting consuming workflows cache-write access. In GitHub Actions, unpack it into a fresh per-job directory such as `$RUNNER_TEMP/ol-cache` before scan. The scan may add missing evidence there without modifying the archive, and the temporary directory is discarded with the job. The trusted updater follows the same fresh-directory pattern, refreshes its selected dependency population, then runs `ol cache pack <archive> --cache-dir <directory> --max-age <duration>`; the age bound keeps evidence no updater refreshed from accumulating forever. Keep the committed seed near the recommended 1 MiB size; pack warns above 1 MiB and rejects output above 8 MiB. Use `ol cache prune --cache-dir <persistent-directory> --max-age <duration>` only when intentionally retaining a writable cache directory across runs.
+
 ### GitHub authentication
 
 ol does not read `GITHUB_TOKEN`. Set `OL_GITHUB_TOKEN` in the scan process environment only, never on the command line, and never echo or store it.

@@ -1,4 +1,4 @@
-using Ol.Internals;
+﻿using Ol.Internals;
 
 namespace Ol.Tests;
 

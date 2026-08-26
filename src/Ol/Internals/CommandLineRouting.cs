@@ -158,6 +158,40 @@ internal static class CommandLineRouting
             return true;
         }
 
+        if (args[1] == "prune")
+        {
+            if (args.Length > 2 && IsFrameworkOutput(args[2]))
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            for (var i = 2; i < args.Length; i++)
+            {
+                if (args[i] == "--max-age"
+                    || args[i].StartsWith("--max-age=", StringComparison.Ordinal))
+                {
+                    error = string.Empty;
+                    return true;
+                }
+            }
+
+            error = "Required argument 'max-age' was not specified.";
+            return false;
+        }
+
+        if (args[1] is "pack" or "unpack")
+        {
+            if (args.Length > 2)
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            error = $"Command 'cache {args[1]}' requires an argument. Use 'ol cache {args[1]} --help' for usage.";
+            return false;
+        }
+
         error = $"Command 'cache {args[1]}' is not recognized.";
         return false;
     }

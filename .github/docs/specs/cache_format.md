@@ -180,6 +180,31 @@ The decoded content is capped at 1 MiB and the complete entry is bounded before 
 
 The content digest is an integrity check, not a signature or MAC. It detects accidental corruption and unsynchronized edits but cannot authenticate an entry against an actor able to rewrite both content and digest. Filesystem access control is the trust boundary for intentional local modification; `--refresh`, `cache clear github-file`, and an isolated `--cache-dir` let callers decline existing entries.
 
+<a id="contract-cache-archive-v1"></a>
+## Cache Archive — Format Version 1
+
+An `.olcache` file is the transport form of an Ol-managed cache, not its runtime lookup format. It is a gzip-compressed USTAR stream. Scan continues to read and write the category directories above; callers explicitly cross the archive boundary with `ol cache pack` and `ol cache unpack` so a scan never rewrites a complete archive as a side effect.
+
+The archive begins with exactly one root manifest:
+
+```json
+{"FormatVersion":1}
+```
+
+All other entries are regular files named exactly `<cache-category>/<CacheKeySha256>.json`. Directories, links, devices, duplicate names, additional path segments, uppercase digests, and unknown root entries are invalid. Version `1` permits only the three categories defined by this specification.
+
+`pack` writes the manifest first, then categories in the specification order and physical names in ordinal order. USTAR ownership, permissions, and modification time are fixed, and gzip output carries no run-specific timestamp. Equal input bytes therefore produce equal archive bytes. Files that do not use an Ol cache-entry name are ignored, including links with unrelated names. Every hash-named JSON entry that can be included must satisfy the common schema and identity contract. An optional maximum age omits entries whose UTC `FetchedAt` precedes the calculated cutoff before the archive entry-count limit is applied; it does not change or reinterpret the entry. Existing symbolic links and reparse points in a cache path, including linked managed cache entries, are rejected rather than followed.
+
+The archive path must be outside all managed cache category directories for both `pack` and `unpack` and must not contain symbolic links or reparse points. For `pack`, the resolved output and temporary paths are revalidated after the output directory is created and before writing begins. This prevents archive replacement from overwriting a source cache entry or the input archive itself, including through a linked parent directory. `unpack` requires the manifest as its first entry so it validates the format before staging cache content. It accepts only USTAR entries emitted by this format; GNU, pax, and other tar variants are rejected.
+
+`cache prune` is the explicit destructive retention operation for a persistent cache directory. It applies the same maximum-age cutoff across all managed categories, deletes only validated hash-named entries older than the cutoff, and preserves unknown sibling files, including links with unrelated names. Archive packing never deletes its source entries.
+
+The archive is designed to be one Git-committed seed blob. Its recommended compressed size is 1 MiB and its hard compressed limit is 8 MiB. A single entry is limited to 2 MiB, total expanded content to 64 MiB, and cache entries to 10,000. `pack` enforces the compressed limit at the output stream boundary, including the gzip trailer, so its temporary file never grows past 8 MiB. It reports the compressed size; when the recommended size is exceeded, a warning on standard error includes category counts while the successful exit status is preserved.
+
+`unpack` enforces the same compressed, expanded, per-entry, and entry-count limits before committing staged files. It derives every destination from the recognized category and validated opaque name rather than joining an archive-supplied path. The manifest and every entry are staged and validated before replacement begins. The unique staging root is created under the current user's temporary directory with owner-only permissions (`0700`) on Unix-like systems, so a shared system temporary directory does not expose staged cache content to other users. Existing symbolic links and reparse points in the cache-root path, category paths, and destination entry paths are rejected and rechecked before replacement, so a pre-existing link cannot redirect a write outside `--cache-dir`. The archive is neither signed nor authoritative: category readers apply their complete schema validation when an entry is requested, exactly as they do for a locally written cache.
+
+An archive has the same privacy content as the directory it packs. Opaque physical names prevent identities from appearing in its entry listing, but each JSON entry still carries its logical package or repository key. A public seed must therefore be built only from evidence whose package and repository identities may be disclosed; packing a cache populated from private repositories does not make that evidence public-safe.
+
 ## Evolution and Migration
 
 A schema version changes when an existing field is removed, renamed, changes type, or changes meaning, or when a newly required field cannot be safely defaulted. Adding an optional property that older readers may ignore does not by itself require a new version.

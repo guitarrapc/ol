@@ -147,6 +147,9 @@ Usage: [command] [-h|--help] [--version]
 
 Commands:
   cache clear            Clears cached evidence for the specified category.
+  cache pack             Packs managed cache entries into one deterministic archive.
+  cache prune            Removes managed cache entries older than the specified age.
+  cache unpack           Unpacks an Ol cache archive into the managed cache directories.
   check                  Check a canonical JSON scan report against allowed SPDX licenses.
   diff                   Compare two persisted JSON scan reports and report license-relevant changes.
   scan                   Scan a resolved dependency input.
@@ -167,6 +170,9 @@ Commands:
 | `ol skill install` | Install the bundled license-scan Agent Skill for Codex or Claude. |
 | `ol skill export-plugin` | Export the skill as a portable Agent Plugin package. |
 | `ol cache clear` | Clear evidence caches managed by ol. |
+| `ol cache pack` | Pack evidence caches into a deterministic `.olcache` archive. |
+| `ol cache prune` | Remove managed cache entries older than a specified age. |
+| `ol cache unpack` | Restore a `.olcache` archive into an isolated cache directory. |
 | `ol spdx version` | Show the active SPDX data source. |
 | `ol spdx list` | List installed SPDX data versions. |
 | `ol spdx update` | Download SPDX data. |
@@ -174,6 +180,25 @@ Commands:
 | `ol spdx clear` | Remove user-managed SPDX data. |
 
 Use `scan` to collect licenses from an SBOM, lockfile, or other resolved dependency input. JSON reports can be reused by `check` and `diff`.
+
+You can commit an Ol cache archive to share previously collected evidence across CI repositories. Create or update the archive from a populated cache directory:
+
+```bash
+ol cache pack cysharp.olcache --cache-dir .ol-cache --max-age 30d
+```
+
+In a consuming GitHub Actions job, unpack the archive under `RUNNER_TEMP` and use that directory for the scan:
+
+```bash
+ol cache unpack cysharp.olcache --cache-dir "$RUNNER_TEMP/ol-cache"
+ol scan --input . --cache-dir "$RUNNER_TEMP/ol-cache"
+```
+
+The scan can add missing evidence to this temporary cache without changing the committed archive, and GitHub Actions removes the temporary directory with the job. When maintaining a persistent cache directory, remove old entries explicitly with `ol cache prune --cache-dir .ol-cache --max-age 30d`.
+
+Keep cache archives at or below 1 MiB when possible so they remain practical to store and update in source control. `cache pack` reports the compressed size and, when an archive exceeds 1 MiB, prints a warning with category counts to help identify what is using space. Archives larger than 8 MiB are rejected. For safety, Ol also limits each cache entry to 2 MiB, expanded archive content to 64 MiB, and each archive to 10,000 entries. Use `--max-age` to omit evidence that no longer needs to be distributed.
+
+The archive contains package and repository identities from the source cache. Do not publish a seed built from private-repository evidence.
 
 ```bash
 $ ol scan --help
@@ -258,7 +283,10 @@ Usage: cache [command] [-h|--help] [--version]
 Manage locally cached scan evidence.
 
 Commands:
-  clear    Clears cached evidence for the specified category.
+  clear     Clears cached evidence for the specified category.
+  pack      Packs managed cache entries into one deterministic archive.
+  prune     Removes managed cache entries older than the specified age.
+  unpack    Unpacks an Ol cache archive into the managed cache directories.
 ```
 
 ol bundles an Agent Skill that teaches coding agents how to select resolved inputs, combine an SBOM with package-manager evidence, and interpret scan results. Install it into the current workspace or export a portable [Agent Plugin](https://agent-plugins.org/):

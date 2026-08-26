@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Net;
 using Ol.Core.Licensing;
 using Ol.Core.SourceRepository;

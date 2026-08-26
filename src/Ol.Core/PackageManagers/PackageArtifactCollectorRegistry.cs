@@ -1,5 +1,4 @@
-using System.Buffers;
-using System.Text.Json;
+﻿using System.Buffers;
 using Ol.Core.Licensing;
 using Ol.Core.Spdx;
 

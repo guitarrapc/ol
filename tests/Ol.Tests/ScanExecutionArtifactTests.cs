@@ -1,6 +1,5 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
-using Ol.Core;
 using Ol.Core.GitHub;
 using Ol.Core.Licensing;
 using Ol.Core.PackageManagers;

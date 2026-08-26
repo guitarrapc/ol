@@ -1,4 +1,4 @@
-using Ol.Core.GitHub;
+﻿using Ol.Core.GitHub;
 using Ol.Core.Spdx;
 
 namespace Ol.Tests;

@@ -114,6 +114,33 @@ public sealed class ScanFindingsSummaryTests
         }
     }
 
+    /// <summary>
+    /// A plural count on one side and a singular on the other, which is the shape that proves the resolved
+    /// clause pluralizes from its own count rather than the unresolved one's.
+    /// </summary>
+    /// <remarks>
+    /// Every other case pairs counts of the same cardinality, and zero reads plural like two does, so a
+    /// second clause that pluralized from the first clause's count would satisfy all of them. The
+    /// deprecated-identifier clause is not covered here: every component in this fixture carries exactly
+    /// one, so that count is always the sum of the two sides and cannot be singular beside a plural one.
+    /// </remarks>
+    [Test]
+    public async Task Scan_WithPluralAndSingularSides_PluralizesTheResolvedClauseFromItsOwnCount()
+    {
+        var input = await WriteSbomAsync(resolved: 1, unresolved: 2);
+        try
+        {
+            var result = await RunOlAsync("scan", "--input", input, "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stderr).Contains("Findings: 2 warnings on unresolved components; 1 warning on resolved components; 3 deprecated SPDX identifiers");
+        }
+        finally
+        {
+            Cleanup(input);
+        }
+    }
+
     /// <summary>A grouped view aggregates the summary through a second path, and both must agree.</summary>
     [Test]
     public async Task Scan_GroupedView_ReportsTheSameSplitAsTheComponentView()

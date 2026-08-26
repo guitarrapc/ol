@@ -222,7 +222,7 @@ internal sealed class ScanCommands
             Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
             if (dependency is not null and not "")
             {
-                Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} components excluded; {excludedUnknownCount} with unknown dependency type");
+                Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} component{(dependencyFilteredCount == 1 ? string.Empty : "s")} excluded; {excludedUnknownCount} with unknown dependency type");
             }
         }
 
@@ -319,7 +319,7 @@ internal sealed class ScanCommands
     }
 
     /// <summary>Column headers of the evidence table, in display order.</summary>
-    private static readonly string[] EvidenceColumnHeaders = ["targets", "requests", "hits", "misses", "docs", "matched", "errors"];
+    private static readonly string[] EvidenceColumnHeaders = ["targets", "requests", "cache hits", "cache misses", "docs", "matched", "errors"];
 
     /// <summary>Row labels of the evidence table, in display order.</summary>
     private static readonly string[] EvidenceRowLabels = ["Package artifacts", "Declared GitHub files", "Package metadata", "Source repositories"];
@@ -340,7 +340,7 @@ internal sealed class ScanCommands
     /// Counters only one collector has stay in a named line under the table rather than adding a column
     /// that would be "-" in three of the four rows.
     /// </remarks>
-    private static void WriteEvidenceTable(
+    internal static void WriteEvidenceTable(
         in PackageArtifactCollectionSummary packageArtifacts,
         in DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFiles,
         in PackageMetadataSummary packageMetadata,
@@ -385,8 +385,8 @@ internal sealed class ScanCommands
             WriteEvidenceRow(RowIndent + EvidenceRowLabels[rowIndex], rows[rowIndex], labelWidth, widths, writer);
         }
 
-        writer.WriteLine($"{RowIndent}Package metadata: {packageMetadata.RefreshedCount} refreshed; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems; {packageMetadata.UnversionedPurlCount} unversioned purls; {packageMetadata.NoPurlCount} without purl");
-        writer.WriteLine($"{RowIndent}Source repositories: {source.UnknownCount} components without source license");
+        writer.WriteLine($"{RowIndent}Package metadata: {packageMetadata.RefreshedCount} refreshed; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystem{(packageMetadata.UnsupportedEcosystemCount == 1 ? string.Empty : "s")}; {packageMetadata.UnversionedPurlCount} unversioned purl{(packageMetadata.UnversionedPurlCount == 1 ? string.Empty : "s")}; {packageMetadata.NoPurlCount} without purl");
+        writer.WriteLine($"{RowIndent}Source repositories: {source.UnknownCount} component{(source.UnknownCount == 1 ? string.Empty : "s")} without source license");
 
         static string Count(int value) => value.ToString();
     }

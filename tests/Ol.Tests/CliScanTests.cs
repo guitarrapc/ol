@@ -459,8 +459,9 @@ public sealed class CliScanTests
             var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath);
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            // Every counter on this line carries a fixed plural, so this one does too.
-            await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 2 unsupported ecosystems; 1 unversioned purls;");
+            // Each counter on this line pluralizes from its own count, as every other counted noun in the
+            // summary does; the line below it says "1 component without source license" by the same rule.
+            await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 2 unsupported ecosystems; 1 unversioned purl;");
         }
         finally
         {
@@ -494,7 +495,7 @@ public sealed class CliScanTests
             var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-evidence-packages", "pkg:nuget/MyCompany.");
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 1 unsupported ecosystems;");
+            await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 1 unsupported ecosystem;");
         }
         finally
         {
@@ -1367,6 +1368,13 @@ public sealed class CliScanTests
             await Assert.That(stdout).Contains("direct");
             await Assert.That(stdout).DoesNotContain("unknown");
             await Assert.That(stderr).Contains("Filter: 2 components excluded; 1 with unknown dependency type");
+
+            // One excluded component is the case that says whether the line pluralizes from its own count,
+            // which check and diff already do for the same phrase.
+            var (singularExitCode, _, singularStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--dependency", "direct,unknown");
+
+            await Assert.That(singularExitCode).IsEqualTo(0);
+            await Assert.That(singularStderr).Contains("Filter: 1 component excluded; 0 with unknown dependency type");
         }
         finally
         {
@@ -1447,13 +1455,18 @@ public sealed class CliScanTests
                 await Assert.That(exitCode).IsEqualTo(0);
                 await Assert.That(stderr).StartsWith($"{Environment.NewLine}Scan summary{Environment.NewLine}");
                 await Assert.That(stderr).Contains("  License results: 1 displayed component; 1 matched; 0 conflict; 0 unknown; 0 ambiguous; 0 invalid; 0 error");
-                await Assert.That(stderr).Contains("  Evidence (full scan)     targets  requests  hits  misses  docs  matched  errors");
-                await Assert.That(stderr).Contains("    Package artifacts            0         -     -       -     0        0       -");
-                await Assert.That(stderr).Contains("    Declared GitHub files        0         0     0       0     0        0       0");
-                await Assert.That(stderr).Contains("    Package metadata             0         -     0       0     -        -       0");
-                await Assert.That(stderr).Contains("    Source repositories          0         0     0       0     -        -       0");
-                await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 0 unsupported ecosystems; 0 unversioned purls;");
-                await Assert.That(stderr).Contains("components without source license");
+                // Asserted as one block rather than line by line, because the table's value is that a
+                // counter lands in the same column on every row: independent substring assertions hold
+                // neither the row order nor the alignment that makes the columns comparable.
+                await Assert.That(stderr).Contains(string.Join(
+                    Environment.NewLine,
+                    "  Evidence (full scan)     targets  requests  cache hits  cache misses  docs  matched  errors",
+                    "    Package artifacts            0         -           -             -     0        0       -",
+                    "    Declared GitHub files        0         0           0             0     0        0       0",
+                    "    Package metadata             0         -           0             0     -        -       0",
+                    "    Source repositories          0         0           0             0     -        -       0",
+                    "    Package metadata: 0 refreshed; 0 unsupported ecosystems; 0 unversioned purls; 1 without purl",
+                    "    Source repositories: 1 component without source license"));
                 await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; 0 incomplete input sets; 0 excluded input paths; ecosystems none");
                 await Assert.That(stderr).Contains("  Input:");
             }
@@ -1858,6 +1871,11 @@ public sealed class CliScanTests
             await Assert.That(stderr).Contains("  External evidence: not collected; package registries, source repositories, and their caches were not read");
             await Assert.That(stderr).DoesNotContain("(full scan)");
             await Assert.That(stderr).DoesNotContain("GitHub auth");
+            // The two lines under the table carry no mode marker of their own, so the guards above would
+            // not notice either of them escaping the branch and printing the zeroed counters this mode exists
+            // to withhold.
+            await Assert.That(stderr).DoesNotContain("unsupported ecosystem");
+            await Assert.That(stderr).DoesNotContain("without source license");
         }
         finally
         {
@@ -3936,9 +3954,11 @@ public sealed class CliScanTests
                     await Assert.That(human.Stdout).Contains(packages[index].Name);
                 }
 
-                await Assert.That(human.Stderr).Contains("  Evidence (full scan)     targets  requests  hits  misses  docs  matched  errors");
-                await Assert.That(human.Stderr).Contains("    Package artifacts            4         -     -       -     0        0       -");
-                await Assert.That(human.Stderr).Contains("    Declared GitHub files        1         0     1       0     1        4       0");
+                await Assert.That(human.Stderr).Contains(string.Join(
+                    Environment.NewLine,
+                    "  Evidence (full scan)     targets  requests  cache hits  cache misses  docs  matched  errors",
+                    "    Package artifacts            4         -           -             -     0        0       -",
+                    "    Declared GitHub files        1         0           1             0     1        4       0"));
             }
         }
         finally
@@ -4031,7 +4051,8 @@ public sealed class CliScanTests
             var excluded = filteredView.GetProperty("excludedCount").GetInt32();
             var excludedUnknown = filteredView.GetProperty("excludedUnknownCount").GetInt32();
             await Assert.That(excluded).IsGreaterThan(0);
-            await Assert.That(text.Stderr).Contains($"Filter: {excluded} components excluded; {excludedUnknown} with unknown dependency type");
+            var componentWord = excluded == 1 ? "component" : "components";
+            await Assert.That(text.Stderr).Contains($"Filter: {excluded} {componentWord} excluded; {excludedUnknown} with unknown dependency type");
         }
         finally
         {

@@ -197,9 +197,9 @@ internal static class CacheArchive
 
             foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))
             {
-                ValidateLinkFreePath(path);
                 var fileName = Path.GetFileName(path);
                 if (!IsCacheFileName(fileName)) continue;
+                ValidateLinkFreePath(path);
                 var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), DefaultLimits.MaximumEntryBytes);
                 if (fetchedAt >= cutoff) continue;
 
@@ -236,9 +236,9 @@ internal static class CacheArchive
             var categoryEntries = new List<ArchiveSourceEntry>();
             foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))
             {
-                ValidateLinkFreePath(path);
                 var fileName = Path.GetFileName(path);
                 if (!IsCacheFileName(fileName)) continue;
+                ValidateLinkFreePath(path);
                 var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
                 if (fetchedAt < cutoff) continue;
                 if (entries.Count + categoryEntries.Count == limits.MaximumEntryCount) throw new InvalidDataException($"Archive contains more than {limits.MaximumEntryCount} cache entries.");

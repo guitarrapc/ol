@@ -13,7 +13,9 @@ public sealed class CliCommandGroupHelpTests
         Manage locally cached scan evidence.
 
         Commands:
-          clear    Clears cached evidence for the specified category.
+          clear     Clears cached evidence for the specified category.
+          pack      Packs managed cache entries into one deterministic archive.
+          unpack    Unpacks an Ol cache archive into the managed cache directories.
         """)]
     [Arguments("spdx", """
         Usage: spdx [command] [-h|--help] [--version]
@@ -76,6 +78,25 @@ public sealed class CliCommandGroupHelpTests
         await Assert.That(result.Stdout).Contains("[0] <string>    Cache category: package-metadata, source-repository, github-file, or all. [Default: all]");
         await Assert.That(result.Stdout).DoesNotContain("--category");
         await Assert.That(result.Stderr).IsEmpty();
+    }
+
+    [Test]
+    public async Task CacheArchive_Help_ShowsArchiveAsPositionalArgumentAndPackAgeOption()
+    {
+        var root = FindRepositoryRoot();
+
+        var pack = await RunOlAsync(root, "cache", "pack", "--help");
+        var unpack = await RunOlAsync(root, "cache", "unpack", "--help");
+
+        await Assert.That(pack.ExitCode).IsEqualTo(0);
+        await Assert.That(pack.Stdout).Contains("Usage: cache pack [arguments...] [options...]");
+        await Assert.That(pack.Stdout).Contains("[0] <string>    Output .olcache archive path.");
+        await Assert.That(pack.Stdout).Contains("--max-age <string?>");
+        await Assert.That(unpack.ExitCode).IsEqualTo(0);
+        await Assert.That(unpack.Stdout).Contains("Usage: cache unpack [arguments...] [options...]");
+        await Assert.That(unpack.Stdout).Contains("[0] <string>    Input .olcache archive path.");
+        await Assert.That(pack.Stderr).IsEmpty();
+        await Assert.That(unpack.Stderr).IsEmpty();
     }
 
     [Test]

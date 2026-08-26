@@ -188,6 +188,8 @@ A namespace written the way its ecosystem spells it is accepted: an `@` that sta
 | `ol skill install` | Install the bundled license-scan Agent Skill into a workspace. | Written file location. |
 | `ol skill export-plugin` | Export the skill as a portable Agent Plugin package. | Written plugin location. |
 | `ol cache clear` | Clear Ol-managed evidence caches. | Cleared categories. |
+| `ol cache pack` | Pack Ol-managed evidence caches into one deterministic archive. | Packed entry count. |
+| `ol cache unpack` | Restore an Ol cache archive into managed evidence caches. | Unpacked entry count. |
 | `ol spdx version` | Show the active SPDX data source. | Active version and user-data location. |
 | `ol spdx list` | List installed SPDX data versions. | Installed versions with the active version marked. |
 | `ol spdx update` | Download current SPDX data. | Installed version. |
@@ -351,9 +353,15 @@ Human text states the boundary when either side declared no dependencies, ignore
 
 ```text
 ol cache clear [package-metadata|source-repository|github-file|all]
+ol cache pack <archive.olcache> [--cache-dir <directory>] [--max-age <duration>]
+ol cache unpack <archive.olcache> [--cache-dir <directory>]
 ```
 
 The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root.
+
+`pack` writes the three managed categories as a deterministic gzip-compressed tar archive. It orders entries by category and opaque file name, fixes archive metadata, validates each entry's common schema, logical-key digest, physical file name, and UTC `FetchedAt`, and replaces the output only after the complete archive was written. `--max-age` accepts one positive integer followed by `d`, `h`, or `m`; entries older than the resulting UTC cutoff are omitted. The filter is an archive-retention operation, not a change to scan cache freshness.
+
+`unpack` treats the archive as untrusted input. It accepts format version `1`, the three managed category names, and lowercase SHA-256 JSON entry names only. Absolute or nested paths, traversal, links, non-regular entries, duplicate entries, unsupported versions, malformed cache identity, archives larger than 512 MiB, entries larger than 16 MiB, expanded content larger than 1 GiB, and more than 250,000 cache entries are rejected. All entries are staged and validated before managed cache files are replaced; unrelated files under the isolation root are preserved. Full category-specific validation still occurs when scan reads an entry, so transporting a cache never makes its evidence authoritative.
 
 ### `ol skill`
 

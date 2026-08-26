@@ -10,7 +10,9 @@ internal static class CommandGroupHelp
         Manage locally cached scan evidence.
 
         Commands:
-          clear    Clears cached evidence for the specified category.
+          clear     Clears cached evidence for the specified category.
+          pack      Packs managed cache entries into one deterministic archive.
+          unpack    Unpacks an Ol cache archive into the managed cache directories.
         """;
 
     private const string Spdx = """

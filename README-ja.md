@@ -146,6 +146,8 @@ Usage: [command] [-h|--help] [--version]
 
 Commands:
   cache clear            Clears cached evidence for the specified category.
+  cache pack             Packs managed cache entries into one deterministic archive.
+  cache unpack           Unpacks an Ol cache archive into the managed cache directories.
   check                  Check a canonical JSON scan report against allowed SPDX licenses.
   diff                   Compare two persisted JSON scan reports and report license-relevant changes.
   scan                   Scan a resolved dependency input.
@@ -166,6 +168,8 @@ Commands:
 | `ol skill install` | 同梱されたlicense-scan Agent SkillをCodexまたはClaude向けにインストールする。 |
 | `ol skill export-plugin` | SkillをポータブルなAgent Pluginとして出力する。 |
 | `ol cache clear` | olが管理する証拠キャッシュを削除する。 |
+| `ol cache pack` | 証拠キャッシュを決定的な`.olcache`アーカイブにまとめる。 |
+| `ol cache unpack` | `.olcache`アーカイブを分離されたキャッシュディレクトリへ復元する。 |
 | `ol spdx version` | 使用中のSPDXデータを表示する。 |
 | `ol spdx list` | インストール済みSPDXデータを一覧表示する。 |
 | `ol spdx update` | SPDXデータをダウンロードする。 |
@@ -173,6 +177,16 @@ Commands:
 | `ol spdx clear` | ユーザー管理のSPDXデータを削除する。 |
 
 SBOMやロックファイルといった依存関係の情報からライセンスを収集するには`scan`を使います。解析レポートから、利用しているパッケージの一覧とライセンスを確認できます。JSON形式で出力すると、`check`や`diff`で再利用できます。
+
+CIリポジトリ間で読み取り専用のキャッシュシードを配布する場合は、キャッシュを明示的にpack/unpackします。
+
+```bash
+ol cache pack cysharp.olcache --cache-dir .ol-cache --max-age 30d
+ol cache unpack cysharp.olcache --cache-dir "$RUNNER_TEMP/ol-cache"
+ol scan --input . --cache-dir "$RUNNER_TEMP/ol-cache"
+```
+
+アーカイブには、元のキャッシュに含まれるパッケージとリポジトリの識別情報が保存されます。private repositoryの証拠から作成したキャッシュシードは公開しないでください。
 
 ```bash
 $ ol scan --help

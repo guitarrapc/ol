@@ -180,6 +180,25 @@ The decoded content is capped at 1 MiB and the complete entry is bounded before 
 
 The content digest is an integrity check, not a signature or MAC. It detects accidental corruption and unsynchronized edits but cannot authenticate an entry against an actor able to rewrite both content and digest. Filesystem access control is the trust boundary for intentional local modification; `--refresh`, `cache clear github-file`, and an isolated `--cache-dir` let callers decline existing entries.
 
+<a id="contract-cache-archive-v1"></a>
+## Cache Archive — Format Version 1
+
+An `.olcache` file is the transport form of an Ol-managed cache, not its runtime lookup format. It is a gzip-compressed USTAR stream. Scan continues to read and write the category directories above; callers explicitly cross the archive boundary with `ol cache pack` and `ol cache unpack` so a scan never rewrites a complete archive as a side effect.
+
+The archive contains one root manifest:
+
+```json
+{"FormatVersion":1}
+```
+
+All other entries are regular files named exactly `<cache-category>/<CacheKeySha256>.json`. Directories, links, devices, duplicate names, additional path segments, uppercase digests, and unknown root entries are invalid. Version `1` permits only the three categories defined by this specification.
+
+`pack` writes the manifest first, then categories in the specification order and physical names in ordinal order. USTAR ownership, permissions, and modification time are fixed, and gzip output carries no run-specific timestamp. Equal input bytes therefore produce equal archive bytes. Every included entry must satisfy the common schema and identity contract. An optional maximum age omits entries whose UTC `FetchedAt` precedes the calculated cutoff; it does not change or reinterpret the entry.
+
+`unpack` limits compressed, expanded, per-entry, and entry-count work before committing staged files. It derives every destination from the recognized category and validated opaque name rather than joining an archive-supplied path. The manifest and every entry are staged and validated before replacement begins. The archive is neither signed nor authoritative: category readers apply their complete schema validation when an entry is requested, exactly as they do for a locally written cache.
+
+An archive has the same privacy content as the directory it packs. Opaque physical names prevent identities from appearing in its entry listing, but each JSON entry still carries its logical package or repository key. A public seed must therefore be built only from evidence whose package and repository identities may be disclosed; packing a cache populated from private repositories does not make that evidence public-safe.
+
 ## Evolution and Migration
 
 A schema version changes when an existing field is removed, renamed, changes type, or changes meaning, or when a newly required field cannot be safely defaulted. Adding an optional property that older readers may ignore does not by itself require a new version.

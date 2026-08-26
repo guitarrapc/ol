@@ -158,6 +158,18 @@ internal static class CommandLineRouting
             return true;
         }
 
+        if (args[1] is "pack" or "unpack")
+        {
+            if (args.Length > 2)
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            error = $"Command 'cache {args[1]}' requires an argument. Use 'ol cache {args[1]} --help' for usage.";
+            return false;
+        }
+
         error = $"Command 'cache {args[1]}' is not recognized.";
         return false;
     }

@@ -118,6 +118,12 @@ internal sealed class CacheCommands
     [Command("info")]
     public int Info([Argument] string? path = null, CacheInfoFormat format = CacheInfoFormat.Text, string? cacheDir = null)
     {
+        if (path is not null && cacheDir is not null)
+        {
+            Console.Error.WriteLine("Cache info accepts either a path or --cache-dir, not both.");
+            return 1;
+        }
+
         try
         {
             var result = path is null
@@ -319,7 +325,7 @@ internal sealed class CacheCommands
                 var entry = category.Entries[j];
                 if (entry.Error is not null)
                 {
-                    Console.WriteLine($"| {EscapeMarkdown(category.Category)} | {EscapeMarkdown(entry.Name)} | - | {FormatBytes(entry.Bytes)} | invalid | {EscapeMarkdown(entry.Error)} |");
+                    Console.WriteLine($"| {EscapeMarkdown(category.Category)} | - | - | {FormatBytes(entry.Bytes)} | invalid | {EscapeMarkdown($"File: {entry.Name}; {entry.Error}")} |");
                 }
                 else
                 {
@@ -332,7 +338,19 @@ internal sealed class CacheCommands
     }
 
     private static string EscapeMarkdown(string value)
-        => value.Replace("\\", "\\\\", StringComparison.Ordinal)
+        => value.Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal)
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("`", "\\`", StringComparison.Ordinal)
+            .Replace("*", "\\*", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal)
+            .Replace("[", "\\[", StringComparison.Ordinal)
+            .Replace("]", "\\]", StringComparison.Ordinal)
+            .Replace("(", "\\(", StringComparison.Ordinal)
+            .Replace(")", "\\)", StringComparison.Ordinal)
+            .Replace("!", "\\!", StringComparison.Ordinal)
+            .Replace("~", "\\~", StringComparison.Ordinal)
             .Replace("|", "\\|", StringComparison.Ordinal)
             .Replace("\r", string.Empty, StringComparison.Ordinal)
             .Replace("\n", "<br>", StringComparison.Ordinal);

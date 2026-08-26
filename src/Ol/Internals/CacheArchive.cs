@@ -227,15 +227,34 @@ internal static class CacheArchive
     public static CacheInspectionResult Inspect(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var fullPath = Path.GetFullPath(path);
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         ValidateLinkFreePath(fullPath, "Cache target");
         if (Directory.Exists(fullPath))
         {
+            var categoryComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            var categoryIndex = -1;
             for (var i = 0; i < Categories.Length; i++)
             {
-                if (string.Equals(Path.GetFileName(fullPath), Categories[i].Name, StringComparison.Ordinal))
+                if (string.Equals(Path.GetFileName(fullPath), Categories[i].Name, categoryComparison))
                 {
-                    return new(false, fullPath, [InspectCategory(Categories[i].Name, fullPath)]);
+                    categoryIndex = i;
+                    break;
+                }
+            }
+
+            if (categoryIndex >= 0)
+            {
+                var hasNestedCategory = false;
+                for (var i = 0; i < Categories.Length; i++)
+                {
+                    if (!Directory.Exists(Path.Combine(fullPath, Categories[i].Name))) continue;
+                    hasNestedCategory = true;
+                    break;
+                }
+
+                if (!hasNestedCategory)
+                {
+                    return new(false, fullPath, [InspectCategory(Categories[categoryIndex].Name, fullPath)]);
                 }
             }
 
@@ -292,6 +311,7 @@ internal static class CacheArchive
     {
         var entries = new List<CacheEntryInfo>();
         var unmanagedFileCount = 0;
+        if (File.Exists(root)) throw new InvalidDataException($"Cache category path must be a directory: {root}.");
         if (!Directory.Exists(root)) return new(category, root, entries, unmanagedFileCount);
 
         foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))

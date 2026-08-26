@@ -140,6 +140,36 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
+    public async Task Pack_WithUnmanagedFile_SkipsItAndPacksManagedEntries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-unmanaged-file-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        var restored = Path.Combine(root, "restored");
+        var archive = Path.Combine(root, "cache.olcache");
+        var cacheKey = "pkg:npm/example@1.0.0";
+        Directory.CreateDirectory(root);
+        await new PackageMetadataCache(category).WriteAsync(
+            new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+        await File.WriteAllTextAsync(Path.Combine(category, "keep.txt"), "keep", Encoding.UTF8);
+
+        try
+        {
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", restored);
+
+            await Assert.That(pack.ExitCode).IsEqualTo(0).Because(pack.Stderr);
+            await Assert.That(pack.Stdout).Contains("Packed 1 cache entry");
+            await Assert.That(unpack.ExitCode).IsEqualTo(0).Because(unpack.Stderr);
+            await Assert.That((await new PackageMetadataCache(Path.Combine(restored, "package-metadata")).TryReadAsync(cacheKey)).IsHit).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Pack_WhenArchiveExceedsRecommendedGitSeedSize_WarnsWithCategoryCounts()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-recommended-size-{Guid.NewGuid():N}");

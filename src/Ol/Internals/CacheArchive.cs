@@ -238,7 +238,7 @@ internal static class CacheArchive
             {
                 ValidateLinkFreePath(path);
                 var fileName = Path.GetFileName(path);
-                ValidateCacheFileName(fileName);
+                if (!IsCacheFileName(fileName)) continue;
                 var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
                 if (fetchedAt < cutoff) continue;
                 if (entries.Count + categoryEntries.Count == limits.MaximumEntryCount) throw new InvalidDataException($"Archive contains more than {limits.MaximumEntryCount} cache entries.");

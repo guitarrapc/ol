@@ -129,6 +129,18 @@ public sealed class CliCommandGroupHelpTests
         await Assert.That(result.Stderr.Trim()).IsEqualTo("Required argument 'max-age' was not specified.");
     }
 
+    [Test]
+    public async Task CachePrune_WithMaxAgeMissingValue_UsesFrameworkDiagnostic()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunOlAsync(root, "cache", "prune", "--max-age");
+
+        await Assert.That(result.ExitCode).IsEqualTo(1);
+        await Assert.That(result.Stdout).IsEmpty();
+        await Assert.That(result.Stderr.Trim()).IsEqualTo("Argument 'max-age' failed to parse, provided value: --max-age");
+    }
+
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
     {
         await CliGate.WaitAsync();

@@ -102,8 +102,7 @@ internal static class CacheArchive
             throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
         }
 
-        var stagingRoot = Path.Combine(Path.GetTempPath(), $"ol-cache-unpack-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(stagingRoot);
+        var stagingRoot = CreatePrivateStagingDirectory();
         try
         {
             var stagedEntries = ReadArchive(inputPath, stagingRoot, DefaultLimits);
@@ -160,6 +159,9 @@ internal static class CacheArchive
         maximumAge = TimeSpan.FromTicks(amount * multiplier);
         return true;
     }
+
+    internal static string CreatePrivateStagingDirectory()
+        => Directory.CreateTempSubdirectory("ol-cache-unpack-").FullName;
 
     public static int Prune(CacheDirectories directories, TimeSpan maximumAge, DateTimeOffset now)
     {

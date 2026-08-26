@@ -164,7 +164,7 @@ The complete inventory is independent of sorted, filtered, or grouped views. Occ
 
 <a id="contract-report-privacy"></a>
 
-No value Ol constructs for a report, baseline, SARIF document, or diagnostic may contain a token value, an absolute local path, or a hidden cache path. Use logical identifiers, basenames, relative paths, and hashes. Authentication may be reported only as a mode, never as a credential value.
+No value Ol constructs for a report, baseline, SARIF document, or diagnostic may contain a token value, an absolute local path, or a hidden cache path. Use logical identifiers, basenames, relative paths, and hashes. Authentication may be reported only as a mode, never as a credential value. The explicit `cache list` and `cache info` inspection commands are the exception for cache paths: the user asks them to reveal where managed caches are stored.
 
 The rule binds what Ol writes about itself, not what an input said. A component's name, version, and identifiers are the input's own statement, and rewriting them would make the report disagree with the document it describes and break correlation with the source identifier a reader uses to find the component again. A generator that scans a directory names its root component after that directory, so an absolute path can reach a report that way; the path is then a fact about the input rather than something Ol disclosed about the machine it ran on. Anyone publishing a report generated from a local tree should expect it to carry whatever identity the generator wrote.
 
@@ -188,8 +188,10 @@ A namespace written the way its ecosystem spells it is accepted: an `@` that sta
 | `ol skill install` | Install the bundled license-scan Agent Skill into a workspace. | Written file location. |
 | `ol skill export-plugin` | Export the skill as a portable Agent Plugin package. | Written plugin location. |
 | `ol cache clear` | Clear Ol-managed evidence caches. | Cleared categories. |
+| `ol cache list` | List resolved Ol-managed cache locations and sizes. | Category paths, entry counts, and managed bytes. |
+| `ol cache info` | Show the contents of a cache directory or archive. | Cache type, entries, logical keys, timestamps, and sizes. |
 | `ol cache pack` | Pack Ol-managed evidence caches into one deterministic Git seed archive. | Packed entry count and compressed size; a standard-error size warning with category counts when applicable. |
-| `ol cache prune` | Remove Ol-managed evidence cache entries older than an age. | Pruned entry count. |
+| `ol cache prune` | Remove Ol-managed evidence cache entries older than an age. | Pruned entry count and managed bytes before/after; `--dry-run` reports without changing files. |
 | `ol cache unpack` | Restore an Ol cache archive into managed evidence caches. | Unpacked entry count. |
 | `ol spdx version` | Show the active SPDX data source. | Active version and user-data location. |
 | `ol spdx list` | List installed SPDX data versions. | Installed versions with the active version marked. |
@@ -354,20 +356,26 @@ Human text states the boundary when either side declared no dependencies, ignore
 
 ```text
 ol cache clear [package-metadata|source-repository|github-file|all]
+ol cache list [--cache-dir <directory>]
+ol cache info [<cache-directory-or-archive>] [--format <text|markdown>] [--cache-dir <directory>]
 ol cache pack <archive.olcache> [--cache-dir <directory>] [--max-age <duration>]
-ol cache prune --max-age <duration> [--cache-dir <directory>]
+ol cache prune --max-age <duration> [--dry-run] [--cache-dir <directory>]
 ol cache unpack <archive.olcache> [--cache-dir <directory>]
 ```
 
 The archive path for `pack` and `unpack` must be outside the three managed cache category directories and must not contain symbolic links or reparse points. After creating the output directory, `pack` revalidates the resolved output and temporary paths before writing.
 
-The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root.
+The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root or category location.
+
+`list` resolves the cache locations using the same precedence as `scan` (`--cache-dir`, `OL_CACHE_DIR`, legacy category roots, then the platform user-cache location). It prints each managed category path, the count of hash-named entries, their total file size, and a total. `info` accepts a managed cache root, one managed category directory, or an `.olcache` archive; when its path is omitted it inspects the resolved cache locations. A positional path and `--cache-dir` cannot be combined. Its default text output is grouped into an overview, category summaries, and per-entry details so paths and long logical keys do not share a dense line. `--format markdown` emits the same information as Markdown tables, including the compressed archive size for an `.olcache` input. Markdown syntax and raw HTML characters in inspected values are escaped. It prints each entry whose common cache fields validate with its category, logical `CacheKey`, UTC `FetchedAt`, and file size. Invalid managed entries are reported as invalid with their physical file name in the details column; unknown sibling files are counted but not interpreted. This inspection validates the common transport schema and identity; category-specific evidence validation still occurs when `scan` reads an entry. Explicit cache inspection is the only CLI output that intentionally reveals the resolved cache path.
 
 `pack` writes the three managed categories as a deterministic gzip-compressed tar archive. It ignores sibling files that do not use an Ol cache-entry name, including links with unrelated names, orders managed entries by category and opaque file name, fixes archive metadata, validates each included entry's common schema, logical-key digest, physical file name, and UTC `FetchedAt`, and replaces the output only after the complete archive was written. `--max-age` accepts one positive integer followed by `d`, `h`, or `m`; entries older than the resulting UTC cutoff are omitted before the archive entry-count limit is applied. The filter is an archive-retention operation, not a change to scan cache freshness. Existing symbolic links and reparse points in the cache path or at a managed entry are rejected rather than followed.
 
 The recommended compressed Git seed size is 1 MiB. `pack` succeeds with a standard-error warning and category counts above that size, but rejects output above 8 MiB while compression is still in progress. A cache entry is limited to 2 MiB, total expanded content to 64 MiB, and the archive to 10,000 cache entries. `unpack` applies the same hard limits.
 
 `prune` applies the same age syntax and UTC cutoff to all three managed categories, and requires `--max-age` because it deletes files. It deletes only hash-named entries whose common schema, logical-key digest, physical name, and UTC `FetchedAt` validate and whose timestamp precedes the cutoff. Unknown sibling files, including links with unrelated names, are preserved. Symbolic links and reparse points at managed entries are rejected and rechecked before deletion.
+
+`prune --dry-run` performs the same validation and age calculation but does not delete files. Its output reports the number of entries that would be removed, the managed bytes that would be freed, and the managed-cache size before and after the operation. Unmanaged sibling files are excluded from those byte totals because `prune` would preserve them.
 
 `unpack` treats the archive as untrusted input. It accepts format version `1`, the three managed category names, and lowercase SHA-256 JSON entry names only. Absolute or nested paths, traversal, archive links, non-regular entries, duplicate entries, unsupported versions, malformed cache identity, and archives or entries that exceed the hard limits above are rejected. Existing symbolic links and reparse points in the cache-root path, category paths, or destination entry paths are also rejected and rechecked before replacement. All entries are staged and validated before managed cache files are replaced; unrelated files under the isolation root are preserved. Full category-specific validation still occurs when scan reads an entry, so transporting a cache never makes its evidence authoritative.
 

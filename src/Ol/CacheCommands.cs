@@ -51,6 +51,16 @@ internal sealed class CacheCommands
                 ? FormattableString.Invariant($"{bytes / 1024d:F1} KiB")
                 : $"{bytes} bytes";
 
+    private static string FormatEntryCount(int count)
+        => FormattableString.Invariant($"{count} {(count == 1 ? "entry" : "entries")}");
+
+    private static long GetCategoryBytes(CacheCategoryInfo category)
+    {
+        long bytes = 0;
+        for (var i = 0; i < category.Entries.Count; i++) bytes = checked(bytes + category.Entries[i].Bytes);
+        return bytes;
+    }
+
     /// <summary>
     /// Unpacks one Ol cache archive into the managed cache directories.
     /// </summary>
@@ -73,12 +83,125 @@ internal sealed class CacheCommands
     }
 
     /// <summary>
+    /// Lists managed cache locations and their sizes.
+    /// </summary>
+    /// <param name="cacheDir">Root directory containing the managed cache categories.</param>
+    [Command("list")]
+    public int List(string? cacheDir = null)
+    {
+        try
+        {
+            var result = CacheArchive.Inspect(CachePaths.Resolve(cacheDir));
+            Console.WriteLine("Cache locations:");
+            for (var i = 0; i < result.Categories.Count; i++)
+            {
+                var category = result.Categories[i];
+                Console.WriteLine($"  {category.Category}: {category.Path} ({FormatEntryCount(category.Entries.Count)}, {FormatBytes(GetCategoryBytes(category))})");
+            }
+
+            Console.WriteLine($"Total: {FormatEntryCount(result.EntryCount)} ({FormatBytes(result.TotalBytes)})");
+            return 0;
+        }
+        catch (Exception exception) when (CacheArchive.IsExpectedFailure(exception))
+        {
+            Console.Error.WriteLine($"Cache list failed: {exception.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// Shows the contents of a cache directory or archive.
+    /// </summary>
+    /// <param name="path">Cache directory or .olcache archive path. Defaults to the resolved cache location.</param>
+    /// <param name="format">Output format: text or markdown.</param>
+    /// <param name="cacheDir">Root directory containing the managed cache categories when path is omitted.</param>
+    [Command("info")]
+    public int Info([Argument] string? path = null, CacheInfoFormat format = CacheInfoFormat.Text, string? cacheDir = null)
+    {
+        if (path is not null && cacheDir is not null)
+        {
+            Console.Error.WriteLine("Cache info accepts either a path or --cache-dir, not both.");
+            return 1;
+        }
+
+        try
+        {
+            var result = path is null
+                ? CacheArchive.Inspect(CachePaths.Resolve(cacheDir), cacheDir is null ? null : Path.GetFullPath(cacheDir))
+                : CacheArchive.Inspect(path);
+            if (format == CacheInfoFormat.Markdown)
+            {
+                WriteMarkdownInfo(result);
+            }
+            else
+            {
+                Console.WriteLine(result.IsArchive ? "Cache archive" : "Cache directory");
+                if (!string.IsNullOrEmpty(result.Path)) Console.WriteLine($"  Path: {result.Path}");
+                if (result.IsArchive) Console.WriteLine($"  Archive size: {FormatBytes(new FileInfo(result.Path).Length)}");
+                Console.WriteLine($"  Entries: {FormatEntryCount(result.EntryCount)}");
+                Console.WriteLine($"  Content size: {FormatBytes(result.TotalBytes)}");
+                Console.WriteLine();
+                Console.WriteLine("Categories:");
+                for (var i = 0; i < result.Categories.Count; i++)
+                {
+                    var category = result.Categories[i];
+                    Console.WriteLine($"  {category.Category}");
+                    if (!result.IsArchive) Console.WriteLine($"    Path: {category.Path}");
+                    Console.WriteLine($"    Entries: {FormatEntryCount(category.Entries.Count)}");
+                    Console.WriteLine($"    Size: {FormatBytes(GetCategoryBytes(category))}");
+                    if (category.UnmanagedFileCount > 0) Console.WriteLine($"    Unmanaged files: {category.UnmanagedFileCount}");
+                }
+
+                Console.WriteLine();
+                Console.WriteLine("Entries:");
+                var hasEntries = false;
+                for (var i = 0; i < result.Categories.Count; i++)
+                {
+                    var category = result.Categories[i];
+                    if (category.Entries.Count == 0) continue;
+                    hasEntries = true;
+                    Console.WriteLine($"  {category.Category}:");
+                    for (var j = 0; j < category.Entries.Count; j++)
+                    {
+                        var entry = category.Entries[j];
+                        if (entry.Error is not null)
+                        {
+                            Console.WriteLine($"    File: {entry.Name}");
+                            Console.WriteLine("      Status: invalid");
+                            Console.WriteLine($"      Size: {FormatBytes(entry.Bytes)}");
+                            Console.WriteLine($"      Reason: {entry.Error}");
+                            continue;
+                        }
+
+                        Console.WriteLine($"    Cache key: {entry.CacheKey}");
+                        Console.WriteLine($"      Fetched at: {entry.FetchedAt:O}");
+                        Console.WriteLine($"      Size: {FormatBytes(entry.Bytes)}");
+                    }
+                }
+
+                if (!hasEntries)
+                {
+                    Console.WriteLine("  (none)");
+                }
+            }
+
+            return 0;
+        }
+        catch (Exception exception) when (CacheArchive.IsExpectedFailure(exception))
+        {
+            Console.Error.WriteLine($"Cache info failed: {exception.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>
     /// Removes managed cache entries older than the specified age.
     /// </summary>
     /// <param name="maxAge">Remove entries older than this duration, such as 30d, 12h, or 90m.</param>
+    /// <param name="dryRun">Report the entries and bytes that would be removed without changing the cache.</param>
     /// <param name="cacheDir">Root directory containing the managed cache categories.</param>
     [Command("prune")]
-    public int Prune(string maxAge, string? cacheDir = null)
+    public int Prune(string maxAge, bool dryRun = false, string? cacheDir = null)
     {
         if (!CacheArchive.TryParseMaxAge(maxAge, out var maximumAge))
         {
@@ -88,8 +211,10 @@ internal sealed class CacheCommands
 
         try
         {
-            var count = CacheArchive.Prune(CachePaths.Resolve(cacheDir), maximumAge!.Value, DateTimeOffset.UtcNow);
-            Console.WriteLine($"Pruned {count} cache {(count == 1 ? "entry" : "entries")}");
+            var result = CacheArchive.Prune(CachePaths.Resolve(cacheDir), maximumAge!.Value, DateTimeOffset.UtcNow, dryRun);
+            var verb = dryRun ? "Would prune" : "Pruned";
+            var reclaimed = dryRun ? "free" : "freed";
+            Console.WriteLine($"{verb} {result.PrunedCount} cache {(result.PrunedCount == 1 ? "entry" : "entries")} ({reclaimed} {FormatBytes(result.ReclaimedBytes)}; managed cache {FormatBytes(result.BeforeBytes)} -> {FormatBytes(result.AfterBytes)})");
             return 0;
         }
         catch (Exception exception) when (CacheArchive.IsExpectedFailure(exception))
@@ -145,4 +270,98 @@ internal sealed class CacheCommands
                 return 1;
         }
     }
+
+    private static void WriteMarkdownInfo(CacheInspectionResult result)
+    {
+        Console.WriteLine(result.IsArchive ? "# Cache archive" : "# Cache directory");
+        Console.WriteLine();
+        Console.WriteLine("| Property | Value |");
+        Console.WriteLine("|---|---|");
+        if (!string.IsNullOrEmpty(result.Path)) Console.WriteLine($"| Path | {EscapeMarkdown(result.Path)} |");
+        if (result.IsArchive) Console.WriteLine($"| Archive size | {FormatBytes(new FileInfo(result.Path).Length)} |");
+        Console.WriteLine($"| Entries | {FormatEntryCount(result.EntryCount)} |");
+        Console.WriteLine($"| Content size | {FormatBytes(result.TotalBytes)} |");
+        Console.WriteLine();
+        Console.WriteLine("## Categories");
+        Console.WriteLine();
+        if (result.IsArchive)
+        {
+            Console.WriteLine("| Category | Entries | Size | Unmanaged files |");
+            Console.WriteLine("|---|---:|---:|---:|");
+        }
+        else
+        {
+            Console.WriteLine("| Category | Path | Entries | Size | Unmanaged files |");
+            Console.WriteLine("|---|---|---:|---:|---:|");
+        }
+
+        for (var i = 0; i < result.Categories.Count; i++)
+        {
+            var category = result.Categories[i];
+            var bytes = FormatBytes(GetCategoryBytes(category));
+            var entries = FormatEntryCount(category.Entries.Count);
+            if (result.IsArchive)
+            {
+                Console.WriteLine($"| {EscapeMarkdown(category.Category)} | {entries} | {bytes} | {category.UnmanagedFileCount} |");
+            }
+            else
+            {
+                Console.WriteLine($"| {EscapeMarkdown(category.Category)} | {EscapeMarkdown(category.Path)} | {entries} | {bytes} | {category.UnmanagedFileCount} |");
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("## Entries");
+        Console.WriteLine();
+        Console.WriteLine("| Category | Cache key | Fetched at | Size | Status | Details |");
+        Console.WriteLine("|---|---|---|---:|---|---|");
+        var hasEntries = false;
+        for (var i = 0; i < result.Categories.Count; i++)
+        {
+            var category = result.Categories[i];
+            for (var j = 0; j < category.Entries.Count; j++)
+            {
+                hasEntries = true;
+                var entry = category.Entries[j];
+                if (entry.Error is not null)
+                {
+                    Console.WriteLine($"| {EscapeMarkdown(category.Category)} | - | - | {FormatBytes(entry.Bytes)} | invalid | {EscapeMarkdown($"File: {entry.Name}; {entry.Error}")} |");
+                }
+                else
+                {
+                    Console.WriteLine($"| {EscapeMarkdown(category.Category)} | {EscapeMarkdown(entry.CacheKey ?? "-")} | {entry.FetchedAt:O} | {FormatBytes(entry.Bytes)} | valid | - |");
+                }
+            }
+        }
+
+        if (!hasEntries) Console.WriteLine("| - | - | - | - | - | No managed entries. |");
+    }
+
+    private static string EscapeMarkdown(string value)
+        => value.Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal)
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("`", "\\`", StringComparison.Ordinal)
+            .Replace("*", "\\*", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal)
+            .Replace("[", "\\[", StringComparison.Ordinal)
+            .Replace("]", "\\]", StringComparison.Ordinal)
+            .Replace("(", "\\(", StringComparison.Ordinal)
+            .Replace(")", "\\)", StringComparison.Ordinal)
+            .Replace("!", "\\!", StringComparison.Ordinal)
+            .Replace("~", "\\~", StringComparison.Ordinal)
+            .Replace("|", "\\|", StringComparison.Ordinal)
+            .Replace("\r", string.Empty, StringComparison.Ordinal)
+            .Replace("\n", "<br>", StringComparison.Ordinal);
+}
+
+/// <summary>Selects the cache info output format.</summary>
+internal enum CacheInfoFormat
+{
+    /// <summary>Human-readable vertical output.</summary>
+    Text,
+
+    /// <summary>Markdown tables.</summary>
+    Markdown,
 }

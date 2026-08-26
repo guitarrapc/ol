@@ -167,6 +167,288 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
+    public async Task CacheList_WithCacheDirectory_ShowsLocationsAndManagedEntrySizes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-list-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "list", "--cache-dir", source);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains($"package-metadata: {Path.Combine(source, "package-metadata")}");
+            await Assert.That(result.Stdout).Contains("1 entry");
+            await Assert.That(result.Stdout).Contains("Total: 1 entry");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithDirectoryAndArchive_ShowsLogicalEntries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var archive = Path.Combine(root, "cache.olcache");
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var directory = await RunOlAsync("cache", "info", source);
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+            var packed = await RunOlAsync("cache", "info", archive);
+            var packedMarkdown = await RunOlAsync("cache", "info", archive, "--format", "markdown");
+
+            await Assert.That(directory.ExitCode).IsEqualTo(0).Because(directory.Stderr);
+            await Assert.That(directory.Stdout).Contains("Cache directory");
+            await Assert.That(directory.Stdout).Contains("Categories:");
+            await Assert.That(directory.Stdout).Contains("Entries:");
+            await Assert.That(directory.Stdout).Contains("  package-metadata:\r\n    Cache key: ".Replace("\r\n", Environment.NewLine));
+            await Assert.That(directory.Stdout).Contains(cacheKey);
+            await Assert.That(pack.ExitCode).IsEqualTo(0).Because(pack.Stderr);
+            await Assert.That(packed.ExitCode).IsEqualTo(0).Because(packed.Stderr);
+            await Assert.That(packed.Stdout).Contains("Cache archive");
+            await Assert.That(packed.Stdout).Contains("Archive size:");
+            await Assert.That(packed.Stdout).Contains("Categories:");
+            await Assert.That(packed.Stdout).Contains("package-metadata");
+            await Assert.That(packed.Stdout).Contains(cacheKey);
+            await Assert.That(packedMarkdown.ExitCode).IsEqualTo(0).Because(packedMarkdown.Stderr);
+            await Assert.That(packedMarkdown.Stdout.ReplaceLineEndings("\n")).StartsWith("# Cache archive\n\n| Property | Value |\n|---|---|\n");
+            await Assert.That(packedMarkdown.Stdout).Contains("| Archive size | ");
+            await Assert.That(packedMarkdown.Stdout).Contains(cacheKey);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithMarkdownFormat_RendersSummaryAndEntriesAsTables()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-markdown-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source, "--format", "markdown");
+            var output = result.Stdout.ReplaceLineEndings("\n");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(output).StartsWith("# Cache directory\n\n| Property | Value |\n|---|---|\n");
+            await Assert.That(output).Contains("## Categories\n\n| Category | Path | Entries | Size | Unmanaged files |");
+            await Assert.That(output).Contains("## Entries\n\n| Category | Cache key | Fetched at | Size | Status | Details |");
+            await Assert.That(output).Contains(cacheKey);
+            await Assert.That(output).DoesNotContain("fetched-at=");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithTrailingSeparatorOnCategoryPath_InspectsCategory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-category-{Guid.NewGuid():N}");
+        var category = Path.Combine(root, "package-metadata");
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var cache = new PackageMetadataCache(category);
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", string.Concat(category, Path.DirectorySeparatorChar));
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Entries: 1 entry");
+            await Assert.That(result.Stdout).Contains(cacheKey);
+            await Assert.That(result.Stdout).DoesNotContain("source-repository");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithCaseVariantCategoryPath_OnWindows_InspectsCategory()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-category-case-{Guid.NewGuid():N}");
+        var category = Path.Combine(root, "package-metadata");
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var cache = new PackageMetadataCache(category);
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", Path.Combine(root, "PACKAGE-METADATA"));
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Entries: 1 entry");
+            await Assert.That(result.Stdout).Contains(cacheKey);
+            await Assert.That(result.Stdout).DoesNotContain("source-repository");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithUnifiedRootNamedAsCategory_InspectsNestedCategories()
+    {
+        var parent = Path.Combine(Path.GetTempPath(), $"ol-cache-info-root-name-{Guid.NewGuid():N}");
+        var source = Path.Combine(parent, "package-metadata");
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Entries: 1 entry");
+            await Assert.That(result.Stdout).Contains(cacheKey);
+            await Assert.That(result.Stdout).Contains("source-repository");
+        }
+        finally
+        {
+            if (Directory.Exists(parent)) Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Inspect_WithCategoryRootAsFile_RejectsInvalidLocation()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-root-file-{Guid.NewGuid():N}");
+        var file = Path.Combine(root, "package-metadata");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(file, "not a directory");
+
+        try
+        {
+            var directories = new CacheDirectories(file, Path.Combine(root, "source-repository"), Path.Combine(root, "github-file"));
+
+            await Assert.That(() => CacheArchive.Inspect(directories)).Throws<InvalidDataException>();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithMarkdownFormat_EscapesMarkupInCacheKey()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-markdown-escape-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        const string cacheKey = "<details>**cache** [link](https://example.com) `code` &copy;|x</details>";
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source, "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("&lt;details&gt;\\*\\*cache\\*\\* \\[link\\]\\(https://example.com\\) \\`code\\` &amp;copy;\\|x&lt;/details&gt;");
+            await Assert.That(result.Stdout).DoesNotContain("<details>");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithMarkdownFormat_LabelsInvalidEntryAsFile()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-markdown-invalid-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        const string cacheKey = "pkg:npm/invalid@1.0.0";
+        var fileName = $"{PackageMetadataCache.GetCacheKeySha256(cacheKey)}.json";
+        Directory.CreateDirectory(category);
+        await File.WriteAllTextAsync(Path.Combine(category, fileName), "{}");
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source, "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| package-metadata | - | - |");
+            await Assert.That(result.Stdout).Contains($"File: {fileName};");
+            await Assert.That(result.Stdout).DoesNotContain($"| package-metadata | {fileName} | - |");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithPathAndCacheDirectory_RejectsAmbiguousSelection()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-ambiguous-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        Directory.CreateDirectory(source);
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source, "--cache-dir", Path.Combine(root, "other"));
+
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.Stdout).IsEmpty();
+            await Assert.That(result.Stderr.Trim()).IsEqualTo("Cache info accepts either a path or --cache-dir, not both.");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Prune_WithDryRun_ReportsReclaimedBytesWithoutDeleting()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-prune-dry-run-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        const string cacheKey = "pkg:npm/old@1.0.0";
+        var cache = new PackageMetadataCache(category);
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], [], FetchedAt: DateTimeOffset.UtcNow.AddDays(-31)));
+        var entryPath = cache.GetPath(cacheKey);
+
+        try
+        {
+            var result = await RunOlAsync("cache", "prune", "--cache-dir", source, "--max-age", "30d", "--dry-run");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Would prune 1 cache entry");
+            await Assert.That(result.Stdout).Contains("free");
+            await Assert.That(result.Stdout).Contains("->");
+            await Assert.That(File.Exists(entryPath)).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Pack_WithMaxAge_IncludesOnlyRecentEntries()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-max-age-{Guid.NewGuid():N}");

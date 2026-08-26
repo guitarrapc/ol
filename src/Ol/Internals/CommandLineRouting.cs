@@ -158,6 +158,28 @@ internal static class CommandLineRouting
             return true;
         }
 
+        if (args[1] == "prune")
+        {
+            if (args.Length > 2 && IsFrameworkOutput(args[2]))
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            for (var i = 2; i < args.Length; i++)
+            {
+                if ((args[i] == "--max-age" && i + 1 < args.Length)
+                    || (args[i].StartsWith("--max-age=", StringComparison.Ordinal) && args[i].Length > "--max-age=".Length))
+                {
+                    error = string.Empty;
+                    return true;
+                }
+            }
+
+            error = "Required argument 'max-age' was not specified.";
+            return false;
+        }
+
         if (args[1] is "pack" or "unpack")
         {
             if (args.Length > 2)

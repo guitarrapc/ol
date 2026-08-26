@@ -15,6 +15,7 @@ public sealed class CliCommandGroupHelpTests
         Commands:
           clear     Clears cached evidence for the specified category.
           pack      Packs managed cache entries into one deterministic archive.
+          prune     Removes managed cache entries older than the specified age.
           unpack    Unpacks an Ol cache archive into the managed cache directories.
         """)]
     [Arguments("spdx", """
@@ -81,21 +82,26 @@ public sealed class CliCommandGroupHelpTests
     }
 
     [Test]
-    public async Task CacheArchive_Help_ShowsArchiveAsPositionalArgumentAndPackAgeOption()
+    public async Task CacheArchive_Help_ShowsArchiveAndAgeArguments()
     {
         var root = FindRepositoryRoot();
 
         var pack = await RunOlAsync(root, "cache", "pack", "--help");
+        var prune = await RunOlAsync(root, "cache", "prune", "--help");
         var unpack = await RunOlAsync(root, "cache", "unpack", "--help");
 
         await Assert.That(pack.ExitCode).IsEqualTo(0);
         await Assert.That(pack.Stdout).Contains("Usage: cache pack [arguments...] [options...]");
         await Assert.That(pack.Stdout).Contains("[0] <string>    Output .olcache archive path.");
         await Assert.That(pack.Stdout).Contains("--max-age <string?>");
+        await Assert.That(prune.ExitCode).IsEqualTo(0);
+        await Assert.That(prune.Stdout).Contains("Usage: cache prune [options...]");
+        await Assert.That(prune.Stdout).Contains("--max-age <string>");
         await Assert.That(unpack.ExitCode).IsEqualTo(0);
         await Assert.That(unpack.Stdout).Contains("Usage: cache unpack [arguments...] [options...]");
         await Assert.That(unpack.Stdout).Contains("[0] <string>    Input .olcache archive path.");
         await Assert.That(pack.Stderr).IsEmpty();
+        await Assert.That(prune.Stderr).IsEmpty();
         await Assert.That(unpack.Stderr).IsEmpty();
     }
 
@@ -109,6 +115,18 @@ public sealed class CliCommandGroupHelpTests
         await Assert.That(result.ExitCode).IsEqualTo(1);
         await Assert.That(result.Stdout).IsEmpty();
         await Assert.That(result.Stderr.Trim()).IsEqualTo("Argument '--category' is not recognized.");
+    }
+
+    [Test]
+    public async Task CachePrune_WithoutMaxAge_RejectsMissingRequiredOption()
+    {
+        var root = FindRepositoryRoot();
+
+        var result = await RunOlAsync(root, "cache", "prune");
+
+        await Assert.That(result.ExitCode).IsEqualTo(1);
+        await Assert.That(result.Stdout).IsEmpty();
+        await Assert.That(result.Stderr.Trim()).IsEqualTo("Required argument 'max-age' was not specified.");
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)

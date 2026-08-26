@@ -12,6 +12,7 @@ internal static class CommandGroupHelp
         Commands:
           clear     Clears cached evidence for the specified category.
           pack      Packs managed cache entries into one deterministic archive.
+          prune     Removes managed cache entries older than the specified age.
           unpack    Unpacks an Ol cache archive into the managed cache directories.
         """;
 

@@ -91,6 +91,103 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
+    public async Task Pack_WithMaxAge_AppliesEntryLimitAfterFiltering()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-filtered-limit-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var restored = Path.Combine(root, "restored");
+        var archive = Path.Combine(root, "cache.olcache");
+        var oldKey = "pkg:npm/old@1.0.0";
+        var recentKey = "pkg:npm/recent@1.0.0";
+        var now = new DateTimeOffset(2026, 8, 26, 0, 0, 0, TimeSpan.Zero);
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        Directory.CreateDirectory(root);
+        await cache.WriteAsync(new PackageMetadataRecord(oldKey, "npm-registry", "MIT", string.Empty, [], [], FetchedAt: now.AddDays(-31)));
+        await cache.WriteAsync(new PackageMetadataRecord(recentKey, "npm-registry", "MIT", string.Empty, [], [], FetchedAt: now.AddDays(-1)));
+
+        try
+        {
+            var limits = new CacheArchiveLimits(
+                MaximumArchiveBytes: 1024 * 1024,
+                MaximumEntryBytes: 1024 * 1024,
+                MaximumExpandedBytes: 1024 * 1024,
+                MaximumEntryCount: 1);
+
+            var count = CacheArchive.Pack(archive, CachePaths.Resolve(source), TimeSpan.FromDays(30), now, limits);
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", restored);
+            var restoredCache = new PackageMetadataCache(Path.Combine(restored, "package-metadata"));
+
+            await Assert.That(count).IsEqualTo(1);
+            await Assert.That(unpack.ExitCode).IsEqualTo(0).Because(unpack.Stderr);
+            await Assert.That((await restoredCache.TryReadAsync(oldKey)).IsHit).IsFalse();
+            await Assert.That((await restoredCache.TryReadAsync(recentKey)).IsHit).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Prune_WithMaxAge_RemovesOnlyOldManagedEntries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-prune-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        var oldKey = "pkg:npm/old@1.0.0";
+        var recentKey = "pkg:npm/recent@1.0.0";
+        var cache = new PackageMetadataCache(category);
+        Directory.CreateDirectory(root);
+        await cache.WriteAsync(new PackageMetadataRecord(oldKey, "npm-registry", "MIT", string.Empty, [], [], FetchedAt: DateTimeOffset.UtcNow.AddDays(-31)));
+        await cache.WriteAsync(new PackageMetadataRecord(recentKey, "npm-registry", "MIT", string.Empty, [], [], FetchedAt: DateTimeOffset.UtcNow.AddDays(-1)));
+        var unrelated = Path.Combine(category, "keep.txt");
+        await File.WriteAllTextAsync(unrelated, "keep", Encoding.UTF8);
+
+        try
+        {
+            var prune = await RunOlAsync("cache", "prune", "--cache-dir", source, "--max-age", "30d");
+
+            await Assert.That(prune.ExitCode).IsEqualTo(0).Because(prune.Stderr);
+            await Assert.That(prune.Stdout).Contains("Pruned 1 cache entry");
+            await Assert.That((await cache.TryReadAsync(oldKey)).IsHit).IsFalse();
+            await Assert.That((await cache.TryReadAsync(recentKey)).IsHit).IsTrue();
+            await Assert.That(await File.ReadAllTextAsync(unrelated)).IsEqualTo("keep");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Prune_WithLinkedCategory_RejectsWithoutDeletingOutsideCache()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-linked-prune-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var outside = Path.Combine(root, "outside");
+        var link = Path.Combine(source, "package-metadata");
+        var outsideCache = new PackageMetadataCache(outside);
+        var cacheKey = "pkg:npm/example@1.0.0";
+        Directory.CreateDirectory(source);
+        await outsideCache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], [], FetchedAt: DateTimeOffset.UtcNow.AddDays(-31)));
+        Directory.CreateSymbolicLink(link, outside);
+
+        try
+        {
+            var prune = await RunOlAsync("cache", "prune", "--cache-dir", source, "--max-age", "30d");
+
+            await Assert.That(prune.ExitCode).IsEqualTo(1);
+            await Assert.That(prune.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+            await Assert.That(File.Exists(outsideCache.GetPath(cacheKey))).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(link)) Directory.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Pack_WhenExpandedContentExceedsUnpackLimit_RejectsWithoutReplacingArchive()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-expanded-limit-{Guid.NewGuid():N}");

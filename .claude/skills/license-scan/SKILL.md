@@ -50,7 +50,7 @@ Keep external evidence enabled for the primary result. `--no-external-evidence` 
 
 Use `--refresh` only when stale evidence is suspected, and lower `--concurrency` when a service rate-limits. In CI, persist `--cache-dir` between runs: a cold cache costs hundreds of GitHub requests on a large repository, and `GITHUB_TOKEN` allows 1,000 per hour per repository.
 
-For a centrally maintained read-only seed, distribute an Ol cache archive instead of granting consuming workflows cache-write access. Run `ol cache unpack <archive> --cache-dir <temporary-directory>` before scan. The scan may add missing evidence to that temporary directory without modifying the archive. The trusted updater refreshes its selected dependency population, then runs `ol cache pack <archive> --cache-dir <directory> --max-age <duration>`; the age bound keeps evidence no updater refreshed from accumulating forever.
+For a centrally maintained read-only seed, distribute an Ol cache archive instead of granting consuming workflows cache-write access. In GitHub Actions, unpack it into a fresh per-job directory such as `$RUNNER_TEMP/ol-cache` before scan. The scan may add missing evidence there without modifying the archive, and the temporary directory is discarded with the job. The trusted updater follows the same fresh-directory pattern, refreshes its selected dependency population, then runs `ol cache pack <archive> --cache-dir <directory> --max-age <duration>`; the age bound keeps evidence no updater refreshed from accumulating forever. Use `ol cache prune --cache-dir <persistent-directory> --max-age <duration>` only when intentionally retaining a writable cache directory across runs.
 
 ### GitHub authentication
 

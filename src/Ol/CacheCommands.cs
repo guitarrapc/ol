@@ -59,6 +59,33 @@ internal sealed class CacheCommands
     }
 
     /// <summary>
+    /// Removes managed cache entries older than the specified age.
+    /// </summary>
+    /// <param name="maxAge">Remove entries older than this duration, such as 30d, 12h, or 90m.</param>
+    /// <param name="cacheDir">Root directory containing the managed cache categories.</param>
+    [Command("prune")]
+    public int Prune(string maxAge, string? cacheDir = null)
+    {
+        if (!CacheArchive.TryParseMaxAge(maxAge, out var maximumAge))
+        {
+            Console.Error.WriteLine("Max age must be a positive integer followed by d, h, or m.");
+            return 1;
+        }
+
+        try
+        {
+            var count = CacheArchive.Prune(CachePaths.Resolve(cacheDir), maximumAge!.Value, DateTimeOffset.UtcNow);
+            Console.WriteLine($"Pruned {count} cache {(count == 1 ? "entry" : "entries")}");
+            return 0;
+        }
+        catch (Exception exception) when (CacheArchive.IsExpectedFailure(exception))
+        {
+            Console.Error.WriteLine($"Cache prune failed: {exception.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>
     /// Clears cached evidence for the specified category.
     /// </summary>
     /// <param name="category">Cache category: package-metadata, source-repository, github-file, or all. [Default: all]</param>

@@ -147,6 +147,7 @@ Usage: [command] [-h|--help] [--version]
 Commands:
   cache clear            Clears cached evidence for the specified category.
   cache pack             Packs managed cache entries into one deterministic archive.
+  cache prune            Removes managed cache entries older than the specified age.
   cache unpack           Unpacks an Ol cache archive into the managed cache directories.
   check                  Check a canonical JSON scan report against allowed SPDX licenses.
   diff                   Compare two persisted JSON scan reports and report license-relevant changes.
@@ -169,6 +170,7 @@ Commands:
 | `ol skill export-plugin` | SkillをポータブルなAgent Pluginとして出力する。 |
 | `ol cache clear` | olが管理する証拠キャッシュを削除する。 |
 | `ol cache pack` | 証拠キャッシュを決定的な`.olcache`アーカイブにまとめる。 |
+| `ol cache prune` | 指定した期間より古い管理対象キャッシュを削除する。 |
 | `ol cache unpack` | `.olcache`アーカイブを分離されたキャッシュディレクトリへ復元する。 |
 | `ol spdx version` | 使用中のSPDXデータを表示する。 |
 | `ol spdx list` | インストール済みSPDXデータを一覧表示する。 |
@@ -178,13 +180,15 @@ Commands:
 
 SBOMやロックファイルといった依存関係の情報からライセンスを収集するには`scan`を使います。解析レポートから、利用しているパッケージの一覧とライセンスを確認できます。JSON形式で出力すると、`check`や`diff`で再利用できます。
 
-CIリポジトリ間で読み取り専用のキャッシュシードを配布する場合は、キャッシュを明示的にpack/unpackします。
+CIリポジトリ間で読み取り専用のキャッシュシードを配布する場合は、jobごとに`RUNNER_TEMP`配下のfreshなディレクトリへunpackします。scanはそこへエントリを追加できますが、ディレクトリはjobとともに破棄され、commitしたアーカイブは読み取り専用のままです。
 
 ```bash
 ol cache pack cysharp.olcache --cache-dir .ol-cache --max-age 30d
 ol cache unpack cysharp.olcache --cache-dir "$RUNNER_TEMP/ol-cache"
 ol scan --input . --cache-dir "$RUNNER_TEMP/ol-cache"
 ```
+
+信頼された更新jobも同じfreshなディレクトリを使い、対象リポジトリをrefreshしてから`--max-age`付きで次のseedをpackします。永続的なローカルキャッシュを使う場合は、`ol cache prune --cache-dir .ol-cache --max-age 30d`で古い管理対象エントリを明示的に削除できます。
 
 アーカイブには、元のキャッシュに含まれるパッケージとリポジトリの識別情報が保存されます。private repositoryの証拠から作成したキャッシュシードは公開しないでください。
 
@@ -273,7 +277,10 @@ Usage: cache [command] [-h|--help] [--version]
 Manage locally cached scan evidence.
 
 Commands:
-  clear    Clears cached evidence for the specified category.
+  clear     Clears cached evidence for the specified category.
+  pack      Packs managed cache entries into one deterministic archive.
+  prune     Removes managed cache entries older than the specified age.
+  unpack    Unpacks an Ol cache archive into the managed cache directories.
 ```
 
 olには、解決済み入力の選択、SBOMとパッケージマネジャー証拠の併用、scan結果の解釈をcoding agentへ案内するAgent Skillが同梱されています。現在のworkspaceへインストールするか、ポータブルな[Agent Plugin](https://agent-plugins.org/)として出力できます。

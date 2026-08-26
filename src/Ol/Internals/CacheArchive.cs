@@ -157,6 +157,33 @@ internal static class CacheArchive
         return true;
     }
 
+    public static int Prune(CacheDirectories directories, TimeSpan maximumAge, DateTimeOffset now)
+    {
+        ValidateCachePaths(directories);
+        var cutoff = GetCutoff(maximumAge, now);
+        var count = 0;
+        for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
+        {
+            var root = GetCategoryRoot(Categories[categoryIndex].Name, directories);
+            if (!Directory.Exists(root)) continue;
+
+            foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))
+            {
+                ValidateLinkFreePath(path);
+                var fileName = Path.GetFileName(path);
+                if (!IsCacheFileName(fileName)) continue;
+                var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), DefaultLimits.MaximumEntryBytes);
+                if (fetchedAt >= cutoff) continue;
+
+                ValidateLinkFreePath(path);
+                File.Delete(path);
+                count = checked(count + 1);
+            }
+        }
+
+        return count;
+    }
+
     public static bool IsExpectedFailure(Exception exception)
         => exception is ArgumentException
             or InvalidDataException
@@ -170,7 +197,7 @@ internal static class CacheArchive
     {
         var entries = new List<ArchiveSourceEntry>();
         var cutoff = maximumAge.HasValue
-            ? maximumAge.Value >= now - DateTimeOffset.MinValue ? DateTimeOffset.MinValue : now - maximumAge.Value
+            ? GetCutoff(maximumAge.Value, now)
             : DateTimeOffset.MinValue;
         for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
         {
@@ -178,23 +205,20 @@ internal static class CacheArchive
             var root = GetCategoryRoot(category.Name, directories);
             if (!Directory.Exists(root)) continue;
 
-            var paths = new List<string>();
+            var categoryEntries = new List<ArchiveSourceEntry>();
             foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))
             {
-                if (entries.Count + paths.Count == limits.MaximumEntryCount) throw new InvalidDataException($"Archive contains more than {limits.MaximumEntryCount} cache entries.");
-                paths.Add(path);
+                ValidateLinkFreePath(path);
+                var fileName = Path.GetFileName(path);
+                ValidateCacheFileName(fileName);
+                var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
+                if (fetchedAt < cutoff) continue;
+                if (entries.Count + categoryEntries.Count == limits.MaximumEntryCount) throw new InvalidDataException($"Archive contains more than {limits.MaximumEntryCount} cache entries.");
+                categoryEntries.Add(new(path, string.Concat(category.Name, "/", fileName)));
             }
 
-            paths.Sort(StringComparer.Ordinal);
-            for (var i = 0; i < paths.Count; i++)
-            {
-                ValidateLinkFreePath(paths[i]);
-                var fileName = Path.GetFileName(paths[i]);
-                ValidateCacheFileName(fileName);
-                var fetchedAt = ValidateCacheEntry(paths[i], fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
-                if (fetchedAt < cutoff) continue;
-                entries.Add(new(paths[i], string.Concat(category.Name, "/", fileName)));
-            }
+            categoryEntries.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.ArchivePath, right.ArchivePath));
+            entries.AddRange(categoryEntries);
         }
 
         return entries;
@@ -318,19 +342,23 @@ internal static class CacheArchive
 
     private static void ValidateCacheFileName(string fileName)
     {
-        if (fileName.Length != 69 || !fileName.EndsWith(".json", StringComparison.Ordinal))
+        if (!IsCacheFileName(fileName))
         {
             throw new InvalidDataException($"Unsupported cache entry name: {fileName}.");
         }
+    }
+
+    private static bool IsCacheFileName(string fileName)
+    {
+        if (fileName.Length != 69 || !fileName.EndsWith(".json", StringComparison.Ordinal)) return false;
 
         for (var i = 0; i < 64; i++)
         {
             var value = fileName[i];
-            if (!((uint)(value - '0') <= 9 || (uint)(value - 'a') <= 5))
-            {
-                throw new InvalidDataException($"Unsupported cache entry name: {fileName}.");
-            }
+            if (!((uint)(value - '0') <= 9 || (uint)(value - 'a') <= 5)) return false;
         }
+
+        return true;
     }
 
     private static string GetCacheKeySha256(string cacheKey)
@@ -355,6 +383,9 @@ internal static class CacheArchive
 
     private static bool IsCategory(string value)
         => value is "package-metadata" or "source-repository" or "github-file";
+
+    private static DateTimeOffset GetCutoff(TimeSpan maximumAge, DateTimeOffset now)
+        => maximumAge >= now - DateTimeOffset.MinValue ? DateTimeOffset.MinValue : now - maximumAge;
 
     private static void ValidateCachePaths(CacheDirectories directories)
     {

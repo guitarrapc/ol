@@ -148,6 +148,7 @@ Usage: [command] [-h|--help] [--version]
 Commands:
   cache clear            Clears cached evidence for the specified category.
   cache pack             Packs managed cache entries into one deterministic archive.
+  cache prune            Removes managed cache entries older than the specified age.
   cache unpack           Unpacks an Ol cache archive into the managed cache directories.
   check                  Check a canonical JSON scan report against allowed SPDX licenses.
   diff                   Compare two persisted JSON scan reports and report license-relevant changes.
@@ -170,6 +171,7 @@ Commands:
 | `ol skill export-plugin` | Export the skill as a portable Agent Plugin package. |
 | `ol cache clear` | Clear evidence caches managed by ol. |
 | `ol cache pack` | Pack evidence caches into a deterministic `.olcache` archive. |
+| `ol cache prune` | Remove managed cache entries older than a specified age. |
 | `ol cache unpack` | Restore a `.olcache` archive into an isolated cache directory. |
 | `ol spdx version` | Show the active SPDX data source. |
 | `ol spdx list` | List installed SPDX data versions. |
@@ -179,13 +181,15 @@ Commands:
 
 Use `scan` to collect licenses from an SBOM, lockfile, or other resolved dependency input. JSON reports can be reused by `check` and `diff`.
 
-To distribute a read-only cache seed between CI repositories, pack and unpack the cache explicitly:
+To distribute a read-only cache seed between CI repositories, unpack it into a fresh per-job directory under `RUNNER_TEMP`. The scan may add entries there, but the directory is discarded with the job and the committed archive remains read-only:
 
 ```bash
 ol cache pack cysharp.olcache --cache-dir .ol-cache --max-age 30d
 ol cache unpack cysharp.olcache --cache-dir "$RUNNER_TEMP/ol-cache"
 ol scan --input . --cache-dir "$RUNNER_TEMP/ol-cache"
 ```
+
+The trusted updater uses the same fresh directory, refreshes its selected repositories, and packs the next seed with `--max-age`. For a persistent local cache instead, remove old managed entries explicitly with `ol cache prune --cache-dir .ol-cache --max-age 30d`.
 
 The archive contains package and repository identities from the source cache. Do not publish a seed built from private-repository evidence.
 
@@ -272,7 +276,10 @@ Usage: cache [command] [-h|--help] [--version]
 Manage locally cached scan evidence.
 
 Commands:
-  clear    Clears cached evidence for the specified category.
+  clear     Clears cached evidence for the specified category.
+  pack      Packs managed cache entries into one deterministic archive.
+  prune     Removes managed cache entries older than the specified age.
+  unpack    Unpacks an Ol cache archive into the managed cache directories.
 ```
 
 ol bundles an Agent Skill that teaches coding agents how to select resolved inputs, combine an SBOM with package-manager evidence, and interpret scan results. Install it into the current workspace or export a portable [Agent Plugin](https://agent-plugins.org/):

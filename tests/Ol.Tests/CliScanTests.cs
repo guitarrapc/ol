@@ -459,8 +459,7 @@ public sealed class CliScanTests
             var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath);
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            // Each counter on this line pluralizes from its own count, as every other counted noun in the
-            // summary does; the line below it says "1 component without source license" by the same rule.
+            // Each counter here pluralizes from its own count, as every other counted noun in the summary does.
             await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 2 unsupported ecosystems; 1 unversioned purl;");
         }
         finally
@@ -1369,8 +1368,7 @@ public sealed class CliScanTests
             await Assert.That(stdout).DoesNotContain("unknown");
             await Assert.That(stderr).Contains("Filter: 2 components excluded; 1 with unknown dependency type");
 
-            // One excluded component is the case that says whether the line pluralizes from its own count,
-            // which check and diff already do for the same phrase.
+            // The singular case, which check and diff already get right for the same phrase.
             var (singularExitCode, _, singularStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--dependency", "direct,unknown");
 
             await Assert.That(singularExitCode).IsEqualTo(0);
@@ -1455,9 +1453,7 @@ public sealed class CliScanTests
                 await Assert.That(exitCode).IsEqualTo(0);
                 await Assert.That(stderr).StartsWith($"{Environment.NewLine}Scan summary{Environment.NewLine}");
                 await Assert.That(stderr).Contains("  License results: 1 displayed component; 1 matched; 0 conflict; 0 unknown; 0 ambiguous; 0 invalid; 0 error");
-                // Asserted as one block rather than line by line, because the table's value is that a
-                // counter lands in the same column on every row: independent substring assertions hold
-                // neither the row order nor the alignment that makes the columns comparable.
+                // One block, because the point of the table is that a counter lands in the same column on every row.
                 await Assert.That(stderr).Contains(string.Join(
                     Environment.NewLine,
                     "  Evidence (full scan)     targets  requests  cache hits  cache misses  docs  matched  errors",
@@ -1871,9 +1867,7 @@ public sealed class CliScanTests
             await Assert.That(stderr).Contains("  External evidence: not collected; package registries, source repositories, and their caches were not read");
             await Assert.That(stderr).DoesNotContain("(full scan)");
             await Assert.That(stderr).DoesNotContain("GitHub auth");
-            // The two lines under the table carry no mode marker of their own, so the guards above would
-            // not notice either of them escaping the branch and printing the zeroed counters this mode exists
-            // to withhold.
+            // The two lines under the table carry no mode marker, so the guards above would miss them.
             await Assert.That(stderr).DoesNotContain("unsupported ecosystem");
             await Assert.That(stderr).DoesNotContain("without source license");
         }

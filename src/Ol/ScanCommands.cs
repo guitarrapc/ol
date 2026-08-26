@@ -328,17 +328,8 @@ internal sealed class ScanCommands
     /// States what each evidence collector was pointed at and what came back, as one aligned table.
     /// </summary>
     /// <remarks>
-    /// The four collectors share most of their vocabulary — targets, requests, cache hits and misses,
-    /// documents, matches, errors — but not all of it, and as four semicolon-separated lines the shared
-    /// counters never landed in the same place. Comparing one counter across collectors meant re-reading
-    /// four lines of up to 150 characters to find where each had put it. Alignment is the whole change:
-    /// the values are the ones those lines already carried, and the mode qualifier the four lines repeated
-    /// is stated once in the heading.
-    ///
-    /// A cell a collector has no counter for is written "-", not 0, because a zero claims it attempted the
-    /// work and found nothing. That is the same distinction the External evidence line draws for a run.
-    /// Counters only one collector has stay in a named line under the table rather than adding a column
-    /// that would be "-" in three of the four rows.
+    /// A cell for a counter a collector does not have is "-", not 0: a zero would claim it attempted the
+    /// work and found nothing. Counters only one collector has stay in a named line under the table.
     /// </remarks>
     internal static void WriteEvidenceTable(
         in PackageArtifactCollectionSummary packageArtifacts,

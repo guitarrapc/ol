@@ -8,11 +8,8 @@ namespace Ol.Tests;
 /// Covers the alignment of the scan summary's evidence table.
 /// </summary>
 /// <remarks>
-/// The table exists so one counter can be compared across four collectors, which holds only while every
-/// cell stays under its own header. The CLI tests assert the table a real scan produces, but a scan cannot
-/// reach a counter wide enough to widen a column — the narrowest header is four characters, so it would
-/// take a five-digit document count — so the width computation the alignment depends on is only observable
-/// here.
+/// No scan can reach a counter wide enough to widen a column — the narrowest header is four characters —
+/// so the width computation the alignment depends on is only observable here.
 /// </remarks>
 public sealed class EvidenceTableTests
 {
@@ -39,14 +36,7 @@ public sealed class EvidenceTableTests
             """.ReplaceLineEndings("\n"));
     }
 
-    /// <summary>
-    /// A counter wider than its header widens that column for the header and for every other row.
-    /// </summary>
-    /// <remarks>
-    /// This is the case the width computation exists for and the one no scan can reach: the narrowest
-    /// header is four characters, so a real run would need a five-digit document count. Without it, a
-    /// regression that sized every column from its header alone would pass the whole suite.
-    /// </remarks>
+    /// <summary>A counter wider than its header widens that column for the header and for every other row.</summary>
     [Test]
     public async Task WriteEvidenceTable_WithCounterWiderThanItsHeader_WidensThatColumnForEveryRow()
     {

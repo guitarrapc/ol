@@ -16,9 +16,9 @@ namespace Ol.Core.Reporting;
 /// <param name="ExcludedInputPaths">The logical paths excluded from input discovery by the producing scan.</param>
 /// <param name="View">The view the producing scan rendered, which is the population a policy can evaluate.</param>
 /// <param name="Warnings">
-/// The report's top-level warning identifiers, restored verbatim and in report order. The reader restores
-/// the array and each consumer decides which identifiers it acts on, so an identifier a later Ol adds is
-/// carried rather than rejected; the schema version is what guards an incompatible document.
+/// The report's top-level warning identifiers, restored verbatim and in report order. A document that
+/// states no <c>warnings</c> restores as an empty array: a warning is a positive statement, so making
+/// none is having none. Nullable only because an optional parameter cannot default to an array.
 /// </param>
 /// <param name="InputDiscovery">What discovery found, ignored, and skipped, or null when the report never stated it.</param>
 public readonly record struct ScanReport(

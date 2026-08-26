@@ -6,7 +6,7 @@
     <NoWarn>$(NoWarn);NU1507</NoWarn>
     <IsPackable>false</IsPackable>
 
-    <Version>0.9.4</Version>
+    <Version>0.9.5</Version>
     <Authors>guitarrapc</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/guitarrapc/ol</PackageProjectUrl>

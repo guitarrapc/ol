@@ -85,10 +85,10 @@ An external-source failure is retained as warning evidence when another source s
 
 <a id="contract-dependency-type"></a>
 
-Dependency type is `root`, `direct`, `transitive`, or `unknown`. It is `unknown` whenever the input cannot prove the relationship. The value is required in canonical JSON and shown in the default human-readable columns:
+Dependency type is `root`, `direct`, `transitive`, or `unknown`. It is `unknown` whenever the input cannot prove the relationship. The value is required in canonical JSON and shown in the default human-readable ASCII table:
 
 ```text
-NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS SUPPLIED
+NAME  VERSION  LICENSE  ECOSYSTEM  DEPENDENCY  STATUS  SUPPLIED
 ```
 
 Verbose output additionally includes `PURL`.
@@ -119,7 +119,7 @@ The warning reaches the gate. `check` reads the report's top-level warnings, sta
 
 <a id="contract-unresolved-section"></a>
 
-A status alone does not tell a reviewer what to do next, and the mechanism that left a license unresolved decides that: wait for Ol to gain a capability, open a document, or ask the publisher. So `text` and `markdown` component views follow the table with an `Unresolved components` section listing each non-`matched` component as `NAME VERSION REASON [REFERENCE] [via PATH]`; `markdown` renders the same fields as columns and states an absent `PATH` as `-`.
+A status alone does not tell a reviewer what to do next, and the mechanism that left a license unresolved decides that: wait for Ol to gain a capability, open a document, or ask the publisher. So `text` and `markdown` component views follow the table with an `Unresolved components` table containing `NAME VERSION REASON REFERENCE PATH`; both state an absent `REFERENCE` or `PATH` as `-`.
 
 `REASON` is the one mechanism that best explains the component, selected from the most specific to the most general so an unread license file is not described merely as an unusable repository. A component with no mechanism is omitted rather than listed with its status again, and the whole section is omitted when it would be empty; a report where nothing is unresolved is unchanged.
 
@@ -290,7 +290,7 @@ Each rejected shape is the same confusion in a different form: a view `check` ca
 
 Policy evaluates all non-root, non-excluded components. `unknown` dependency type remains in scope. `unknown`, `conflict`, `ambiguous`, `invalid`, and `error` fail closed unless a baseline acknowledges that component under the rules below. All violations are collected and deterministically ordered.
 
-Violations are printed as `Package Version Ecosystem Purl License/Status Reason Mechanism Reference Path`, tab-separated. `Path` is the [dependency path](#contract-dependency-path) the scan report's inventory proves, stated as `-` when the report names no introducer for that component.
+Violations are printed as a width-aligned ASCII table with `Package Version Ecosystem Purl License/Status Reason Mechanism Reference Path` columns. `Path` is the [dependency path](#contract-dependency-path) the scan report's inventory proves, stated as `-` when the report names no introducer for that component.
 
 `Reason` states why policy rejected the component; `Mechanism` and `Reference` state why its evidence never settled, using the identifiers and the selection order the scan report's [unresolved section](#contract-unresolved-section) defines, so one vocabulary describes both projections. Both are `-` for a component whose license resolved, because the allow-list already explains it, and both are `-` when no mechanism applies. The violation table then ends with an `Unresolved mechanisms` tally counting the violations each mechanism explains, ordered by count and then by identifier, and omitted when no violation carries one. Components with no mechanism are tallied as `no mechanism reported` rather than merged into a named one.
 
@@ -367,7 +367,7 @@ The archive path for `pack` and `unpack` must be outside the three managed cache
 
 The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root or category location.
 
-`list` resolves the cache locations using the same precedence as `scan` (`--cache-dir`, `OL_CACHE_DIR`, legacy category roots, then the platform user-cache location). It prints each managed category path, the count of hash-named entries, their total file size, and a total. `info` accepts a managed cache root, one managed category directory, or an `.olcache` archive; when its path is omitted it inspects the resolved cache locations. A positional path and `--cache-dir` cannot be combined. Its default text output is grouped into an overview, category summaries, and per-entry details so paths and long logical keys do not share a dense line. `--format markdown` emits the same information as Markdown tables, including the compressed archive size for an `.olcache` input. Markdown syntax and raw HTML characters in inspected values are escaped. It prints each entry whose common cache fields validate with its category, logical `CacheKey`, UTC `FetchedAt`, and file size. Invalid managed entries are reported as invalid with their physical file name in the details column; unknown sibling files are counted but not interpreted. This inspection validates the common transport schema and identity; category-specific evidence validation still occurs when `scan` reads an entry. Explicit cache inspection is the only CLI output that intentionally reveals the resolved cache path.
+`list` resolves the cache locations using the same precedence as `scan` (`--cache-dir`, `OL_CACHE_DIR`, legacy category roots, then the platform user-cache location). It prints each managed category path, the count of hash-named entries, their total file size, and a total. `info` accepts a managed cache root, one managed category directory, or an `.olcache` archive; when its path is omitted it inspects the resolved cache locations. A positional path and `--cache-dir` cannot be combined. Its default text output uses width-aligned ASCII tables for the overview, category summaries, and entries. `--format markdown` emits the same information as Markdown tables, including the compressed archive size for an `.olcache` input. Markdown syntax and raw HTML characters in inspected values are escaped. It prints each entry whose common cache fields validate with its category, logical `CacheKey`, UTC `FetchedAt`, and file size. Invalid managed entries are reported as invalid with their physical file name in the details column; unknown sibling files are counted but not interpreted. This inspection validates the common transport schema and identity; category-specific evidence validation still occurs when `scan` reads an entry. Explicit cache inspection is the only CLI output that intentionally reveals the resolved cache path.
 
 `pack` writes the three managed categories as a deterministic gzip-compressed tar archive. It ignores sibling files that do not use an Ol cache-entry name, including links with unrelated names, orders managed entries by category and opaque file name, fixes archive metadata, validates each included entry's common schema, logical-key digest, physical file name, and UTC `FetchedAt`, and replaces the output only after the complete archive was written. `--max-age` accepts one positive integer followed by `d`, `h`, or `m`; entries older than the resulting UTC cutoff are omitted before the archive entry-count limit is applied. The filter is an archive-retention operation, not a change to scan cache freshness. Existing symbolic links and reparse points in the cache path or at a managed entry are rejected rather than followed.
 

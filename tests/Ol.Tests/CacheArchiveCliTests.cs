@@ -210,12 +210,13 @@ public sealed class CacheArchiveCliTests
             await Assert.That(directory.Stdout).Contains("Cache directory");
             await Assert.That(directory.Stdout).Contains("Categories:");
             await Assert.That(directory.Stdout).Contains("Entries:");
-            await Assert.That(directory.Stdout).Contains("  package-metadata:\r\n    Cache key: ".Replace("\r\n", Environment.NewLine));
+            await Assert.That(directory.Stdout).Contains("Category");
+            await Assert.That(directory.Stdout).Contains("Cache key");
             await Assert.That(directory.Stdout).Contains(cacheKey);
             await Assert.That(pack.ExitCode).IsEqualTo(0).Because(pack.Stderr);
             await Assert.That(packed.ExitCode).IsEqualTo(0).Because(packed.Stderr);
             await Assert.That(packed.Stdout).Contains("Cache archive");
-            await Assert.That(packed.Stdout).Contains("Archive size:");
+            await Assert.That(packed.Stdout).Contains("Archive size  ");
             await Assert.That(packed.Stdout).Contains("Categories:");
             await Assert.That(packed.Stdout).Contains("package-metadata");
             await Assert.That(packed.Stdout).Contains(cacheKey);
@@ -258,6 +259,34 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
+    public async Task CacheInfo_WithTextFormat_RendersSummaryAndEntriesAsAsciiTables()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-text-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source, "--format", "text");
+            var output = result.Stdout.ReplaceLineEndings("\n");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(output).Contains("Property      Value\n------------  ");
+            await Assert.That(output).Contains("Categories:\nCategory");
+            await Assert.That(output).Contains("Entries:\nCategory");
+            await Assert.That(output).Contains("Cache key");
+            await Assert.That(output).Contains(cacheKey);
+            await Assert.That(output).DoesNotContain("    Cache key:");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task CacheInfo_WithTrailingSeparatorOnCategoryPath_InspectsCategory()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-category-{Guid.NewGuid():N}");
@@ -271,7 +300,7 @@ public sealed class CacheArchiveCliTests
             var result = await RunOlAsync("cache", "info", string.Concat(category, Path.DirectorySeparatorChar));
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("Entries: 1 entry");
+            await Assert.That(result.Stdout).Contains("Entries       1 entry");
             await Assert.That(result.Stdout).Contains(cacheKey);
             await Assert.That(result.Stdout).DoesNotContain("source-repository");
         }
@@ -297,7 +326,7 @@ public sealed class CacheArchiveCliTests
             var result = await RunOlAsync("cache", "info", Path.Combine(root, "PACKAGE-METADATA"));
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("Entries: 1 entry");
+            await Assert.That(result.Stdout).Contains("Entries       1 entry");
             await Assert.That(result.Stdout).Contains(cacheKey);
             await Assert.That(result.Stdout).DoesNotContain("source-repository");
         }
@@ -321,7 +350,7 @@ public sealed class CacheArchiveCliTests
             var result = await RunOlAsync("cache", "info", source);
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("Entries: 1 entry");
+            await Assert.That(result.Stdout).Contains("Entries       1 entry");
             await Assert.That(result.Stdout).Contains(cacheKey);
             await Assert.That(result.Stdout).Contains("source-repository");
         }

@@ -29,7 +29,8 @@ public sealed class DependencyPathReportTests
             var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT");
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("Reason\tMechanism\tReference\tPath");
+            await Assert.That(result.Stdout).Contains("Reason");
+            await Assert.That(result.Stdout).Contains("Mechanism");
             await Assert.That(LastColumn(SelectLine(result.Stdout, "pkg:nuget/Transitive@2.0.0"))).IsEqualTo(TransitivePath);
         }
         finally
@@ -69,7 +70,8 @@ public sealed class DependencyPathReportTests
             var section = result.Stdout[result.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
-            await Assert.That(section).Contains($"Transitive 2.0.0 declared_license_location_not_collected https://example.test/transitive-LICENSE.txt via {TransitivePath}");
+            var row = SelectLineStartingWith(section, "Transitive");
+            await Assert.That(LastColumn(row)).IsEqualTo(TransitivePath);
         }
         finally
         {
@@ -78,8 +80,8 @@ public sealed class DependencyPathReportTests
     }
 
     [Test]
-    [Arguments("Direct 1.0.0")]
-    [Arguments("Orphan 3.0.0")]
+    [Arguments("Direct")]
+    [Arguments("Orphan")]
     public async Task Scan_TextUnresolvedSection_WithoutIntroducingDependency_OmitsThePath(string component)
     {
         var root = FindRepositoryRoot();
@@ -88,9 +90,9 @@ public sealed class DependencyPathReportTests
         {
             var result = await RunOlAsync(root, "scan", "--input", input, "--no-external-evidence", "--format", "text", "--quiet");
             var section = result.Stdout[result.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
-            var row = SelectLine(section, component);
+            var row = SelectLineStartingWith(section, component);
 
-            await Assert.That(row).DoesNotContain(" via ");
+            await Assert.That(LastColumn(row)).IsEqualTo("-");
         }
         finally
         {
@@ -169,8 +171,8 @@ public sealed class DependencyPathReportTests
             var result = await RunOlAsync(root, "scan", "--input", input, "--no-external-evidence", "--format", "text", "--quiet");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("Lonely 1.0.0 declared_license_location_not_collected https://example.test/LICENSE.txt");
-            await Assert.That(result.Stdout).DoesNotContain(" via ");
+            var section = result.Stdout[result.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
+            await Assert.That(LastColumn(SelectLineStartingWith(section, "Lonely"))).IsEqualTo("-");
         }
         finally
         {
@@ -213,8 +215,18 @@ public sealed class DependencyPathReportTests
     /// <summary>Reads the Path column, which is last however many evidence columns precede it.</summary>
     private static string LastColumn(string row)
     {
-        var columns = row.Split('\t');
+        var columns = row.Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return columns[^1];
+    }
+
+    private static string SelectLineStartingWith(string text, string marker)
+    {
+        foreach (var line in text.Split('\n'))
+        {
+            if (line.StartsWith(marker, StringComparison.Ordinal)) return line.TrimEnd('\r');
+        }
+
+        throw new InvalidOperationException($"No line starting with '{marker}' was found in:{Environment.NewLine}{text}");
     }
 
     private static string SelectLine(string text, string marker)

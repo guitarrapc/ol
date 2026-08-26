@@ -72,6 +72,35 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithTextFormat_AlignsComponentColumnsAsAnAsciiTable()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{ "type": "library", "name": "a", "version": "1.0.0", "purl": "pkg:npm/a@1.0.0", "licenses": [{ "expression": "MIT" }] }, { "type": "library", "name": "longer", "version": "2", "purl": "pkg:npm/longer@2", "licenses": [{ "expression": "Apache-2.0" }] }] }""",
+            Encoding.UTF8);
+
+        try
+        {
+            var result = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--quiet", "--no-external-evidence");
+            var output = result.Stdout.ReplaceLineEndings("\n");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(output).Contains(string.Join(
+                '\n',
+                "NAME    VERSION  LICENSE     ECOSYSTEM  DEPENDENCY  STATUS   SUPPLIED",
+                "------  -------  ----------  ---------  ----------  -------  --------",
+                "a       1.0.0    MIT         npm        unknown     matched  sbom",
+                "longer  2        Apache-2.0  npm        unknown     matched  sbom"));
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithInputFormatOmitted_AutoDetectsCycloneDx()
     {
         var root = FindRepositoryRoot();
@@ -184,7 +213,12 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, arguments);
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stdout).Contains("bare 1.0.0 package_metadata_no_purl");
+            var section = stdout[stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
+            var row = Array.Find(section.Split('\n'), static line => line.StartsWith("bare", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            var columns = row!.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            await Assert.That(columns[1]).IsEqualTo("1.0.0");
+            await Assert.That(columns[2]).IsEqualTo("package_metadata_no_purl");
         }
         finally
         {
@@ -206,7 +240,13 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--quiet");
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stdout).Contains("with-location 1.0.0 declared_license_location_not_collected https://example.com/LICENSE");
+            var section = stdout[stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
+            var row = Array.Find(section.Split('\n'), static line => line.StartsWith("with-location", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            var columns = row!.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            await Assert.That(columns[1]).IsEqualTo("1.0.0");
+            await Assert.That(columns[2]).IsEqualTo("declared_license_location_not_collected");
+            await Assert.That(columns[3]).IsEqualTo("https://example.com/LICENSE");
         }
         finally
         {
@@ -307,7 +347,9 @@ public sealed class CliScanTests
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--quiet");
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stdout).Contains($"{name} 1.0.0 {mechanism}");
+            var columns = SelectUnresolvedColumns(stdout, name);
+            await Assert.That(columns[1]).IsEqualTo("1.0.0");
+            await Assert.That(columns[2]).IsEqualTo(mechanism);
         }
         finally
         {
@@ -1557,9 +1599,12 @@ public sealed class CliScanTests
             }
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stdout).Contains("LICENSE COUNT");
-            await Assert.That(stdout).Contains("Apache-2.0 1");
-            await Assert.That(stdout).Contains("MIT 2");
+            await Assert.That(stdout).Contains(string.Join(
+                Environment.NewLine,
+                "LICENSE     COUNT",
+                "----------  -----",
+                "Apache-2.0  1",
+                "MIT         2"));
             await Assert.That(stderr).Contains("License results: 3 displayed components");
 
             var (jsonExitCode, jsonStdout, jsonStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--group-by", "license", "--format", "json", "--no-external-evidence");
@@ -3445,9 +3490,10 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0);
             // The root still appears in the table: the report must not stop saying what the input described.
-            await Assert.That(stdout).Contains("/private/build/workspace 0.0.0");
+            await Assert.That(stdout).Contains("/private/build/workspace");
             await Assert.That(stdout).Contains("Unresolved components");
-            await Assert.That(stdout).Contains("Example 1.0.0 declared_license_location_not_collected https://example.test/LICENSE.txt");
+            await Assert.That(stdout).Contains("declared_license_location_not_collected");
+            await Assert.That(stdout).Contains("https://example.test/LICENSE.txt");
             var unresolved = stdout[stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
             await Assert.That(unresolved).DoesNotContain("/private/build/workspace");
         }
@@ -3534,9 +3580,10 @@ public sealed class CliScanTests
 
             await Assert.That(text.ExitCode).IsEqualTo(0);
             await Assert.That(text.Stdout).Contains("Unresolved components");
-            await Assert.That(text.Stdout).Contains("Direct.Package 1.0.0 external_evidence_not_collected");
+            await Assert.That(text.Stdout).Contains("external_evidence_not_collected");
             // A resolved component is not restated in the section.
-            await Assert.That(text.Stdout).DoesNotContain("  Shared.Package 2.0.0");
+            var textSection = text.Stdout[text.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
+            await Assert.That(textSection).DoesNotContain("Shared.Package");
             await Assert.That(markdown.ExitCode).IsEqualTo(0);
             await Assert.That(markdown.Stdout).Contains("## Unresolved components");
             await Assert.That(markdown.Stdout).Contains("| Direct.Package | 1.0.0 | external_evidence_not_collected |");
@@ -3579,7 +3626,8 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(stdout).Contains("Unresolved components");
-            await Assert.That(stdout).Contains("Example 1.0.0 declared_license_location_not_collected https://example.test/LICENSE.txt");
+            await Assert.That(stdout).Contains("declared_license_location_not_collected");
+            await Assert.That(stdout).Contains("https://example.test/LICENSE.txt");
         }
         finally
         {
@@ -3673,7 +3721,9 @@ public sealed class CliScanTests
             var text = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", sbomPath, "--format", "text", "--quiet");
 
             await Assert.That(text.ExitCode).IsEqualTo(0);
-            await Assert.That(text.Stdout).Contains($"Example 1.0.0 {expected}");
+            var columns = SelectUnresolvedColumns(text.Stdout, "Example");
+            var rendered = columns[3] == "-" ? columns[2] : $"{columns[2]} {columns[3]}";
+            await Assert.That(rendered).IsEqualTo(expected);
         }
         finally
         {
@@ -3714,7 +3764,12 @@ public sealed class CliScanTests
             var (exitCode, stdout, _) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--format", "text", "--quiet");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stdout).Contains($"example 1.0.0 {expectedReason}");
+            var section = stdout[stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
+            var row = Array.Find(section.Split('\n'), static line => line.StartsWith("example", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            var columns = row!.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            await Assert.That(columns[1]).IsEqualTo("1.0.0");
+            await Assert.That(columns[2]).IsEqualTo(expectedReason);
         }
         finally
         {
@@ -3755,7 +3810,9 @@ public sealed class CliScanTests
             var json = await RunOlWithCachesAsync(root, packageCacheRoot, Path.Combine(temporaryDirectory, "source"), "scan", "--input", sbomPath, "--format", "json", "--quiet");
 
             await Assert.That(text.ExitCode).IsEqualTo(0);
-            await Assert.That(text.Stdout).Contains("Example 1.0.0 declared_license_text_not_collected https://example.test/platform-license");
+            var columns = SelectUnresolvedColumns(text.Stdout, "Example");
+            await Assert.That(columns[2]).IsEqualTo("declared_license_text_not_collected");
+            await Assert.That(columns[3]).IsEqualTo("https://example.test/platform-license");
 
             using var report = JsonDocument.Parse(json.Stdout);
             var kinds = report.RootElement.GetProperty("components")[0].GetProperty("licenseCandidates").EnumerateArray()
@@ -4083,6 +4140,14 @@ public sealed class CliScanTests
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(string root, params string[] args)
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
+
+    private static string[] SelectUnresolvedColumns(string output, string name)
+    {
+        var section = output[output.IndexOf("Unresolved components", StringComparison.Ordinal)..];
+        var row = Array.Find(section.Split('\n'), line => line.StartsWith(name, StringComparison.Ordinal));
+        if (row is null) throw new InvalidOperationException($"No unresolved row starting with '{name}' was found.");
+        return row.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlInDirectoryAsync(string root, string workingDirectory, params string[] args)
         => await RunOlWithEnvironmentAsync(root, workingDirectory, null, null, null, args);

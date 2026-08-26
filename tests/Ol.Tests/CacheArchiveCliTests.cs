@@ -246,6 +246,100 @@ public sealed class CacheArchiveCliTests
         }
     }
 
+    [Test]
+    [Arguments("root")]
+    [Arguments("category")]
+    public async Task Unpack_WithLinkedCachePath_RejectsWithoutWritingOutsideCache(string linkedPath)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-linked-unpack-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var destination = Path.Combine(root, "destination");
+        var outside = Path.Combine(root, "outside");
+        var archive = Path.Combine(root, "cache.olcache");
+        var link = linkedPath == "root" ? destination : Path.Combine(destination, "package-metadata");
+        Directory.CreateDirectory(root);
+        await new PackageMetadataCache(Path.Combine(source, "package-metadata")).WriteAsync(
+            new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+        var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+        await Assert.That(pack.ExitCode).IsEqualTo(0).Because(pack.Stderr);
+        Directory.CreateDirectory(outside);
+        if (linkedPath == "category") Directory.CreateDirectory(destination);
+        Directory.CreateSymbolicLink(link, outside);
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", destination);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+            await Assert.That(Directory.EnumerateFileSystemEntries(outside)).IsEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(link)) Directory.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Pack_WithLinkedCategory_RejectsWithoutReplacingArchive()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-linked-category-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var outside = Path.Combine(root, "outside");
+        var link = Path.Combine(source, "package-metadata");
+        var archive = Path.Combine(root, "cache.olcache");
+        Directory.CreateDirectory(source);
+        await new PackageMetadataCache(outside).WriteAsync(
+            new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+        Directory.CreateSymbolicLink(link, outside);
+        await File.WriteAllTextAsync(archive, "keep", Encoding.UTF8);
+
+        try
+        {
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+
+            await Assert.That(pack.ExitCode).IsEqualTo(1);
+            await Assert.That(pack.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+            await Assert.That(await File.ReadAllTextAsync(archive)).IsEqualTo("keep");
+        }
+        finally
+        {
+            if (Directory.Exists(link)) Directory.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Pack_WithLinkedEntry_RejectsWithoutReplacingArchive()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-linked-entry-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source", "package-metadata");
+        var outside = Path.Combine(root, "outside");
+        var archive = Path.Combine(root, "cache.olcache");
+        var outsideCache = new PackageMetadataCache(outside);
+        var cacheKey = "pkg:npm/example@1.0.0";
+        Directory.CreateDirectory(source);
+        await outsideCache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+        var link = Path.Combine(source, Path.GetFileName(outsideCache.GetPath(cacheKey)));
+        File.CreateSymbolicLink(link, outsideCache.GetPath(cacheKey));
+        await File.WriteAllTextAsync(archive, "keep", Encoding.UTF8);
+
+        try
+        {
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", Path.Combine(root, "source"));
+
+            await Assert.That(pack.ExitCode).IsEqualTo(1);
+            await Assert.That(pack.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+            await Assert.That(await File.ReadAllTextAsync(archive)).IsEqualTo("keep");
+        }
+        finally
+        {
+            if (File.Exists(link)) File.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static void WriteTestArchive(string path, (TarEntryType Type, string Name, string Content)[] entries)
     {
         using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);

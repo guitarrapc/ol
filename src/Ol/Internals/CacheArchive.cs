@@ -38,6 +38,7 @@ internal static class CacheArchive
     internal static int Pack(string archivePath, CacheDirectories directories, TimeSpan? maximumAge, DateTimeOffset now, CacheArchiveLimits limits)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+        ValidateCachePaths(directories);
         var entries = CollectEntries(directories, maximumAge, now, limits);
         var outputPath = Path.GetFullPath(archivePath);
         var outputDirectory = Path.GetDirectoryName(outputPath)!;
@@ -59,6 +60,7 @@ internal static class CacheArchive
                 WriteEntry(writer, ManifestName, manifest);
                 for (var i = 0; i < entries.Count; i++)
                 {
+                    ValidateLinkFreePath(entries[i].SourcePath);
                     using var content = new FileStream(entries[i].SourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     expandedBytes = checked(expandedBytes + content.Length);
                     if (expandedBytes > limits.MaximumExpandedBytes)
@@ -88,6 +90,7 @@ internal static class CacheArchive
     public static int Unpack(string archivePath, CacheDirectories directories)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+        ValidateCachePaths(directories);
         var inputPath = Path.GetFullPath(archivePath);
         var archiveLength = new FileInfo(inputPath).Length;
         if (archiveLength <= 0 || archiveLength > DefaultLimits.MaximumArchiveBytes)
@@ -104,11 +107,15 @@ internal static class CacheArchive
             {
                 var destinationRoot = GetCategoryRoot(stagedEntries[i].Category, directories);
                 Directory.CreateDirectory(destinationRoot);
+                ValidateLinkFreePath(destinationRoot);
                 var destinationPath = Path.Combine(destinationRoot, stagedEntries[i].FileName);
+                ValidateLinkFreePath(destinationPath);
                 var temporaryPath = Path.Combine(destinationRoot, $".{stagedEntries[i].FileName}.{Guid.NewGuid():N}.tmp");
                 try
                 {
                     File.Copy(stagedEntries[i].SourcePath, temporaryPath, overwrite: false);
+                    ValidateLinkFreePath(destinationRoot);
+                    ValidateLinkFreePath(destinationPath);
                     File.Move(temporaryPath, destinationPath, overwrite: true);
                 }
                 finally
@@ -181,6 +188,7 @@ internal static class CacheArchive
             paths.Sort(StringComparer.Ordinal);
             for (var i = 0; i < paths.Count; i++)
             {
+                ValidateLinkFreePath(paths[i]);
                 var fileName = Path.GetFileName(paths[i]);
                 ValidateCacheFileName(fileName);
                 var fetchedAt = ValidateCacheEntry(paths[i], fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
@@ -347,6 +355,42 @@ internal static class CacheArchive
 
     private static bool IsCategory(string value)
         => value is "package-metadata" or "source-repository" or "github-file";
+
+    private static void ValidateCachePaths(CacheDirectories directories)
+    {
+        ValidateLinkFreePath(directories.PackageMetadata);
+        ValidateLinkFreePath(directories.SourceRepository);
+        ValidateLinkFreePath(directories.GitHubFile);
+    }
+
+    private static void ValidateLinkFreePath(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(fullPath);
+        if (string.IsNullOrEmpty(root)) throw new InvalidDataException("Cache path must be absolute.");
+
+        var current = root;
+        var components = fullPath[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < components.Length; i++)
+        {
+            current = Path.Combine(current, components[i]);
+            try
+            {
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                {
+                    throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
+                }
+            }
+            catch (FileNotFoundException)
+            {
+            }
+            catch (DirectoryNotFoundException)
+            {
+            }
+        }
+    }
 
     private static string GetCategoryRoot(string category, CacheDirectories directories)
         => category switch

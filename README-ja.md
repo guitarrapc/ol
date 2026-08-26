@@ -146,9 +146,11 @@ Usage: [command] [-h|--help] [--version]
 
 Commands:
   cache clear            Clears cached evidence for the specified category.
-  cache pack             Packs managed cache entries into one deterministic archive.
+  cache info             Shows the contents of a cache directory or archive.
+  cache list             Lists managed cache locations and their sizes.
+  cache pack             Packs managed cache entries into one deterministic gzip-compressed archive.
   cache prune            Removes managed cache entries older than the specified age.
-  cache unpack           Unpacks an Ol cache archive into the managed cache directories.
+  cache unpack           Unpacks one Ol cache archive into the managed cache directories.
   check                  Check a canonical JSON scan report against allowed SPDX licenses.
   diff                   Compare two persisted JSON scan reports and report license-relevant changes.
   scan                   Scan a resolved dependency input.
@@ -169,8 +171,10 @@ Commands:
 | `ol skill install` | 同梱されたlicense-scan Agent SkillをCodexまたはClaude向けにインストールする。 |
 | `ol skill export-plugin` | SkillをポータブルなAgent Pluginとして出力する。 |
 | `ol cache clear` | olが管理する証拠キャッシュを削除する。 |
+| `ol cache list` | cacheの場所、エントリ数、サイズを一覧表示する。 |
+| `ol cache info` | cacheディレクトリまたは`.olcache`アーカイブの内容を表示する。 |
 | `ol cache pack` | 証拠キャッシュを決定的な`.olcache`アーカイブにまとめる。 |
-| `ol cache prune` | 指定した期間より古い管理対象キャッシュを削除する。 |
+| `ol cache prune` | 指定した期間より古い管理対象キャッシュを削除する。`--dry-run`で削除対象とサイズを事前確認できる。 |
 | `ol cache unpack` | `.olcache`アーカイブを分離されたキャッシュディレクトリへ復元する。 |
 | `ol spdx version` | 使用中のSPDXデータを表示する。 |
 | `ol spdx list` | インストール済みSPDXデータを一覧表示する。 |
@@ -196,6 +200,8 @@ ol scan --input . --cache-dir "$RUNNER_TEMP/ol-cache"
 scan中に不足している証拠が一時キャッシュへ追加されても、リポジトリに保存したアーカイブは変更されません。一時キャッシュはjobの終了時に破棄されます。永続的なキャッシュディレクトリを管理する場合は、`ol cache prune --cache-dir .ol-cache --max-age 30d`で古いエントリを削除できます。
 
 キャッシュアーカイブをソース管理で扱う場合は、保存や更新の負担を抑えるため、可能な限り1 MiB以下に保つことを推奨します。`cache pack`は圧縮後のサイズを表示し、1 MiBを超えると、容量を使っている対象を確認できるようにカテゴリ別件数と警告を出力します。8 MiBを超えるアーカイブは作成できません。安全のため、1つのキャッシュエントリは2 MiB、展開後の合計は64 MiB、アーカイブ全体は10,000件までに制限されます。配布する必要がなくなった古い証拠は、`--max-age`で除外できます。
+
+永続的なキャッシュディレクトリは`ol cache info --cache-dir .ol-cache`で確認できます。pack済みキャッシュは`ol cache info shared-cache.olcache`で確認し、古いエントリを削除する前に`ol cache prune --cache-dir .ol-cache --max-age 30d --dry-run`で対象とサイズを確認できます。
 
 アーカイブには、元のキャッシュに含まれるパッケージとリポジトリの識別情報が保存されます。private repositoryの証拠から作成したキャッシュシードは公開しないでください。
 
@@ -275,7 +281,14 @@ Commands:
   version    Show the active SPDX data source.
 ```
 
-olは依存関係を何度も問い合わせないようキャッシュを生成します。キャッシュはユーザーが削除できます。
+olは依存関係を何度も問い合わせないようキャッシュを生成します。`cache list`や`cache info`で場所と内容を確認し、キャッシュはユーザーが削除できます。
+
+```bash
+ol cache list
+ol cache info
+ol cache info shared-cache.olcache
+ol cache prune --max-age 30d --dry-run
+```
 
 ```bash
 $ ol cache --help
@@ -288,6 +301,8 @@ Commands:
   pack      Packs managed cache entries into one deterministic archive.
   prune     Removes managed cache entries older than the specified age.
   unpack    Unpacks an Ol cache archive into the managed cache directories.
+  info      Shows the contents of a cache directory or archive.
+  list      Lists managed cache locations and sizes.
 ```
 
 olには、解決済み入力の選択、SBOMとパッケージマネジャー証拠の併用、scan結果の解釈をcoding agentへ案内するAgent Skillが同梱されています。現在のworkspaceへインストールするか、ポータブルな[Agent Plugin](https://agent-plugins.org/)として出力できます。

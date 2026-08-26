@@ -147,9 +147,11 @@ Usage: [command] [-h|--help] [--version]
 
 Commands:
   cache clear            Clears cached evidence for the specified category.
-  cache pack             Packs managed cache entries into one deterministic archive.
+  cache info             Shows the contents of a cache directory or archive.
+  cache list             Lists managed cache locations and their sizes.
+  cache pack             Packs managed cache entries into one deterministic gzip-compressed archive.
   cache prune            Removes managed cache entries older than the specified age.
-  cache unpack           Unpacks an Ol cache archive into the managed cache directories.
+  cache unpack           Unpacks one Ol cache archive into the managed cache directories.
   check                  Check a canonical JSON scan report against allowed SPDX licenses.
   diff                   Compare two persisted JSON scan reports and report license-relevant changes.
   scan                   Scan a resolved dependency input.
@@ -170,8 +172,10 @@ Commands:
 | `ol skill install` | Install the bundled license-scan Agent Skill for Codex or Claude. |
 | `ol skill export-plugin` | Export the skill as a portable Agent Plugin package. |
 | `ol cache clear` | Clear evidence caches managed by ol. |
+| `ol cache list` | List resolved cache locations, entry counts, and sizes. |
+| `ol cache info` | Show the contents of a cache directory or `.olcache` archive. |
 | `ol cache pack` | Pack evidence caches into a deterministic `.olcache` archive. |
-| `ol cache prune` | Remove managed cache entries older than a specified age. |
+| `ol cache prune` | Remove managed cache entries older than a specified age; `--dry-run` previews the entries and bytes without deleting. |
 | `ol cache unpack` | Restore a `.olcache` archive into an isolated cache directory. |
 | `ol spdx version` | Show the active SPDX data source. |
 | `ol spdx list` | List installed SPDX data versions. |
@@ -197,6 +201,8 @@ ol scan --input . --cache-dir "$RUNNER_TEMP/ol-cache"
 The scan can add missing evidence to this temporary cache without changing the committed archive, and GitHub Actions removes the temporary directory with the job. When maintaining a persistent cache directory, remove old entries explicitly with `ol cache prune --cache-dir .ol-cache --max-age 30d`.
 
 Keep cache archives at or below 1 MiB when possible so they remain practical to store and update in source control. `cache pack` reports the compressed size and, when an archive exceeds 1 MiB, prints a warning with category counts to help identify what is using space. Archives larger than 8 MiB are rejected. For safety, Ol also limits each cache entry to 2 MiB, expanded archive content to 64 MiB, and each archive to 10,000 entries. Use `--max-age` to omit evidence that no longer needs to be distributed.
+
+Use `ol cache info --cache-dir .ol-cache` to inspect a persistent cache directory or `ol cache info shared-cache.olcache` to inspect a packed cache. Preview retention cleanup with `ol cache prune --cache-dir .ol-cache --max-age 30d --dry-run` before removing old entries.
 
 The archive contains package and repository identities from the source cache. Do not publish a seed built from private-repository evidence.
 
@@ -274,7 +280,14 @@ Commands:
   version    Show the active SPDX data source.
 ```
 
-ol caches collected license evidence to avoid repeating the same requests. Users can clear these caches explicitly.
+ol caches collected license evidence to avoid repeating the same requests. Users can inspect the resolved cache locations and contents, or clear these caches explicitly.
+
+```bash
+ol cache list
+ol cache info
+ol cache info shared-cache.olcache
+ol cache prune --max-age 30d --dry-run
+```
 
 ```bash
 $ ol cache --help
@@ -287,6 +300,8 @@ Commands:
   pack      Packs managed cache entries into one deterministic archive.
   prune     Removes managed cache entries older than the specified age.
   unpack    Unpacks an Ol cache archive into the managed cache directories.
+  info      Shows the contents of a cache directory or archive.
+  list      Lists managed cache locations and sizes.
 ```
 
 ol bundles an Agent Skill that teaches coding agents how to select resolved inputs, combine an SBOM with package-manager evidence, and interpret scan results. Install it into the current workspace or export a portable [Agent Plugin](https://agent-plugins.org/):

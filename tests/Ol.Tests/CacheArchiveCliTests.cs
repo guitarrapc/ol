@@ -206,11 +206,16 @@ public sealed class CacheArchiveCliTests
             var packed = await RunOlAsync("cache", "info", archive);
 
             await Assert.That(directory.ExitCode).IsEqualTo(0).Because(directory.Stderr);
-            await Assert.That(directory.Stdout).Contains("Type: cache directory");
+            await Assert.That(directory.Stdout).Contains("Cache directory");
+            await Assert.That(directory.Stdout).Contains("Categories:");
+            await Assert.That(directory.Stdout).Contains("Entries:");
+            await Assert.That(directory.Stdout).Contains("  package-metadata:\r\n    Cache key: ".Replace("\r\n", Environment.NewLine));
             await Assert.That(directory.Stdout).Contains(cacheKey);
             await Assert.That(pack.ExitCode).IsEqualTo(0).Because(pack.Stderr);
             await Assert.That(packed.ExitCode).IsEqualTo(0).Because(packed.Stderr);
-            await Assert.That(packed.Stdout).Contains("Type: cache archive");
+            await Assert.That(packed.Stdout).Contains("Cache archive");
+            await Assert.That(packed.Stdout).Contains("Archive size:");
+            await Assert.That(packed.Stdout).Contains("Categories:");
             await Assert.That(packed.Stdout).Contains("package-metadata");
             await Assert.That(packed.Stdout).Contains(cacheKey);
         }

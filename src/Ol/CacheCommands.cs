@@ -122,29 +122,53 @@ internal sealed class CacheCommands
             var result = path is null
                 ? CacheArchive.Inspect(CachePaths.Resolve(cacheDir), cacheDir is null ? null : Path.GetFullPath(cacheDir))
                 : CacheArchive.Inspect(path);
-            Console.WriteLine($"Type: {(result.IsArchive ? "cache archive" : "cache directory")}");
-            if (!string.IsNullOrEmpty(result.Path)) Console.WriteLine($"Path: {result.Path}");
-            Console.WriteLine($"Entries: {FormatEntryCount(result.EntryCount)} ({FormatBytes(result.TotalBytes)})");
+            Console.WriteLine(result.IsArchive ? "Cache archive" : "Cache directory");
+            if (!string.IsNullOrEmpty(result.Path)) Console.WriteLine($"  Path: {result.Path}");
+            if (result.IsArchive) Console.WriteLine($"  Archive size: {FormatBytes(new FileInfo(result.Path).Length)}");
+            Console.WriteLine($"  Entries: {FormatEntryCount(result.EntryCount)}");
+            Console.WriteLine($"  Content size: {FormatBytes(result.TotalBytes)}");
+            Console.WriteLine();
+            Console.WriteLine("Categories:");
             for (var i = 0; i < result.Categories.Count; i++)
             {
                 var category = result.Categories[i];
-                Console.WriteLine($"{category.Category}: {category.Path} ({FormatEntryCount(category.Entries.Count)})");
+                Console.WriteLine($"  {category.Category}");
+                if (!result.IsArchive) Console.WriteLine($"    Path: {category.Path}");
+                Console.WriteLine($"    Entries: {FormatEntryCount(category.Entries.Count)}");
+                Console.WriteLine($"    Size: {FormatBytes(GetCategoryBytes(category))}");
+                if (category.UnmanagedFileCount > 0) Console.WriteLine($"    Unmanaged files: {category.UnmanagedFileCount}");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("Entries:");
+            var hasEntries = false;
+            for (var i = 0; i < result.Categories.Count; i++)
+            {
+                var category = result.Categories[i];
+                if (category.Entries.Count == 0) continue;
+                hasEntries = true;
+                Console.WriteLine($"  {category.Category}:");
                 for (var j = 0; j < category.Entries.Count; j++)
                 {
                     var entry = category.Entries[j];
                     if (entry.Error is not null)
                     {
-                        Console.WriteLine($"  {entry.Name}: invalid ({FormatBytes(entry.Bytes)}) - {entry.Error}");
+                        Console.WriteLine($"    File: {entry.Name}");
+                        Console.WriteLine("      Status: invalid");
+                        Console.WriteLine($"      Size: {FormatBytes(entry.Bytes)}");
+                        Console.WriteLine($"      Reason: {entry.Error}");
                         continue;
                     }
 
-                    Console.WriteLine($"  {entry.CacheKey}  fetched-at={entry.FetchedAt:O}  size={FormatBytes(entry.Bytes)}");
+                    Console.WriteLine($"    Cache key: {entry.CacheKey}");
+                    Console.WriteLine($"      Fetched at: {entry.FetchedAt:O}");
+                    Console.WriteLine($"      Size: {FormatBytes(entry.Bytes)}");
                 }
+            }
 
-                if (category.UnmanagedFileCount > 0)
-                {
-                    Console.WriteLine($"  unmanaged files: {category.UnmanagedFileCount}");
-                }
+            if (!hasEntries)
+            {
+                Console.WriteLine("  (none)");
             }
 
             return 0;

@@ -14,17 +14,25 @@ internal readonly record struct CacheArchiveLimits(
     long MaximumExpandedBytes,
     int MaximumEntryCount);
 
+internal readonly record struct CachePackResult(
+    int EntryCount,
+    long ArchiveBytes,
+    int PackageMetadataCount,
+    int SourceRepositoryCount,
+    int GitHubFileCount);
+
 internal static class CacheArchive
 {
     private const string ManifestName = "ol-cache-manifest.json";
     private const string ManifestContent = "{\"FormatVersion\":1}";
     private const int MaximumStackCacheKeyBytes = 512;
     private static readonly DateTimeOffset DeterministicTimestamp = DateTimeOffset.UnixEpoch;
-    private static readonly CacheArchiveLimits DefaultLimits = new(
-        MaximumArchiveBytes: 512L * 1024 * 1024,
-        MaximumEntryBytes: 16L * 1024 * 1024,
-        MaximumExpandedBytes: 1024L * 1024 * 1024,
-        MaximumEntryCount: 250_000);
+    internal static readonly long RecommendedArchiveBytes = 1L * 1024 * 1024;
+    internal static readonly CacheArchiveLimits DefaultLimits = new(
+        MaximumArchiveBytes: 8L * 1024 * 1024,
+        MaximumEntryBytes: 2L * 1024 * 1024,
+        MaximumExpandedBytes: 64L * 1024 * 1024,
+        MaximumEntryCount: 10_000);
     private static readonly CacheCategory[] Categories =
     [
         new("package-metadata"),
@@ -32,10 +40,10 @@ internal static class CacheArchive
         new("github-file"),
     ];
 
-    public static int Pack(string archivePath, CacheDirectories directories, TimeSpan? maximumAge, DateTimeOffset now)
+    public static CachePackResult Pack(string archivePath, CacheDirectories directories, TimeSpan? maximumAge, DateTimeOffset now)
         => Pack(archivePath, directories, maximumAge, now, DefaultLimits);
 
-    internal static int Pack(string archivePath, CacheDirectories directories, TimeSpan? maximumAge, DateTimeOffset now, CacheArchiveLimits limits)
+    internal static CachePackResult Pack(string archivePath, CacheDirectories directories, TimeSpan? maximumAge, DateTimeOffset now, CacheArchiveLimits limits)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
         ValidateCachePaths(directories);
@@ -49,7 +57,8 @@ internal static class CacheArchive
         try
         {
             using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: false))
+            using (var bounded = new MaximumLengthWriteStream(output, limits.MaximumArchiveBytes, leaveOpen: true))
+            using (var gzip = new GZipStream(bounded, CompressionLevel.SmallestSize, leaveOpen: false))
             using (var writer = new TarWriter(gzip, TarEntryFormat.Ustar, leaveOpen: false))
             {
                 using var manifest = new MemoryStream(Encoding.UTF8.GetBytes(ManifestContent), writable: false);
@@ -81,7 +90,20 @@ internal static class CacheArchive
             }
 
             File.Move(temporaryPath, outputPath, overwrite: true);
-            return entries.Count;
+            var packageMetadataCount = 0;
+            var sourceRepositoryCount = 0;
+            var githubFileCount = 0;
+            for (var i = 0; i < entries.Count; i++)
+            {
+                switch (entries[i].CategoryIndex)
+                {
+                    case 0: packageMetadataCount++; break;
+                    case 1: sourceRepositoryCount++; break;
+                    case 2: githubFileCount++; break;
+                }
+            }
+
+            return new(entries.Count, archiveLength, packageMetadataCount, sourceRepositoryCount, githubFileCount);
         }
         finally
         {
@@ -220,7 +242,7 @@ internal static class CacheArchive
                 var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
                 if (fetchedAt < cutoff) continue;
                 if (entries.Count + categoryEntries.Count == limits.MaximumEntryCount) throw new InvalidDataException($"Archive contains more than {limits.MaximumEntryCount} cache entries.");
-                categoryEntries.Add(new(path, string.Concat(category.Name, "/", fileName)));
+                categoryEntries.Add(new(path, string.Concat(category.Name, "/", fileName), categoryIndex));
             }
 
             categoryEntries.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.ArchivePath, right.ArchivePath));
@@ -461,6 +483,6 @@ internal static class CacheArchive
         };
 
     private readonly record struct CacheCategory(string Name);
-    private readonly record struct ArchiveSourceEntry(string SourcePath, string ArchivePath);
+    private readonly record struct ArchiveSourceEntry(string SourcePath, string ArchivePath, int CategoryIndex);
     private readonly record struct StagedEntry(string Category, string FileName, string SourcePath);
 }

@@ -181,15 +181,22 @@ Commands:
 
 Use `scan` to collect licenses from an SBOM, lockfile, or other resolved dependency input. JSON reports can be reused by `check` and `diff`.
 
-To distribute a read-only cache seed between CI repositories, unpack it into a fresh per-job directory under `RUNNER_TEMP`. The scan may add entries there, but the directory is discarded with the job and the committed archive remains read-only:
+You can commit an Ol cache archive to share previously collected evidence across CI repositories. Create or update the archive from a populated cache directory:
 
 ```bash
 ol cache pack cysharp.olcache --cache-dir .ol-cache --max-age 30d
+```
+
+In a consuming GitHub Actions job, unpack the archive under `RUNNER_TEMP` and use that directory for the scan:
+
+```bash
 ol cache unpack cysharp.olcache --cache-dir "$RUNNER_TEMP/ol-cache"
 ol scan --input . --cache-dir "$RUNNER_TEMP/ol-cache"
 ```
 
-The trusted updater uses the same fresh directory, refreshes its selected repositories, and packs the next seed with `--max-age`. For a persistent local cache instead, remove old managed entries explicitly with `ol cache prune --cache-dir .ol-cache --max-age 30d`.
+The scan can add missing evidence to this temporary cache without changing the committed archive, and GitHub Actions removes the temporary directory with the job. When maintaining a persistent cache directory, remove old entries explicitly with `ol cache prune --cache-dir .ol-cache --max-age 30d`.
+
+Keep cache archives at or below 1 MiB when possible so they remain practical to store and update in source control. `cache pack` reports the compressed size and, when an archive exceeds 1 MiB, prints a warning with category counts to help identify what is using space. Archives larger than 8 MiB are rejected. For safety, Ol also limits each cache entry to 2 MiB, expanded archive content to 64 MiB, and each archive to 10,000 entries. Use `--max-age` to omit evidence that no longer needs to be distributed.
 
 The archive contains package and repository identities from the source cache. Do not publish a seed built from private-repository evidence.
 

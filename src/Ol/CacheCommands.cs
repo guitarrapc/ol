@@ -26,8 +26,15 @@ internal sealed class CacheCommands
 
         try
         {
-            var count = CacheArchive.Pack(archive, CachePaths.Resolve(cacheDir), maximumAge, DateTimeOffset.UtcNow);
-            Console.WriteLine($"Packed {count} cache {(count == 1 ? "entry" : "entries")}");
+            var result = CacheArchive.Pack(archive, CachePaths.Resolve(cacheDir), maximumAge, DateTimeOffset.UtcNow);
+            Console.WriteLine($"Packed {result.EntryCount} cache {(result.EntryCount == 1 ? "entry" : "entries")} ({FormatBytes(result.ArchiveBytes)})");
+            if (result.ArchiveBytes > CacheArchive.RecommendedArchiveBytes)
+            {
+                Console.Error.WriteLine("Warning: cache archive exceeds the recommended Git seed size of 1 MiB.");
+                Console.Error.WriteLine($"  package-metadata: {result.PackageMetadataCount}");
+                Console.Error.WriteLine($"  source-repository: {result.SourceRepositoryCount}");
+                Console.Error.WriteLine($"  github-file: {result.GitHubFileCount}");
+            }
             return 0;
         }
         catch (Exception exception) when (CacheArchive.IsExpectedFailure(exception))
@@ -36,6 +43,13 @@ internal sealed class CacheCommands
             return 1;
         }
     }
+
+    private static string FormatBytes(long bytes)
+        => bytes >= 1024 * 1024
+            ? FormattableString.Invariant($"{bytes / (1024d * 1024):F1} MiB")
+            : bytes >= 1024
+                ? FormattableString.Invariant($"{bytes / 1024d:F1} KiB")
+                : $"{bytes} bytes";
 
     /// <summary>
     /// Unpacks one Ol cache archive into the managed cache directories.

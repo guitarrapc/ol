@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Formats.Tar;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using Ol.Core.GitHub;
 using Ol.Internals;
@@ -10,6 +11,27 @@ namespace Ol.Tests;
 public sealed class CacheArchiveCliTests
 {
     private static readonly SemaphoreSlim CliGate = new(1, 1);
+
+    [Test]
+    public async Task GitSeedLimits_Defaults_AreBoundedForCommittedArchive()
+    {
+        await Assert.That(CacheArchive.RecommendedArchiveBytes).IsEqualTo(1L * 1024 * 1024);
+        await Assert.That(CacheArchive.DefaultLimits.MaximumArchiveBytes).IsEqualTo(8L * 1024 * 1024);
+        await Assert.That(CacheArchive.DefaultLimits.MaximumEntryBytes).IsEqualTo(2L * 1024 * 1024);
+        await Assert.That(CacheArchive.DefaultLimits.MaximumExpandedBytes).IsEqualTo(64L * 1024 * 1024);
+        await Assert.That(CacheArchive.DefaultLimits.MaximumEntryCount).IsEqualTo(10_000);
+    }
+
+    [Test]
+    public async Task MaximumLengthWriteStream_WhenWriteExceedsLimit_RejectsBeforeWriting()
+    {
+        using var destination = new MemoryStream();
+        using var bounded = new MaximumLengthWriteStream(destination, maximumLength: 4, leaveOpen: true);
+        bounded.Write([1, 2, 3]);
+
+        await Assert.That(() => bounded.Write([4, 5])).Throws<InvalidDataException>();
+        await Assert.That(destination.Length).IsEqualTo(3);
+    }
 
     [Test]
     public async Task CreatePrivateStagingDirectory_OnUnix_UsesOwnerOnlyPermissions()
@@ -118,6 +140,34 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
+    public async Task Pack_WhenArchiveExceedsRecommendedGitSeedSize_WarnsWithCategoryCounts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-recommended-size-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var archive = Path.Combine(root, "cache.olcache");
+        var randomPayload = Convert.ToBase64String(RandomNumberGenerator.GetBytes(1200 * 1024));
+        Directory.CreateDirectory(root);
+        await new PackageMetadataCache(Path.Combine(source, "package-metadata")).WriteAsync(
+            new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], [randomPayload]));
+
+        try
+        {
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+
+            await Assert.That(pack.ExitCode).IsEqualTo(0).Because(pack.Stderr);
+            await Assert.That(pack.Stdout).Contains("Packed 1 cache entry (");
+            await Assert.That(pack.Stderr).Contains("Warning: cache archive exceeds the recommended Git seed size of 1 MiB.");
+            await Assert.That(pack.Stderr).Contains("package-metadata: 1");
+            await Assert.That(pack.Stderr).Contains("source-repository: 0");
+            await Assert.That(pack.Stderr).Contains("github-file: 0");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Pack_WithMaxAge_AppliesEntryLimitAfterFiltering()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-filtered-limit-{Guid.NewGuid():N}");
@@ -140,11 +190,11 @@ public sealed class CacheArchiveCliTests
                 MaximumExpandedBytes: 1024 * 1024,
                 MaximumEntryCount: 1);
 
-            var count = CacheArchive.Pack(archive, CachePaths.Resolve(source), TimeSpan.FromDays(30), now, limits);
+            var result = CacheArchive.Pack(archive, CachePaths.Resolve(source), TimeSpan.FromDays(30), now, limits);
             var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", restored);
             var restoredCache = new PackageMetadataCache(Path.Combine(restored, "package-metadata"));
 
-            await Assert.That(count).IsEqualTo(1);
+            await Assert.That(result.EntryCount).IsEqualTo(1);
             await Assert.That(unpack.ExitCode).IsEqualTo(0).Because(unpack.Stderr);
             await Assert.That((await restoredCache.TryReadAsync(oldKey)).IsHit).IsFalse();
             await Assert.That((await restoredCache.TryReadAsync(recentKey)).IsHit).IsTrue();

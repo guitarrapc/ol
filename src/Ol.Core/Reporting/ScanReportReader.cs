@@ -15,6 +15,12 @@ namespace Ol.Core.Reporting;
 /// <param name="ComponentUsages">The restored development usage per component, aligned with <paramref name="Components"/>.</param>
 /// <param name="ExcludedInputPaths">The logical paths excluded from input discovery by the producing scan.</param>
 /// <param name="View">The view the producing scan rendered, which is the population a policy can evaluate.</param>
+/// <param name="Warnings">
+/// The report's top-level warning identifiers, restored verbatim and in report order. A document that
+/// states no <c>warnings</c> restores as an empty array: a warning is a positive statement, so making
+/// none is having none. Nullable only because an optional parameter cannot default to an array.
+/// </param>
+/// <param name="InputDiscovery">What discovery found, ignored, and skipped, or null when the report never stated it.</param>
 public readonly record struct ScanReport(
     int SchemaVersion,
     string SourceReference,
@@ -23,7 +29,51 @@ public readonly record struct ScanReport(
     ScanComponent[] Components,
     DependencyUsage[] ComponentUsages,
     string[] ExcludedInputPaths,
-    ScanReportViewScope View = default);
+    ScanReportViewScope View = default,
+    string[]? Warnings = null,
+    ScanReportInputDiscovery? InputDiscovery = null)
+{
+    /// <summary>The warning identifier a scan writes when a recognized input contributed no inventory.</summary>
+    public const string EmptyInventoryWarning = "input_declares_no_components";
+
+    /// <summary>Reports whether the producing scan stated that its input declared no resolved dependencies.</summary>
+    /// <remarks>
+    /// Such a report proves nothing about licenses: every count is zero, so a pass on it is indistinguishable
+    /// from a project whose dependencies are all allowed. The scan states the condition in every view it
+    /// writes; a gate that consumed the report without restating it would leave that fact unable to reach
+    /// the reader the warning exists for.
+    /// </remarks>
+    public bool DeclaresNoComponents
+    {
+        get
+        {
+            var warnings = Warnings;
+            if (warnings is null) return false;
+            for (var i = 0; i < warnings.Length; i++)
+            {
+                if (string.Equals(warnings[i], EmptyInventoryWarning, StringComparison.Ordinal)) return true;
+            }
+
+            return false;
+        }
+    }
+}
+
+/// <summary>What input discovery found, ignored, and skipped in the producing scan.</summary>
+/// <remarks>
+/// Restored as an optional value rather than defaulted, because an Ol that predates the field still detected input
+/// files and simply did not record how many. Reading an absent object as zeros would state something the report
+/// never said, which is the distinction <see cref="ScanReportViewScope"/> already draws between a count Ol supplied
+/// and a count Ol defaulted. Excluded input paths default instead, because an Ol without the option truly excluded
+/// none.
+/// </remarks>
+/// <param name="DetectedFileCount">Physical input files discovery detected, including ones it then skipped.</param>
+/// <param name="IgnoredCandidates">Known inputs Ol cannot consume, named by the directory pattern that found them.</param>
+/// <param name="IncompleteInputSetCount">Companion sets discovery found incomplete and therefore skipped.</param>
+public readonly record struct ScanReportInputDiscovery(
+    int DetectedFileCount,
+    string[] IgnoredCandidates,
+    int IncompleteInputSetCount);
 
 /// <summary>Describes how the producing scan narrowed the components it wrote.</summary>
 /// <param name="DependencyFilter">
@@ -78,6 +128,8 @@ public static class ScanReportReader
             DependencyInventory? inventory = null;
             ScanComponent[]? components = null;
             DependencyUsage[] componentUsages = [];
+            string[] warnings = [];
+            ScanReportInputDiscovery? inputDiscovery = null;
 
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
@@ -91,7 +143,7 @@ public static class ScanReportReader
                 }
                 else if (reader.ValueTextEquals("metadata"u8))
                 {
-                    if (!TryReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input, ref excludedInputPaths, ref view, out error)) return false;
+                    if (!TryReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input, ref excludedInputPaths, ref view, ref inputDiscovery, out error)) return false;
                 }
                 else if (reader.ValueTextEquals("inventory"u8))
                 {
@@ -101,6 +153,10 @@ public static class ScanReportReader
                 else if (reader.ValueTextEquals("components"u8))
                 {
                     if (!TryReadComponents(ref reader, out components, out componentUsages, out error)) return false;
+                }
+                else if (reader.ValueTextEquals("warnings"u8))
+                {
+                    warnings = ReadStringArray(ref reader);
                 }
                 else
                 {
@@ -130,7 +186,7 @@ public static class ScanReportReader
             var restored = inventory is { } value
                 ? new DependencyInventory(input, value.Contexts, value.Components, value.Occurrences, value.Edges, value.OccurrenceVariants)
                 : new DependencyInventory(input, [], [], [], [], []);
-            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages, excludedInputPaths, view);
+            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages, excludedInputPaths, view, warnings, inputDiscovery);
             error = string.Empty;
             return true;
         }
@@ -148,6 +204,7 @@ public static class ScanReportReader
         ref ScanInputDescriptor input,
         ref string[] excludedInputPaths,
         ref ScanReportViewScope view,
+        ref ScanReportInputDiscovery? inputDiscovery,
         out string error)
     {
         if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
@@ -183,6 +240,10 @@ public static class ScanReportReader
             else if (reader.ValueTextEquals("view"u8))
             {
                 if (!TryReadView(ref reader, out view, out error)) return false;
+            }
+            else if (reader.ValueTextEquals("inputDiscovery"u8))
+            {
+                inputDiscovery = ReadInputDiscovery(ref reader);
             }
             else
             {
@@ -278,6 +339,44 @@ public static class ScanReportReader
     {
         error = message;
         return false;
+    }
+
+    /// <summary>Restores what discovery observed, tolerating a document that states only some of it.</summary>
+    /// <remarks>
+    /// A missing member inside a stated object reads as its neutral value, unlike a missing object, which reads as
+    /// unstated. The object's presence is the claim that Ol recorded discovery; which members it carries is a shape
+    /// question the schema version answers.
+    /// </remarks>
+    private static ScanReportInputDiscovery ReadInputDiscovery(ref Utf8JsonReader reader)
+    {
+        var detectedFileCount = 0;
+        string[] ignoredCandidates = [];
+        var incompleteInputSetCount = 0;
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+        {
+            return new ScanReportInputDiscovery(detectedFileCount, ignoredCandidates, incompleteInputSetCount);
+        }
+
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            if (reader.ValueTextEquals("detectedFileCount"u8)) detectedFileCount = ReadCount(ref reader);
+            else if (reader.ValueTextEquals("ignoredCandidates"u8)) ignoredCandidates = ReadStringArray(ref reader);
+            else if (reader.ValueTextEquals("incompleteInputSetCount"u8)) incompleteInputSetCount = ReadCount(ref reader);
+            else
+            {
+                reader.Read();
+                reader.Skip();
+            }
+        }
+
+        return new ScanReportInputDiscovery(detectedFileCount, ignoredCandidates, incompleteInputSetCount);
+    }
+
+    /// <summary>Reads a count, treating an absent, non-numeric, or negative value as none observed.</summary>
+    private static int ReadCount(ref Utf8JsonReader reader)
+    {
+        var value = ReadInt32(ref reader);
+        return value < 0 ? 0 : value;
     }
 
     private static bool TryReadInputScope(ref Utf8JsonReader reader, out string[] excludedInputPaths)

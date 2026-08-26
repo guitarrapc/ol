@@ -133,11 +133,19 @@ internal sealed class ScanCommands
         var componentUsages = viewUsages is null ? default : viewUsages.AsSpan(0, componentCount);
         var dependencyFilteredCount = dependency is null or "" ? 0 : scanResult.Inventory.Components.Length - components.Length;
         var groups = groupBy is null or "" ? null : ScanView.Group(viewComponents, viewUsages, componentCount, groupBy);
+        // The stderr summary is shared by every format. It was once withheld from JSON because the document
+        // repeats it, but the document and the terminal have different readers: a CI job redirects the report to a
+        // file, and the person reading the log cannot open it. Withholding it made the recommended path the one
+        // path that left no trace of having run. Redirecting stdout is unaffected, because the summary is stderr.
         if (format == ReportFormat.Json)
         {
             try
             {
-                var scope = new ScanReportScope(!noExternalEvidence, dependency is null or "" ? null : dependency, dependencyFilteredCount, excludedUnknownCount, completed.ExcludedInputPaths);
+                var discovery = new ScanInputDiscovery(
+                    completed.DetectedInputFileCount,
+                    KnownUnsupportedInputCandidates.GetUnresolvedNames(completed.InputCandidateDiagnostics),
+                    completed.SkippedIncompleteInputCount);
+                var scope = new ScanReportScope(!noExternalEvidence, dependency is null or "" ? null : dependency, dependencyFilteredCount, excludedUnknownCount, completed.ExcludedInputPaths, discovery);
                 WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, componentUsages, groups, groupBy, spdx, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, scope);
             }
             catch (IOException exception)
@@ -145,11 +153,8 @@ internal sealed class ScanCommands
                 Console.Error.WriteLine($"Unable to write report: {exception.Message}");
                 return 1;
             }
-
-            return 0;
         }
-
-        if (format == ReportFormat.Text)
+        else if (format == ReportFormat.Text)
         {
             try
             {
@@ -184,7 +189,7 @@ internal sealed class ScanCommands
             Console.Error.WriteLine();
             Console.Error.WriteLine("Scan summary");
             Console.Error.WriteLine($"  License results: {components.Length} displayed component{(components.Length == 1 ? string.Empty : "s")}; {summary.Matched} matched; {summary.Conflict} conflict; {summary.Unknown} unknown; {summary.Ambiguous} ambiguous; {summary.Invalid} invalid; {summary.Error} error");
-            Console.Error.WriteLine($"  Findings: {summary.UnresolvedWarningCount} warning{(summary.UnresolvedWarningCount == 1 ? string.Empty : "s")} on unresolved components; {summary.ResolvedWarningCount} on resolved components; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
+            Console.Error.WriteLine($"  Findings: {summary.UnresolvedWarningCount} warning{(summary.UnresolvedWarningCount == 1 ? string.Empty : "s")} on unresolved components; {summary.ResolvedWarningCount} warning{(summary.ResolvedWarningCount == 1 ? string.Empty : "s")} on resolved components; {summary.DeprecatedSpdxCount} deprecated SPDX identifier{(summary.DeprecatedSpdxCount == 1 ? string.Empty : "s")}");
 
             // Two inputs rarely enumerate the same set, and which of them a component came from is the fact
             // that says whether the second input earned its place. Per component the report already says it;
@@ -203,10 +208,7 @@ internal sealed class ScanCommands
             }
             else
             {
-                Console.Error.WriteLine($"  Package artifacts (full scan): {packageArtifacts.TargetCount} targets; {packageArtifacts.DocumentCount} documents; {packageArtifacts.MatchedCount} matched");
-                Console.Error.WriteLine($"  Declared GitHub files (full scan): {declaredGitHubFiles.TargetCount} targets; {declaredGitHubFiles.GitHubRequestCount} GitHub requests; {declaredGitHubFiles.CacheHitCount} cache hits; {declaredGitHubFiles.CacheMissCount} cache misses; {declaredGitHubFiles.DocumentCount} documents; {declaredGitHubFiles.MatchedCount} matched; {declaredGitHubFiles.FetchErrorCount} fetch errors");
-                Console.Error.WriteLine($"  Package metadata (full scan): {packageMetadata.SupportedComponentCount} supported; {packageMetadata.CacheHitCount} cache hits; {packageMetadata.CacheMissCount} cache misses; {packageMetadata.RefreshedCount} refreshed; {packageMetadata.FetchErrorCount} fetch errors; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystems; {packageMetadata.UnversionedPurlCount} unversioned purls; {packageMetadata.NoPurlCount} without purl");
-                Console.Error.WriteLine($"  Source repositories (full scan): {source.TargetCount} targets; {source.GitHubRequestCount} GitHub requests; {source.CacheHitCount} cache hits; {source.CacheMissCount} cache misses; {source.FetchErrorCount} fetch errors; {source.UnknownCount} components without source license");
+                WriteEvidenceTable(packageArtifacts, declaredGitHubFiles, packageMetadata, source, Console.Error);
                 Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
             }
 
@@ -220,7 +222,7 @@ internal sealed class ScanCommands
             Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
             if (dependency is not null and not "")
             {
-                Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} components excluded; {excludedUnknownCount} with unknown dependency type");
+                Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} component{(dependencyFilteredCount == 1 ? string.Empty : "s")} excluded; {excludedUnknownCount} with unknown dependency type");
             }
         }
 
@@ -314,6 +316,83 @@ internal sealed class ScanCommands
         public int SbomOnly;
         public int PackageManagerOnly;
         public int Both;
+    }
+
+    /// <summary>Column headers of the evidence table, in display order.</summary>
+    private static readonly string[] EvidenceColumnHeaders = ["targets", "requests", "cache hits", "cache misses", "docs", "matched", "errors"];
+
+    /// <summary>Row labels of the evidence table, in display order.</summary>
+    private static readonly string[] EvidenceRowLabels = ["Package artifacts", "Declared GitHub files", "Package metadata", "Source repositories"];
+
+    /// <summary>
+    /// States what each evidence collector was pointed at and what came back, as one aligned table.
+    /// </summary>
+    /// <remarks>
+    /// A cell for a counter a collector does not have is "-", not 0: a zero would claim it attempted the
+    /// work and found nothing. Counters only one collector has stay in a named line under the table.
+    /// </remarks>
+    internal static void WriteEvidenceTable(
+        in PackageArtifactCollectionSummary packageArtifacts,
+        in DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFiles,
+        in PackageMetadataSummary packageMetadata,
+        in SourceRepositorySummary source,
+        TextWriter writer)
+    {
+        const string Heading = "  Evidence (full scan)";
+        const string RowIndent = "    ";
+        const string NoCounter = "-";
+
+        // Package metadata counts supported components rather than planned lookups here, because the row's
+        // cache hits and misses are counted per component: a lookup count would not sum with them.
+        string[][] rows =
+        [
+            [Count(packageArtifacts.TargetCount), NoCounter, NoCounter, NoCounter, Count(packageArtifacts.DocumentCount), Count(packageArtifacts.MatchedCount), NoCounter],
+            [Count(declaredGitHubFiles.TargetCount), Count(declaredGitHubFiles.GitHubRequestCount), Count(declaredGitHubFiles.CacheHitCount), Count(declaredGitHubFiles.CacheMissCount), Count(declaredGitHubFiles.DocumentCount), Count(declaredGitHubFiles.MatchedCount), Count(declaredGitHubFiles.FetchErrorCount)],
+            [Count(packageMetadata.SupportedComponentCount), NoCounter, Count(packageMetadata.CacheHitCount), Count(packageMetadata.CacheMissCount), NoCounter, NoCounter, Count(packageMetadata.FetchErrorCount)],
+            [Count(source.TargetCount), Count(source.GitHubRequestCount), Count(source.CacheHitCount), Count(source.CacheMissCount), NoCounter, NoCounter, Count(source.FetchErrorCount)],
+        ];
+
+        var labelWidth = Heading.Length;
+        for (var rowIndex = 0; rowIndex < EvidenceRowLabels.Length; rowIndex++)
+        {
+            labelWidth = Math.Max(labelWidth, RowIndent.Length + EvidenceRowLabels[rowIndex].Length);
+        }
+
+        Span<int> widths = stackalloc int[EvidenceColumnHeaders.Length];
+        for (var columnIndex = 0; columnIndex < EvidenceColumnHeaders.Length; columnIndex++)
+        {
+            var width = EvidenceColumnHeaders[columnIndex].Length;
+            for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
+            {
+                width = Math.Max(width, rows[rowIndex][columnIndex].Length);
+            }
+
+            widths[columnIndex] = width;
+        }
+
+        WriteEvidenceRow(Heading, EvidenceColumnHeaders, labelWidth, widths, writer);
+        for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
+        {
+            WriteEvidenceRow(RowIndent + EvidenceRowLabels[rowIndex], rows[rowIndex], labelWidth, widths, writer);
+        }
+
+        writer.WriteLine($"{RowIndent}Package metadata: {packageMetadata.RefreshedCount} refreshed; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystem{(packageMetadata.UnsupportedEcosystemCount == 1 ? string.Empty : "s")}; {packageMetadata.UnversionedPurlCount} unversioned purl{(packageMetadata.UnversionedPurlCount == 1 ? string.Empty : "s")}; {packageMetadata.NoPurlCount} without purl");
+        writer.WriteLine($"{RowIndent}Source repositories: {source.UnknownCount} component{(source.UnknownCount == 1 ? string.Empty : "s")} without source license");
+
+        static string Count(int value) => value.ToString();
+    }
+
+    /// <summary>Writes one evidence row with the label left-aligned and every counter right-aligned in its column.</summary>
+    private static void WriteEvidenceRow(string label, string[] cells, int labelWidth, ReadOnlySpan<int> widths, TextWriter writer)
+    {
+        writer.Write(label.PadRight(labelWidth));
+        for (var columnIndex = 0; columnIndex < cells.Length; columnIndex++)
+        {
+            writer.Write("  ");
+            writer.Write(cells[columnIndex].PadLeft(widths[columnIndex]));
+        }
+
+        writer.WriteLine();
     }
 
     private static void WriteInputDiscoverySummary(

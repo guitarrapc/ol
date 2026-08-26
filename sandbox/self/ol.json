@@ -74,6 +74,12 @@
     "inputScope": {
       "excludedPathCount": 0,
       "excludedPaths": []
+    },
+    "inputDiscovery": {
+      "detectedFileCount": 1,
+      "ignoredCandidateCount": 0,
+      "ignoredCandidates": [],
+      "incompleteInputSetCount": 0
     }
   },
   "inventory": {

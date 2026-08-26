@@ -34,7 +34,7 @@ public sealed class ScanFindingsSummaryTests
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
             await Assert.That(result.Stderr).Contains("License results: 4 displayed components; 2 matched; 0 conflict; 0 unknown; 2 ambiguous;");
-            await Assert.That(result.Stderr).Contains("Findings: 2 warnings on unresolved components; 2 on resolved components; 4 deprecated SPDX identifiers");
+            await Assert.That(result.Stderr).Contains("Findings: 2 warnings on unresolved components; 2 warnings on resolved components; 4 deprecated SPDX identifiers");
         }
         finally
         {
@@ -54,7 +54,7 @@ public sealed class ScanFindingsSummaryTests
             var result = await RunOlAsync("scan", "--input", input, "--no-external-evidence");
 
             await Assert.That(result.Stderr).Contains("License results: 2 displayed components; 2 matched;");
-            await Assert.That(result.Stderr).Contains("Findings: 0 warnings on unresolved components; 2 on resolved components; 2 deprecated SPDX identifiers");
+            await Assert.That(result.Stderr).Contains("Findings: 0 warnings on unresolved components; 2 warnings on resolved components; 2 deprecated SPDX identifiers");
         }
         finally
         {
@@ -72,7 +72,7 @@ public sealed class ScanFindingsSummaryTests
             var result = await RunOlAsync("scan", "--input", input, "--no-external-evidence");
 
             await Assert.That(result.Stderr).Contains("License results: 2 displayed components; 0 matched; 0 conflict; 0 unknown; 2 ambiguous;");
-            await Assert.That(result.Stderr).Contains("Findings: 2 warnings on unresolved components; 0 on resolved components; 2 deprecated SPDX identifiers");
+            await Assert.That(result.Stderr).Contains("Findings: 2 warnings on unresolved components; 0 warnings on resolved components; 2 deprecated SPDX identifiers");
         }
         finally
         {
@@ -88,7 +88,7 @@ public sealed class ScanFindingsSummaryTests
         {
             var result = await RunOlAsync("scan", "--input", input, "--no-external-evidence");
 
-            await Assert.That(result.Stderr).Contains("Findings: 0 warnings on unresolved components; 0 on resolved components; 0 deprecated SPDX identifiers");
+            await Assert.That(result.Stderr).Contains("Findings: 0 warnings on unresolved components; 0 warnings on resolved components; 0 deprecated SPDX identifiers");
         }
         finally
         {
@@ -106,7 +106,28 @@ public sealed class ScanFindingsSummaryTests
             var result = await RunOlAsync("scan", "--input", input, "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
-            await Assert.That(result.Stderr).Contains("Findings: 1 warning on unresolved components; 1 on resolved components; 2 deprecated SPDX identifiers");
+            await Assert.That(result.Stderr).Contains("Findings: 1 warning on unresolved components; 1 warning on resolved components; 2 deprecated SPDX identifiers");
+        }
+        finally
+        {
+            Cleanup(input);
+        }
+    }
+
+    /// <summary>
+    /// A plural count on one side and a singular on the other, which is the shape that proves the resolved
+    /// clause pluralizes from its own count rather than the unresolved one's.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithPluralAndSingularSides_PluralizesTheResolvedClauseFromItsOwnCount()
+    {
+        var input = await WriteSbomAsync(resolved: 1, unresolved: 2);
+        try
+        {
+            var result = await RunOlAsync("scan", "--input", input, "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stderr).Contains("Findings: 2 warnings on unresolved components; 1 warning on resolved components; 3 deprecated SPDX identifiers");
         }
         finally
         {
@@ -126,7 +147,7 @@ public sealed class ScanFindingsSummaryTests
 
             await Assert.That(grouped.ExitCode).IsEqualTo(0).Because(grouped.Stderr);
             await Assert.That(SelectLine(grouped.Stderr, "Findings:")).IsEqualTo(SelectLine(components.Stderr, "Findings:"));
-            await Assert.That(SelectLine(grouped.Stderr, "Findings:")).Contains("2 warnings on unresolved components; 2 on resolved components");
+            await Assert.That(SelectLine(grouped.Stderr, "Findings:")).Contains("2 warnings on unresolved components; 2 warnings on resolved components");
         }
         finally
         {

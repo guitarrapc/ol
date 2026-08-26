@@ -281,7 +281,7 @@ Each command uses the following exit codes. CI can use the `check` result to dis
 | `0` | The command completed successfully. Help and version output also use `0`. |
 | `1` | Argument parsing, configuration, input, I/O, or another execution failure prevented completion. |
 | `2` | `check` completed policy evaluation and found one or more violations. |
-| `3` | `check` completed, but every finding is a collection failure, so the result is inconclusive. |
+| `3` | `check` completed but proved nothing: every finding is a collection failure, or the report states its input declared no resolved dependencies. |
 
 ### Reading license results
 
@@ -360,7 +360,7 @@ ol scan --input bom.cdx.json --input .
 
 This is the recommended input for a project that publishes an SBOM. Two things come back that an SBOM alone cannot supply:
 
-- **License files from the packages the build actually consumed.** ol reads the `LICENSE` file inside a restored package only when an input tells it where that package is. This resolves publishers whose registry metadata states no license, and it is the difference between `matched` and `unresolved` for real packages — `Microsoft.DotNet.PlatformAbstractions` states no license in the NuGet registry and `NOASSERTION` on GitHub, but ships `LICENSE.TXT` in the package. The scan summary reports `Package artifacts (full scan): 0 targets` when no input pointed at a resolved tree.
+- **License files from the packages the build actually consumed.** ol reads the `LICENSE` file inside a restored package only when an input tells it where that package is. This resolves publishers whose registry metadata states no license, and it is the difference between `matched` and `unresolved` for real packages — `Microsoft.DotNet.PlatformAbstractions` states no license in the NuGet registry and `NOASSERTION` on GitHub, but ships `LICENSE.TXT` in the package. The scan summary reports `0` under `targets` in the `Package artifacts` row of its evidence table when no input pointed at a resolved tree.
 - **A dependency graph the resolver produced.** Whether an SBOM carries a usable graph is up to its generator. A generator that emits an incomplete one leaves components ol will not classify, and `dependency: unknown` disables `--dependency direct` and any `--allow-dev-licenses` allowance, which only applies where the resolver proves a component is development-only.
 
 The SBOM still contributes what only it knows: license claims its producer asserted, and components outside the package managers ol reads directly.
@@ -547,6 +547,8 @@ ol diff --previous before.json --current after.json --format json
 ```
 
 `diff` reports additions, removals, and version, status, license, or evidence changes. It exits `0` when comparison succeeds even when changes exist; policy enforcement belongs to `check`.
+
+Before the changes it states the boundary each report was produced under — excluded input paths, `--dependency` filter, and input coverage — whenever the two reports do not obviously describe the same population. A report that read fewer inputs holds fewer components, and every one of them shows up as a removal, so without the boundary "an input was not read" and "a dependency was removed" are the same diff.
 
 ### Write SARIF
 

@@ -964,6 +964,140 @@ public sealed class CliCheckTests
         }
     }
 
+    // A report whose input declared no resolved dependencies proves nothing about licenses, so the gate
+    // reports the same inconclusive state it reports for a run where every finding was a collection
+    // failure. Reporting a pass would make an unrestored project indistinguishable from a project whose
+    // dependencies are all allowed, which is the false negative the scan warning exists to prevent.
+    [Test]
+    public async Task Check_WithReportDeclaringNoComponents_ReturnsInconclusive()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(3);
+            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).Contains("License check incomplete: the report states its input declared no resolved dependencies.");
+            await Assert.That(result.Stdout).DoesNotContain("License check passed");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    // A project that legitimately resolves no dependencies still declares a root, so the inventory is not
+    // empty and the gate stays green. This is the boundary that lets the empty-input case be inconclusive
+    // without an opt-out flag.
+    [Test]
+    public async Task Check_WithRootOnlyReportAndNoDependencies_ReturnsPass()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": { "component": { "type": "application", "bom-ref": "SoloApp@1.0.0", "name": "SoloApp", "version": "1.0.0" } }, "components": [] }""",
+            Encoding.UTF8);
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).Contains("License check passed: 0 components satisfy the allow-list.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    // The reader restores every top-level warning and the gate reacts only to the identifiers it knows.
+    // A warning about SPDX deprecation describes an identifier the report already carries per component
+    // and changes nothing about what the run proved, so it must not gate.
+    [Test]
+    [Arguments("deprecated_spdx_identifier", 0)]
+    [Arguments("some_future_warning_ol_does_not_know", 0)]
+    public async Task Check_WithTopLevelWarningThatIsNotAnEmptyInput_DoesNotChangeTheGate(string warning, int expectedExitCode)
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, SetWarnings(scan.Stdout, warning));
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(expectedExitCode);
+            await Assert.That(result.Stdout).Contains("License check passed: 1 component satisfies the allow-list.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    // A report written before top-level warnings existed is read as a report that stated no warning,
+    // which is what it was. The absent array is not the same claim as an empty one, but neither gates.
+    [Test]
+    public async Task Check_WithReportOmittingTopLevelWarnings_ReturnsPass()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            var document = JsonNode.Parse(scan.Stdout)!.AsObject();
+            document.Remove("warnings");
+            await File.WriteAllTextAsync(reportPath, document.ToJsonString());
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stdout).Contains("License check passed: 1 component satisfies the allow-list.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    // An empty input is reported even when it arrives beside warnings the gate ignores, so the identifier
+    // is selected from the array rather than assumed to be the only entry.
+    [Test]
+    public async Task Check_WithEmptyInputWarningBesideAnotherWarning_ReturnsInconclusive()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, SetWarnings(scan.Stdout, "deprecated_spdx_identifier", "input_declares_no_components"));
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT");
+
+            await Assert.That(result.ExitCode).IsEqualTo(3);
+            await Assert.That(result.Stdout).Contains("License check incomplete: the report states its input declared no resolved dependencies.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
     [Test]
     public async Task Check_WithReportContainingUnknownRoot_IgnoresRoot()
     {
@@ -1519,6 +1653,15 @@ public sealed class CliCheckTests
         "\"\": { \"name\": \"app\", \"dependencies\": { \"run-pkg\": \"1.0.0\" }, \"devDependencies\": { \"dev-pkg\": \"1.0.0\" } }, ",
         "\"node_modules/run-pkg\": { \"version\": \"1.0.0\", \"license\": \"", runtimeLicense, "\" }, ",
         "\"node_modules/dev-pkg\": { \"version\": \"1.0.0\", \"dev\": true, \"license\": \"", devLicense, "\" } } }");
+
+    private static string SetWarnings(string report, params string[] warnings)
+    {
+        var values = new JsonArray();
+        for (var i = 0; i < warnings.Length; i++) values.Add(warnings[i]);
+        var document = JsonNode.Parse(report)!.AsObject();
+        document["warnings"] = values;
+        return document.ToJsonString();
+    }
 
     private static string AddInputScope(string report, params string[] excludedPaths)
     {

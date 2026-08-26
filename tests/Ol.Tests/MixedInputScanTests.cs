@@ -448,7 +448,7 @@ public sealed class MixedInputScanTests
                 "--no-external-evidence",
                 "--format", "json");
 
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
             // v10 exercises the whole-number test: a suffix starting with "1" is still a major-version suffix.
@@ -502,7 +502,7 @@ public sealed class MixedInputScanTests
         {
             var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--no-external-evidence", "--format", "json");
 
-            await Assert.That(stderr).IsEmpty();
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
             await Assert.That(FindComponents(report, "pkg:nuget/Example@1.0.0")).Count().IsEqualTo(1);
@@ -837,7 +837,7 @@ public sealed class MixedInputScanTests
             "--no-external-evidence",
             "--format", "json");
 
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         await Assert.That(exitCode).IsEqualTo(0);
         return JsonDocument.Parse(stdout);
     }
@@ -847,7 +847,7 @@ public sealed class MixedInputScanTests
         var root = FindRepositoryRoot();
         var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", FixturePath(fixture), "--no-external-evidence", "--format", "json");
 
-        await Assert.That(stderr).IsEmpty();
+        await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
         await Assert.That(exitCode).IsEqualTo(0);
         return JsonDocument.Parse(stdout);
     }

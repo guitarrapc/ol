@@ -70,7 +70,7 @@ Read these before any license, cheapest first.
 
 | Signal | Question it answers |
 |---|---|
-| `Input discovery` line: detected files, ignored candidates, incomplete input sets, excluded paths, ecosystems | Did every ecosystem in the subject get scanned, and only those? An ignored candidate is an unscanned ecosystem. |
+| `metadata.inputDiscovery` (`Input discovery` line: detected files, ignored candidates, incomplete input sets; excluded paths are `metadata.inputScope`) | Did every ecosystem in the subject get scanned, and only those? An ignored candidate is an unscanned ecosystem. |
 | `summary.supply` (`Supplied by` line; `--verbose` splits it per ecosystem) | Did the second input earn its place? A large `sbomOnly` count means the generator catalogued things that are not dependencies. |
 | `warnings`, including `input_declares_no_components` | Did an input resolve nothing? Every count zero reads exactly like a clean project. |
 | `metadata.packageMetadata`, `packageArtifacts`, `declaredGitHubFiles`, `sourceRepository` | Separate collector failure from component status. `fetchErrorCount` above zero means the run is degraded. |
@@ -82,7 +82,7 @@ If a combined scan surprises you, rerun the same scope with each input alone and
 
 ## Triage violations by population
 
-`ol check` exits `0` pass, `2` policy violations, `3` inconclusive — every finding was a collection failure, so retry rather than treat it as a licensing fact. A CI job that collapses `2` and `3` cannot tell a registry outage from a forbidden license.
+`ol check` exits `0` pass, `2` policy violations, `3` inconclusive — the run proved nothing, so fix the pipeline or retry rather than treat it as a licensing fact. A CI job that collapses `2` and `3` cannot tell a registry outage from a forbidden license. Two things reach `3`: every finding was a collection failure, or the report carries `input_declares_no_components` and there was nothing to evaluate at all.
 
 Violations name a `Mechanism` and end with an `Unresolved mechanisms` tally. **Read the tally first.** A hundred unresolved rows are usually a few populations, and one decision covers each.
 

@@ -33,7 +33,8 @@ internal static class SarifRenderer
         ReadOnlySpan<int> developmentAllowedComponents,
         string toolVersion,
         ScanReportViewScope view = default,
-        ReadOnlySpan<string> excludedInputPaths = default)
+        ReadOnlySpan<string> excludedInputPaths = default,
+        bool declaresNoComponents = false)
     {
         var buffer = new ArrayBufferWriter<byte>(512 + (violations.Length * 320) + (developmentAllowedComponents.Length * 160));
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
@@ -61,7 +62,7 @@ internal static class SarifRenderer
             }
 
             writer.WriteEndArray();
-            WriteRunProperties(writer, components, developmentAllowedComponents, view, excludedInputPaths);
+            WriteRunProperties(writer, components, developmentAllowedComponents, view, excludedInputPaths, declaresNoComponents);
             writer.WriteEndObject();
             writer.WriteEndArray();
             writer.WriteEndObject();
@@ -78,17 +79,34 @@ internal static class SarifRenderer
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<int> developmentAllowedComponents,
         in ScanReportViewScope view,
-        ReadOnlySpan<string> excludedInputPaths)
+        ReadOnlySpan<string> excludedInputPaths,
+        bool declaresNoComponents)
     {
-        if (developmentAllowedComponents.Length == 0 && !view.IsFiltered && excludedInputPaths.IsEmpty)
+        if (developmentAllowedComponents.Length == 0 && !view.IsFiltered && excludedInputPaths.IsEmpty && !declaresNoComponents)
         {
             return;
         }
 
         writer.WriteStartObject("properties"u8);
+        WriteInconclusive(writer, declaresNoComponents);
         WriteInputScope(writer, excludedInputPaths);
         WriteEvaluatedView(writer, view);
         WriteDevelopmentAllowances(writer, components, developmentAllowedComponents);
+        writer.WriteEndObject();
+    }
+
+    // An empty result set over a report that resolved nothing reads exactly like a clean run, which is the same
+    // confusion the evaluated view exists to prevent one projection over. The identifier is the report's own, so
+    // one vocabulary names the condition in the scan warning, the check result, and here.
+    private static void WriteInconclusive(Utf8JsonWriter writer, bool declaresNoComponents)
+    {
+        if (!declaresNoComponents)
+        {
+            return;
+        }
+
+        writer.WriteStartObject("inconclusive"u8);
+        writer.WriteString("reason"u8, ScanReport.EmptyInventoryWarning);
         writer.WriteEndObject();
     }
 

@@ -369,6 +369,70 @@ public sealed class SarifOutputTests
         }
     }
 
+    /// <summary>
+    /// An empty result set over a report that resolved nothing reads exactly like a clean run, which is the same
+    /// defect the evaluated view exists to prevent one projection over. A CI job consuming only the SARIF file has
+    /// nothing else to learn that the run proved nothing rather than found nothing.
+    /// </summary>
+    [Test]
+    public async Task Sarif_WithReportDeclaringNoComponents_RecordsTheInconclusiveReasonInRunProperties()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteEmptySbomAsync();
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, input, [], "--allow-licenses", "MIT", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+            var run = document.RootElement.GetProperty("runs")[0];
+
+            await Assert.That(result.ExitCode).IsEqualTo(3);
+            await Assert.That(run.GetProperty("results").GetArrayLength()).IsEqualTo(0);
+            await Assert.That(run.EnumerateObject().Count(property => property.Name == "properties")).IsEqualTo(1);
+            await Assert.That(run.GetProperty("properties").GetProperty("inconclusive").GetProperty("reason").GetString())
+                .IsEqualTo("input_declares_no_components");
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    /// <summary>
+    /// The property states a fact about the report rather than a default the writer supplies, so a run that
+    /// evaluated a real population never carries it.
+    /// </summary>
+    [Test]
+    public async Task Sarif_WithEvaluatedReport_OmitsTheInconclusiveReason()
+    {
+        var root = FindRepositoryRoot();
+        var input = await WriteNpmLockAsync(directLicense: "GPL-3.0-only", transitiveLicense: "MIT");
+        var sarifPath = Path.Combine(Path.GetTempPath(), $"ol-{Guid.NewGuid():N}.sarif");
+        try
+        {
+            var result = await RunCheckWorkflowAsync(root, input, [], "--allow-licenses", "MIT", "--sarif", sarifPath);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(sarifPath));
+            var run = document.RootElement.GetProperty("runs")[0];
+
+            var hasInconclusive = run.TryGetProperty("properties", out var properties)
+                && properties.TryGetProperty("inconclusive", out _);
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(hasInconclusive).IsFalse();
+        }
+        finally
+        {
+            Cleanup(input, sarifPath);
+        }
+    }
+
+    private static async Task<string> WriteEmptySbomAsync()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"ol-sarif-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(path, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+        return path;
+    }
+
     private static async Task<string> WriteNpmDevLockAsync(string devLicense, string runtimeLicense)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"ol-sarif-{Guid.NewGuid():N}");

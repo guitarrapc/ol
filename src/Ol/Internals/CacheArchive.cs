@@ -8,16 +8,23 @@ using System.Text.Json;
 
 namespace Ol.Internals;
 
+internal readonly record struct CacheArchiveLimits(
+    long MaximumArchiveBytes,
+    long MaximumEntryBytes,
+    long MaximumExpandedBytes,
+    int MaximumEntryCount);
+
 internal static class CacheArchive
 {
-    private const long MaximumArchiveBytes = 512L * 1024 * 1024;
-    private const long MaximumEntryBytes = 16L * 1024 * 1024;
-    private const long MaximumExpandedBytes = 1024L * 1024 * 1024;
-    private const int MaximumEntryCount = 250_000;
     private const string ManifestName = "ol-cache-manifest.json";
     private const string ManifestContent = "{\"FormatVersion\":1}";
     private const int MaximumStackCacheKeyBytes = 512;
     private static readonly DateTimeOffset DeterministicTimestamp = DateTimeOffset.UnixEpoch;
+    private static readonly CacheArchiveLimits DefaultLimits = new(
+        MaximumArchiveBytes: 512L * 1024 * 1024,
+        MaximumEntryBytes: 16L * 1024 * 1024,
+        MaximumExpandedBytes: 1024L * 1024 * 1024,
+        MaximumEntryCount: 250_000);
     private static readonly CacheCategory[] Categories =
     [
         new("package-metadata"),
@@ -26,9 +33,12 @@ internal static class CacheArchive
     ];
 
     public static int Pack(string archivePath, CacheDirectories directories, TimeSpan? maximumAge, DateTimeOffset now)
+        => Pack(archivePath, directories, maximumAge, now, DefaultLimits);
+
+    internal static int Pack(string archivePath, CacheDirectories directories, TimeSpan? maximumAge, DateTimeOffset now, CacheArchiveLimits limits)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
-        var entries = CollectEntries(directories, maximumAge, now);
+        var entries = CollectEntries(directories, maximumAge, now, limits);
         var outputPath = Path.GetFullPath(archivePath);
         var outputDirectory = Path.GetDirectoryName(outputPath)!;
         Directory.CreateDirectory(outputDirectory);
@@ -40,12 +50,30 @@ internal static class CacheArchive
             using (var writer = new TarWriter(gzip, TarEntryFormat.Ustar, leaveOpen: false))
             {
                 using var manifest = new MemoryStream(Encoding.UTF8.GetBytes(ManifestContent), writable: false);
+                long expandedBytes = manifest.Length;
+                if (expandedBytes > limits.MaximumExpandedBytes)
+                {
+                    throw new InvalidDataException($"Expanded archive exceeds {limits.MaximumExpandedBytes} bytes.");
+                }
+
                 WriteEntry(writer, ManifestName, manifest);
                 for (var i = 0; i < entries.Count; i++)
                 {
                     using var content = new FileStream(entries[i].SourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    expandedBytes = checked(expandedBytes + content.Length);
+                    if (expandedBytes > limits.MaximumExpandedBytes)
+                    {
+                        throw new InvalidDataException($"Expanded archive exceeds {limits.MaximumExpandedBytes} bytes.");
+                    }
+
                     WriteEntry(writer, entries[i].ArchivePath, content);
                 }
+            }
+
+            var archiveLength = new FileInfo(temporaryPath).Length;
+            if (archiveLength <= 0 || archiveLength > limits.MaximumArchiveBytes)
+            {
+                throw new InvalidDataException($"Archive size must be between 1 and {limits.MaximumArchiveBytes} bytes.");
             }
 
             File.Move(temporaryPath, outputPath, overwrite: true);
@@ -62,16 +90,16 @@ internal static class CacheArchive
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
         var inputPath = Path.GetFullPath(archivePath);
         var archiveLength = new FileInfo(inputPath).Length;
-        if (archiveLength <= 0 || archiveLength > MaximumArchiveBytes)
+        if (archiveLength <= 0 || archiveLength > DefaultLimits.MaximumArchiveBytes)
         {
-            throw new InvalidDataException($"Archive size must be between 1 and {MaximumArchiveBytes} bytes.");
+            throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
         }
 
         var stagingRoot = Path.Combine(Path.GetTempPath(), $"ol-cache-unpack-{Guid.NewGuid():N}");
         Directory.CreateDirectory(stagingRoot);
         try
         {
-            var stagedEntries = ReadArchive(inputPath, stagingRoot);
+            var stagedEntries = ReadArchive(inputPath, stagingRoot, DefaultLimits);
             for (var i = 0; i < stagedEntries.Count; i++)
             {
                 var destinationRoot = GetCategoryRoot(stagedEntries[i].Category, directories);
@@ -131,7 +159,7 @@ internal static class CacheArchive
             or PathTooLongException
             or JsonException;
 
-    private static List<ArchiveSourceEntry> CollectEntries(CacheDirectories directories, TimeSpan? maximumAge, DateTimeOffset now)
+    private static List<ArchiveSourceEntry> CollectEntries(CacheDirectories directories, TimeSpan? maximumAge, DateTimeOffset now, CacheArchiveLimits limits)
     {
         var entries = new List<ArchiveSourceEntry>();
         var cutoff = maximumAge.HasValue
@@ -146,7 +174,7 @@ internal static class CacheArchive
             var paths = new List<string>();
             foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))
             {
-                if (entries.Count + paths.Count == MaximumEntryCount) throw new InvalidDataException($"Archive contains more than {MaximumEntryCount} cache entries.");
+                if (entries.Count + paths.Count == limits.MaximumEntryCount) throw new InvalidDataException($"Archive contains more than {limits.MaximumEntryCount} cache entries.");
                 paths.Add(path);
             }
 
@@ -155,7 +183,7 @@ internal static class CacheArchive
             {
                 var fileName = Path.GetFileName(paths[i]);
                 ValidateCacheFileName(fileName);
-                var fetchedAt = ValidateCacheEntry(paths[i], fileName.AsSpan(0, 64));
+                var fetchedAt = ValidateCacheEntry(paths[i], fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
                 if (fetchedAt < cutoff) continue;
                 entries.Add(new(paths[i], string.Concat(category.Name, "/", fileName)));
             }
@@ -164,7 +192,7 @@ internal static class CacheArchive
         return entries;
     }
 
-    private static List<StagedEntry> ReadArchive(string inputPath, string stagingRoot)
+    private static List<StagedEntry> ReadArchive(string inputPath, string stagingRoot, CacheArchiveLimits limits)
     {
         var entries = new List<StagedEntry>();
         var names = new HashSet<string>(StringComparer.Ordinal);
@@ -178,9 +206,9 @@ internal static class CacheArchive
         {
             if (entry.EntryType != TarEntryType.RegularFile) throw new InvalidDataException($"Unsupported archive entry type: {entry.EntryType}.");
             if (!names.Add(entry.Name)) throw new InvalidDataException($"Duplicate archive entry: {entry.Name}.");
-            if (entry.Length < 0 || entry.Length > MaximumEntryBytes) throw new InvalidDataException($"Archive entry is too large: {entry.Name}.");
+            if (entry.Length < 0 || entry.Length > limits.MaximumEntryBytes) throw new InvalidDataException($"Archive entry is too large: {entry.Name}.");
             expandedBytes = checked(expandedBytes + entry.Length);
-            if (expandedBytes > MaximumExpandedBytes) throw new InvalidDataException($"Expanded archive exceeds {MaximumExpandedBytes} bytes.");
+            if (expandedBytes > limits.MaximumExpandedBytes) throw new InvalidDataException($"Expanded archive exceeds {limits.MaximumExpandedBytes} bytes.");
             if (entry.DataStream is null) throw new InvalidDataException($"Archive entry has no content: {entry.Name}.");
 
             if (entry.Name == ManifestName)
@@ -190,7 +218,7 @@ internal static class CacheArchive
                 continue;
             }
 
-            if (entries.Count == MaximumEntryCount) throw new InvalidDataException($"Archive contains more than {MaximumEntryCount} cache entries.");
+            if (entries.Count == limits.MaximumEntryCount) throw new InvalidDataException($"Archive contains more than {limits.MaximumEntryCount} cache entries.");
             var separator = entry.Name.IndexOf('/');
             if (separator <= 0 || entry.Name.IndexOf('/', separator + 1) >= 0) throw new InvalidDataException($"Unsupported archive entry path: {entry.Name}.");
             var category = entry.Name[..separator];
@@ -205,7 +233,7 @@ internal static class CacheArchive
                 entry.DataStream.CopyTo(output);
             }
 
-            ValidateCacheEntry(stagedPath, fileName.AsSpan(0, 64));
+            ValidateCacheEntry(stagedPath, fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
             entries.Add(new(category, fileName, stagedPath));
         }
 
@@ -242,10 +270,10 @@ internal static class CacheArchive
         }
     }
 
-    private static DateTimeOffset ValidateCacheEntry(string path, ReadOnlySpan<char> expectedHash)
+    private static DateTimeOffset ValidateCacheEntry(string path, ReadOnlySpan<char> expectedHash, long maximumEntryBytes)
     {
         var length = new FileInfo(path).Length;
-        if (length <= 0 || length > MaximumEntryBytes) throw new InvalidDataException($"Cache entry size is invalid: {Path.GetFileName(path)}.");
+        if (length <= 0 || length > maximumEntryBytes) throw new InvalidDataException($"Cache entry size is invalid: {Path.GetFileName(path)}.");
         using var content = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var document = JsonDocument.Parse(content, new JsonDocumentOptions { MaxDepth = 64 });
         var root = document.RootElement;

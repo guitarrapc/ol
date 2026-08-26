@@ -3,6 +3,7 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text;
 using Ol.Core.GitHub;
+using Ol.Internals;
 
 namespace Ol.Tests;
 
@@ -82,6 +83,59 @@ public sealed class CacheArchiveCliTests
             await Assert.That(unpack.ExitCode).IsEqualTo(0).Because(unpack.Stderr);
             await Assert.That((await restoredCache.TryReadAsync(oldKey)).IsHit).IsFalse();
             await Assert.That((await restoredCache.TryReadAsync(recentKey)).IsHit).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Pack_WhenExpandedContentExceedsUnpackLimit_RejectsWithoutReplacingArchive()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-expanded-limit-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var archive = Path.Combine(root, "cache.olcache");
+        Directory.CreateDirectory(root);
+        await new PackageMetadataCache(Path.Combine(source, "package-metadata")).WriteAsync(
+            new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+        await File.WriteAllTextAsync(archive, "keep", Encoding.UTF8);
+
+        try
+        {
+            var limits = new CacheArchiveLimits(
+                MaximumArchiveBytes: long.MaxValue,
+                MaximumEntryBytes: 16L * 1024 * 1024,
+                MaximumExpandedBytes: 64,
+                MaximumEntryCount: 10);
+
+            await Assert.That(() => CacheArchive.Pack(archive, CachePaths.Resolve(source), maximumAge: null, DateTimeOffset.UtcNow, limits)).Throws<InvalidDataException>();
+            await Assert.That(await File.ReadAllTextAsync(archive)).IsEqualTo("keep");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Pack_WhenCompressedArchiveExceedsUnpackLimit_RejectsWithoutReplacingArchive()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-compressed-limit-{Guid.NewGuid():N}");
+        var archive = Path.Combine(root, "cache.olcache");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(archive, "keep", Encoding.UTF8);
+
+        try
+        {
+            var limits = new CacheArchiveLimits(
+                MaximumArchiveBytes: 1,
+                MaximumEntryBytes: 16L * 1024 * 1024,
+                MaximumExpandedBytes: 1024,
+                MaximumEntryCount: 10);
+
+            await Assert.That(() => CacheArchive.Pack(archive, CachePaths.Resolve(Path.Combine(root, "source")), maximumAge: null, DateTimeOffset.UtcNow, limits)).Throws<InvalidDataException>();
+            await Assert.That(await File.ReadAllTextAsync(archive)).IsEqualTo("keep");
         }
         finally
         {

@@ -1469,7 +1469,8 @@ public sealed class CliScanTests
 
             var (quietExitCode, _, quietStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "text", "--quiet");
             await Assert.That(quietExitCode).IsEqualTo(0);
-            await Assert.That(CliTestAssembly.DiagnosticsOnly(quietStderr)).IsEmpty();
+            // Strict, not DiagnosticsOnly: --quiet must suppress the summary itself, which the filter strips.
+            await Assert.That(quietStderr).IsEmpty();
         }
         finally
         {

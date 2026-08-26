@@ -281,7 +281,7 @@ Commands:
   version    Show the active SPDX data source.
 ```
 
-olは依存関係を何度も問い合わせないようキャッシュを生成します。`cache list`や`cache info`で場所と内容を確認し、キャッシュはユーザーが削除できます。
+olは依存関係を何度も問い合わせないようキャッシュを生成します。`cache list`や`cache info`で場所と内容を確認し、`cache prune`や`cache clear`でキャッシュを削除できます。
 
 ```bash
 ol cache list
@@ -289,6 +289,7 @@ ol cache info
 ol cache info --format markdown
 ol cache info shared-cache.olcache --format markdown
 ol cache prune --max-age 30d --dry-run
+ol cache clear
 ```
 
 ```bash
@@ -298,12 +299,12 @@ Usage: cache [command] [-h|--help] [--version]
 Manage locally cached scan evidence.
 
 Commands:
-  clear     Clears cached evidence for the specified category.
-  pack      Packs managed cache entries into one deterministic archive.
-  prune     Removes managed cache entries older than the specified age.
-  unpack    Unpacks an Ol cache archive into the managed cache directories.
   info      Shows the contents of a cache directory or archive.
   list      Lists managed cache locations and sizes.
+  pack      Packs managed cache entries into one deterministic archive.
+  unpack    Unpacks an Ol cache archive into the managed cache directories.
+  clear     Clears cached evidence for the specified category.
+  prune     Removes managed cache entries older than the specified age.
 ```
 
 olには、解決済み入力の選択、SBOMとパッケージマネジャー証拠の併用、scan結果の解釈をcoding agentへ案内するAgent Skillが同梱されています。現在のworkspaceへインストールするか、ポータブルな[Agent Plugin](https://agent-plugins.org/)として出力できます。

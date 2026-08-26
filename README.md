@@ -280,7 +280,7 @@ Commands:
   version    Show the active SPDX data source.
 ```
 
-ol caches collected license evidence to avoid repeating the same requests. Users can inspect the resolved cache locations and contents, or clear these caches explicitly.
+ol caches collected license evidence to avoid repeating the same requests. Use `cache list`, `cache info` to inspect the cache, and `cache prune` or `cache clear` to remove it.
 
 ```bash
 ol cache list
@@ -288,6 +288,7 @@ ol cache info
 ol cache info --format markdown
 ol cache info shared-cache.olcache --format markdown
 ol cache prune --max-age 30d --dry-run
+ol cache clear
 ```
 
 ```bash
@@ -297,12 +298,12 @@ Usage: cache [command] [-h|--help] [--version]
 Manage locally cached scan evidence.
 
 Commands:
-  clear     Clears cached evidence for the specified category.
-  pack      Packs managed cache entries into one deterministic archive.
-  prune     Removes managed cache entries older than the specified age.
-  unpack    Unpacks an Ol cache archive into the managed cache directories.
   info      Shows the contents of a cache directory or archive.
   list      Lists managed cache locations and sizes.
+  pack      Packs managed cache entries into one deterministic archive.
+  unpack    Unpacks an Ol cache archive into the managed cache directories.
+  clear     Clears cached evidence for the specified category.
+  prune     Removes managed cache entries older than the specified age.
 ```
 
 ol bundles an Agent Skill that teaches coding agents how to select resolved inputs, combine an SBOM with package-manager evidence, and interpret scan results. Install it into the current workspace or export a portable [Agent Plugin](https://agent-plugins.org/):

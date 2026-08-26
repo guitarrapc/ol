@@ -13,12 +13,12 @@ public sealed class CliCommandGroupHelpTests
         Manage locally cached scan evidence.
 
         Commands:
-          clear     Clears cached evidence for the specified category.
-          pack      Packs managed cache entries into one deterministic archive.
-          prune     Removes managed cache entries older than the specified age.
-          unpack    Unpacks an Ol cache archive into the managed cache directories.
           info      Shows the contents of a cache directory or archive.
           list      Lists managed cache locations and sizes.
+          pack      Packs managed cache entries into one deterministic archive.
+          unpack    Unpacks an Ol cache archive into the managed cache directories.
+          clear     Clears cached evidence for the specified category.
+          prune     Removes managed cache entries older than the specified age.
         """)]
     [Arguments("spdx", """
         Usage: spdx [command] [-h|--help] [--version]

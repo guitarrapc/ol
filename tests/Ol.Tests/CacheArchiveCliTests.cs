@@ -437,6 +437,146 @@ public sealed class CacheArchiveCliTests
         }
     }
 
+    [Test]
+    public async Task Pack_WithArchiveInsideCacheCategory_RejectsWithoutChangingCacheEntry()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-overlapping-pack-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var cacheKey = "pkg:npm/example@1.0.0";
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        Directory.CreateDirectory(root);
+        await cache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+        var archive = cache.GetPath(cacheKey);
+        var original = await File.ReadAllBytesAsync(archive);
+
+        try
+        {
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+
+            await Assert.That(pack.ExitCode).IsEqualTo(1);
+            await Assert.That(pack.Stderr).Contains("Archive path must be outside the managed cache directories");
+            await Assert.That((await File.ReadAllBytesAsync(archive)).AsSpan().SequenceEqual(original)).IsTrue();
+            await Assert.That((await cache.TryReadAsync(cacheKey)).IsHit).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Unpack_WithArchiveInsideCacheCategory_RejectsWithoutReplacingArchive()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-overlapping-unpack-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var destination = Path.Combine(root, "destination");
+        var cacheKey = "pkg:npm/example@1.0.0";
+        var sourceCache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        var destinationCache = new PackageMetadataCache(Path.Combine(destination, "package-metadata"));
+        var packedArchive = Path.Combine(root, "cache.olcache");
+        Directory.CreateDirectory(root);
+        await sourceCache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+        CacheArchive.Pack(packedArchive, CachePaths.Resolve(source), maximumAge: null, DateTimeOffset.UtcNow);
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationCache.GetPath(cacheKey))!);
+        var archive = destinationCache.GetPath(cacheKey);
+        File.Copy(packedArchive, archive);
+        var original = await File.ReadAllBytesAsync(archive);
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", destination);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains("Archive path must be outside the managed cache directories");
+            await Assert.That((await File.ReadAllBytesAsync(archive)).AsSpan().SequenceEqual(original)).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Unpack_WithGnuTarArchive_RejectsWithoutChangingCache()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-gnu-tar-{Guid.NewGuid():N}");
+        var cacheRoot = Path.Combine(root, "cache");
+        var archive = Path.Combine(root, "cache.olcache");
+        Directory.CreateDirectory(root);
+        WriteGnuTestArchive(archive, "ol-cache-manifest.json", "{\"FormatVersion\":1}");
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", cacheRoot);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains("Unsupported archive format");
+            await Assert.That(Directory.Exists(cacheRoot)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Pack_WithLinkedArchiveParentIntoCache_RejectsWithoutWritingArchive()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-linked-archive-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        var linkedParent = Path.Combine(root, "archive-parent");
+        var archive = Path.Combine(linkedParent, "cache.olcache");
+        Directory.CreateDirectory(category);
+        Directory.CreateSymbolicLink(linkedParent, category);
+
+        try
+        {
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+
+            await Assert.That(pack.ExitCode).IsEqualTo(1);
+            await Assert.That(pack.Stderr).Contains("Archive path must not contain symbolic links or reparse points");
+            await Assert.That(File.Exists(Path.Combine(category, "cache.olcache"))).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(linkedParent)) Directory.Delete(linkedParent);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Unpack_WithManifestAfterCacheEntry_RejectsBeforeChangingCache()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-late-manifest-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source", "package-metadata");
+        var cacheRoot = Path.Combine(root, "cache");
+        var archive = Path.Combine(root, "cache.olcache");
+        var cacheKey = "pkg:npm/example@1.0.0";
+        var sourceCache = new PackageMetadataCache(source);
+        Directory.CreateDirectory(root);
+        await sourceCache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+        var cachePath = sourceCache.GetPath(cacheKey);
+        WriteTestArchive(archive,
+        [
+            (TarEntryType.RegularFile, $"package-metadata/{Path.GetFileName(cachePath)}", await File.ReadAllTextAsync(cachePath)),
+            (TarEntryType.RegularFile, "ol-cache-manifest.json", "{\"FormatVersion\":1}"),
+        ]);
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", cacheRoot);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains("Archive manifest must be the first entry");
+            await Assert.That(Directory.Exists(cacheRoot)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static void WriteTestArchive(string path, (TarEntryType Type, string Name, string Content)[] entries)
     {
         using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -457,6 +597,15 @@ public sealed class CacheArchiveCliTests
             writer.WriteEntry(entry);
             entry.DataStream?.Dispose();
         }
+    }
+
+    private static void WriteGnuTestArchive(string path, string name, string content)
+    {
+        using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: false);
+        using var writer = new TarWriter(gzip, TarEntryFormat.Gnu, leaveOpen: false);
+        using var data = new MemoryStream(Encoding.UTF8.GetBytes(content), writable: false);
+        writer.WriteEntry(new GnuTarEntry(TarEntryType.RegularFile, name) { DataStream = data });
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlAsync(params string[] args)

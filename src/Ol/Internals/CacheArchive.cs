@@ -39,8 +39,10 @@ internal static class CacheArchive
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
         ValidateCachePaths(directories);
-        var entries = CollectEntries(directories, maximumAge, now, limits);
         var outputPath = Path.GetFullPath(archivePath);
+        ValidateLinkFreePath(outputPath, "Archive");
+        ValidateArchiveOutsideCache(outputPath, directories);
+        var entries = CollectEntries(directories, maximumAge, now, limits);
         var outputDirectory = Path.GetDirectoryName(outputPath)!;
         Directory.CreateDirectory(outputDirectory);
         var temporaryPath = Path.Combine(outputDirectory, $".{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp");
@@ -92,6 +94,8 @@ internal static class CacheArchive
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
         ValidateCachePaths(directories);
         var inputPath = Path.GetFullPath(archivePath);
+        ValidateLinkFreePath(inputPath, "Archive");
+        ValidateArchiveOutsideCache(inputPath, directories);
         var archiveLength = new FileInfo(inputPath).Length;
         if (archiveLength <= 0 || archiveLength > DefaultLimits.MaximumArchiveBytes)
         {
@@ -236,7 +240,9 @@ internal static class CacheArchive
         TarEntry? entry;
         while ((entry = reader.GetNextEntry(copyData: false)) is not null)
         {
+            if (entry.Format != TarEntryFormat.Ustar) throw new InvalidDataException($"Unsupported archive format: {entry.Format}.");
             if (entry.EntryType != TarEntryType.RegularFile) throw new InvalidDataException($"Unsupported archive entry type: {entry.EntryType}.");
+            if (!manifestSeen && entry.Name != ManifestName) throw new InvalidDataException("Archive manifest must be the first entry.");
             if (!names.Add(entry.Name)) throw new InvalidDataException($"Duplicate archive entry: {entry.Name}.");
             if (entry.Length < 0 || entry.Length > limits.MaximumEntryBytes) throw new InvalidDataException($"Archive entry is too large: {entry.Name}.");
             expandedBytes = checked(expandedBytes + entry.Length);
@@ -394,7 +400,27 @@ internal static class CacheArchive
         ValidateLinkFreePath(directories.GitHubFile);
     }
 
-    private static void ValidateLinkFreePath(string path)
+    private static void ValidateArchiveOutsideCache(string archivePath, CacheDirectories directories)
+    {
+        if (IsWithinDirectory(archivePath, directories.PackageMetadata)
+            || IsWithinDirectory(archivePath, directories.SourceRepository)
+            || IsWithinDirectory(archivePath, directories.GitHubFile))
+        {
+            throw new InvalidDataException("Archive path must be outside the managed cache directories.");
+        }
+    }
+
+    private static bool IsWithinDirectory(string path, string directory)
+    {
+        var relative = Path.GetRelativePath(Path.GetFullPath(directory), path);
+        return relative == "."
+            || (!Path.IsPathRooted(relative)
+                && relative != ".."
+                && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
+    }
+
+    private static void ValidateLinkFreePath(string path, string pathKind = "Cache")
     {
         var fullPath = Path.GetFullPath(path);
         var root = Path.GetPathRoot(fullPath);
@@ -411,7 +437,7 @@ internal static class CacheArchive
             {
                 if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
                 {
-                    throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
+                    throw new InvalidDataException($"{pathKind} path must not contain symbolic links or reparse points.");
                 }
             }
             catch (FileNotFoundException)

@@ -359,6 +359,8 @@ ol cache prune --max-age <duration> [--cache-dir <directory>]
 ol cache unpack <archive.olcache> [--cache-dir <directory>]
 ```
 
+The archive path for `pack` and `unpack` must be outside the three managed cache category directories and must not contain symbolic links or reparse points.
+
 The positional category defaults to `all`. Clearing a category removes only the corresponding Ol-managed child under the selected cache root. Clearing `all` preserves the isolation root and unrelated sibling files. An existing file cannot be used as a cache root.
 
 `pack` writes the three managed categories as a deterministic gzip-compressed tar archive. It orders entries by category and opaque file name, fixes archive metadata, validates each entry's common schema, logical-key digest, physical file name, and UTC `FetchedAt`, and replaces the output only after the complete archive was written. `--max-age` accepts one positive integer followed by `d`, `h`, or `m`; entries older than the resulting UTC cutoff are omitted before the archive entry-count limit is applied. The filter is an archive-retention operation, not a change to scan cache freshness. Existing symbolic links and reparse points in the cache path or at an entry are rejected rather than followed.

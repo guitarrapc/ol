@@ -54,6 +54,46 @@ public sealed class TextTableTests
         await Assert.That(TextTable.Width("é"u8)).IsEqualTo(1);
     }
 
+    /// <summary>
+    /// Malformed input must terminate the decode loop. `Rune.DecodeFromUtf8` reports a zero-byte
+    /// consumption only for an empty source, which the loop guard already excludes, so every byte of a
+    /// truncated or invalid sequence advances. A width measured on untrusted bytes that could not
+    /// advance would hang the CLI rather than misprint it.
+    /// </summary>
+    [Test]
+    [Arguments(new byte[] { 0x80 }, 1)]
+    [Arguments(new byte[] { 0xFF }, 1)]
+    [Arguments(new byte[] { 0xC0, 0x80 }, 2)]
+    [Arguments(new byte[] { 0xE3, 0x81 }, 1)]
+    [Arguments(new byte[] { 0xF0, 0x9F, 0x8E }, 1)]
+    [Arguments(new byte[] { 0xED, 0xA0, 0x80 }, 3)]
+    [Arguments(new byte[] { 0xE3, 0x81, 0x82, 0xFF }, 3)]
+    [Arguments(new byte[] { 0x61, 0x80, 0x62 }, 3)]
+    public async Task Width_WithMalformedUtf8_TerminatesAndCountsEachUndecodableByte(byte[] value, int expected)
+        => await Assert.That(TextTable.Width(value)).IsEqualTo(expected);
+
+    /// <summary>A lone surrogate is representable in a string and encodes to one replacement glyph.</summary>
+    [Test]
+    [Arguments("\uD800", 1)]
+    [Arguments("\uDC00", 1)]
+    [Arguments("a\uD800b", 3)]
+    public async Task Width_WithLoneSurrogate_TerminatesAndCountsOneColumn(string value, int expected)
+        => await Assert.That(TextTable.Width(value)).IsEqualTo(expected);
+
+    /// <summary>The bytes a malformed value encodes to must still land inside its measured column.</summary>
+    [Test]
+    public async Task WriteCell_WithLoneSurrogate_PadsToTheReplacementGlyphWidth()
+    {
+        var writer = new ArrayBufferWriter<byte>();
+        var width = 4;
+        TextTable.Include(ref width, "\uD800");
+
+        TextTable.WriteCell(writer, "\uD800", width);
+        TextTable.WriteCell(writer, "end"u8, 3, last: true);
+
+        await Assert.That(Encoding.UTF8.GetString(writer.WrittenSpan)).IsEqualTo("�     end");
+    }
+
     [Test]
     [Arguments(0, 1)]
     [Arguments(9, 1)]

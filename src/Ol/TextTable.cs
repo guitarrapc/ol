@@ -173,8 +173,9 @@ internal static class TextTable
         {
             if (Rune.DecodeFromUtf8(value, out var rune, out var consumed) != OperationStatus.Done)
             {
+                // An undecodable byte draws one replacement glyph.
                 width++;
-                value = value[consumed..];
+                value = value[Advance(consumed)..];
                 continue;
             }
 
@@ -193,7 +194,7 @@ internal static class TextTable
             if (Rune.DecodeFromUtf16(value, out var rune, out var consumed) != OperationStatus.Done)
             {
                 width++;
-                value = value[consumed..];
+                value = value[Advance(consumed)..];
                 continue;
             }
 
@@ -203,6 +204,18 @@ internal static class TextTable
 
         return width;
     }
+
+    /// <summary>
+    /// Keeps a failed decode moving.
+    /// </summary>
+    /// <remarks>
+    /// `Rune.DecodeFromUtf8` and `DecodeFromUtf16` report a zero-length consumption only for an empty
+    /// source, which both loop guards already exclude, so this changes nothing today. It is here so the
+    /// loops terminate by local inspection rather than by an invariant the caller cannot see: these
+    /// measure untrusted inventory and filesystem text, and a decode that failed to advance would hang
+    /// the command rather than misprint one row.
+    /// </remarks>
+    private static int Advance(int consumed) => Math.Max(1, consumed);
 
     private static int RuneWidth(Rune rune)
     {

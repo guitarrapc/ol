@@ -100,6 +100,71 @@ public sealed class CliScanTests
         }
     }
 
+    /// <summary>
+    /// Column width is the widest cell, so an oversized name must not pad every other row to its length.
+    /// A name no registry can issue still reaches the table from a hand-written or broken-generator SBOM.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithTextFormatAndOversizedComponentName_DoesNotPadEveryRowToIt()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        var oversized = new string('x', 8192);
+        await File.WriteAllTextAsync(
+            inputPath,
+            $$"""{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{ "type": "library", "name": "{{oversized}}", "version": "1.0.0", "purl": "pkg:npm/big@1.0.0", "licenses": [{ "expression": "MIT" }] }, { "type": "library", "name": "small", "version": "2.0.0", "purl": "pkg:npm/small@2.0.0", "licenses": [{ "expression": "MIT" }] }] }""",
+            Encoding.UTF8);
+
+        try
+        {
+            var result = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--quiet", "--no-external-evidence");
+            var lines = result.Stdout.ReplaceLineEndings("\n").Split('\n');
+            var small = Array.Find(lines, line => line.StartsWith("small", StringComparison.Ordinal));
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(small).IsNotNull();
+            await Assert.That(small!.Length).IsLessThanOrEqualTo(TextTable.MaxColumnWidth + 128);
+            await Assert.That(result.Stdout).Contains(oversized);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
+    /// A terminal aligns on display columns, so a CJK name padded by its UTF-8 byte count drags every
+    /// following column of that row left while widening the column for every other row.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithTextFormatAndWideComponentName_AlignsOnDisplayColumns()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{ "type": "library", "name": "日本語", "version": "1.0.0", "purl": "pkg:npm/wide@1.0.0", "licenses": [{ "expression": "MIT" }] }, { "type": "library", "name": "abcdef", "version": "2.0.0", "purl": "pkg:npm/ascii@2.0.0", "licenses": [{ "expression": "MIT" }] }] }""",
+            Encoding.UTF8);
+
+        try
+        {
+            var result = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--quiet", "--no-external-evidence");
+            var output = result.Stdout.ReplaceLineEndings("\n");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(output).Contains(string.Join(
+                '\n',
+                "NAME    VERSION  LICENSE  ECOSYSTEM  DEPENDENCY  STATUS   SUPPLIED",
+                "------  -------  -------  ---------  ----------  -------  --------",
+                "abcdef  2.0.0    MIT      npm        unknown     matched  sbom",
+                "日本語  1.0.0    MIT      npm        unknown     matched  sbom"));
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
     [Test]
     public async Task Scan_WithInputFormatOmitted_AutoDetectsCycloneDx()
     {

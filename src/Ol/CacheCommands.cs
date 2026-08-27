@@ -1,4 +1,5 @@
-﻿using ConsoleAppFramework;
+﻿using System.Buffers;
+using ConsoleAppFramework;
 using Ol.Core.GitHub;
 using Ol.Core.PackageMetadata;
 using Ol.Core.SourceRepository;
@@ -295,12 +296,23 @@ internal sealed class CacheCommands
         using var writer = new PooledStreamBufferWriter(Console.OpenStandardOutput());
         TextTable.WriteLine(writer, result.IsArchive ? "Cache archive"u8 : "Cache directory"u8);
 
-        var propertyWidth = "Content size"u8.Length;
+        // Every value here is a freshly built string and the archive size is a filesystem stat, so they
+        // are derived once and measured and written from the same result.
+        var archiveSize = result.IsArchive ? FormatBytes(new FileInfo(result.Path).Length) : null;
+        var entryCount = FormatEntryCount(result.EntryCount);
+        var contentSize = FormatBytes(result.TotalBytes);
+
+        var propertyWidth = "Property"u8.Length;
+        if (!string.IsNullOrEmpty(result.Path)) TextTable.Include(ref propertyWidth, "Path"u8);
+        if (archiveSize is not null) TextTable.Include(ref propertyWidth, "Archive size"u8);
+        TextTable.Include(ref propertyWidth, "Entries"u8);
+        TextTable.Include(ref propertyWidth, "Content size"u8);
+
         var valueWidth = "Value"u8.Length;
         if (!string.IsNullOrEmpty(result.Path)) TextTable.Include(ref valueWidth, result.Path);
-        if (result.IsArchive) TextTable.Include(ref valueWidth, FormatBytes(new FileInfo(result.Path).Length));
-        TextTable.Include(ref valueWidth, FormatEntryCount(result.EntryCount));
-        TextTable.Include(ref valueWidth, FormatBytes(result.TotalBytes));
+        if (archiveSize is not null) TextTable.Include(ref valueWidth, archiveSize);
+        TextTable.Include(ref valueWidth, entryCount);
+        TextTable.Include(ref valueWidth, contentSize);
 
         TextTable.WriteCell(writer, "Property"u8, propertyWidth);
         TextTable.WriteCell(writer, "Value"u8, valueWidth, last: true);
@@ -308,9 +320,9 @@ internal sealed class CacheCommands
         Span<int> overviewWidths = stackalloc int[] { propertyWidth, valueWidth };
         TextTable.WriteSeparator(writer, overviewWidths);
         if (!string.IsNullOrEmpty(result.Path)) WriteProperty(writer, "Path"u8, result.Path, overviewWidths);
-        if (result.IsArchive) WriteProperty(writer, "Archive size"u8, FormatBytes(new FileInfo(result.Path).Length), overviewWidths);
-        WriteProperty(writer, "Entries"u8, FormatEntryCount(result.EntryCount), overviewWidths);
-        WriteProperty(writer, "Content size"u8, FormatBytes(result.TotalBytes), overviewWidths);
+        if (archiveSize is not null) WriteProperty(writer, "Archive size"u8, archiveSize, overviewWidths);
+        WriteProperty(writer, "Entries"u8, entryCount, overviewWidths);
+        WriteProperty(writer, "Content size"u8, contentSize, overviewWidths);
 
         TextTable.WriteNewLine(writer);
         TextTable.WriteLine(writer, "Categories:"u8);
@@ -339,13 +351,17 @@ internal sealed class CacheCommands
         widths[entryColumn + 1] = "Size"u8.Length;
         widths[entryColumn + 2] = "Unmanaged files"u8.Length;
 
+        // Each counter is a freshly built string, so it is derived once and reused by the write pass.
+        var cells = ArrayPool<CategoryCells>.Shared.Rent(result.Categories.Count);
         for (var i = 0; i < result.Categories.Count; i++)
         {
             var category = result.Categories[i];
+            var counts = new CategoryCells(FormatEntryCount(category.Entries.Count), FormatBytes(GetCategoryBytes(category)));
+            cells[i] = counts;
             TextTable.Include(ref widths[0], category.Category);
             if (!result.IsArchive) TextTable.Include(ref widths[1], category.Path);
-            TextTable.Include(ref widths[entryColumn], FormatEntryCount(category.Entries.Count));
-            TextTable.Include(ref widths[entryColumn + 1], FormatBytes(GetCategoryBytes(category)));
+            TextTable.Include(ref widths[entryColumn], counts.Entries);
+            TextTable.Include(ref widths[entryColumn + 1], counts.Size);
             TextTable.Include(ref widths[entryColumn + 2], category.UnmanagedFileCount);
         }
 
@@ -362,12 +378,20 @@ internal sealed class CacheCommands
             var category = result.Categories[i];
             TextTable.WriteCell(writer, category.Category, widths[0]);
             if (!result.IsArchive) TextTable.WriteCell(writer, category.Path, widths[1]);
-            TextTable.WriteCell(writer, FormatEntryCount(category.Entries.Count), widths[entryColumn]);
-            TextTable.WriteCell(writer, FormatBytes(GetCategoryBytes(category)), widths[entryColumn + 1]);
+            TextTable.WriteCell(writer, cells[i].Entries, widths[entryColumn]);
+            TextTable.WriteCell(writer, cells[i].Size, widths[entryColumn + 1]);
             TextTable.WriteCell(writer, category.UnmanagedFileCount, widths[entryColumn + 2], last: true);
             TextTable.WriteNewLine(writer);
         }
+
+        ArrayPool<CategoryCells>.Shared.Return(cells, clearArray: true);
     }
+
+    /// <summary>One category row's derived text, kept between the width pass and the write pass.</summary>
+    private readonly record struct CategoryCells(string Entries, string Size);
+
+    /// <summary>One entry row's derived text, kept between the width pass and the write pass.</summary>
+    private readonly record struct EntryCells(string CacheKey, string FetchedAt, string Size, string Details);
 
     private static void WriteTextEntries(System.Buffers.IBufferWriter<byte> writer, CacheInspectionResult result)
     {
@@ -380,24 +404,36 @@ internal sealed class CacheCommands
             "Status"u8.Length,
             "Details"u8.Length,
         };
-        var hasEntries = false;
+        var entryCount = 0;
+        for (var i = 0; i < result.Categories.Count; i++) entryCount += result.Categories[i].Entries.Count;
+
+        // The cache key, timestamp, size and failure detail are all built strings, so the width pass
+        // keeps what it derived rather than building each one a second time to print it.
+        var cells = ArrayPool<EntryCells>.Shared.Rent(Math.Max(1, entryCount));
+        var next = 0;
         for (var i = 0; i < result.Categories.Count; i++)
         {
             var category = result.Categories[i];
             for (var j = 0; j < category.Entries.Count; j++)
             {
-                hasEntries = true;
                 var entry = category.Entries[j];
+                var row = new EntryCells(
+                    entry.Error is null ? entry.CacheKey ?? "-" : "-",
+                    entry.Error is null ? entry.FetchedAt?.ToString("O") ?? "-" : "-",
+                    FormatBytes(entry.Bytes),
+                    entry.Error is null ? "-" : $"File: {entry.Name}; {entry.Error}");
+                cells[next++] = row;
                 TextTable.Include(ref widths[0], category.Category);
-                TextTable.Include(ref widths[1], entry.Error is null ? entry.CacheKey ?? "-" : "-");
-                TextTable.Include(ref widths[2], entry.Error is null ? entry.FetchedAt?.ToString("O") ?? "-" : "-");
-                TextTable.Include(ref widths[3], FormatBytes(entry.Bytes));
-                TextTable.Include(ref widths[4], entry.Error is null ? "valid" : "invalid");
-                TextTable.Include(ref widths[5], entry.Error is null ? "-" : $"File: {entry.Name}; {entry.Error}");
+                TextTable.Include(ref widths[1], row.CacheKey);
+                TextTable.Include(ref widths[2], row.FetchedAt);
+                TextTable.Include(ref widths[3], row.Size);
+                TextTable.Include(ref widths[4], entry.Error is null ? "valid"u8 : "invalid"u8);
+                TextTable.Include(ref widths[5], row.Details);
             }
         }
 
-        if (!hasEntries) TextTable.Include(ref widths[5], "No managed entries.");
+        var hasEntries = entryCount != 0;
+        if (!hasEntries) TextTable.Include(ref widths[5], "No managed entries."u8);
         TextTable.WriteCell(writer, "Category"u8, widths[0]);
         TextTable.WriteCell(writer, "Cache key"u8, widths[1]);
         TextTable.WriteCell(writer, "Fetched at"u8, widths[2]);
@@ -412,24 +448,28 @@ internal sealed class CacheCommands
             for (var i = 0; i < widths.Length - 1; i++) TextTable.WriteCell(writer, "-"u8, widths[i]);
             TextTable.WriteCell(writer, "No managed entries."u8, widths[^1], last: true);
             TextTable.WriteNewLine(writer);
+            ArrayPool<EntryCells>.Shared.Return(cells, clearArray: true);
             return;
         }
 
+        next = 0;
         for (var i = 0; i < result.Categories.Count; i++)
         {
             var category = result.Categories[i];
             for (var j = 0; j < category.Entries.Count; j++)
             {
-                var entry = category.Entries[j];
+                var row = cells[next++];
                 TextTable.WriteCell(writer, category.Category, widths[0]);
-                TextTable.WriteCell(writer, entry.Error is null ? entry.CacheKey ?? "-" : "-", widths[1]);
-                TextTable.WriteCell(writer, entry.Error is null ? entry.FetchedAt?.ToString("O") ?? "-" : "-", widths[2]);
-                TextTable.WriteCell(writer, FormatBytes(entry.Bytes), widths[3]);
-                TextTable.WriteCell(writer, entry.Error is null ? "valid" : "invalid", widths[4]);
-                TextTable.WriteCell(writer, entry.Error is null ? "-" : $"File: {entry.Name}; {entry.Error}", widths[5], last: true);
+                TextTable.WriteCell(writer, row.CacheKey, widths[1]);
+                TextTable.WriteCell(writer, row.FetchedAt, widths[2]);
+                TextTable.WriteCell(writer, row.Size, widths[3]);
+                TextTable.WriteCell(writer, category.Entries[j].Error is null ? "valid"u8 : "invalid"u8, widths[4]);
+                TextTable.WriteCell(writer, row.Details, widths[5], last: true);
                 TextTable.WriteNewLine(writer);
             }
         }
+
+        ArrayPool<EntryCells>.Shared.Return(cells, clearArray: true);
     }
 
     private static string EscapeMarkdown(string value)

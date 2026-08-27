@@ -181,38 +181,55 @@ internal static class ReportRenderer
             "REFERENCE"u8.Length,
             "PATH"u8.Length,
         };
+        // The reference and the path are built strings, so the width pass keeps what it derived and the
+        // write pass replays it. Recomputing would pay for one StringBuilder and one path walk per row
+        // twice over, which is the whole cost of aligning a column that used to stream.
+        var rows = ArrayPool<UnresolvedRow>.Shared.Rent(unresolvedCount);
         using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
-        for (var i = 0; i < components.Length; i++)
+        try
         {
-            var component = components[i];
-            if (IsExplainedElsewhere(component) || !UnresolvedMechanism.TryGetReason(component, out var reason)) continue;
-            TextTable.Include(ref widths[0], Display(component.Name));
-            TextTable.Include(ref widths[1], Display(component.Version));
-            TextTable.Include(ref widths[2], UnresolvedMechanism.GetNameUtf8(reason));
-            TextTable.Include(ref widths[3], UnresolvedMechanism.GetReference(component, reason));
-            TextTable.Include(ref widths[4], DependencyPathText.Introducer(inventory, rootPaths, component, i));
-        }
+            var count = 0;
+            for (var i = 0; i < components.Length; i++)
+            {
+                ref readonly var component = ref components[i];
+                if (IsExplainedElsewhere(component) || !UnresolvedMechanism.TryGetReason(component, out var reason)) continue;
+                var reference = UnresolvedMechanism.GetReference(component, reason);
+                var path = DependencyPathText.Introducer(inventory, rootPaths, component, i);
+                rows[count++] = new UnresolvedRow(i, reason, reference, path);
+                TextTable.Include(ref widths[0], Display(component.Name));
+                TextTable.Include(ref widths[1], Display(component.Version));
+                TextTable.Include(ref widths[2], UnresolvedMechanism.GetNameUtf8(reason));
+                TextTable.Include(ref widths[3], reference);
+                TextTable.Include(ref widths[4], path);
+            }
 
-        TextTable.WriteCell(writer, "NAME"u8, widths[0]);
-        TextTable.WriteCell(writer, "VERSION"u8, widths[1]);
-        TextTable.WriteCell(writer, "REASON"u8, widths[2]);
-        TextTable.WriteCell(writer, "REFERENCE"u8, widths[3]);
-        TextTable.WriteCell(writer, "PATH"u8, widths[4], last: true);
-        TextTable.WriteNewLine(writer);
-        TextTable.WriteSeparator(writer, widths);
-        for (var i = 0; i < components.Length; i++)
-        {
-            var component = components[i];
-            if (IsExplainedElsewhere(component) || !UnresolvedMechanism.TryGetReason(component, out var reason)) continue;
-
-            TextTable.WriteCell(writer, Display(component.Name), widths[0]);
-            TextTable.WriteCell(writer, Display(component.Version), widths[1]);
-            TextTable.WriteCell(writer, UnresolvedMechanism.GetNameUtf8(reason), widths[2]);
-            TextTable.WriteCell(writer, UnresolvedMechanism.GetReference(component, reason), widths[3]);
-            TextTable.WriteCell(writer, DependencyPathText.Introducer(inventory, rootPaths, component, i), widths[4], last: true);
+            TextTable.WriteCell(writer, "NAME"u8, widths[0]);
+            TextTable.WriteCell(writer, "VERSION"u8, widths[1]);
+            TextTable.WriteCell(writer, "REASON"u8, widths[2]);
+            TextTable.WriteCell(writer, "REFERENCE"u8, widths[3]);
+            TextTable.WriteCell(writer, "PATH"u8, widths[4], last: true);
             TextTable.WriteNewLine(writer);
+            TextTable.WriteSeparator(writer, widths);
+            for (var i = 0; i < count; i++)
+            {
+                var row = rows[i];
+                ref readonly var component = ref components[row.ComponentIndex];
+                TextTable.WriteCell(writer, Display(component.Name), widths[0]);
+                TextTable.WriteCell(writer, Display(component.Version), widths[1]);
+                TextTable.WriteCell(writer, UnresolvedMechanism.GetNameUtf8(row.Reason), widths[2]);
+                TextTable.WriteCell(writer, row.Reference, widths[3]);
+                TextTable.WriteCell(writer, row.Path, widths[4], last: true);
+                TextTable.WriteNewLine(writer);
+            }
+        }
+        finally
+        {
+            ArrayPool<UnresolvedRow>.Shared.Return(rows, clearArray: true);
         }
     }
+
+    /// <summary>One unresolved row's derived text, kept between the width pass and the write pass.</summary>
+    private readonly record struct UnresolvedRow(int ComponentIndex, UnresolvedMechanismKind Reason, string Reference, string Path);
 
     /// <summary>
     /// Reports whether a component needs no entry in the unresolved section.

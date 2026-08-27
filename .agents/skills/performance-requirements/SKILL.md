@@ -38,15 +38,23 @@ For component and dependency-edge accumulation during inventory ingestion, rent 
 
 Never let pooled storage escape into the owned report: do not expose pooled arrays from `ScanReport`, `ScanComponent`, or license-candidate results. Copy out with `ToArray()` over the used range.
 
-### 3. The One Pooled Owner Class
+### 3. The Two Pooled Owners
 
-`dotnet-performance-discipline` ranks a class that owns a rental as the last resort. `Ol.Internals.PackageMetadataWorkspace` is the only instance in this repository, and it needs its justification kept current.
+`dotnet-performance-discipline` ranks a type that owns a rental as the last resort. This repository has exactly two, and both need their justification kept current.
 
-The per-component resolution buffer is written by package-metadata enrichment and read by source-repository enrichment — two separate async service calls issued by `ScanExecution.TryExecute`. It is retained only because both enrichment services keep an asynchronous public API, which rules out lending a `Span<T>` through it.
+**`Ol.Core.Reporting.DependencyRootPaths`** holds the three buffers one report's path resolution produces: the occurrence predecessors, the reached occurrence per component, and the identity index that locates a reported component in the inventory. The justification is that `DependencyPathResolver.BuildRootPaths` already rents and returns every buffer that stays inside it, so these three — precisely the ones that outlive the call in its return value — were the only unpooled state in the resolver.
 
-It is not the settled design. The registry-resolved repository URL and ref could instead travel in the returned `ScanComponent[]`, which would delete this class outright, at the cost of adding a `RepositoryRef` field and redefining `ScanComponent.RepositoryUrl` from "supplied by the SBOM" to "best known". Prefer that direction if the domain model is revisited.
+It is a `ref struct`, and that is the point: the compiler refuses to let it reach a field, a closure, or the far side of an `await`, so the scope cannot leak by construction rather than by review. The four report paths that build it own the scope. `CheckCommands`, `SarifRenderer` and the scan report's text unresolved section use `using`; the Markdown unresolved section uses `try`/`finally` instead, because it builds the scope on the first row that needs one. A report with nothing to explain must still rent nothing, which the text section now gets from the count that precedes it: the pass that decides whether the section exists at all also sizes its row memo, so both rentals stay behind the same guard. Access after disposal throws, and `tests/Ol.Tests/DependencyRootPathsTests.cs` proves it — in synchronous helpers, because a `ref struct` cannot live in an async method.
 
-Do not add a second owner class without the same justification and without a regression test proving that a disposed owner rejects access and that the service refuses to write through it.
+**`Ol.Internals.PooledStreamBufferWriter`** owns the growable byte buffer that batches one rendered report into its output stream. It has to be a class: the renderers take `IBufferWriter<byte>`, and a type reached through an interface cannot be a `ref struct`. Its rental lasts one render and is returned by `Dispose`, which flushes first and drops the field before returning, so a later write rents afresh rather than scribbling on recycled storage. All three writers create it with `using`.
+
+**Prefer a `ref struct` for a new owner.** Fall back to a class only when the type must be reached through an interface, or when a rental genuinely has to cross an `await`. Do not add another owner without the same kind of justification, and without a regression test proving that a disposed owner does not read storage the pool has re-handed.
+
+#### Pool per item, not per run
+
+`Ol.Internals.PackageMetadataWorkspace` used to be the entry here, and it was deleted rather than kept. It pooled one per-component resolution array whose lifetime was the whole scan, so the pool was renting once and returning once — buying nothing, while costing an owner class, an `IDisposable` contract, a disposed-access failure mode, and the test proving that failure mode worked. The two enrichment services now pass a plain `PackageMetadataResolution?[]`.
+
+The criterion this settled on: **pool a buffer whose lifetime is one item, one call, or one loop; allocate a buffer whose lifetime is the whole run.** A single allocation per scan is not worth an ownership contract. Do not reintroduce a pooled owner for per-run state.
 
 ### 4. SPDX Lookup and Normalization
 
@@ -79,7 +87,7 @@ Run tests after each implementation refactor. For meaningful changes to inventor
 | Package/source enrichment fixed cost | `EnrichmentFixedCostBenchmark` |
 | Source enrichment at scale, target dedup | `SourceRepositoryEnrichmentBenchmark` |
 | Sorting, view projection, duplicate purls | `ScanViewBenchmark` |
-| Report rendering | `TextReportRendererBenchmark`, `JsonReportRendererBenchmark` |
+| Report rendering fixed cost | `TextReportRendererBenchmark`, `JsonReportRendererBenchmark` |
 | Policy evaluation | `LicensePolicyBenchmark` |
 | Anything that shifts cost between stages | `E2EBenchmark` |
 

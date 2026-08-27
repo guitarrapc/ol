@@ -269,11 +269,8 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("Package     Version  Ecosystem  Purl");
             await Assert.That(result.Stdout).Contains("----------  -------  ---------  ");
             await Assert.That(result.Stdout).DoesNotContain('\t');
-            var row = Array.Find(
-                result.Stdout.Split('\n'),
-                line => line.StartsWith(package, StringComparison.Ordinal));
-            await Assert.That(row).IsNotNull();
-            var columns = row!.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var columns = SelectRow(result.Stdout, package);
+            await Assert.That(columns.Length).IsEqualTo(9);
             await Assert.That(columns[6]).IsEqualTo(mechanism);
             await Assert.That(columns[7]).IsEqualTo(reference);
         }
@@ -565,9 +562,8 @@ public sealed class CliCheckTests
             var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
-            var row = Array.Find(result.Stdout.Split('\n'), line => line.StartsWith("bare", StringComparison.Ordinal));
-            await Assert.That(row).IsNotNull();
-            var columns = row!.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var columns = SelectRow(result.Stdout, "bare");
+            await Assert.That(columns.Length).IsEqualTo(9);
             await Assert.That(columns[3]).IsEqualTo("-");
             await Assert.That(columns[6]).IsEqualTo("package_metadata_no_purl");
             await Assert.That(columns[7]).IsEqualTo("-");
@@ -590,11 +586,8 @@ public sealed class CliCheckTests
             var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
-            var row = Array.Find(
-                result.Stdout.Split('\n'),
-                line => line.StartsWith("example", StringComparison.Ordinal));
-            await Assert.That(row).IsNotNull();
-            var columns = row!.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var columns = SelectRow(result.Stdout, "example");
+            await Assert.That(columns.Length).IsEqualTo(9);
             await Assert.That(columns[6]).IsEqualTo("-");
             await Assert.That(columns[7]).IsEqualTo("-");
             await Assert.That(result.Stdout).DoesNotContain("Unresolved mechanisms");
@@ -1752,6 +1745,25 @@ public sealed class CliCheckTests
             """;
         await File.WriteAllTextAsync(inputPath, json, Encoding.UTF8);
         return inputPath;
+    }
+
+    /// <summary>
+    /// Splits the table row whose first cell is exactly this name.
+    /// </summary>
+    /// <remarks>
+    /// Matching a prefix instead would read a neighbouring row the moment a fixture gains a package
+    /// whose name this one is a prefix of, and the first match wins, so the assertion would silently
+    /// check the wrong row rather than fail.
+    /// </remarks>
+    private static string[] SelectRow(string text, string name)
+    {
+        foreach (var line in text.Split('\n'))
+        {
+            var columns = line.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (columns.Length != 0 && columns[0] == name) return columns;
+        }
+
+        throw new InvalidOperationException($"No row named '{name}' was found in:{Environment.NewLine}{text}");
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunCheckWorkflowAsync(string root, params string[] args)

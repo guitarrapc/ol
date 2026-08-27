@@ -286,6 +286,35 @@ public sealed class CacheArchiveCliTests
         }
     }
 
+    /// <summary>
+    /// An empty cache still has to render a table rather than a bare line, and the placeholder row is
+    /// the only case where every cell but the last one is written without a value behind it.
+    /// </summary>
+    [Test]
+    public async Task CacheInfo_WithNoManagedEntries_RendersThePlaceholderRow()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-empty-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", "--cache-dir", root, "--format", "text");
+            var output = result.Stdout.ReplaceLineEndings("\n");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(output).Contains(string.Join(
+                '\n',
+                "Category  Cache key  Fetched at  Size  Status  Details",
+                "--------  ---------  ----------  ----  ------  -------------------",
+                "-         -          -           -     -       No managed entries."));
+            await Assert.That(output).DoesNotContain("(none)");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Test]
     public async Task CacheInfo_WithTrailingSeparatorOnCategoryPath_InspectsCategory()
     {

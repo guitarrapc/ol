@@ -29,8 +29,10 @@ public sealed class DependencyPathReportTests
             var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT");
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("Reason");
-            await Assert.That(result.Stdout).Contains("Mechanism");
+            // The column order is the contract, not the presence of the words: Path has to stay last so
+            // LastColumn reads a path, and Mechanism has to stay beside Reference to be readable.
+            await Assert.That(string.Join('|', Columns(SelectRow(result.Stdout, "Package"))))
+                .IsEqualTo("Package|Version|Ecosystem|Purl|License/Status|Reason|Mechanism|Reference|Path");
             await Assert.That(LastColumn(SelectLine(result.Stdout, "pkg:nuget/Transitive@2.0.0"))).IsEqualTo(TransitivePath);
         }
         finally
@@ -70,8 +72,8 @@ public sealed class DependencyPathReportTests
             var section = result.Stdout[result.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
-            var row = SelectLineStartingWith(section, "Transitive");
-            await Assert.That(LastColumn(row)).IsEqualTo(TransitivePath);
+            await Assert.That(string.Join('|', Columns(SelectRow(section, "Transitive"))))
+                .IsEqualTo($"Transitive|2.0.0|declared_license_location_not_collected|https://example.test/transitive-LICENSE.txt|{TransitivePath}");
         }
         finally
         {
@@ -90,9 +92,11 @@ public sealed class DependencyPathReportTests
         {
             var result = await RunOlAsync(root, "scan", "--input", input, "--no-external-evidence", "--format", "text", "--quiet");
             var section = result.Stdout[result.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
-            var row = SelectLineStartingWith(section, component);
+            var columns = Columns(SelectRow(section, component));
 
-            await Assert.That(LastColumn(row)).IsEqualTo("-");
+            // Pinning the count keeps a shifted index from silently reading a neighbouring column.
+            await Assert.That(columns.Length).IsEqualTo(5);
+            await Assert.That(columns[^1]).IsEqualTo("-");
         }
         finally
         {
@@ -172,7 +176,8 @@ public sealed class DependencyPathReportTests
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
             var section = result.Stdout[result.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
-            await Assert.That(LastColumn(SelectLineStartingWith(section, "Lonely"))).IsEqualTo("-");
+            await Assert.That(string.Join('|', Columns(SelectRow(section, "Lonely"))))
+                .IsEqualTo("Lonely|1.0.0|declared_license_location_not_collected|https://example.test/LICENSE.txt|-");
         }
         finally
         {
@@ -212,21 +217,32 @@ public sealed class DependencyPathReportTests
         }
     }
 
+    /// <summary>Splits one table row into its cells, which the two-space column separator delimits.</summary>
+    private static string[] Columns(string row)
+        => row.Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
     /// <summary>Reads the Path column, which is last however many evidence columns precede it.</summary>
     private static string LastColumn(string row)
-    {
-        var columns = row.Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return columns[^1];
-    }
+        => Columns(row)[^1];
 
-    private static string SelectLineStartingWith(string text, string marker)
+    /// <summary>
+    /// Selects the row whose first cell is exactly this name.
+    /// </summary>
+    /// <remarks>
+    /// Matching a prefix instead would silently pick a neighbouring row the moment a fixture gains a
+    /// package whose name this one is a prefix of, and the first match wins, so the assertion would
+    /// read the wrong row rather than fail.
+    /// </remarks>
+    private static string SelectRow(string text, string name)
     {
         foreach (var line in text.Split('\n'))
         {
-            if (line.StartsWith(marker, StringComparison.Ordinal)) return line.TrimEnd('\r');
+            var row = line.TrimEnd('\r');
+            var columns = Columns(row);
+            if (columns.Length != 0 && columns[0] == name) return row;
         }
 
-        throw new InvalidOperationException($"No line starting with '{marker}' was found in:{Environment.NewLine}{text}");
+        throw new InvalidOperationException($"No row named '{name}' was found in:{Environment.NewLine}{text}");
     }
 
     private static string SelectLine(string text, string marker)

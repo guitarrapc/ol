@@ -478,6 +478,7 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0
 License check failed: 1 violation.
 
 Package                  Version  Ecosystem  Purl                                     License/Status  Reason                 Mechanism                   Reference  Path
+-----------------------  -------  ---------  ---------------------------------------  --------------  ---------------------  --------------------------  ---------  ----
 @mycompany/internal-sdk  1.0.0    npm        pkg:npm/%40mycompany/internal-sdk@1.0.0  unknown         license is unresolved  package_metadata_not_found  -          -
 
 Unresolved mechanisms
@@ -532,8 +533,9 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 --baseline ol-b
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package                Version  Ecosystem  Purl                                   License/Status  Reason                 Mechanism                   Reference  Path
-@mycompany/reporting   2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0   unknown         license is unresolved  package_metadata_not_found  -          -
+Package               Version  Ecosystem  Purl                                  License/Status  Reason                 Mechanism                   Reference  Path
+--------------------  -------  ---------  ------------------------------------  --------------  ---------------------  --------------------------  ---------  ----
+@mycompany/reporting  2.1.0    npm        pkg:npm/%40mycompany/reporting@2.1.0  unknown         license is unresolved  package_metadata_not_found  -          -
 
 Unresolved mechanisms
   package_metadata_not_found: 1
@@ -550,8 +552,9 @@ ol check --report ol-report.json --allow-licenses MIT,Apache-2.0 \
 Acknowledged by baseline: 1 component.
 License check failed: 1 violation.
 
-Package       Version  Ecosystem  Purl                          License/Status  Reason                  Mechanism  Reference  Path
-copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0    GPL-3.0-only    license is not allowed  -          -          pkg:npm/report-builder@1.4.0 > pkg:npm/copyleft-lib@3.0.0
+Package       Version  Ecosystem  Purl                        License/Status  Reason                  Mechanism  Reference  Path
+------------  -------  ---------  --------------------------  --------------  ----------------------  ---------  ---------  ---------------------------------------------------------
+copyleft-lib  3.0.0    npm        pkg:npm/copyleft-lib@3.0.0  GPL-3.0-only    license is not allowed  -          -          pkg:npm/report-builder@1.4.0 > pkg:npm/copyleft-lib@3.0.0
 ```
 
 An acknowledged component keeps its unresolved status and evidence in the report; only its violation is removed. When the version changes, or a registry corrects its metadata, the fingerprint stops matching and the component fails again until it is reviewed anew.

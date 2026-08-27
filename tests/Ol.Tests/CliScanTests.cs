@@ -101,6 +101,40 @@ public sealed class CliScanTests
     }
 
     /// <summary>
+    /// Verbose adds PURL as the last column, which moves where the row stops padding. Nothing else
+    /// exercises the eight-column shape, so the header, the separator and the rows are pinned together.
+    /// </summary>
+    [Test]
+    public async Task Scan_WithVerboseTextFormat_AlignsThePurlColumnLast()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-input-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(
+            inputPath,
+            """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [{ "type": "library", "name": "a", "version": "1.0.0", "purl": "pkg:npm/a@1.0.0", "licenses": [{ "expression": "MIT" }] }, { "type": "library", "name": "longer", "version": "2", "purl": "pkg:npm/longer@2", "licenses": [{ "expression": "Apache-2.0" }] }] }""",
+            Encoding.UTF8);
+
+        try
+        {
+            var result = await RunOlAsync(root, "scan", "--input", inputPath, "--format", "text", "--verbose", "--quiet", "--no-external-evidence");
+            var output = result.Stdout.ReplaceLineEndings("\n");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(output).Contains(string.Join(
+                '\n',
+                "NAME    VERSION  LICENSE     ECOSYSTEM  DEPENDENCY  STATUS   SUPPLIED  PURL",
+                "------  -------  ----------  ---------  ----------  -------  --------  ----------------",
+                "a       1.0.0    MIT         npm        unknown     matched  sbom      pkg:npm/a@1.0.0",
+                "longer  2        Apache-2.0  npm        unknown     matched  sbom      pkg:npm/longer@2"));
+            await Assert.That(output).DoesNotContain(" \n");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    /// <summary>
     /// Column width is the widest cell, so an oversized name must not pad every other row to its length.
     /// A name no registry can issue still reaches the table from a hand-written or broken-generator SBOM.
     /// </summary>
@@ -279,9 +313,7 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
             var section = stdout[stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
-            var row = Array.Find(section.Split('\n'), static line => line.StartsWith("bare", StringComparison.Ordinal));
-            await Assert.That(row).IsNotNull();
-            var columns = row!.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var columns = SelectRow(section, "bare");
             await Assert.That(columns[1]).IsEqualTo("1.0.0");
             await Assert.That(columns[2]).IsEqualTo("package_metadata_no_purl");
         }
@@ -3830,9 +3862,7 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0);
             var section = stdout[stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
-            var row = Array.Find(section.Split('\n'), static line => line.StartsWith("example", StringComparison.Ordinal));
-            await Assert.That(row).IsNotNull();
-            var columns = row!.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var columns = SelectRow(section, "example");
             await Assert.That(columns[1]).IsEqualTo("1.0.0");
             await Assert.That(columns[2]).IsEqualTo(expectedReason);
         }
@@ -4207,11 +4237,25 @@ public sealed class CliScanTests
         => await RunOlWithCacheAsync(root, cacheRoot: null, args);
 
     private static string[] SelectUnresolvedColumns(string output, string name)
+        => SelectRow(output[output.IndexOf("Unresolved components", StringComparison.Ordinal)..], name);
+
+    /// <summary>
+    /// Splits the table row whose first cell is exactly this name.
+    /// </summary>
+    /// <remarks>
+    /// Matching a prefix instead would read a neighbouring row the moment a fixture gains a package
+    /// whose name this one is a prefix of, and the first match wins, so the assertion would silently
+    /// check the wrong row rather than fail.
+    /// </remarks>
+    private static string[] SelectRow(string text, string name)
     {
-        var section = output[output.IndexOf("Unresolved components", StringComparison.Ordinal)..];
-        var row = Array.Find(section.Split('\n'), line => line.StartsWith(name, StringComparison.Ordinal));
-        if (row is null) throw new InvalidOperationException($"No unresolved row starting with '{name}' was found.");
-        return row.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var line in text.Split('\n'))
+        {
+            var columns = line.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (columns.Length != 0 && columns[0] == name) return columns;
+        }
+
+        throw new InvalidOperationException($"No row named '{name}' was found in:{Environment.NewLine}{text}");
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunOlInDirectoryAsync(string root, string workingDirectory, params string[] args)

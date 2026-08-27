@@ -266,12 +266,11 @@ public sealed class CliCheckTests
             var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
-            await Assert.That(result.Stdout).Contains("Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tMechanism\tReference\tPath");
-            var row = Array.Find(
-                result.Stdout.Split('\n'),
-                line => line.StartsWith($"{package}\t", StringComparison.Ordinal));
-            await Assert.That(row).IsNotNull();
-            var columns = row!.TrimEnd('\r').Split('\t');
+            await Assert.That(result.Stdout).Contains("Package     Version  Ecosystem  Purl");
+            await Assert.That(result.Stdout).Contains("----------  -------  ---------  ");
+            await Assert.That(result.Stdout).DoesNotContain('\t');
+            var columns = SelectRow(result.Stdout, package);
+            await Assert.That(columns.Length).IsEqualTo(9);
             await Assert.That(columns[6]).IsEqualTo(mechanism);
             await Assert.That(columns[7]).IsEqualTo(reference);
         }
@@ -563,9 +562,8 @@ public sealed class CliCheckTests
             var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
-            var row = Array.Find(result.Stdout.Split('\n'), line => line.StartsWith("bare\t", StringComparison.Ordinal));
-            await Assert.That(row).IsNotNull();
-            var columns = row!.TrimEnd('\r').Split('\t');
+            var columns = SelectRow(result.Stdout, "bare");
+            await Assert.That(columns.Length).IsEqualTo(9);
             await Assert.That(columns[3]).IsEqualTo("-");
             await Assert.That(columns[6]).IsEqualTo("package_metadata_no_purl");
             await Assert.That(columns[7]).IsEqualTo("-");
@@ -588,11 +586,8 @@ public sealed class CliCheckTests
             var result = await RunCheckWorkflowAsync(root, "--input", inputPath, "--allow-licenses", "MIT", "--no-external-evidence");
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
-            var row = Array.Find(
-                result.Stdout.Split('\n'),
-                line => line.StartsWith("example\t", StringComparison.Ordinal));
-            await Assert.That(row).IsNotNull();
-            var columns = row!.TrimEnd('\r').Split('\t');
+            var columns = SelectRow(result.Stdout, "example");
+            await Assert.That(columns.Length).IsEqualTo(9);
             await Assert.That(columns[6]).IsEqualTo("-");
             await Assert.That(columns[7]).IsEqualTo("-");
             await Assert.That(result.Stdout).DoesNotContain("Unresolved mechanisms");
@@ -1750,6 +1745,21 @@ public sealed class CliCheckTests
             """;
         await File.WriteAllTextAsync(inputPath, json, Encoding.UTF8);
         return inputPath;
+    }
+
+    /// <summary>
+    /// Splits the table row whose first cell is exactly this name. A prefix match would read a
+    /// neighbouring row once a fixture gains a package this name is a prefix of.
+    /// </summary>
+    private static string[] SelectRow(string text, string name)
+    {
+        foreach (var line in text.Split('\n'))
+        {
+            var columns = line.TrimEnd('\r').Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (columns.Length != 0 && columns[0] == name) return columns;
+        }
+
+        throw new InvalidOperationException($"No row named '{name}' was found in:{Environment.NewLine}{text}");
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunCheckWorkflowAsync(string root, params string[] args)

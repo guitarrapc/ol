@@ -84,33 +84,51 @@ internal static class ReportRenderer
         bool emptyInventory = false)
     {
         WriteInputHeader(writer, inventory.Input);
-        WriteUtf8(writer, verbose
-            ? "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS SUPPLIED PURL"u8
-            : "NAME VERSION LICENSE ECOSYSTEM DEPENDENCY STATUS SUPPLIED"u8);
-        WriteNewLine(writer);
+        Span<int> widths = stackalloc int[verbose ? 8 : 7];
+        widths[0] = "NAME"u8.Length;
+        widths[1] = "VERSION"u8.Length;
+        widths[2] = "LICENSE"u8.Length;
+        widths[3] = "ECOSYSTEM"u8.Length;
+        widths[4] = "DEPENDENCY"u8.Length;
+        widths[5] = "STATUS"u8.Length;
+        widths[6] = "SUPPLIED"u8.Length;
+        if (verbose) widths[7] = "PURL"u8.Length;
+
         for (var i = 0; i < components.Length; i++)
         {
             var component = components[i];
-            WriteDisplay(writer, component.Name);
-            WriteUtf8(writer, " "u8);
-            WriteDisplay(writer, component.Version);
-            WriteUtf8(writer, " "u8);
-            WriteDisplay(writer, component.License);
-            WriteUtf8(writer, " "u8);
-            WriteDisplay(writer, component.Ecosystem);
-            WriteUtf8(writer, " "u8);
-            WriteUtf8(writer, GetDependencyTypeUtf8(component.DependencyType));
-            WriteUtf8(writer, " "u8);
-            WriteUtf8(writer, component.Status.ToUtf8());
-            WriteUtf8(writer, " "u8);
-            WriteUtf8(writer, GetSuppliedByUtf8(component.SuppliedBy));
-            if (verbose)
-            {
-                WriteUtf8(writer, " "u8);
-                WriteDisplay(writer, component.Purl);
-            }
+            TextTable.Include(ref widths[0], Display(component.Name));
+            TextTable.Include(ref widths[1], Display(component.Version));
+            TextTable.Include(ref widths[2], Display(component.License));
+            TextTable.Include(ref widths[3], component.Ecosystem);
+            TextTable.Include(ref widths[4], GetDependencyTypeUtf8(component.DependencyType));
+            TextTable.Include(ref widths[5], component.Status.ToUtf8());
+            TextTable.Include(ref widths[6], GetSuppliedByUtf8(component.SuppliedBy));
+            if (verbose) TextTable.Include(ref widths[7], Display(component.Purl));
+        }
 
-            WriteNewLine(writer);
+        TextTable.WriteCell(writer, "NAME"u8, widths[0]);
+        TextTable.WriteCell(writer, "VERSION"u8, widths[1]);
+        TextTable.WriteCell(writer, "LICENSE"u8, widths[2]);
+        TextTable.WriteCell(writer, "ECOSYSTEM"u8, widths[3]);
+        TextTable.WriteCell(writer, "DEPENDENCY"u8, widths[4]);
+        TextTable.WriteCell(writer, "STATUS"u8, widths[5]);
+        TextTable.WriteCell(writer, "SUPPLIED"u8, widths[6], last: !verbose);
+        if (verbose) TextTable.WriteCell(writer, "PURL"u8, widths[7], last: true);
+        TextTable.WriteNewLine(writer);
+        TextTable.WriteSeparator(writer, widths);
+        for (var i = 0; i < components.Length; i++)
+        {
+            var component = components[i];
+            TextTable.WriteCell(writer, Display(component.Name), widths[0]);
+            TextTable.WriteCell(writer, Display(component.Version), widths[1]);
+            TextTable.WriteCell(writer, Display(component.License), widths[2]);
+            TextTable.WriteCell(writer, component.Ecosystem, widths[3]);
+            TextTable.WriteCell(writer, GetDependencyTypeUtf8(component.DependencyType), widths[4]);
+            TextTable.WriteCell(writer, component.Status.ToUtf8(), widths[5]);
+            TextTable.WriteCell(writer, GetSuppliedByUtf8(component.SuppliedBy), widths[6], last: !verbose);
+            if (verbose) TextTable.WriteCell(writer, Display(component.Purl), widths[7], last: true);
+            TextTable.WriteNewLine(writer);
         }
 
         WriteEmptyInventoryText(writer, emptyInventory);
@@ -143,60 +161,74 @@ internal static class ReportRenderer
     /// </remarks>
     private static void WriteUnresolvedText(IBufferWriter<byte> writer, in DependencyInventory inventory, ReadOnlySpan<ScanComponent> components)
     {
-        var first = true;
+        var unresolvedCount = 0;
+        for (var i = 0; i < components.Length; i++)
+        {
+            if (!IsExplainedElsewhere(components[i]) && UnresolvedMechanism.TryGetReason(components[i], out _)) unresolvedCount++;
+        }
 
-        // Built on the first row that needs it, so a report with nothing to explain rents nothing, and
-        // returned however the loop ends.
-        var rootPaths = default(DependencyRootPaths);
+        if (unresolvedCount == 0) return;
+
+        WriteNewLine(writer);
+        WriteUtf8(writer, "Unresolved components"u8);
+        WriteNewLine(writer);
+
+        Span<int> widths = stackalloc int[]
+        {
+            "NAME"u8.Length,
+            "VERSION"u8.Length,
+            "REASON"u8.Length,
+            "REFERENCE"u8.Length,
+            "PATH"u8.Length,
+        };
+        // The reference and the path are built strings, so the width pass keeps what it derived and the
+        // write pass replays it. Resolve first, so nothing sits between the rental and its try.
+        using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
+        var rows = ArrayPool<UnresolvedRow>.Shared.Rent(unresolvedCount);
         try
         {
+            var count = 0;
             for (var i = 0; i < components.Length; i++)
             {
-                var component = components[i];
-                if (IsExplainedElsewhere(component) || !UnresolvedMechanism.TryGetReason(component, out var reason))
-                {
-                    continue;
-                }
-
-                if (first)
-                {
-                    WriteNewLine(writer);
-                    WriteUtf8(writer, "Unresolved components"u8);
-                    WriteNewLine(writer);
-                    rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
-                    first = false;
-                }
-
-                WriteUtf8(writer, "  "u8);
-                WriteDisplay(writer, component.Name);
-                WriteUtf8(writer, " "u8);
-                WriteDisplay(writer, component.Version);
-                WriteUtf8(writer, " "u8);
-                WriteUtf8(writer, UnresolvedMechanism.GetNameUtf8(reason));
+                ref readonly var component = ref components[i];
+                if (IsExplainedElsewhere(component) || !UnresolvedMechanism.TryGetReason(component, out var reason)) continue;
                 var reference = UnresolvedMechanism.GetReference(component, reason);
-                if (reference.Length != 0)
-                {
-                    WriteUtf8(writer, " "u8);
-                    WriteUtf8(writer, reference);
-                }
-
-                // The section says what to do next, and for a transitive component that is to change the
-                // direct dependency that pulled it in rather than the component the row names.
                 var path = DependencyPathText.Introducer(inventory, rootPaths, component, i);
-                if (path.Length != 0)
-                {
-                    WriteUtf8(writer, " via "u8);
-                    WriteUtf8(writer, path);
-                }
+                rows[count++] = new UnresolvedRow(i, reason, reference, path);
+                TextTable.Include(ref widths[0], Display(component.Name));
+                TextTable.Include(ref widths[1], Display(component.Version));
+                TextTable.Include(ref widths[2], UnresolvedMechanism.GetNameUtf8(reason));
+                TextTable.Include(ref widths[3], reference);
+                TextTable.Include(ref widths[4], path);
+            }
 
-                WriteNewLine(writer);
+            TextTable.WriteCell(writer, "NAME"u8, widths[0]);
+            TextTable.WriteCell(writer, "VERSION"u8, widths[1]);
+            TextTable.WriteCell(writer, "REASON"u8, widths[2]);
+            TextTable.WriteCell(writer, "REFERENCE"u8, widths[3]);
+            TextTable.WriteCell(writer, "PATH"u8, widths[4], last: true);
+            TextTable.WriteNewLine(writer);
+            TextTable.WriteSeparator(writer, widths);
+            for (var i = 0; i < count; i++)
+            {
+                var row = rows[i];
+                ref readonly var component = ref components[row.ComponentIndex];
+                TextTable.WriteCell(writer, Display(component.Name), widths[0]);
+                TextTable.WriteCell(writer, Display(component.Version), widths[1]);
+                TextTable.WriteCell(writer, UnresolvedMechanism.GetNameUtf8(row.Reason), widths[2]);
+                TextTable.WriteCell(writer, row.Reference, widths[3]);
+                TextTable.WriteCell(writer, row.Path, widths[4], last: true);
+                TextTable.WriteNewLine(writer);
             }
         }
         finally
         {
-            rootPaths.Dispose();
+            ArrayPool<UnresolvedRow>.Shared.Return(rows, clearArray: true);
         }
     }
+
+    /// <summary>One unresolved row's derived text, kept between the width pass and the write pass.</summary>
+    private readonly record struct UnresolvedRow(int ComponentIndex, UnresolvedMechanismKind Reason, string Reference, string Path);
 
     /// <summary>
     /// Reports whether a component needs no entry in the unresolved section.
@@ -345,39 +377,40 @@ internal static class ReportRenderer
     {
         WriteInputHeader(writer, input);
         var headerCount = GetGroupFieldCount(groupBy);
+        Span<int> widths = stackalloc int[headerCount + 1];
         for (var i = 0; i < headerCount; i++)
         {
-            if (i != 0)
-            {
-                WriteUtf8(writer, " "u8);
-            }
-
-            WriteUtf8(writer, GetGroupHeaderUtf8(groupBy, i));
+            widths[i] = GetGroupHeaderUtf8(groupBy, i).Length;
         }
 
-        WriteUtf8(writer, " COUNT"u8);
-        WriteNewLine(writer);
+        widths[headerCount] = "COUNT"u8.Length;
         for (var i = 0; i < groups.Length; i++)
         {
             for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
             {
-                if (valueIndex != 0)
-                {
-                    WriteUtf8(writer, " "u8);
-                }
-
-                WriteDisplay(writer, groups[i].Values[valueIndex]);
+                TextTable.Include(ref widths[valueIndex], Display(groups[i].Values[valueIndex]));
             }
 
-            WriteUtf8(writer, " "u8);
-            var destination = writer.GetSpan(11);
-            if (!Utf8Formatter.TryFormat(groups[i].Count, destination, out var bytesWritten))
+            TextTable.Include(ref widths[headerCount], groups[i].Count);
+        }
+
+        for (var i = 0; i < headerCount; i++)
+        {
+            TextTable.WriteCell(writer, GetGroupHeaderUtf8(groupBy, i), widths[i]);
+        }
+
+        TextTable.WriteCell(writer, "COUNT"u8, widths[headerCount], last: true);
+        TextTable.WriteNewLine(writer);
+        TextTable.WriteSeparator(writer, widths);
+        for (var i = 0; i < groups.Length; i++)
+        {
+            for (var valueIndex = 0; valueIndex < groups[i].Values.Length; valueIndex++)
             {
-                throw new InvalidOperationException("Unable to format group count.");
+                TextTable.WriteCell(writer, Display(groups[i].Values[valueIndex]), widths[valueIndex]);
             }
 
-            writer.Advance(bytesWritten);
-            WriteNewLine(writer);
+            TextTable.WriteCell(writer, groups[i].Count, widths[headerCount], last: true);
+            TextTable.WriteNewLine(writer);
         }
 
         WriteEmptyInventoryText(writer, emptyInventory);
@@ -563,6 +596,9 @@ internal static class ReportRenderer
     {
         WriteUtf8(writer, value.IsEmpty ? "-"u8 : value.Span);
     }
+
+    private static ReadOnlySpan<byte> Display(Utf8Slice value)
+        => value.IsEmpty ? "-"u8 : value.Span;
 
     private static void WriteNewLine(IBufferWriter<byte> writer)
         => WriteUtf8(writer, Environment.NewLine);

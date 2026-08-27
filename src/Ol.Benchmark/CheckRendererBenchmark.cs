@@ -13,6 +13,10 @@ public class CheckRendererBenchmark
     private readonly LicensePolicyViolation[] violations = new LicensePolicyViolation[ComponentCount];
     private readonly DependencyInventory inventory;
 
+    private readonly ScanComponent[] linkedComponents = new ScanComponent[ComponentCount];
+    private readonly LicensePolicyViolation[] linkedViolations = new LicensePolicyViolation[ComponentCount];
+    private readonly DependencyInventory linkedInventory;
+
     public CheckRendererBenchmark()
     {
         var candidate = new LicenseCandidate(
@@ -41,6 +45,33 @@ public class CheckRendererBenchmark
         }
 
         inventory = new DependencyInventory(default, [], components, [], []);
+
+        // The same table over an inventory that actually proves a path, so the Path column reaches
+        // DependencyPathText.Introducer instead of short-circuiting on an empty graph. Every row here
+        // builds a string, which is the cost the column-width pass must not pay a second time.
+        var occurrences = new DependencyOccurrence[ComponentCount];
+        var edges = new DependencyEdge[ComponentCount];
+        for (var i = 0; i < ComponentCount; i++)
+        {
+            linkedComponents[i] = new ScanComponent(
+                $"example-{i}",
+                "1.0.0",
+                default,
+                "npm",
+                i == 0 ? DependencyType.Direct : DependencyType.Transitive,
+                LicenseStatus.Unknown,
+                $"pkg:npm/example-{i}@1.0.0",
+                default,
+                candidate,
+                []);
+            linkedViolations[i] = new LicensePolicyViolation(i, LicensePolicyViolationKind.Unknown);
+            occurrences[i] = new DependencyOccurrence(DependencyOccurrence.UnspecifiedContext, i);
+            edges[i] = i == 0
+                ? new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)
+                : new DependencyEdge(0, 0, i);
+        }
+
+        linkedInventory = new DependencyInventory(default, [], linkedComponents, occurrences, edges);
     }
 
     [Benchmark]
@@ -48,6 +79,14 @@ public class CheckRendererBenchmark
     {
         buffer.Clear();
         CheckRenderer.Write(buffer, inventory, components, violations, ComponentCount);
+        return buffer.WrittenCount;
+    }
+
+    [Benchmark]
+    public int WriteViolationsWithPaths()
+    {
+        buffer.Clear();
+        CheckRenderer.Write(buffer, linkedInventory, linkedComponents, linkedViolations, ComponentCount);
         return buffer.WrittenCount;
     }
 }

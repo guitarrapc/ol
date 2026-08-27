@@ -405,35 +405,80 @@ internal static class CheckRenderer
         // and only the second one names an action. The path names the direct dependency a reviewer can
         // actually change, which the row identifying only the offending package never does when the
         // violation is transitive.
-        WriteUtf8(writer, "Package\tVersion\tEcosystem\tPurl\tLicense/Status\tReason\tMechanism\tReference\tPath"u8);
-        WriteNewLine(writer);
-        var mechanismTally = new MechanismTally();
-        using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
-        for (var i = 0; i < violations.Length; i++)
+        Span<int> widths = stackalloc int[]
         {
-            var violation = violations[i];
-            var component = components[violation.ComponentIndex];
-            WriteDisplay(writer, component.Name, default);
-            WriteByte(writer, (byte)'\t');
-            WriteDisplay(writer, component.Version, default);
-            WriteByte(writer, (byte)'\t');
-            WriteUtf8(writer, component.Ecosystem);
-            WriteByte(writer, (byte)'\t');
-            WriteDisplay(writer, component.Purl, "-"u8);
-            WriteByte(writer, (byte)'\t');
-            if (component.Status == LicenseStatus.Matched) WriteDisplay(writer, component.License, default);
-            else WriteUtf8(writer, Status(violation.Kind));
-            WriteByte(writer, (byte)'\t');
-            WriteUtf8(writer, Reason(violation.Kind));
-            WriteByte(writer, (byte)'\t');
-            WriteMechanism(writer, component, violation.Kind, mechanismTally);
-            WriteByte(writer, (byte)'\t');
-            var path = DependencyPathText.Introducer(inventory, rootPaths, component, violation.ComponentIndex);
-            WriteUtf8(writer, path.Length == 0 ? "-" : path);
-            WriteNewLine(writer);
-        }
+            "Package"u8.Length,
+            "Version"u8.Length,
+            "Ecosystem"u8.Length,
+            "Purl"u8.Length,
+            "License/Status"u8.Length,
+            "Reason"u8.Length,
+            "Mechanism"u8.Length,
+            "Reference"u8.Length,
+            "Path"u8.Length,
+        };
+        // The reference and the path are built strings, so the width pass keeps what it derived and the
+        // write pass replays it. Resolve first, so nothing sits between the rental and its try.
+        using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
+        var rows = ArrayPool<ViolationRow>.Shared.Rent(violations.Length);
+        try
+        {
+            for (var i = 0; i < violations.Length; i++)
+            {
+                var violation = violations[i];
+                ref readonly var component = ref components[violation.ComponentIndex];
+                var path = DependencyPathText.Introducer(inventory, rootPaths, component, violation.ComponentIndex);
+                var row = ProjectViolation(component, violation.Kind, path);
+                rows[i] = row;
+                TextTable.Include(ref widths[0], Display(component.Name));
+                TextTable.Include(ref widths[1], Display(component.Version));
+                TextTable.Include(ref widths[2], component.Ecosystem);
+                TextTable.Include(ref widths[3], Display(component.Purl));
+                TextTable.Include(ref widths[4], LicenseOrStatus(component, violation.Kind));
+                TextTable.Include(ref widths[5], Reason(violation.Kind));
+                TextTable.Include(ref widths[6], MechanismUtf8(row));
+                TextTable.Include(ref widths[7], row.Reference);
+                TextTable.Include(ref widths[8], row.Path);
+            }
 
-        mechanismTally.Write(writer);
+            TextTable.WriteCell(writer, "Package"u8, widths[0]);
+            TextTable.WriteCell(writer, "Version"u8, widths[1]);
+            TextTable.WriteCell(writer, "Ecosystem"u8, widths[2]);
+            TextTable.WriteCell(writer, "Purl"u8, widths[3]);
+            TextTable.WriteCell(writer, "License/Status"u8, widths[4]);
+            TextTable.WriteCell(writer, "Reason"u8, widths[5]);
+            TextTable.WriteCell(writer, "Mechanism"u8, widths[6]);
+            TextTable.WriteCell(writer, "Reference"u8, widths[7]);
+            TextTable.WriteCell(writer, "Path"u8, widths[8], last: true);
+            TextTable.WriteNewLine(writer);
+            TextTable.WriteSeparator(writer, widths);
+
+            var mechanismTally = new MechanismTally();
+            for (var i = 0; i < violations.Length; i++)
+            {
+                var violation = violations[i];
+                ref readonly var component = ref components[violation.ComponentIndex];
+                var row = rows[i];
+                if (row.Tallied) mechanismTally.Add(row.MechanismKind);
+
+                TextTable.WriteCell(writer, Display(component.Name), widths[0]);
+                TextTable.WriteCell(writer, Display(component.Version), widths[1]);
+                TextTable.WriteCell(writer, component.Ecosystem, widths[2]);
+                TextTable.WriteCell(writer, Display(component.Purl), widths[3]);
+                TextTable.WriteCell(writer, LicenseOrStatus(component, violation.Kind), widths[4]);
+                TextTable.WriteCell(writer, Reason(violation.Kind), widths[5]);
+                TextTable.WriteCell(writer, MechanismUtf8(row), widths[6]);
+                TextTable.WriteCell(writer, row.Reference, widths[7]);
+                TextTable.WriteCell(writer, row.Path, widths[8], last: true);
+                TextTable.WriteNewLine(writer);
+            }
+
+            mechanismTally.Write(writer);
+        }
+        finally
+        {
+            ArrayPool<ViolationRow>.Shared.Return(rows, clearArray: true);
+        }
     }
 
     /// <summary>
@@ -480,35 +525,33 @@ internal static class CheckRenderer
         WriteNewLine(writer);
     }
 
-    /// <summary>
-    /// Writes the Mechanism and Reference columns for one violation and records it in the tally.
-    /// </summary>
+    /// <summary>One violation row's derived text, kept between the width pass and the write pass.</summary>
+    private readonly record struct ViolationRow(bool Tallied, bool NamedMechanism, UnresolvedMechanismKind MechanismKind, string Reference, string Path);
+
+    /// <summary>Projects the Mechanism and Reference columns and the mechanism tally key.</summary>
     /// <remarks>
     /// A resolved license the allow-list rejects has no collection mechanism to name, so it is left out of
     /// the tally rather than counted as an unexplained one: the allow-list already explains it, and mixing
     /// the two populations would make the tally report the larger one.
     /// </remarks>
-    private static void WriteMechanism(IBufferWriter<byte> writer, in ScanComponent component, LicensePolicyViolationKind kind, MechanismTally tally)
+    private static ViolationRow ProjectViolation(in ScanComponent component, LicensePolicyViolationKind kind, string path)
     {
         if (kind == LicensePolicyViolationKind.NotAllowed)
         {
-            WriteUtf8(writer, "-\t-"u8);
-            return;
+            return new ViolationRow(Tallied: false, NamedMechanism: false, default, "-", path);
         }
 
         if (!UnresolvedMechanism.TryGetReason(component, out var reason))
         {
-            tally.Add(UnresolvedMechanismKind.None);
-            WriteUtf8(writer, "-\t-"u8);
-            return;
+            return new ViolationRow(Tallied: true, NamedMechanism: false, UnresolvedMechanismKind.None, "-", path);
         }
 
-        tally.Add(reason);
-        WriteUtf8(writer, UnresolvedMechanism.GetNameUtf8(reason));
-        WriteByte(writer, (byte)'\t');
         var reference = UnresolvedMechanism.GetReference(component, reason);
-        WriteUtf8(writer, reference.Length == 0 ? "-" : reference);
+        return new ViolationRow(Tallied: true, NamedMechanism: true, reason, reference.Length == 0 ? "-" : reference, path);
     }
+
+    private static ReadOnlySpan<byte> MechanismUtf8(in ViolationRow row)
+        => row.NamedMechanism ? UnresolvedMechanism.GetNameUtf8(row.MechanismKind) : "-"u8;
 
     /// <summary>
     /// Counts how many violations each unresolved mechanism explains.
@@ -568,14 +611,11 @@ internal static class CheckRenderer
         WriteNewLine(writer);
     }
 
-    private static void WriteDisplay(IBufferWriter<byte> writer, Utf8Slice value, ReadOnlySpan<byte> empty)
-        => WriteUtf8(writer, value.IsEmpty ? empty : value.Span);
+    private static ReadOnlySpan<byte> Display(Utf8Slice value)
+        => value.IsEmpty ? "-"u8 : value.Span;
 
-    private static void WriteByte(IBufferWriter<byte> writer, byte value)
-    {
-        writer.GetSpan(1)[0] = value;
-        writer.Advance(1);
-    }
+    private static ReadOnlySpan<byte> LicenseOrStatus(in ScanComponent component, LicensePolicyViolationKind kind)
+        => component.Status == LicenseStatus.Matched ? Display(component.License) : Status(kind);
 
     private static void WriteInt32(IBufferWriter<byte> writer, int value)
     {

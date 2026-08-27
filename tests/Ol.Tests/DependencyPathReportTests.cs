@@ -29,7 +29,9 @@ public sealed class DependencyPathReportTests
             var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT");
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("Reason\tMechanism\tReference\tPath");
+            // The column order is the contract, not the presence of the words.
+            await Assert.That(string.Join('|', Columns(SelectRow(result.Stdout, "Package"))))
+                .IsEqualTo("Package|Version|Ecosystem|Purl|License/Status|Reason|Mechanism|Reference|Path");
             await Assert.That(LastColumn(SelectLine(result.Stdout, "pkg:nuget/Transitive@2.0.0"))).IsEqualTo(TransitivePath);
         }
         finally
@@ -69,7 +71,8 @@ public sealed class DependencyPathReportTests
             var section = result.Stdout[result.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
-            await Assert.That(section).Contains($"Transitive 2.0.0 declared_license_location_not_collected https://example.test/transitive-LICENSE.txt via {TransitivePath}");
+            await Assert.That(string.Join('|', Columns(SelectRow(section, "Transitive"))))
+                .IsEqualTo($"Transitive|2.0.0|declared_license_location_not_collected|https://example.test/transitive-LICENSE.txt|{TransitivePath}");
         }
         finally
         {
@@ -78,8 +81,8 @@ public sealed class DependencyPathReportTests
     }
 
     [Test]
-    [Arguments("Direct 1.0.0")]
-    [Arguments("Orphan 3.0.0")]
+    [Arguments("Direct")]
+    [Arguments("Orphan")]
     public async Task Scan_TextUnresolvedSection_WithoutIntroducingDependency_OmitsThePath(string component)
     {
         var root = FindRepositoryRoot();
@@ -88,9 +91,11 @@ public sealed class DependencyPathReportTests
         {
             var result = await RunOlAsync(root, "scan", "--input", input, "--no-external-evidence", "--format", "text", "--quiet");
             var section = result.Stdout[result.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
-            var row = SelectLine(section, component);
+            var columns = Columns(SelectRow(section, component));
 
-            await Assert.That(row).DoesNotContain(" via ");
+            // Pinning the count keeps a shifted index from silently reading a neighbouring column.
+            await Assert.That(columns.Length).IsEqualTo(5);
+            await Assert.That(columns[^1]).IsEqualTo("-");
         }
         finally
         {
@@ -169,8 +174,9 @@ public sealed class DependencyPathReportTests
             var result = await RunOlAsync(root, "scan", "--input", input, "--no-external-evidence", "--format", "text", "--quiet");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("Lonely 1.0.0 declared_license_location_not_collected https://example.test/LICENSE.txt");
-            await Assert.That(result.Stdout).DoesNotContain(" via ");
+            var section = result.Stdout[result.Stdout.IndexOf("Unresolved components", StringComparison.Ordinal)..];
+            await Assert.That(string.Join('|', Columns(SelectRow(section, "Lonely"))))
+                .IsEqualTo("Lonely|1.0.0|declared_license_location_not_collected|https://example.test/LICENSE.txt|-");
         }
         finally
         {
@@ -210,11 +216,28 @@ public sealed class DependencyPathReportTests
         }
     }
 
+    /// <summary>Splits one table row into its cells, which the two-space column separator delimits.</summary>
+    private static string[] Columns(string row)
+        => row.Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
     /// <summary>Reads the Path column, which is last however many evidence columns precede it.</summary>
     private static string LastColumn(string row)
+        => Columns(row)[^1];
+
+    /// <summary>
+    /// Selects the row whose first cell is exactly this name. A prefix match would read a neighbouring
+    /// row once a fixture gains a package this name is a prefix of.
+    /// </summary>
+    private static string SelectRow(string text, string name)
     {
-        var columns = row.Split('\t');
-        return columns[^1];
+        foreach (var line in text.Split('\n'))
+        {
+            var row = line.TrimEnd('\r');
+            var columns = Columns(row);
+            if (columns.Length != 0 && columns[0] == name) return row;
+        }
+
+        throw new InvalidOperationException($"No row named '{name}' was found in:{Environment.NewLine}{text}");
     }
 
     private static string SelectLine(string text, string marker)

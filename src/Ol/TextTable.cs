@@ -75,13 +75,32 @@ internal static class TextTable
             return;
         }
 
-        var byteCount = Encoding.UTF8.GetByteCount(value);
-        var trailing = Trailing(width, Width(value), last);
-        var destination = writer.GetSpan(byteCount + trailing);
-        Encoding.UTF8.GetBytes(value, destination);
-        Sanitize(destination[..byteCount]);
+        var source = value.AsSpan();
+        if (source.IndexOfAnyExceptInRange((char)Lowest, (char)Highest) < 0)
+        {
+            // One char is one byte is one column, and nothing needs replacing.
+            WritePlain(writer, source, width, last);
+            return;
+        }
+
+        // Measure the encoded bytes rather than the source, so the width is not a second scan.
+        var byteCount = Encoding.UTF8.GetByteCount(source);
+        var destination = writer.GetSpan(byteCount + width + ColumnSeparator.Length);
+        Encoding.UTF8.GetBytes(source, destination);
+        var body = destination[..byteCount];
+        var trailing = Trailing(width, DisplayWidth(body), last);
+        Sanitize(body);
         destination.Slice(byteCount, trailing).Fill((byte)' ');
         writer.Advance(byteCount + trailing);
+    }
+
+    private static void WritePlain(IBufferWriter<byte> writer, ReadOnlySpan<char> value, int width, bool last)
+    {
+        var trailing = Trailing(width, value.Length, last);
+        var destination = writer.GetSpan(value.Length + trailing);
+        Encoding.UTF8.GetBytes(value, destination);
+        destination.Slice(value.Length, trailing).Fill((byte)' ');
+        writer.Advance(value.Length + trailing);
     }
 
     public static void WriteCell(IBufferWriter<byte> writer, int value, int width, bool last = false)

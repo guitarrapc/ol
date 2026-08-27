@@ -353,38 +353,43 @@ internal sealed class CacheCommands
 
         // Each counter is a freshly built string, so it is derived once and reused by the write pass.
         var cells = ArrayPool<CategoryCells>.Shared.Rent(result.Categories.Count);
-        for (var i = 0; i < result.Categories.Count; i++)
+        try
         {
-            var category = result.Categories[i];
-            var counts = new CategoryCells(FormatEntryCount(category.Entries.Count), FormatBytes(GetCategoryBytes(category)));
-            cells[i] = counts;
-            TextTable.Include(ref widths[0], category.Category);
-            if (!result.IsArchive) TextTable.Include(ref widths[1], category.Path);
-            TextTable.Include(ref widths[entryColumn], counts.Entries);
-            TextTable.Include(ref widths[entryColumn + 1], counts.Size);
-            TextTable.Include(ref widths[entryColumn + 2], category.UnmanagedFileCount);
-        }
+            for (var i = 0; i < result.Categories.Count; i++)
+            {
+                var category = result.Categories[i];
+                var counts = new CategoryCells(FormatEntryCount(category.Entries.Count), FormatBytes(GetCategoryBytes(category)));
+                cells[i] = counts;
+                TextTable.Include(ref widths[0], category.Category);
+                if (!result.IsArchive) TextTable.Include(ref widths[1], category.Path);
+                TextTable.Include(ref widths[entryColumn], counts.Entries);
+                TextTable.Include(ref widths[entryColumn + 1], counts.Size);
+                TextTable.Include(ref widths[entryColumn + 2], category.UnmanagedFileCount);
+            }
 
-        TextTable.WriteCell(writer, "Category"u8, widths[0]);
-        if (!result.IsArchive) TextTable.WriteCell(writer, "Path"u8, widths[1]);
-        TextTable.WriteCell(writer, "Entries"u8, widths[entryColumn]);
-        TextTable.WriteCell(writer, "Size"u8, widths[entryColumn + 1]);
-        TextTable.WriteCell(writer, "Unmanaged files"u8, widths[entryColumn + 2], last: true);
-        TextTable.WriteNewLine(writer);
-        TextTable.WriteSeparator(writer, widths);
-
-        for (var i = 0; i < result.Categories.Count; i++)
-        {
-            var category = result.Categories[i];
-            TextTable.WriteCell(writer, category.Category, widths[0]);
-            if (!result.IsArchive) TextTable.WriteCell(writer, category.Path, widths[1]);
-            TextTable.WriteCell(writer, cells[i].Entries, widths[entryColumn]);
-            TextTable.WriteCell(writer, cells[i].Size, widths[entryColumn + 1]);
-            TextTable.WriteCell(writer, category.UnmanagedFileCount, widths[entryColumn + 2], last: true);
+            TextTable.WriteCell(writer, "Category"u8, widths[0]);
+            if (!result.IsArchive) TextTable.WriteCell(writer, "Path"u8, widths[1]);
+            TextTable.WriteCell(writer, "Entries"u8, widths[entryColumn]);
+            TextTable.WriteCell(writer, "Size"u8, widths[entryColumn + 1]);
+            TextTable.WriteCell(writer, "Unmanaged files"u8, widths[entryColumn + 2], last: true);
             TextTable.WriteNewLine(writer);
-        }
+            TextTable.WriteSeparator(writer, widths);
 
-        ArrayPool<CategoryCells>.Shared.Return(cells, clearArray: true);
+            for (var i = 0; i < result.Categories.Count; i++)
+            {
+                var category = result.Categories[i];
+                TextTable.WriteCell(writer, category.Category, widths[0]);
+                if (!result.IsArchive) TextTable.WriteCell(writer, category.Path, widths[1]);
+                TextTable.WriteCell(writer, cells[i].Entries, widths[entryColumn]);
+                TextTable.WriteCell(writer, cells[i].Size, widths[entryColumn + 1]);
+                TextTable.WriteCell(writer, category.UnmanagedFileCount, widths[entryColumn + 2], last: true);
+                TextTable.WriteNewLine(writer);
+            }
+        }
+        finally
+        {
+            ArrayPool<CategoryCells>.Shared.Return(cells, clearArray: true);
+        }
     }
 
     /// <summary>One category row's derived text, kept between the width pass and the write pass.</summary>
@@ -410,66 +415,70 @@ internal sealed class CacheCommands
         // The cache key, timestamp, size and failure detail are all built strings, so the width pass
         // keeps what it derived rather than building each one a second time to print it.
         var cells = ArrayPool<EntryCells>.Shared.Rent(Math.Max(1, entryCount));
-        var next = 0;
-        for (var i = 0; i < result.Categories.Count; i++)
+        try
         {
-            var category = result.Categories[i];
-            for (var j = 0; j < category.Entries.Count; j++)
+            var next = 0;
+            for (var i = 0; i < result.Categories.Count; i++)
             {
-                var entry = category.Entries[j];
-                var row = new EntryCells(
-                    entry.Error is null ? entry.CacheKey ?? "-" : "-",
-                    entry.Error is null ? entry.FetchedAt?.ToString("O") ?? "-" : "-",
-                    FormatBytes(entry.Bytes),
-                    entry.Error is null ? "-" : $"File: {entry.Name}; {entry.Error}");
-                cells[next++] = row;
-                TextTable.Include(ref widths[0], category.Category);
-                TextTable.Include(ref widths[1], row.CacheKey);
-                TextTable.Include(ref widths[2], row.FetchedAt);
-                TextTable.Include(ref widths[3], row.Size);
-                TextTable.Include(ref widths[4], entry.Error is null ? "valid"u8 : "invalid"u8);
-                TextTable.Include(ref widths[5], row.Details);
+                var category = result.Categories[i];
+                for (var j = 0; j < category.Entries.Count; j++)
+                {
+                    var entry = category.Entries[j];
+                    var row = new EntryCells(
+                        entry.Error is null ? entry.CacheKey ?? "-" : "-",
+                        entry.Error is null ? entry.FetchedAt?.ToString("O") ?? "-" : "-",
+                        FormatBytes(entry.Bytes),
+                        entry.Error is null ? "-" : $"File: {entry.Name}; {entry.Error}");
+                    cells[next++] = row;
+                    TextTable.Include(ref widths[0], category.Category);
+                    TextTable.Include(ref widths[1], row.CacheKey);
+                    TextTable.Include(ref widths[2], row.FetchedAt);
+                    TextTable.Include(ref widths[3], row.Size);
+                    TextTable.Include(ref widths[4], entry.Error is null ? "valid"u8 : "invalid"u8);
+                    TextTable.Include(ref widths[5], row.Details);
+                }
             }
-        }
 
-        var hasEntries = entryCount != 0;
-        if (!hasEntries) TextTable.Include(ref widths[5], "No managed entries."u8);
-        TextTable.WriteCell(writer, "Category"u8, widths[0]);
-        TextTable.WriteCell(writer, "Cache key"u8, widths[1]);
-        TextTable.WriteCell(writer, "Fetched at"u8, widths[2]);
-        TextTable.WriteCell(writer, "Size"u8, widths[3]);
-        TextTable.WriteCell(writer, "Status"u8, widths[4]);
-        TextTable.WriteCell(writer, "Details"u8, widths[5], last: true);
-        TextTable.WriteNewLine(writer);
-        TextTable.WriteSeparator(writer, widths);
-
-        if (!hasEntries)
-        {
-            for (var i = 0; i < widths.Length - 1; i++) TextTable.WriteCell(writer, "-"u8, widths[i]);
-            TextTable.WriteCell(writer, "No managed entries."u8, widths[^1], last: true);
+            var hasEntries = entryCount != 0;
+            if (!hasEntries) TextTable.Include(ref widths[5], "No managed entries."u8);
+            TextTable.WriteCell(writer, "Category"u8, widths[0]);
+            TextTable.WriteCell(writer, "Cache key"u8, widths[1]);
+            TextTable.WriteCell(writer, "Fetched at"u8, widths[2]);
+            TextTable.WriteCell(writer, "Size"u8, widths[3]);
+            TextTable.WriteCell(writer, "Status"u8, widths[4]);
+            TextTable.WriteCell(writer, "Details"u8, widths[5], last: true);
             TextTable.WriteNewLine(writer);
-            ArrayPool<EntryCells>.Shared.Return(cells, clearArray: true);
-            return;
-        }
+            TextTable.WriteSeparator(writer, widths);
 
-        next = 0;
-        for (var i = 0; i < result.Categories.Count; i++)
-        {
-            var category = result.Categories[i];
-            for (var j = 0; j < category.Entries.Count; j++)
+            if (!hasEntries)
             {
-                var row = cells[next++];
-                TextTable.WriteCell(writer, category.Category, widths[0]);
-                TextTable.WriteCell(writer, row.CacheKey, widths[1]);
-                TextTable.WriteCell(writer, row.FetchedAt, widths[2]);
-                TextTable.WriteCell(writer, row.Size, widths[3]);
-                TextTable.WriteCell(writer, category.Entries[j].Error is null ? "valid"u8 : "invalid"u8, widths[4]);
-                TextTable.WriteCell(writer, row.Details, widths[5], last: true);
+                for (var i = 0; i < widths.Length - 1; i++) TextTable.WriteCell(writer, "-"u8, widths[i]);
+                TextTable.WriteCell(writer, "No managed entries."u8, widths[^1], last: true);
                 TextTable.WriteNewLine(writer);
+                return;
+            }
+
+            next = 0;
+            for (var i = 0; i < result.Categories.Count; i++)
+            {
+                var category = result.Categories[i];
+                for (var j = 0; j < category.Entries.Count; j++)
+                {
+                    var row = cells[next++];
+                    TextTable.WriteCell(writer, category.Category, widths[0]);
+                    TextTable.WriteCell(writer, row.CacheKey, widths[1]);
+                    TextTable.WriteCell(writer, row.FetchedAt, widths[2]);
+                    TextTable.WriteCell(writer, row.Size, widths[3]);
+                    TextTable.WriteCell(writer, category.Entries[j].Error is null ? "valid"u8 : "invalid"u8, widths[4]);
+                    TextTable.WriteCell(writer, row.Details, widths[5], last: true);
+                    TextTable.WriteNewLine(writer);
+                }
             }
         }
-
-        ArrayPool<EntryCells>.Shared.Return(cells, clearArray: true);
+        finally
+        {
+            ArrayPool<EntryCells>.Shared.Return(cells, clearArray: true);
+        }
     }
 
     private static string EscapeMarkdown(string value)

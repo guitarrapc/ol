@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Ol.Tests;
 
-/// <summary>
-/// Covers the framing primitive every text table shares, because a caller measuring one value and
-/// writing another, or a terminal counting columns the padding never counted, breaks every table at once.
-/// </summary>
+/// <summary>Covers the framing primitive every text table shares.</summary>
 public sealed class TextTableTests
 {
     [Test]
@@ -19,10 +16,7 @@ public sealed class TextTableTests
         await Assert.That(TextTable.Width(Encoding.UTF8.GetBytes(value))).IsEqualTo(expected);
     }
 
-    /// <summary>
-    /// A terminal aligns on display columns, so measuring UTF-8 bytes pads a CJK cell by the 3 bytes it
-    /// costs rather than the 2 columns it occupies and every following column in that row drifts left.
-    /// </summary>
+    /// <summary>A CJK cell costs 3 bytes but occupies 2 columns; padding must follow the columns.</summary>
     [Test]
     [Arguments("日本語", 6)]
     [Arguments("パッケージ", 10)]
@@ -54,12 +48,7 @@ public sealed class TextTableTests
         await Assert.That(TextTable.Width("é"u8)).IsEqualTo(1);
     }
 
-    /// <summary>
-    /// Malformed input must terminate the decode loop. `Rune.DecodeFromUtf8` reports a zero-byte
-    /// consumption only for an empty source, which the loop guard already excludes, so every byte of a
-    /// truncated or invalid sequence advances. A width measured on untrusted bytes that could not
-    /// advance would hang the CLI rather than misprint it.
-    /// </summary>
+    /// <summary>Malformed input must terminate the decode loop rather than hang the command.</summary>
     [Test]
     [Arguments(new byte[] { 0x80 }, 1)]
     [Arguments(new byte[] { 0xFF }, 1)]
@@ -104,10 +93,7 @@ public sealed class TextTableTests
     public async Task Width_WithInt32Value_CountsFormattedDigits(int value, int expected)
         => await Assert.That(TextTable.Width(value)).IsEqualTo(expected);
 
-    /// <summary>
-    /// Column width is the widest cell, so without a cap one oversized value pads every other row to its
-    /// length and multiplies the whole table by the row count.
-    /// </summary>
+    /// <summary>Without a cap one oversized value pads every other row to its length.</summary>
     [Test]
     public async Task Include_WithValueBeyondTheColumnCap_StopsWideningTheColumn()
     {
@@ -122,10 +108,7 @@ public sealed class TextTableTests
         await Assert.That(width).IsEqualTo(TextTable.MaxColumnWidth);
     }
 
-    /// <summary>
-    /// A capped column still has to render the value it could not measure, so the cell overflows rather
-    /// than truncating evidence a reviewer needs or throwing on a negative pad.
-    /// </summary>
+    /// <summary>A capped column overflows rather than truncating evidence or throwing on a negative pad.</summary>
     [Test]
     public async Task WriteCell_WithValueWiderThanTheColumn_WritesItInFullWithOnlyTheSeparator()
     {

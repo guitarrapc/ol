@@ -296,8 +296,7 @@ internal sealed class CacheCommands
         using var writer = new PooledStreamBufferWriter(Console.OpenStandardOutput());
         TextTable.WriteLine(writer, result.IsArchive ? "Cache archive"u8 : "Cache directory"u8);
 
-        // Every value here is a freshly built string and the archive size is a filesystem stat, so they
-        // are derived once and measured and written from the same result.
+        // Built strings, and one filesystem stat, so measure and write from the same result.
         var archiveSize = result.IsArchive ? FormatBytes(new FileInfo(result.Path).Length) : null;
         var entryCount = FormatEntryCount(result.EntryCount);
         var contentSize = FormatBytes(result.TotalBytes);
@@ -412,8 +411,7 @@ internal sealed class CacheCommands
         var entryCount = 0;
         for (var i = 0; i < result.Categories.Count; i++) entryCount += result.Categories[i].Entries.Count;
 
-        // The cache key, timestamp, size and failure detail are all built strings, so the width pass
-        // keeps what it derived rather than building each one a second time to print it.
+        // Built strings, so the width pass keeps what it derived instead of building each one twice.
         var cells = ArrayPool<EntryCells>.Shared.Rent(Math.Max(1, entryCount));
         try
         {

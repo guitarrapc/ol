@@ -7,17 +7,9 @@ using System.Text;
 internal static class TextTable
 {
     /// <summary>
-    /// Widest column the framing pads to.
+    /// Widest column the framing pads to, so one oversized value cannot pad every other row to its length.
+    /// A wider cell overflows instead of truncating: the row still names the component it is about.
     /// </summary>
-    /// <remarks>
-    /// A column is as wide as its widest cell, so without a ceiling one oversized value — a name no
-    /// registry can issue but a hand-written or broken-generator SBOM can still carry — pads every other
-    /// row to its length and multiplies the whole table by the row count. The cap is above every
-    /// identifier and filesystem path the tool legitimately prints, so a capped column only ever appears
-    /// for a value that was already unreadable. Such a cell is written in full and overflows its column
-    /// rather than being truncated: the row that names the offending component stays actionable, and
-    /// only that row is ragged.
-    /// </remarks>
     public const int MaxColumnWidth = 256;
 
     private static ReadOnlySpan<byte> ColumnSeparator => "  "u8;
@@ -30,14 +22,7 @@ internal static class TextTable
     private static bool IsPlain(ReadOnlySpan<byte> value)
         => value.IndexOfAnyExceptInRange(Lowest, Highest) < 0;
 
-    /// <summary>
-    /// Counts the terminal columns a value occupies, which is what the padding has to match.
-    /// </summary>
-    /// <remarks>
-    /// One vectorized scan settles the common case: a cell of printable ASCII occupies exactly its byte
-    /// count and needs no sanitizing, so the same probe that rules out a control character also rules
-    /// out a character whose byte count and column count differ.
-    /// </remarks>
+    /// <summary>Counts the terminal columns a value occupies, which is what the padding has to match.</summary>
     public static int Width(ReadOnlySpan<byte> value)
     {
         if (value.IsEmpty) return 1;
@@ -71,8 +56,8 @@ internal static class TextTable
     {
         if (value.IsEmpty) value = "-"u8;
 
-        // One scan answers both questions the cell has: how many columns it occupies, and whether any
-        // byte has to be replaced before it reaches the row.
+        // One scan answers both questions: how many columns the cell occupies, and whether anything in
+        // it needs replacing.
         var irregular = value.IndexOfAnyExceptInRange(Lowest, Highest);
         var trailing = Trailing(width, irregular < 0 ? value.Length : DisplayWidth(value), last);
         var destination = writer.GetSpan(value.Length + trailing);
@@ -152,20 +137,15 @@ internal static class TextTable
     private static void Widen(ref int width, int cellWidth)
         => width = Math.Max(width, Math.Min(MaxColumnWidth, cellWidth));
 
-    /// <summary>
-    /// Pads a cell to its column, or to nothing when the value is wider than the column allows.
-    /// </summary>
+    /// <summary>Pads a cell to its column, or to nothing when the value is wider than the column.</summary>
     private static int Trailing(int width, int cellWidth, bool last)
         => last ? 0 : Math.Max(0, width - cellWidth) + ColumnSeparator.Length;
 
     /// <summary>
-    /// Counts the terminal columns a UTF-8 value occupies, which is what the padding has to match.
+    /// Byte length is wrong in both directions: a CJK character costs three bytes and occupies two
+    /// columns, an accented Latin one costs two and occupies one. Control characters count as one
+    /// because <see cref="Sanitize"/> replaces each with a space.
     /// </summary>
-    /// <remarks>
-    /// Byte length is the wrong metric twice over: a CJK character costs three bytes and occupies two
-    /// columns, an accented Latin character costs two and occupies one. Control characters count as one
-    /// because <see cref="Sanitize"/> replaces each with a single space.
-    /// </remarks>
     private static int DisplayWidth(ReadOnlySpan<byte> value)
     {
         var width = 0;
@@ -173,7 +153,7 @@ internal static class TextTable
         {
             if (Rune.DecodeFromUtf8(value, out var rune, out var consumed) != OperationStatus.Done)
             {
-                // An undecodable byte draws one replacement glyph.
+                // One replacement glyph.
                 width++;
                 value = value[Advance(consumed)..];
                 continue;
@@ -206,21 +186,15 @@ internal static class TextTable
     }
 
     /// <summary>
-    /// Keeps a failed decode moving.
+    /// Both decoders consume zero only on an empty source, which the loop guards exclude. This makes
+    /// termination local, because a decode that failed to advance would hang rather than misprint.
     /// </summary>
-    /// <remarks>
-    /// `Rune.DecodeFromUtf8` and `DecodeFromUtf16` report a zero-length consumption only for an empty
-    /// source, which both loop guards already exclude, so this changes nothing today. It is here so the
-    /// loops terminate by local inspection rather than by an invariant the caller cannot see: these
-    /// measure untrusted inventory and filesystem text, and a decode that failed to advance would hang
-    /// the command rather than misprint one row.
-    /// </remarks>
     private static int Advance(int consumed) => Math.Max(1, consumed);
 
     private static int RuneWidth(Rune rune)
     {
-        // A mark renders into the cell of the character it follows, and a format character renders
-        // nothing at all, so neither advances the cursor the padding is counting.
+        // A mark renders into the preceding character's cell and a format character renders nothing,
+        // so neither advances the cursor.
         if (rune.Value >= 0x0300 && Rune.GetUnicodeCategory(rune)
             is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark or UnicodeCategory.Format)
         {

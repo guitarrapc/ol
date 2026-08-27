@@ -29,8 +29,7 @@ public sealed class DependencyPathReportTests
             var result = await RunCheckWorkflowAsync(root, input, "--allow-licenses", "MIT");
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
-            // The column order is the contract, not the presence of the words: Path has to stay last so
-            // LastColumn reads a path, and Mechanism has to stay beside Reference to be readable.
+            // The column order is the contract, not the presence of the words.
             await Assert.That(string.Join('|', Columns(SelectRow(result.Stdout, "Package"))))
                 .IsEqualTo("Package|Version|Ecosystem|Purl|License/Status|Reason|Mechanism|Reference|Path");
             await Assert.That(LastColumn(SelectLine(result.Stdout, "pkg:nuget/Transitive@2.0.0"))).IsEqualTo(TransitivePath);
@@ -226,13 +225,9 @@ public sealed class DependencyPathReportTests
         => Columns(row)[^1];
 
     /// <summary>
-    /// Selects the row whose first cell is exactly this name.
+    /// Selects the row whose first cell is exactly this name. A prefix match would read a neighbouring
+    /// row once a fixture gains a package this name is a prefix of.
     /// </summary>
-    /// <remarks>
-    /// Matching a prefix instead would silently pick a neighbouring row the moment a fixture gains a
-    /// package whose name this one is a prefix of, and the first match wins, so the assertion would
-    /// read the wrong row rather than fail.
-    /// </remarks>
     private static string SelectRow(string text, string name)
     {
         foreach (var line in text.Split('\n'))

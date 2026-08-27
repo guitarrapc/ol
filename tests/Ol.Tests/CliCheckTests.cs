@@ -1748,13 +1748,9 @@ public sealed class CliCheckTests
     }
 
     /// <summary>
-    /// Splits the table row whose first cell is exactly this name.
+    /// Splits the table row whose first cell is exactly this name. A prefix match would read a
+    /// neighbouring row once a fixture gains a package this name is a prefix of.
     /// </summary>
-    /// <remarks>
-    /// Matching a prefix instead would read a neighbouring row the moment a fixture gains a package
-    /// whose name this one is a prefix of, and the first match wins, so the assertion would silently
-    /// check the wrong row rather than fail.
-    /// </remarks>
     private static string[] SelectRow(string text, string name)
     {
         foreach (var line in text.Split('\n'))

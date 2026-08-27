@@ -182,10 +182,7 @@ internal static class ReportRenderer
             "PATH"u8.Length,
         };
         // The reference and the path are built strings, so the width pass keeps what it derived and the
-        // write pass replays it. Recomputing would pay for one StringBuilder and one path walk per row
-        // twice over, which is the whole cost of aligning a column that used to stream.
-        // The resolver rents before the row memo does, so nothing sits between this rental and the
-        // try that returns it.
+        // write pass replays it. Resolve first, so nothing sits between the rental and its try.
         using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
         var rows = ArrayPool<UnresolvedRow>.Shared.Rent(unresolvedCount);
         try

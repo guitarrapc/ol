@@ -418,9 +418,7 @@ internal static class CheckRenderer
             "Path"u8.Length,
         };
         // The reference and the path are built strings, so the width pass keeps what it derived and the
-        // write pass replays it rather than paying for the same StringBuilder and path walk twice.
-        // The resolver rents before the row memo does, so nothing sits between this rental and the
-        // try that returns it.
+        // write pass replays it. Resolve first, so nothing sits between the rental and its try.
         using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
         var rows = ArrayPool<ViolationRow>.Shared.Rent(violations.Length);
         try

@@ -30,11 +30,7 @@ internal readonly record struct CachePruneResult(
     public long ReclaimedBytes => BeforeBytes - AfterBytes;
 }
 
-/// <summary>
-/// One inspected cache entry. <paramref name="CacheKey"/> and <paramref name="Name"/> are the entry's two
-/// possible identities and exactly one of them is present: an entry that validated is named by its logical
-/// key, and one that did not has only the physical file name left to report it by.
-/// </summary>
+/// <summary>Exactly one of <paramref name="CacheKey"/> and <paramref name="Name"/> is present: a validated entry is named by its key, an invalid one only by its file name.</summary>
 internal readonly record struct CacheEntryInfo(
     string Category,
     string? Name,
@@ -55,10 +51,7 @@ internal readonly record struct CacheCategorySummary(
     int EntryCount,
     long Bytes);
 
-/// <summary>
-/// What a cache listing reports: where each managed category is, how many entries it holds, and how many
-/// bytes they occupy. None of those answers depends on an entry's content, so a summary never reads one.
-/// </summary>
+/// <summary>What a listing reports. None of it depends on an entry's content, so a summary never reads one.</summary>
 internal readonly record struct CacheSummary(
     IReadOnlyList<CacheCategorySummary> Categories)
 {
@@ -123,8 +116,7 @@ internal static class CacheArchive
     private const int CacheKeyHashLength = 64;
     private const int CacheFileNameLength = CacheKeyHashLength + 5;
 
-    // Reproduces what Directory.EnumerateFiles(root, "*", TopDirectoryOnly) enumerated: an entry is skipped
-    // for nothing, hidden and system included, and an inaccessible one surfaces rather than disappearing.
+    // Unlike the EnumerationOptions defaults, which skip hidden and system entries and ignore inaccessible ones.
     private static readonly EnumerationOptions ManagedEntryEnumeration = new()
     {
         RecurseSubdirectories = false,
@@ -231,44 +223,45 @@ internal static class CacheArchive
             throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
         }
 
-        var stagingRoot = CreatePrivateStagingDirectory();
-        try
+        // Validated in full before anything is written, and each entry owns its bytes, so what a restore
+        // holds is the expanded content itself rather than a buffer that has to grow to fit it.
+        var entries = ReadArchive(inputPath, retainContent: true, DefaultLimits);
+        var destinationRoots = new string?[Categories.Length];
+        for (var i = 0; i < entries.Count; i++)
         {
-            var stagedEntries = ReadArchive(inputPath, stagingRoot, DefaultLimits);
-            for (var i = 0; i < stagedEntries.Count; i++)
-            {
-                var destinationRoot = GetCategoryRoot(stagedEntries[i].Category, directories);
-                Directory.CreateDirectory(destinationRoot);
-                ValidateLinkFreePath(destinationRoot);
-                var destinationPath = Path.Combine(destinationRoot, stagedEntries[i].FileName);
-                ValidateLinkFreePath(destinationPath);
-                var temporaryPath = Path.Combine(destinationRoot, $".{stagedEntries[i].FileName}.{Guid.NewGuid():N}.tmp");
-                try
-                {
-                    File.Copy(stagedEntries[i].SourcePath, temporaryPath, overwrite: false);
-                    ValidateLinkFreePath(destinationRoot);
-                    ValidateLinkFreePath(destinationPath);
-                    File.Move(temporaryPath, destinationPath, overwrite: true);
-                }
-                finally
-                {
-                    if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-                }
-            }
+            var destinationRoot = PrepareDestinationRoot(entries[i].Category, directories, destinationRoots);
+            var destinationPath = Path.Combine(destinationRoot, entries[i].FileName);
+            var temporaryPath = Path.Combine(destinationRoot, $".{entries[i].FileName}.{Guid.NewGuid():N}.tmp");
 
-            return stagedEntries.Count;
+            // The temporary file is the first thing a restore writes, and it is written into this directory,
+            // so the directory is checked here as well as before the replacement. Only the first entry of a
+            // category is preceded by the walk in PrepareDestinationRoot; without this, every entry after it
+            // would write before anything looked at the directory again.
+            ValidateLinkFreeDestination(destinationRoot);
+            try
+            {
+                using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    output.Write(entries[i].Content ?? throw new InvalidDataException($"Cache entry content was not retained: {entries[i].FileName}."));
+                }
+
+                // Rechecked because replacement is the step a link would redirect.
+                ValidateLinkFreeDestination(destinationRoot);
+                ValidateLinkFreeDestination(destinationPath);
+                File.Move(temporaryPath, destinationPath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
         }
-        finally
-        {
-            if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
-        }
+
+        return entries.Count;
     }
 
     /// <summary>
-    /// Counts and measures the managed entries in each category without reading any of them. An entry's
-    /// count and size come from the directory itself, so validating thousands of entries to print three
-    /// numbers that would be identical either way is work a listing does not owe. Use <see cref="Inspect"/>
-    /// when the caller needs an entry's logical key, timestamp, or validity.
+    /// Counts and measures managed entries without reading any of them; both answers come from the directory.
+    /// Use <see cref="Inspect"/> when the caller needs an entry's logical key, timestamp, or validity.
     /// </summary>
     public static CacheSummary Summarize(CacheDirectories directories)
     {
@@ -288,12 +281,7 @@ internal static class CacheArchive
         if (File.Exists(root)) throw new InvalidDataException($"Cache category path must be a directory: {root}.");
         if (!Directory.Exists(root)) return new(category, root, 0, 0);
 
-        // Every entry shares the category root, so its components are checked once here instead of
-        // once per file; each entry then only has to answer for itself.
         ValidateLinkFreePath(root);
-
-        // A listing keeps nothing but a size, so the enumeration is asked for nothing else and no path or
-        // name string is built for any of the entries it counts.
         var enumerable = new FileSystemEnumerable<long>(
             root,
             static (ref FileSystemEntry entry) => entry.Length,
@@ -313,12 +301,7 @@ internal static class CacheArchive
         return new(category, root, entryCount, bytes);
     }
 
-    /// <summary>
-    /// Reports whether a located file is one of the managed cache entries, and rejects one that is a link
-    /// rather than a file. Both answers come from data the directory enumeration already carried, so
-    /// neither costs a stat call — and the name is judged as a span, so a file that is not an entry never
-    /// gets a string built for it.
-    /// </summary>
+    /// <summary>Reports whether a located file is a managed entry, and throws for one that is a link. Reads only what the enumeration already carried.</summary>
     private static bool IsManagedCacheEntry(ref FileSystemEntry entry)
     {
         if (entry.IsDirectory || !IsCacheFileName(entry.FileName)) return false;
@@ -330,11 +313,7 @@ internal static class CacheArchive
         return true;
     }
 
-    /// <summary>
-    /// Slices the digest an entry's file name states out of the full path that located it. A managed entry's
-    /// name is a fixed 69 characters of which the first 64 are the digest, so the path already carries the
-    /// value and no separate name string has to exist to hold it.
-    /// </summary>
+    /// <summary>Slices the digest out of the full path, so no separate name string has to exist to hold it.</summary>
     private static ReadOnlySpan<char> GetExpectedCacheKeyHash(string path)
         => path.AsSpan(path.Length - CacheFileNameLength, CacheKeyHashLength);
 
@@ -405,37 +384,25 @@ internal static class CacheArchive
             throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
         }
 
-        var stagingRoot = CreatePrivateStagingDirectory();
-        try
+        var archiveEntries = ReadArchive(archivePath, retainContent: false, DefaultLimits);
+        var categories = new List<CacheCategoryInfo>(Categories.Length);
+        for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
         {
-            var stagedEntries = ReadArchive(archivePath, stagingRoot, DefaultLimits);
-            var categories = new List<CacheCategoryInfo>(Categories.Length);
-            for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
+            var category = Categories[categoryIndex].Name;
+            var entries = new List<CacheEntryInfo>();
+            for (var i = 0; i < archiveEntries.Count; i++)
             {
-                var category = Categories[categoryIndex].Name;
-                var entries = new List<CacheEntryInfo>();
-                for (var i = 0; i < stagedEntries.Count; i++)
-                {
-                    if (!string.Equals(stagedEntries[i].Category, category, StringComparison.Ordinal)) continue;
-                    var staged = stagedEntries[i];
+                var archiveEntry = archiveEntries[i];
+                if (!string.Equals(archiveEntry.Category, category, StringComparison.Ordinal)) continue;
 
-                    // The size the read enforces its limit against and the size the entry reports are the
-                    // same fact, so it is measured once and both uses read the value that was measured.
-                    var bytes = new FileInfo(staged.SourcePath).Length;
-                    var metadata = ReadCacheEntryMetadata(staged.SourcePath, staged.FileName.AsSpan(0, CacheKeyHashLength), bytes, DefaultLimits.MaximumEntryBytes);
-                    entries.Add(new(category, null, metadata.CacheKey, metadata.FetchedAt, bytes, null));
-                }
-
-                entries.Sort(CompareEntries);
-                categories.Add(new(category, category, entries, 0));
+                entries.Add(new(category, null, archiveEntry.CacheKey, archiveEntry.FetchedAt, archiveEntry.Bytes, null));
             }
 
-            return new(true, archivePath, categories);
+            entries.Sort(CompareEntries);
+            categories.Add(new(category, category, entries, 0));
         }
-        finally
-        {
-            if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
-        }
+
+        return new(true, archivePath, categories);
     }
 
     private static CacheCategoryInfo InspectCategory(string category, string root)
@@ -444,19 +411,11 @@ internal static class CacheArchive
         if (File.Exists(root)) throw new InvalidDataException($"Cache category path must be a directory: {root}.");
         if (!Directory.Exists(root)) return new(category, root, [], unmanagedFileCount);
 
-        // Every entry shares the category root, so its components are checked once here instead of
-        // once per file; each entry then only has to answer for itself.
         ValidateLinkFreePath(root);
-
-        // The located files are discarded once their entries exist, and a managed cache holds thousands
-        // of them, so the list they are gathered into is borrowed from the pool rather than grown.
         var managed = ArrayPool<ManagedCacheFile>.Shared.Rent(InitialManagedFileCapacity);
         var managedCount = 0;
         try
         {
-            // The predicate is where an entry's name is in scope without a string behind it, so it both
-            // applies the managed-entry rule and tallies the files that are not entries; the transform then
-            // runs for managed entries alone and keeps only what reading one needs.
             var enumerable = new FileSystemEnumerable<ManagedCacheFile>(
                 root,
                 static (ref FileSystemEntry entry) => new ManagedCacheFile(entry.ToFullPath(), entry.Length),
@@ -476,8 +435,6 @@ internal static class CacheArchive
                 managed[managedCount++] = file;
             }
 
-            // Each entry costs an open and a parse, and the reads are independent of each other, so they
-            // run concurrently; the index keeps them apart and the sort restores the reported order.
             var located = managed;
             var entries = new CacheEntryInfo[managedCount];
             Parallel.For(0, managedCount, index =>
@@ -490,8 +447,6 @@ internal static class CacheArchive
                 }
                 catch (Exception exception) when (IsExpectedFailure(exception))
                 {
-                    // The physical name is the only identity an entry that failed validation has, so it is
-                    // built here and nowhere else.
                     entries[index] = new(category, Path.GetFileName(file.Path), null, null, file.Bytes, exception.Message);
                 }
             });
@@ -505,18 +460,13 @@ internal static class CacheArchive
         }
     }
 
-    /// <summary>
-    /// Orders entries by the logical cache key a reader is looking for rather than by the opaque hash the
-    /// file is named after, and settles ties on that unique name. An entry too invalid to have a key sorts
-    /// first, which is also the only kind the default report shows.
-    /// </summary>
+    /// <summary>Orders by the logical cache key rather than the opaque hash the file is named after. An entry with no key sorts first.</summary>
     private static int CompareEntries(CacheEntryInfo left, CacheEntryInfo right)
     {
         var byCacheKey = StringComparer.Ordinal.Compare(left.CacheKey, right.CacheKey);
         return byCacheKey != 0 ? byCacheKey : StringComparer.Ordinal.Compare(left.Name, right.Name);
     }
 
-    /// <summary>Replaces a full rental with a larger one, returning the old buffer once its content moved.</summary>
     private static void Grow(ref ManagedCacheFile[] buffer, int count)
     {
         var grown = ArrayPool<ManagedCacheFile>.Shared.Rent(buffer.Length * 2);
@@ -551,9 +501,6 @@ internal static class CacheArchive
         return true;
     }
 
-    internal static string CreatePrivateStagingDirectory()
-        => Directory.CreateTempSubdirectory("ol-cache-unpack-").FullName;
-
     public static int Prune(CacheDirectories directories, TimeSpan maximumAge, DateTimeOffset now)
         => Prune(directories, maximumAge, now, dryRun: false).PrunedCount;
 
@@ -586,8 +533,7 @@ internal static class CacheArchive
                 if (fetchedAt >= cutoff) continue;
 
                 reclaimedBytes = checked(reclaimedBytes + bytes);
-                // Deletion is the one step that must not act on stale attributes, so the entry is rechecked
-                // against the filesystem here rather than against what the enumeration reported.
+                // Deletion must not act on the enumeration's stale attributes.
                 ValidateLinkFreePath(path);
                 if (!dryRun) File.Delete(path);
                 count = checked(count + 1);
@@ -643,9 +589,14 @@ internal static class CacheArchive
         return entries;
     }
 
-    private static List<StagedEntry> ReadArchive(string inputPath, string stagingRoot, CacheArchiveLimits limits)
+    /// <summary>
+    /// Reads an archive once and returns what validating it established. With <paramref name="retainContent"/>
+    /// each entry also keeps its own bytes, so the caller can write them out without reading the archive
+    /// again; inspection reports and discards, so it passes false and every entry is read into scratch.
+    /// </summary>
+    private static List<ArchiveEntry> ReadArchive(string inputPath, bool retainContent, CacheArchiveLimits limits)
     {
-        var entries = new List<StagedEntry>();
+        var entries = new List<ArchiveEntry>();
         var names = new HashSet<string>(StringComparer.Ordinal);
         var manifestSeen = false;
         long expandedBytes = 0;
@@ -678,16 +629,34 @@ internal static class CacheArchive
             if (!IsCategory(category)) throw new InvalidDataException($"Unsupported cache category: {category}.");
             var fileName = entry.Name[(separator + 1)..];
             ValidateCacheFileName(fileName);
-            var stagedCategory = Path.Combine(stagingRoot, category);
-            Directory.CreateDirectory(stagedCategory);
-            var stagedPath = Path.Combine(stagedCategory, fileName);
-            using (var output = new FileStream(stagedPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            if (entry.Length == 0) throw new InvalidDataException($"Cache entry size is invalid: {fileName}.");
+
+            var length = (int)entry.Length;
+            CacheEntryMetadata metadata;
+            byte[]? retained = null;
+            if (retainContent)
             {
-                entry.DataStream.CopyTo(output);
+                // Retained bytes outlive the read and are exactly the entry, so the entry owns its own array
+                // rather than a slice of a shared one that would have to grow, copy, and be returned.
+                retained = GC.AllocateUninitializedArray<byte>(length);
+                entry.DataStream.ReadExactly(retained);
+                metadata = ReadCacheEntryContent(fileName.AsSpan(0, CacheKeyHashLength), fileName, retained);
+            }
+            else
+            {
+                var scratch = ArrayPool<byte>.Shared.Rent(length);
+                try
+                {
+                    entry.DataStream.ReadExactly(scratch.AsSpan(0, length));
+                    metadata = ReadCacheEntryContent(fileName.AsSpan(0, CacheKeyHashLength), fileName, scratch.AsMemory(0, length));
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(scratch);
+                }
             }
 
-            ValidateCacheEntry(stagedPath, fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
-            entries.Add(new(category, fileName, stagedPath));
+            entries.Add(new(category, fileName, retained, metadata.CacheKey, metadata.FetchedAt, length));
         }
 
         if (!manifestSeen) throw new InvalidDataException("Archive manifest is missing.");
@@ -734,7 +703,7 @@ internal static class CacheArchive
 
     private static CacheEntryMetadata ReadCacheEntryMetadata(string path, ReadOnlySpan<char> expectedHash, long length, long maximumEntryBytes)
     {
-        if (length <= 0 || length > maximumEntryBytes) throw new InvalidDataException($"Cache entry size is invalid: {Path.GetFileName(path)}.");
+        if (length <= 0 || length > maximumEntryBytes) throw new InvalidDataException($"Cache entry size is invalid: {Path.GetFileName(path.AsSpan())}.");
         var buffer = ArrayPool<byte>.Shared.Rent((int)length);
         try
         {
@@ -748,8 +717,6 @@ internal static class CacheArchive
 
     private static CacheEntryMetadata ReadCacheEntryMetadata(string path, ReadOnlySpan<char> expectedHash, byte[] buffer, int length)
     {
-        // Opening the entry is the step that would follow a link out of the cache, so the check that it is
-        // not one sits here, against the filesystem, rather than resting on what the enumeration saw.
         ValidateLinkFreeEntry(path);
         var read = 0;
         using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -762,11 +729,16 @@ internal static class CacheArchive
             }
         }
 
-        // Reading the bytes ourselves means the UTF-8 preamble a stream parse would have skipped is still here.
-        var content = buffer.AsMemory(0, read);
+        return ReadCacheEntryContent(expectedHash, Path.GetFileName(path.AsSpan()), buffer.AsMemory(0, read));
+    }
+
+    /// <summary>Validates an entry's common transport fields where its content already is, so an archived entry and a stored one are judged by the same rules.</summary>
+    private static CacheEntryMetadata ReadCacheEntryContent(ReadOnlySpan<char> expectedHash, ReadOnlySpan<char> name, ReadOnlyMemory<byte> content)
+    {
+        // A stream parse would have skipped the UTF-8 preamble; reading the bytes ourselves does not.
         if (content.Span.StartsWith(Utf8Preamble)) content = content[Utf8Preamble.Length..];
 
-        // The document reads straight out of the rented buffer, so it must not outlive this scope.
+        // The document reads straight out of the caller's buffer, so it must not outlive this scope.
         using var document = JsonDocument.Parse(content, new JsonDocumentOptions { MaxDepth = 64 });
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object
@@ -781,24 +753,22 @@ internal static class CacheArchive
             || !root.TryGetProperty("FetchedAt", out var fetchedAtElement)
             || fetchedAtElement.ValueKind != JsonValueKind.String)
         {
-            throw new InvalidDataException($"Cache entry is missing required common fields: {Path.GetFileName(path)}.");
+            throw new InvalidDataException($"Cache entry is missing required common fields: {name}.");
         }
 
         var cacheKey = cacheKeyElement.GetString()!;
         var persistedHash = hashElement.GetString()!;
 
-        // The digest is only ever compared, so it is written into a stack buffer instead of into a string
-        // built once per entry and dropped on the next line.
         Span<char> actualHash = stackalloc char[CacheKeyHashLength];
         WriteCacheKeySha256(cacheKey, actualHash);
         if (!expectedHash.Equals(persistedHash, StringComparison.Ordinal) || !actualHash.SequenceEqual(persistedHash))
         {
-            throw new InvalidDataException($"Cache entry identity does not match its file name: {Path.GetFileName(path)}.");
+            throw new InvalidDataException($"Cache entry identity does not match its file name: {name}.");
         }
 
         if (!fetchedAtElement.TryGetDateTimeOffset(out var fetchedAt) || fetchedAt.Offset != TimeSpan.Zero)
         {
-            throw new InvalidDataException($"Cache entry FetchedAt must be a UTC timestamp: {Path.GetFileName(path)}.");
+            throw new InvalidDataException($"Cache entry FetchedAt must be a UTC timestamp: {name}.");
         }
 
         return new(cacheKey, fetchedAt);
@@ -880,23 +850,36 @@ internal static class CacheArchive
     }
 
     /// <summary>
-    /// Rechecks one entry against the filesystem immediately before it is opened. The attributes the
-    /// enumeration reported were read before the rest of the directory was, so by the time this entry is
-    /// reached they are too old to decide whether the path still leads outside the cache. Only the entry
-    /// itself is rechecked: its parent directories were validated in the same pass that located it, and
-    /// re-walking them per entry is what made inspection cost a stat call for every path component.
-    ///
-    /// A failure to read the attributes is raised rather than swallowed. <see cref="ValidateLinkFreePath"/>
-    /// tolerates a missing component because it walks a path whose parents may legitimately not exist yet;
-    /// here the only path is a file the caller is about to open, and treating "it vanished" as "it is fine"
-    /// would let the open proceed against whatever took its place without any check having been made.
-    /// Every way this can fail is an expected failure, so it is reported exactly as a failed open would be.
+    /// Rechecks the entry itself immediately before it is opened; the enumeration's attributes are too old
+    /// by then. Its parents were walked by the pass that located it. A failure to read the attributes is
+    /// raised, not swallowed: the open must never proceed with no check having been made.
     /// </summary>
     private static void ValidateLinkFreeEntry(string path)
     {
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
         {
             throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
+        }
+    }
+
+    /// <summary>
+    /// Rechecks a path about to be written. Unlike <see cref="ValidateLinkFreeEntry"/>, a destination that
+    /// does not exist yet is the ordinary case for a restore; only finding a link there is an answer.
+    /// </summary>
+    private static void ValidateLinkFreeDestination(string path)
+    {
+        try
+        {
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
+            }
+        }
+        catch (FileNotFoundException)
+        {
+        }
+        catch (DirectoryNotFoundException)
+        {
         }
     }
 
@@ -929,6 +912,32 @@ internal static class CacheArchive
         }
     }
 
+    /// <summary>
+    /// Creates a category's directory and walks its whole path once, the first time the category is reached.
+    /// A category with no entry in the archive is never prepared, so a partial archive leaves it untouched.
+    /// </summary>
+    private static string PrepareDestinationRoot(string category, CacheDirectories directories, string?[] prepared)
+    {
+        var index = GetCategoryIndex(category);
+        if (prepared[index] is { } existing) return existing;
+
+        var root = GetCategoryRoot(category, directories);
+        Directory.CreateDirectory(root);
+        ValidateLinkFreePath(root);
+        prepared[index] = root;
+        return root;
+    }
+
+    private static int GetCategoryIndex(string category)
+    {
+        for (var i = 0; i < Categories.Length; i++)
+        {
+            if (string.Equals(Categories[i].Name, category, StringComparison.Ordinal)) return i;
+        }
+
+        throw new InvalidDataException($"Unsupported cache category: {category}.");
+    }
+
     private static string GetCategoryRoot(string category, CacheDirectories directories)
         => category switch
         {
@@ -940,9 +949,15 @@ internal static class CacheArchive
 
     private readonly record struct CacheCategory(string Name);
     private readonly record struct ArchiveSourceEntry(string SourcePath, string ArchivePath, int CategoryIndex);
-    private readonly record struct StagedEntry(string Category, string FileName, string SourcePath);
+    /// <summary>One validated archive entry; <c>Content</c> is its bytes, and null when the read did not retain them.</summary>
+    private readonly record struct ArchiveEntry(
+        string Category,
+        string FileName,
+        byte[]? Content,
+        string CacheKey,
+        DateTimeOffset FetchedAt,
+        long Bytes);
     private readonly record struct CacheEntryMetadata(string CacheKey, DateTimeOffset FetchedAt);
 
-    /// <summary>One hash-named cache file located by inspection, with the size the enumeration already knew.</summary>
     private readonly record struct ManagedCacheFile(string Path, long Bytes);
 }

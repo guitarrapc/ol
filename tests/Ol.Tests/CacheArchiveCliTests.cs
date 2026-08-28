@@ -47,33 +47,6 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
-    public async Task CreatePrivateStagingDirectory_OnUnix_UsesOwnerOnlyPermissions()
-    {
-        var stagingRoot = CacheArchive.CreatePrivateStagingDirectory();
-        try
-        {
-            await Assert.That(Directory.Exists(stagingRoot)).IsTrue();
-            if (OperatingSystem.IsWindows()) return;
-
-            const UnixFileMode accessPermissions = UnixFileMode.UserRead
-                | UnixFileMode.UserWrite
-                | UnixFileMode.UserExecute
-                | UnixFileMode.GroupRead
-                | UnixFileMode.GroupWrite
-                | UnixFileMode.GroupExecute
-                | UnixFileMode.OtherRead
-                | UnixFileMode.OtherWrite
-                | UnixFileMode.OtherExecute;
-            var mode = File.GetUnixFileMode(stagingRoot) & accessPermissions;
-            await Assert.That(mode).IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-        finally
-        {
-            if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
-        }
-    }
-
-    [Test]
     public async Task ValidateArchiveOutputPaths_WhenCreatedDirectoryWasReplacedByLink_Rejects()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-output-link-{Guid.NewGuid():N}");
@@ -1377,6 +1350,270 @@ public sealed class CacheArchiveCliTests
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
+
+    /// <summary>
+    /// Every entry is held in memory until the whole archive validates, each owning its own bytes. A restore
+    /// of many multi-kilobyte entries is compared byte for byte, so an entry that picked up another entry's
+    /// content, or its own truncated, fails here rather than passing an entry count.
+    /// </summary>
+    [Test]
+    public async Task Unpack_WithMultiKilobyteEntries_RestoresEveryEntryIntact()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-multikb-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var restored = Path.Combine(root, "restored");
+        var archive = Path.Combine(root, "cache.olcache");
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+
+        // Each record carries a distinct multi-kilobyte warning, so an entry that picked up another entry's
+        // bytes shows up as a content mismatch rather than passing on an entry count alone.
+        var keys = new string[24];
+        for (var i = 0; i < keys.Length; i++)
+        {
+            keys[i] = FormattableString.Invariant($"pkg:npm/multikb-{i}@1.0.0");
+            await cache.WriteAsync(new PackageMetadataRecord(
+                keys[i],
+                "npm-registry",
+                "MIT",
+                string.Empty,
+                [new string((char)('a' + (i % 26)), 24 * 1024)],
+                []));
+        }
+
+        try
+        {
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", restored);
+
+            await Assert.That(pack.ExitCode).IsEqualTo(0).Because(pack.Stderr);
+            await Assert.That(unpack.ExitCode).IsEqualTo(0).Because(unpack.Stderr);
+            await Assert.That(unpack.Stdout).Contains($"Unpacked {keys.Length} cache entries");
+
+            var restoredCache = new PackageMetadataCache(Path.Combine(restored, "package-metadata"));
+            for (var i = 0; i < keys.Length; i++)
+            {
+                var entry = await restoredCache.TryReadAsync(keys[i]);
+                await Assert.That(entry.IsHit).IsTrue().Because(keys[i]);
+                // IsEquivalentTo compares as a multiset by default, which would pass on reordered bytes.
+                await Assert.That(await File.ReadAllBytesAsync(restoredCache.GetPath(keys[i])))
+                    .IsEquivalentTo(await File.ReadAllBytesAsync(cache.GetPath(keys[i])), TUnit.Assertions.Enums.CollectionOrdering.Matching)
+                    .Because(keys[i]);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Nothing is replaced until the whole archive validates, so a bad entry behind a good one must leave
+    /// the good one unwritten. An archive whose first entry is the bad one cannot show this.
+    /// </summary>
+    [Test]
+    public async Task Unpack_WithInvalidEntryAfterValidEntry_WritesNeither()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-atomic-{Guid.NewGuid():N}");
+        var cacheRoot = Path.Combine(root, "cache");
+        var archive = Path.Combine(root, "cache.olcache");
+        const string validKey = "pkg:npm/valid@1.0.0";
+        var validName = $"{PackageMetadataCache.GetCacheKeySha256(validKey)}.json";
+        var invalidName = $"{new string('0', 64)}.json";
+        Directory.CreateDirectory(root);
+        WriteTestArchive(archive,
+        [
+            (TarEntryType.RegularFile, "ol-cache-manifest.json", """{"FormatVersion":1}"""),
+            (TarEntryType.RegularFile, $"package-metadata/{validName}", CacheEntryJson(validKey)),
+            (TarEntryType.RegularFile, $"package-metadata/{invalidName}", CacheEntryJson("pkg:npm/mismatched@1.0.0")),
+        ]);
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", cacheRoot);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains("Cache entry identity does not match its file name");
+            await Assert.That(Directory.Exists(Path.Combine(cacheRoot, "package-metadata"))).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// An archive entry is judged by the same identity and schema rules as one already on disk. These reach
+    /// that validation only through the archive path, which the file-based tests never exercise.
+    /// </summary>
+    [Test]
+    [Arguments("""{"SchemaVersion":1,"CacheKey":"pkg:npm/other@1.0.0","CacheKeySha256":"0000000000000000000000000000000000000000000000000000000000000000","FetchedAt":"2026-08-01T00:00:00+00:00"}""", "Cache entry identity does not match its file name")]
+    [Arguments("""{"SchemaVersion":2,"CacheKey":"pkg:npm/valid@1.0.0","CacheKeySha256":"%HASH%","FetchedAt":"2026-08-01T00:00:00+00:00"}""", "Cache entry is missing required common fields")]
+    [Arguments("""{"CacheKey":"pkg:npm/valid@1.0.0"}""", "Cache entry is missing required common fields")]
+    [Arguments("""{"SchemaVersion":1,"CacheKey":"pkg:npm/valid@1.0.0","CacheKeySha256":"%HASH%","FetchedAt":"2026-08-01T09:00:00+09:00"}""", "Cache entry FetchedAt must be a UTC timestamp")]
+    public async Task Unpack_WithInvalidEntryContent_Rejects(string content, string expectedError)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-entry-content-{Guid.NewGuid():N}");
+        var cacheRoot = Path.Combine(root, "cache");
+        var archive = Path.Combine(root, "cache.olcache");
+        const string cacheKey = "pkg:npm/valid@1.0.0";
+        var hash = PackageMetadataCache.GetCacheKeySha256(cacheKey);
+        var fileName = $"{hash}.json";
+
+        // A case that names one rule has to reach it, so a case that states a digest states the one its own
+        // file name states; only the field under test is wrong.
+        content = content.Replace("%HASH%", hash, StringComparison.Ordinal);
+        Directory.CreateDirectory(root);
+        WriteTestArchive(archive,
+        [
+            (TarEntryType.RegularFile, "ol-cache-manifest.json", """{"FormatVersion":1}"""),
+            (TarEntryType.RegularFile, $"package-metadata/{fileName}", content),
+        ]);
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", cacheRoot);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains(expectedError);
+            await Assert.That(Directory.Exists(Path.Combine(cacheRoot, "package-metadata"))).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A link planted where an entry will be written is caught by the recheck that runs between the temporary
+    /// write and the replacement; the checks before the restore loop validate the cache paths, not the entry.
+    /// That recheck is the only thing standing between the archive and the link, so this is what pins it.
+    /// </summary>
+    [Test]
+    public async Task Unpack_WithLinkedDestinationEntry_RejectsWithoutFollowingIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-linked-destination-{Guid.NewGuid():N}");
+        var cacheRoot = Path.Combine(root, "cache");
+        var archive = Path.Combine(root, "cache.olcache");
+        var outside = Path.Combine(root, "outside.json");
+        const string cacheKey = "pkg:npm/valid@1.0.0";
+        var fileName = $"{PackageMetadataCache.GetCacheKeySha256(cacheKey)}.json";
+        Directory.CreateDirectory(Path.Combine(cacheRoot, "package-metadata"));
+        await File.WriteAllTextAsync(outside, "keep", Encoding.UTF8);
+        WriteTestArchive(archive,
+        [
+            (TarEntryType.RegularFile, "ol-cache-manifest.json", """{"FormatVersion":1}"""),
+            (TarEntryType.RegularFile, $"package-metadata/{fileName}", CacheEntryJson(cacheKey)),
+        ]);
+        var link = Path.Combine(cacheRoot, "package-metadata", fileName);
+        File.CreateSymbolicLink(link, outside);
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", cacheRoot);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+            await Assert.That(await File.ReadAllTextAsync(outside)).IsEqualTo("keep");
+        }
+        finally
+        {
+            if (File.Exists(link)) File.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>Files that are not managed entries are counted, not interpreted, and never read.</summary>
+    [Test]
+    public async Task CacheInfo_WithUnmanagedSiblings_ReportsTheirCount()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-unmanaged-count-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        var cache = new PackageMetadataCache(category);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+        await File.WriteAllTextAsync(Path.Combine(category, "notes.txt"), "unmanaged");
+        await File.WriteAllTextAsync(Path.Combine(category, "README"), "unmanaged");
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source, "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+
+            // Anchored to the package-metadata row: a count attributed to another category would still put
+            // the same text somewhere in the table.
+            var row = Array.Find(
+                result.Stdout.ReplaceLineEndings("\n").Split('\n'),
+                line => line.StartsWith("| package-metadata |", StringComparison.Ordinal));
+            await Assert.That(row).IsNotNull();
+            await Assert.That(row!).Contains("| 1 entry |");
+            await Assert.That(row!).EndsWith("| 2 |");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Replacement is per entry, not transactional. A link found at one destination rejects the run with the
+    /// entries before it already replaced, which is what the specification says and what a caller has to
+    /// expect; the link itself is still never followed.
+    /// </summary>
+    [Test]
+    public async Task Unpack_WithLinkedDestinationAfterValidEntries_KeepsTheEntriesAlreadyReplaced()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-partial-{Guid.NewGuid():N}");
+        var cacheRoot = Path.Combine(root, "cache");
+        var category = Path.Combine(cacheRoot, "package-metadata");
+        var archive = Path.Combine(root, "cache.olcache");
+        var outside = Path.Combine(root, "outside.json");
+
+        // Archive entries are ordered by their opaque name, so the linked one has to sort last for the
+        // entries before it to have been replaced by the time it is reached.
+        var keys = new[] { "pkg:npm/first@1.0.0", "pkg:npm/second@1.0.0", "pkg:npm/third@1.0.0" };
+        var names = new string[keys.Length];
+        for (var i = 0; i < keys.Length; i++) names[i] = $"{PackageMetadataCache.GetCacheKeySha256(keys[i])}.json";
+        Array.Sort(names, StringComparer.Ordinal);
+        var linked = names[^1];
+
+        Directory.CreateDirectory(category);
+        await File.WriteAllTextAsync(outside, "keep", Encoding.UTF8);
+        var entries = new (TarEntryType Type, string Name, string Content)[keys.Length + 1];
+        entries[0] = (TarEntryType.RegularFile, "ol-cache-manifest.json", """{"FormatVersion":1}""");
+        for (var i = 0; i < names.Length; i++)
+        {
+            var key = Array.Find(keys, candidate => $"{PackageMetadataCache.GetCacheKeySha256(candidate)}.json" == names[i])!;
+            entries[i + 1] = (TarEntryType.RegularFile, $"package-metadata/{names[i]}", CacheEntryJson(key));
+        }
+
+        WriteTestArchive(archive, entries);
+        var link = Path.Combine(category, linked);
+        File.CreateSymbolicLink(link, outside);
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", cacheRoot);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+
+            // The link is rejected rather than followed, and the entries that preceded it stayed.
+            await Assert.That(await File.ReadAllTextAsync(outside)).IsEqualTo("keep");
+            for (var i = 0; i < names.Length - 1; i++)
+            {
+                await Assert.That(File.Exists(Path.Combine(category, names[i]))).IsTrue().Because(names[i]);
+            }
+        }
+        finally
+        {
+            if (File.Exists(link)) File.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string CacheEntryJson(string cacheKey)
+        => FormattableString.Invariant($$"""{"SchemaVersion":1,"CacheKey":"{{cacheKey}}","CacheKeySha256":"{{PackageMetadataCache.GetCacheKeySha256(cacheKey)}}","FetchedAt":"2026-08-01T00:00:00+00:00"}""");
 
     private static void WriteTestArchive(string path, (TarEntryType Type, string Name, string Content)[] entries)
     {

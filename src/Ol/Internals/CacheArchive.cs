@@ -232,6 +232,12 @@ internal static class CacheArchive
             var destinationRoot = PrepareDestinationRoot(entries[i].Category, directories, destinationRoots);
             var destinationPath = Path.Combine(destinationRoot, entries[i].FileName);
             var temporaryPath = Path.Combine(destinationRoot, $".{entries[i].FileName}.{Guid.NewGuid():N}.tmp");
+
+            // The temporary file is the first thing a restore writes, and it is written into this directory,
+            // so the directory is checked here as well as before the replacement. Only the first entry of a
+            // category is preceded by the walk in PrepareDestinationRoot; without this, every entry after it
+            // would write before anything looked at the directory again.
+            ValidateLinkFreeDestination(destinationRoot);
             try
             {
                 using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))

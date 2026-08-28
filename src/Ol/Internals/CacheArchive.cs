@@ -235,19 +235,25 @@ internal static class CacheArchive
         try
         {
             var stagedEntries = ReadArchive(inputPath, stagingRoot, DefaultLimits);
+
+            // Every entry of a category is restored into one directory, so that directory is created and its
+            // whole path walked once for the category rather than once for each entry written into it.
+            var destinationRoots = new string?[Categories.Length];
             for (var i = 0; i < stagedEntries.Count; i++)
             {
-                var destinationRoot = GetCategoryRoot(stagedEntries[i].Category, directories);
-                Directory.CreateDirectory(destinationRoot);
-                ValidateLinkFreePath(destinationRoot);
+                var destinationRoot = PrepareDestinationRoot(stagedEntries[i].Category, directories, destinationRoots);
                 var destinationPath = Path.Combine(destinationRoot, stagedEntries[i].FileName);
-                ValidateLinkFreePath(destinationPath);
+                ValidateLinkFreeDestination(destinationRoot);
+                ValidateLinkFreeDestination(destinationPath);
                 var temporaryPath = Path.Combine(destinationRoot, $".{stagedEntries[i].FileName}.{Guid.NewGuid():N}.tmp");
                 try
                 {
                     File.Copy(stagedEntries[i].StagedPath!, temporaryPath, overwrite: false);
-                    ValidateLinkFreePath(destinationRoot);
-                    ValidateLinkFreePath(destinationPath);
+
+                    // Replacement is the step a link would redirect, so the directory it lands in and the name
+                    // it takes are both read again here instead of being trusted from a moment ago.
+                    ValidateLinkFreeDestination(destinationRoot);
+                    ValidateLinkFreeDestination(destinationPath);
                     File.Move(temporaryPath, destinationPath, overwrite: true);
                 }
                 finally
@@ -927,6 +933,30 @@ internal static class CacheArchive
         }
     }
 
+    /// <summary>
+    /// Rechecks one path that is about to be written to, immediately before the write resolves it. Unlike
+    /// <see cref="ValidateLinkFreeEntry"/>, which guards a file the caller is about to read and so treats a
+    /// vanished path as a failure, a destination that does not exist yet is the ordinary case for a restore:
+    /// only finding a link there is an answer. The path's ancestors are walked once per run by
+    /// <see cref="PrepareDestinationRoot"/>; this covers the two paths the write itself resolves.
+    /// </summary>
+    private static void ValidateLinkFreeDestination(string path)
+    {
+        try
+        {
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
+            }
+        }
+        catch (FileNotFoundException)
+        {
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
+    }
+
     private static void ValidateLinkFreePath(string path, string pathKind = "Cache")
     {
         var fullPath = Path.GetFullPath(path);
@@ -954,6 +984,33 @@ internal static class CacheArchive
             {
             }
         }
+    }
+
+    /// <summary>
+    /// Returns the directory a category is restored into, creating it and walking its whole path the first
+    /// time the category is reached. A category with no entry in the archive is never prepared, so restoring
+    /// a partial archive still leaves the categories it says nothing about untouched.
+    /// </summary>
+    private static string PrepareDestinationRoot(string category, CacheDirectories directories, string?[] prepared)
+    {
+        var index = GetCategoryIndex(category);
+        if (prepared[index] is { } existing) return existing;
+
+        var root = GetCategoryRoot(category, directories);
+        Directory.CreateDirectory(root);
+        ValidateLinkFreePath(root);
+        prepared[index] = root;
+        return root;
+    }
+
+    private static int GetCategoryIndex(string category)
+    {
+        for (var i = 0; i < Categories.Length; i++)
+        {
+            if (string.Equals(Categories[i].Name, category, StringComparison.Ordinal)) return i;
+        }
+
+        throw new InvalidDataException($"Unsupported cache category: {category}.");
     }
 
     private static string GetCategoryRoot(string category, CacheDirectories directories)

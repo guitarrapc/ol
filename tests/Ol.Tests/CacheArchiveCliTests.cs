@@ -189,6 +189,86 @@ public sealed class CacheArchiveCliTests
         }
     }
 
+    /// <summary>
+    /// Counting and sizing an entry never depended on its content validating, so a corrupt entry has to stay
+    /// in the totals rather than fail the command. This is what lets the listing skip reading entries at all.
+    /// </summary>
+    [Test]
+    public async Task CacheList_WithInvalidEntry_CountsItWithoutFailing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-list-invalid-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        const string cacheKey = "pkg:npm/invalid@1.0.0";
+        Directory.CreateDirectory(category);
+        await File.WriteAllTextAsync(Path.Combine(category, $"{PackageMetadataCache.GetCacheKeySha256(cacheKey)}.json"), "{}");
+
+        try
+        {
+            var result = await RunOlAsync("cache", "list", "--cache-dir", source);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Total: 1 entry");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>A listing still refuses to describe an entry that points outside the cache.</summary>
+    [Test]
+    public async Task CacheList_WithLinkedManagedEntry_RejectsCacheTarget()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-list-linked-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source", "package-metadata");
+        var outside = Path.Combine(root, "outside");
+        var outsideCache = new PackageMetadataCache(outside);
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        Directory.CreateDirectory(source);
+        await outsideCache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+        var link = Path.Combine(source, Path.GetFileName(outsideCache.GetPath(cacheKey)));
+        File.CreateSymbolicLink(link, outsideCache.GetPath(cacheKey));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "list", "--cache-dir", Path.Combine(root, "source"));
+
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+        }
+        finally
+        {
+            if (File.Exists(link)) File.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>Unknown sibling files are not entries, so they change neither the count nor the bytes.</summary>
+    [Test]
+    public async Task CacheList_WithUnmanagedSibling_ExcludesItFromCountsAndBytes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-list-sibling-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        var cache = new PackageMetadataCache(category);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+        await File.WriteAllTextAsync(Path.Combine(category, "notes.txt"), new string('x', 4096));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "list", "--cache-dir", source);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Total: 1 entry");
+            await Assert.That(result.Stdout).DoesNotContain("4.0 KiB");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Test]
     public async Task CacheInfo_WithDirectoryAndArchive_ShowsLogicalEntries()
     {
@@ -201,10 +281,10 @@ public sealed class CacheArchiveCliTests
 
         try
         {
-            var directory = await RunOlAsync("cache", "info", source);
+            var directory = await RunOlAsync("cache", "info", source, "--verbose");
             var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
-            var packed = await RunOlAsync("cache", "info", archive);
-            var packedMarkdown = await RunOlAsync("cache", "info", archive, "--format", "markdown");
+            var packed = await RunOlAsync("cache", "info", archive, "--verbose");
+            var packedMarkdown = await RunOlAsync("cache", "info", archive, "--format", "markdown", "--verbose");
 
             await Assert.That(directory.ExitCode).IsEqualTo(0).Because(directory.Stderr);
             await Assert.That(directory.Stdout).Contains("Cache directory");
@@ -242,7 +322,7 @@ public sealed class CacheArchiveCliTests
 
         try
         {
-            var result = await RunOlAsync("cache", "info", source, "--format", "markdown");
+            var result = await RunOlAsync("cache", "info", source, "--format", "markdown", "--verbose");
             var output = result.Stdout.ReplaceLineEndings("\n");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
@@ -269,7 +349,7 @@ public sealed class CacheArchiveCliTests
 
         try
         {
-            var result = await RunOlAsync("cache", "info", source, "--format", "text");
+            var result = await RunOlAsync("cache", "info", source, "--format", "text", "--verbose");
             var output = result.Stdout.ReplaceLineEndings("\n");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
@@ -326,7 +406,7 @@ public sealed class CacheArchiveCliTests
 
         try
         {
-            var result = await RunOlAsync("cache", "info", string.Concat(category, Path.DirectorySeparatorChar));
+            var result = await RunOlAsync("cache", "info", string.Concat(category, Path.DirectorySeparatorChar), "--verbose");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
             await Assert.That(result.Stdout).Contains("Entries       1 entry");
@@ -352,7 +432,7 @@ public sealed class CacheArchiveCliTests
 
         try
         {
-            var result = await RunOlAsync("cache", "info", Path.Combine(root, "PACKAGE-METADATA"));
+            var result = await RunOlAsync("cache", "info", Path.Combine(root, "PACKAGE-METADATA"), "--verbose");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
             await Assert.That(result.Stdout).Contains("Entries       1 entry");
@@ -376,7 +456,7 @@ public sealed class CacheArchiveCliTests
 
         try
         {
-            var result = await RunOlAsync("cache", "info", source);
+            var result = await RunOlAsync("cache", "info", source, "--verbose");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
             await Assert.That(result.Stdout).Contains("Entries       1 entry");
@@ -386,6 +466,33 @@ public sealed class CacheArchiveCliTests
         finally
         {
             if (Directory.Exists(parent)) Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CacheInfo_WithLinkedEntry_RejectsCacheTarget()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-linked-entry-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source", "package-metadata");
+        var outside = Path.Combine(root, "outside");
+        var outsideCache = new PackageMetadataCache(outside);
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        Directory.CreateDirectory(source);
+        await outsideCache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+        var link = Path.Combine(source, Path.GetFileName(outsideCache.GetPath(cacheKey)));
+        File.CreateSymbolicLink(link, outsideCache.GetPath(cacheKey));
+
+        try
+        {
+            var info = await RunOlAsync("cache", "info", "--cache-dir", Path.Combine(root, "source"));
+
+            await Assert.That(info.ExitCode).IsEqualTo(1);
+            await Assert.That(info.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+        }
+        finally
+        {
+            if (File.Exists(link)) File.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
 
@@ -420,7 +527,7 @@ public sealed class CacheArchiveCliTests
 
         try
         {
-            var result = await RunOlAsync("cache", "info", source, "--format", "markdown");
+            var result = await RunOlAsync("cache", "info", source, "--format", "markdown", "--verbose");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
             await Assert.That(result.Stdout).Contains("&lt;details&gt;\\*\\*cache\\*\\* \\[link\\]\\(https://example.com\\) \\`code\\` &amp;copy;\\|x&lt;/details&gt;");
@@ -451,6 +558,105 @@ public sealed class CacheArchiveCliTests
             await Assert.That(result.Stdout).Contains("| package-metadata | - | - |");
             await Assert.That(result.Stdout).Contains($"File: {fileName};");
             await Assert.That(result.Stdout).DoesNotContain($"| package-metadata | {fileName} | - |");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The default report answers "is this cache healthy" rather than listing a cache that routinely holds
+    /// thousands of valid entries, so a valid entry is counted by the category table and nothing more.
+    /// </summary>
+    [Test]
+    public async Task CacheInfo_WithoutVerbose_ReportsOnlyInvalidEntries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-default-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        const string validKey = "pkg:npm/valid@1.0.0";
+        const string invalidKey = "pkg:npm/invalid@1.0.0";
+        var invalidName = $"{PackageMetadataCache.GetCacheKeySha256(invalidKey)}.json";
+        var cache = new PackageMetadataCache(category);
+        await cache.WriteAsync(new PackageMetadataRecord(validKey, "npm-registry", "MIT", string.Empty, [], []));
+        await File.WriteAllTextAsync(Path.Combine(category, invalidName), "{}");
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source);
+            var verbose = await RunOlAsync("cache", "info", source, "--verbose");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Invalid entries:");
+            await Assert.That(result.Stdout).DoesNotContain("Entries:\n");
+            await Assert.That(result.Stdout).Contains($"File: {invalidName};");
+            await Assert.That(result.Stdout).DoesNotContain(validKey);
+
+            // The counts stay whole even though the listing is filtered, so the summary still describes the cache.
+            await Assert.That(result.Stdout).Contains("Entries       2 entries");
+
+            await Assert.That(verbose.ExitCode).IsEqualTo(0).Because(verbose.Stderr);
+            await Assert.That(verbose.Stdout).Contains(validKey);
+            await Assert.That(verbose.Stdout).Contains($"File: {invalidName};");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>An all-valid cache is the common case, and it has to say so rather than look empty.</summary>
+    [Test]
+    public async Task CacheInfo_WithOnlyValidEntries_ReportsNoInvalidEntries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-valid-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var text = await RunOlAsync("cache", "info", source);
+            var markdown = await RunOlAsync("cache", "info", source, "--format", "markdown");
+
+            await Assert.That(text.ExitCode).IsEqualTo(0).Because(text.Stderr);
+            await Assert.That(text.Stdout).Contains("No invalid entries.");
+            await Assert.That(text.Stdout).DoesNotContain("No managed entries.");
+            await Assert.That(markdown.Stdout).Contains("## Invalid entries");
+            await Assert.That(markdown.Stdout).Contains("| - | - | - | - | - | No invalid entries. |");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Entries are named after an opaque digest, so ordering by file name scattered the cache keys a reader
+    /// searches by. The listing is ordered by that key instead.
+    /// </summary>
+    [Test]
+    public async Task CacheInfo_WithVerbose_OrdersEntriesByCacheKey()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-order-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var cache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        string[] keys = ["pkg:npm/aaa@1.0.0", "pkg:npm/bbb@1.0.0", "pkg:npm/ccc@1.0.0", "pkg:npm/ddd@1.0.0"];
+        foreach (var key in keys)
+        {
+            await cache.WriteAsync(new PackageMetadataRecord(key, "npm-registry", "MIT", string.Empty, [], []));
+        }
+
+        try
+        {
+            var result = await RunOlAsync("cache", "info", source, "--verbose");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            var offsets = new int[keys.Length];
+            for (var i = 0; i < keys.Length; i++) offsets[i] = result.Stdout.IndexOf(keys[i], StringComparison.Ordinal);
+            for (var i = 0; i < keys.Length; i++) await Assert.That(offsets[i]).IsGreaterThan(-1);
+            for (var i = 1; i < keys.Length; i++) await Assert.That(offsets[i]).IsGreaterThan(offsets[i - 1]);
         }
         finally
         {

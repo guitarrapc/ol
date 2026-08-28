@@ -113,7 +113,6 @@ internal static class CacheArchive
     private const string ManifestContent = "{\"FormatVersion\":1}";
     private const int MaximumStackCacheKeyBytes = 512;
     private const int InitialManagedFileCapacity = 256;
-    private const int InitialContentCapacity = 256 * 1024;
     private const int CacheKeyHashLength = 64;
     private const int CacheFileNameLength = CacheKeyHashLength + 5;
 
@@ -224,43 +223,34 @@ internal static class CacheArchive
             throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
         }
 
-        // The whole archive is validated in memory before anything is written; the expanded-size limit that
-        // already bounds the archive bounds this buffer, so no staging copy has to exist on disk.
-        var entries = ReadArchive(inputPath, retainContent: true, DefaultLimits, out var content);
-        try
+        // Validated in full before anything is written, and each entry owns its bytes, so what a restore
+        // holds is the expanded content itself rather than a buffer that has to grow to fit it.
+        var entries = ReadArchive(inputPath, retainContent: true, DefaultLimits);
+        var destinationRoots = new string?[Categories.Length];
+        for (var i = 0; i < entries.Count; i++)
         {
-            var destinationRoots = new string?[Categories.Length];
-            for (var i = 0; i < entries.Count; i++)
+            var destinationRoot = PrepareDestinationRoot(entries[i].Category, directories, destinationRoots);
+            var destinationPath = Path.Combine(destinationRoot, entries[i].FileName);
+            var temporaryPath = Path.Combine(destinationRoot, $".{entries[i].FileName}.{Guid.NewGuid():N}.tmp");
+            try
             {
-                var destinationRoot = PrepareDestinationRoot(entries[i].Category, directories, destinationRoots);
-                var destinationPath = Path.Combine(destinationRoot, entries[i].FileName);
+                using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    output.Write(entries[i].Content ?? throw new InvalidDataException($"Cache entry content was not retained: {entries[i].FileName}."));
+                }
+
+                // Rechecked because replacement is the step a link would redirect.
                 ValidateLinkFreeDestination(destinationRoot);
                 ValidateLinkFreeDestination(destinationPath);
-                var temporaryPath = Path.Combine(destinationRoot, $".{entries[i].FileName}.{Guid.NewGuid():N}.tmp");
-                try
-                {
-                    using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                    {
-                        output.Write(content!.AsSpan(entries[i].ContentOffset, (int)entries[i].Bytes));
-                    }
-
-                    // Rechecked because replacement is the step a link would redirect.
-                    ValidateLinkFreeDestination(destinationRoot);
-                    ValidateLinkFreeDestination(destinationPath);
-                    File.Move(temporaryPath, destinationPath, overwrite: true);
-                }
-                finally
-                {
-                    if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-                }
+                File.Move(temporaryPath, destinationPath, overwrite: true);
             }
+            finally
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
+        }
 
-            return entries.Count;
-        }
-        finally
-        {
-            if (content is not null) ArrayPool<byte>.Shared.Return(content);
-        }
+        return entries.Count;
     }
 
     /// <summary>
@@ -388,7 +378,7 @@ internal static class CacheArchive
             throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
         }
 
-        var archiveEntries = ReadArchive(archivePath, retainContent: false, DefaultLimits, out _);
+        var archiveEntries = ReadArchive(archivePath, retainContent: false, DefaultLimits);
         var categories = new List<CacheCategoryInfo>(Categories.Length);
         for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
         {
@@ -469,15 +459,6 @@ internal static class CacheArchive
     {
         var byCacheKey = StringComparer.Ordinal.Compare(left.CacheKey, right.CacheKey);
         return byCacheKey != 0 ? byCacheKey : StringComparer.Ordinal.Compare(left.Name, right.Name);
-    }
-
-    private static void GrowContent(ref byte[] buffer, int used, int needed)
-    {
-        var grown = ArrayPool<byte>.Shared.Rent(Math.Max(needed, buffer.Length * 2));
-        buffer.AsSpan(0, used).CopyTo(grown);
-        var replaced = buffer;
-        buffer = grown;
-        ArrayPool<byte>.Shared.Return(replaced);
     }
 
     private static void Grow(ref ManagedCacheFile[] buffer, int count)
@@ -603,35 +584,14 @@ internal static class CacheArchive
     }
 
     /// <summary>
-    /// Reads an archive once and returns what validating it established. With <paramref name="retainContent"/>,
-    /// every entry's bytes are also kept, concatenated in <paramref name="content"/>, which the caller owns and
-    /// must return to <see cref="ArrayPool{T}.Shared"/>; on failure this method returns it and hands out null.
-    /// Inspection reports and discards, so it passes false.
+    /// Reads an archive once and returns what validating it established. With <paramref name="retainContent"/>
+    /// each entry also keeps its own bytes, so the caller can write them out without reading the archive
+    /// again; inspection reports and discards, so it passes false and every entry is read into scratch.
     /// </summary>
-    private static List<ArchiveEntry> ReadArchive(string inputPath, bool retainContent, CacheArchiveLimits limits, out byte[]? content)
-    {
-        content = retainContent ? ArrayPool<byte>.Shared.Rent(InitialContentCapacity) : null;
-        try
-        {
-            return ReadArchiveCore(inputPath, limits, ref content);
-        }
-        catch
-        {
-            if (content is not null)
-            {
-                ArrayPool<byte>.Shared.Return(content);
-                content = null;
-            }
-
-            throw;
-        }
-    }
-
-    private static List<ArchiveEntry> ReadArchiveCore(string inputPath, CacheArchiveLimits limits, ref byte[]? content)
+    private static List<ArchiveEntry> ReadArchive(string inputPath, bool retainContent, CacheArchiveLimits limits)
     {
         var entries = new List<ArchiveEntry>();
         var names = new HashSet<string>(StringComparer.Ordinal);
-        var contentLength = 0;
         var manifestSeen = false;
         long expandedBytes = 0;
         using var input = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -666,16 +626,15 @@ internal static class CacheArchive
             if (entry.Length == 0) throw new InvalidDataException($"Cache entry size is invalid: {fileName}.");
 
             var length = (int)entry.Length;
-            var offset = -1;
             CacheEntryMetadata metadata;
-            if (content is not null)
+            byte[]? retained = null;
+            if (retainContent)
             {
-                // Read straight into the retained buffer; validation parses the bytes where they will stay.
-                offset = contentLength;
-                if (contentLength + length > content.Length) GrowContent(ref content, contentLength, contentLength + length);
-                entry.DataStream.ReadExactly(content.AsSpan(offset, length));
-                metadata = ReadCacheEntryContent(fileName.AsSpan(0, CacheKeyHashLength), fileName, content.AsMemory(offset, length));
-                contentLength += length;
+                // Retained bytes outlive the read and are exactly the entry, so the entry owns its own array
+                // rather than a slice of a shared one that would have to grow, copy, and be returned.
+                retained = GC.AllocateUninitializedArray<byte>(length);
+                entry.DataStream.ReadExactly(retained);
+                metadata = ReadCacheEntryContent(fileName.AsSpan(0, CacheKeyHashLength), fileName, retained);
             }
             else
             {
@@ -691,7 +650,7 @@ internal static class CacheArchive
                 }
             }
 
-            entries.Add(new(category, fileName, offset, metadata.CacheKey, metadata.FetchedAt, length));
+            entries.Add(new(category, fileName, retained, metadata.CacheKey, metadata.FetchedAt, length));
         }
 
         if (!manifestSeen) throw new InvalidDataException("Archive manifest is missing.");
@@ -773,7 +732,7 @@ internal static class CacheArchive
         // A stream parse would have skipped the UTF-8 preamble; reading the bytes ourselves does not.
         if (content.Span.StartsWith(Utf8Preamble)) content = content[Utf8Preamble.Length..];
 
-        // The document reads straight out of the rented buffer, so it must not outlive this scope.
+        // The document reads straight out of the caller's buffer, so it must not outlive this scope.
         using var document = JsonDocument.Parse(content, new JsonDocumentOptions { MaxDepth = 64 });
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object
@@ -984,11 +943,11 @@ internal static class CacheArchive
 
     private readonly record struct CacheCategory(string Name);
     private readonly record struct ArchiveSourceEntry(string SourcePath, string ArchivePath, int CategoryIndex);
-    /// <summary>One validated archive entry; <c>ContentOffset</c> locates its bytes in the retained buffer, -1 when content was not retained.</summary>
+    /// <summary>One validated archive entry; <c>Content</c> is its bytes, and null when the read did not retain them.</summary>
     private readonly record struct ArchiveEntry(
         string Category,
         string FileName,
-        int ContentOffset,
+        byte[]? Content,
         string CacheKey,
         DateTimeOffset FetchedAt,
         long Bytes);

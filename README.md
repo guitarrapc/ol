@@ -225,7 +225,7 @@ Options:
   --spdx-data <string?>                 Directory containing licenses.json and exceptions.json. [Default: null]
   --quiet                               Suppress stderr summary.
   --refresh                             Ignore cached package metadata, source repository, and GitHub file entries and fetch them again.
-  --cache-dir <string?>                 Root directory for isolated package-metadata, source-repository, and github-file caches. [Default: null]
+  --cache-dir <string?>                 Root directory for isolated package-metadata, source-repository, and GitHub file caches. [Default: null]
   --no-external-evidence                Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
   --skip-evidence-packages <string?>    Comma-separated package URL prefixes whose external evidence is never collected. A prefix may stop at the ecosystem, as in pkg:github/. [Default: null]
   --concurrency <int>                   Maximum concurrent package metadata and source repository lookups. [Default: 0]

@@ -223,10 +223,10 @@ Options:
   --sort-order <SortOrder>              Sort order: asc or desc. [Default: Asc]
   --spdx-data <string?>                 Directory containing licenses.json and exceptions.json. [Default: null]
   --quiet                               Suppress stderr summary.
-  --refresh                             Ignore cached package metadata and source repository entries and fetch them again.
-  --cache-dir <string?>                 Root directory for isolated package-metadata and source-repository caches. [Default: null]
+  --refresh                             Ignore cached package metadata, source repository, and GitHub file entries and fetch them again.
+  --cache-dir <string?>                 Root directory for isolated package-metadata, source-repository, and GitHub file caches. [Default: null]
   --no-external-evidence                Use only license evidence declared in the input; package registries, source repositories, and their caches are never read.
-  --skip-evidence-packages <string?>    Comma-separated package URL prefixes whose external evidence is never collected. [Default: null]
+  --skip-evidence-packages <string?>    Comma-separated package URL prefixes whose external evidence is never collected. A prefix may stop at the ecosystem, as in pkg:github/. [Default: null]
   --concurrency <int>                   Maximum concurrent package metadata and source repository lookups. [Default: 0]
   --retry <int>                         Retry count for package registry and GitHub License API requests. [Default: 1]
 ```
@@ -243,7 +243,7 @@ Options:
   --report <string>                 Persisted canonical JSON scan report to evaluate. [Required]
   --allow-licenses <string>         Comma-separated SPDX License Identifiers. [Required]
   --allow-dev-licenses <string?>    Comma-separated SPDX License Identifiers additionally allowed for development-only components. [Default: null]
-  --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. [Default: null]
+  --exclude-packages <string?>      Comma-separated package URL prefixes whose components are not evaluated. A prefix may stop at the ecosystem, as in pkg:github/. [Default: null]
   --spdx-data <string?>             Directory containing licenses.json and exceptions.json. [Default: null]
   --verbose                         Include persisted report diagnostics.
   --baseline <string[]?>            Repeatable baseline files acknowledging already reviewed unresolved components. A component is acknowledged when any of them states it. [Default: null]

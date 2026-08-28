@@ -245,7 +245,7 @@ internal static class CacheArchive
                 var temporaryPath = Path.Combine(destinationRoot, $".{stagedEntries[i].FileName}.{Guid.NewGuid():N}.tmp");
                 try
                 {
-                    File.Copy(stagedEntries[i].SourcePath, temporaryPath, overwrite: false);
+                    File.Copy(stagedEntries[i].StagedPath!, temporaryPath, overwrite: false);
                     ValidateLinkFreePath(destinationRoot);
                     ValidateLinkFreePath(destinationPath);
                     File.Move(temporaryPath, destinationPath, overwrite: true);
@@ -405,37 +405,27 @@ internal static class CacheArchive
             throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
         }
 
-        var stagingRoot = CreatePrivateStagingDirectory();
-        try
+        // Reading the archive validated every entry and kept what that established, so inspection reports
+        // those results instead of writing the entries out and reading each one back to learn them again.
+        var archiveEntries = ReadArchive(archivePath, stagingRoot: null, DefaultLimits);
+        var categories = new List<CacheCategoryInfo>(Categories.Length);
+        for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
         {
-            var stagedEntries = ReadArchive(archivePath, stagingRoot, DefaultLimits);
-            var categories = new List<CacheCategoryInfo>(Categories.Length);
-            for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
+            var category = Categories[categoryIndex].Name;
+            var entries = new List<CacheEntryInfo>();
+            for (var i = 0; i < archiveEntries.Count; i++)
             {
-                var category = Categories[categoryIndex].Name;
-                var entries = new List<CacheEntryInfo>();
-                for (var i = 0; i < stagedEntries.Count; i++)
-                {
-                    if (!string.Equals(stagedEntries[i].Category, category, StringComparison.Ordinal)) continue;
-                    var staged = stagedEntries[i];
+                var archiveEntry = archiveEntries[i];
+                if (!string.Equals(archiveEntry.Category, category, StringComparison.Ordinal)) continue;
 
-                    // The size the read enforces its limit against and the size the entry reports are the
-                    // same fact, so it is measured once and both uses read the value that was measured.
-                    var bytes = new FileInfo(staged.SourcePath).Length;
-                    var metadata = ReadCacheEntryMetadata(staged.SourcePath, staged.FileName.AsSpan(0, CacheKeyHashLength), bytes, DefaultLimits.MaximumEntryBytes);
-                    entries.Add(new(category, null, metadata.CacheKey, metadata.FetchedAt, bytes, null));
-                }
-
-                entries.Sort(CompareEntries);
-                categories.Add(new(category, category, entries, 0));
+                entries.Add(new(category, null, archiveEntry.CacheKey, archiveEntry.FetchedAt, archiveEntry.Bytes, null));
             }
 
-            return new(true, archivePath, categories);
+            entries.Sort(CompareEntries);
+            categories.Add(new(category, category, entries, 0));
         }
-        finally
-        {
-            if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
-        }
+
+        return new(true, archivePath, categories);
     }
 
     private static CacheCategoryInfo InspectCategory(string category, string root)
@@ -643,10 +633,17 @@ internal static class CacheArchive
         return entries;
     }
 
-    private static List<StagedEntry> ReadArchive(string inputPath, string stagingRoot, CacheArchiveLimits limits)
+    /// <summary>
+    /// Reads an archive once, validating every entry it contains and returning what that validation already
+    /// established about each one. <paramref name="stagingRoot"/> is supplied only by a caller that has to
+    /// put the entries somewhere before acting on them: inspection reports what the archive says and needs
+    /// no copy on disk, so it passes null and the entries are validated where they were decompressed.
+    /// </summary>
+    private static List<ArchiveEntry> ReadArchive(string inputPath, string? stagingRoot, CacheArchiveLimits limits)
     {
-        var entries = new List<StagedEntry>();
+        var entries = new List<ArchiveEntry>();
         var names = new HashSet<string>(StringComparer.Ordinal);
+        var stagedCategories = new HashSet<string>(StringComparer.Ordinal);
         var manifestSeen = false;
         long expandedBytes = 0;
         using var input = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -678,16 +675,35 @@ internal static class CacheArchive
             if (!IsCategory(category)) throw new InvalidDataException($"Unsupported cache category: {category}.");
             var fileName = entry.Name[(separator + 1)..];
             ValidateCacheFileName(fileName);
-            var stagedCategory = Path.Combine(stagingRoot, category);
-            Directory.CreateDirectory(stagedCategory);
-            var stagedPath = Path.Combine(stagedCategory, fileName);
-            using (var output = new FileStream(stagedPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            if (entry.Length == 0) throw new InvalidDataException($"Cache entry size is invalid: {fileName}.");
+
+            // The decompressed content is held once, in a rented buffer, and every use reads it from there:
+            // the entry is validated where it lies, and a caller that asked for staging gets the same bytes
+            // written out rather than written and then read back to be checked.
+            var length = (int)entry.Length;
+            var buffer = ArrayPool<byte>.Shared.Rent(length);
+            string? stagedPath = null;
+            CacheEntryMetadata metadata;
+            try
             {
-                entry.DataStream.CopyTo(output);
+                entry.DataStream.ReadExactly(buffer.AsSpan(0, length));
+                if (stagingRoot is not null)
+                {
+                    var stagedCategory = Path.Combine(stagingRoot, category);
+                    if (stagedCategories.Add(category)) Directory.CreateDirectory(stagedCategory);
+                    stagedPath = Path.Combine(stagedCategory, fileName);
+                    using var output = new FileStream(stagedPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                    output.Write(buffer.AsSpan(0, length));
+                }
+
+                metadata = ReadCacheEntryContent(fileName.AsSpan(0, CacheKeyHashLength), fileName, buffer, length);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
 
-            ValidateCacheEntry(stagedPath, fileName.AsSpan(0, 64), limits.MaximumEntryBytes);
-            entries.Add(new(category, fileName, stagedPath));
+            entries.Add(new(category, fileName, stagedPath, metadata.CacheKey, metadata.FetchedAt, length));
         }
 
         if (!manifestSeen) throw new InvalidDataException("Archive manifest is missing.");
@@ -734,7 +750,7 @@ internal static class CacheArchive
 
     private static CacheEntryMetadata ReadCacheEntryMetadata(string path, ReadOnlySpan<char> expectedHash, long length, long maximumEntryBytes)
     {
-        if (length <= 0 || length > maximumEntryBytes) throw new InvalidDataException($"Cache entry size is invalid: {Path.GetFileName(path)}.");
+        if (length <= 0 || length > maximumEntryBytes) throw new InvalidDataException($"Cache entry size is invalid: {Path.GetFileName(path.AsSpan())}.");
         var buffer = ArrayPool<byte>.Shared.Rent((int)length);
         try
         {
@@ -762,8 +778,19 @@ internal static class CacheArchive
             }
         }
 
+        return ReadCacheEntryContent(expectedHash, Path.GetFileName(path.AsSpan()), buffer, read);
+    }
+
+    /// <summary>
+    /// Validates one cache entry's common transport fields against the identity its name states, reading the
+    /// content where it already is. The caller owns the buffer and says how much of it is content, so an
+    /// entry that arrived in an archive is judged by exactly the same rules as one that arrived on disk,
+    /// without either having to be turned into the other first.
+    /// </summary>
+    private static CacheEntryMetadata ReadCacheEntryContent(ReadOnlySpan<char> expectedHash, ReadOnlySpan<char> name, byte[] buffer, int length)
+    {
         // Reading the bytes ourselves means the UTF-8 preamble a stream parse would have skipped is still here.
-        var content = buffer.AsMemory(0, read);
+        var content = buffer.AsMemory(0, length);
         if (content.Span.StartsWith(Utf8Preamble)) content = content[Utf8Preamble.Length..];
 
         // The document reads straight out of the rented buffer, so it must not outlive this scope.
@@ -781,7 +808,7 @@ internal static class CacheArchive
             || !root.TryGetProperty("FetchedAt", out var fetchedAtElement)
             || fetchedAtElement.ValueKind != JsonValueKind.String)
         {
-            throw new InvalidDataException($"Cache entry is missing required common fields: {Path.GetFileName(path)}.");
+            throw new InvalidDataException($"Cache entry is missing required common fields: {name}.");
         }
 
         var cacheKey = cacheKeyElement.GetString()!;
@@ -793,12 +820,12 @@ internal static class CacheArchive
         WriteCacheKeySha256(cacheKey, actualHash);
         if (!expectedHash.Equals(persistedHash, StringComparison.Ordinal) || !actualHash.SequenceEqual(persistedHash))
         {
-            throw new InvalidDataException($"Cache entry identity does not match its file name: {Path.GetFileName(path)}.");
+            throw new InvalidDataException($"Cache entry identity does not match its file name: {name}.");
         }
 
         if (!fetchedAtElement.TryGetDateTimeOffset(out var fetchedAt) || fetchedAt.Offset != TimeSpan.Zero)
         {
-            throw new InvalidDataException($"Cache entry FetchedAt must be a UTC timestamp: {Path.GetFileName(path)}.");
+            throw new InvalidDataException($"Cache entry FetchedAt must be a UTC timestamp: {name}.");
         }
 
         return new(cacheKey, fetchedAt);
@@ -940,7 +967,14 @@ internal static class CacheArchive
 
     private readonly record struct CacheCategory(string Name);
     private readonly record struct ArchiveSourceEntry(string SourcePath, string ArchivePath, int CategoryIndex);
-    private readonly record struct StagedEntry(string Category, string FileName, string SourcePath);
+    /// <summary>One validated archive entry, with the staged copy only a caller that asked for staging receives.</summary>
+    private readonly record struct ArchiveEntry(
+        string Category,
+        string FileName,
+        string? StagedPath,
+        string CacheKey,
+        DateTimeOffset FetchedAt,
+        long Bytes);
     private readonly record struct CacheEntryMetadata(string CacheKey, DateTimeOffset FetchedAt);
 
     /// <summary>One hash-named cache file located by inspection, with the size the enumeration already knew.</summary>

@@ -418,8 +418,12 @@ internal static class CacheArchive
                 {
                     if (!string.Equals(stagedEntries[i].Category, category, StringComparison.Ordinal)) continue;
                     var staged = stagedEntries[i];
-                    var metadata = ReadCacheEntryMetadata(staged.SourcePath, staged.FileName.AsSpan(0, CacheKeyHashLength), DefaultLimits.MaximumEntryBytes);
-                    entries.Add(new(category, null, metadata.CacheKey, metadata.FetchedAt, new FileInfo(staged.SourcePath).Length, null));
+
+                    // The size the read enforces its limit against and the size the entry reports are the
+                    // same fact, so it is measured once and both uses read the value that was measured.
+                    var bytes = new FileInfo(staged.SourcePath).Length;
+                    var metadata = ReadCacheEntryMetadata(staged.SourcePath, staged.FileName.AsSpan(0, CacheKeyHashLength), bytes, DefaultLimits.MaximumEntryBytes);
+                    entries.Add(new(category, null, metadata.CacheKey, metadata.FetchedAt, bytes, null));
                 }
 
                 entries.Sort(CompareEntries);

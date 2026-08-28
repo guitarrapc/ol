@@ -2,6 +2,7 @@
 using System.Buffers;
 using System.Globalization;
 using System.IO.Compression;
+using System.IO.Enumeration;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -29,9 +30,14 @@ internal readonly record struct CachePruneResult(
     public long ReclaimedBytes => BeforeBytes - AfterBytes;
 }
 
+/// <summary>
+/// One inspected cache entry. <paramref name="CacheKey"/> and <paramref name="Name"/> are the entry's two
+/// possible identities and exactly one of them is present: an entry that validated is named by its logical
+/// key, and one that did not has only the physical file name left to report it by.
+/// </summary>
 internal readonly record struct CacheEntryInfo(
     string Category,
-    string Name,
+    string? Name,
     string? CacheKey,
     DateTimeOffset? FetchedAt,
     long Bytes,
@@ -114,6 +120,17 @@ internal static class CacheArchive
     private const string ManifestContent = "{\"FormatVersion\":1}";
     private const int MaximumStackCacheKeyBytes = 512;
     private const int InitialManagedFileCapacity = 256;
+    private const int CacheKeyHashLength = 64;
+    private const int CacheFileNameLength = CacheKeyHashLength + 5;
+
+    // Reproduces what Directory.EnumerateFiles(root, "*", TopDirectoryOnly) enumerated: an entry is skipped
+    // for nothing, hidden and system included, and an inaccessible one surfaces rather than disappearing.
+    private static readonly EnumerationOptions ManagedEntryEnumeration = new()
+    {
+        RecurseSubdirectories = false,
+        IgnoreInaccessible = false,
+        AttributesToSkip = 0,
+    };
     private static ReadOnlySpan<byte> Utf8Preamble => [0xEF, 0xBB, 0xBF];
     private static readonly DateTimeOffset DeterministicTimestamp = DateTimeOffset.UnixEpoch;
     internal static readonly long RecommendedArchiveBytes = 1L * 1024 * 1024;
@@ -274,14 +291,23 @@ internal static class CacheArchive
         // Every entry shares the category root, so its components are checked once here instead of
         // once per file; each entry then only has to answer for itself.
         ValidateLinkFreePath(root);
+
+        // A listing keeps nothing but a size, so the enumeration is asked for nothing else and no path or
+        // name string is built for any of the entries it counts.
+        var enumerable = new FileSystemEnumerable<long>(
+            root,
+            static (ref FileSystemEntry entry) => entry.Length,
+            ManagedEntryEnumeration)
+        {
+            ShouldIncludePredicate = static (ref FileSystemEntry entry) => IsManagedCacheEntry(ref entry),
+        };
+
         var entryCount = 0;
         long bytes = 0;
-        foreach (var file in new DirectoryInfo(root).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
+        foreach (var length in enumerable)
         {
-            if (!IsManagedCacheEntry(file)) continue;
-
             entryCount++;
-            bytes = checked(bytes + file.Length);
+            bytes = checked(bytes + length);
         }
 
         return new(category, root, entryCount, bytes);
@@ -290,18 +316,27 @@ internal static class CacheArchive
     /// <summary>
     /// Reports whether a located file is one of the managed cache entries, and rejects one that is a link
     /// rather than a file. Both answers come from data the directory enumeration already carried, so
-    /// neither costs a stat call.
+    /// neither costs a stat call — and the name is judged as a span, so a file that is not an entry never
+    /// gets a string built for it.
     /// </summary>
-    private static bool IsManagedCacheEntry(FileInfo file)
+    private static bool IsManagedCacheEntry(ref FileSystemEntry entry)
     {
-        if (!IsCacheFileName(file.Name)) return false;
-        if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
+        if (entry.IsDirectory || !IsCacheFileName(entry.FileName)) return false;
+        if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
         {
             throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
         }
 
         return true;
     }
+
+    /// <summary>
+    /// Slices the digest an entry's file name states out of the full path that located it. A managed entry's
+    /// name is a fixed 69 characters of which the first 64 are the digest, so the path already carries the
+    /// value and no separate name string has to exist to hold it.
+    /// </summary>
+    private static ReadOnlySpan<char> GetExpectedCacheKeyHash(string path)
+        => path.AsSpan(path.Length - CacheFileNameLength, CacheKeyHashLength);
 
     public static CacheInspectionResult Inspect(CacheDirectories directories, string? displayPath = null)
     {
@@ -383,8 +418,8 @@ internal static class CacheArchive
                 {
                     if (!string.Equals(stagedEntries[i].Category, category, StringComparison.Ordinal)) continue;
                     var staged = stagedEntries[i];
-                    var metadata = ReadCacheEntryMetadata(staged.SourcePath, staged.FileName.AsSpan(0, 64), DefaultLimits.MaximumEntryBytes);
-                    entries.Add(new(category, staged.FileName, metadata.CacheKey, metadata.FetchedAt, new FileInfo(staged.SourcePath).Length, null));
+                    var metadata = ReadCacheEntryMetadata(staged.SourcePath, staged.FileName.AsSpan(0, CacheKeyHashLength), DefaultLimits.MaximumEntryBytes);
+                    entries.Add(new(category, null, metadata.CacheKey, metadata.FetchedAt, new FileInfo(staged.SourcePath).Length, null));
                 }
 
                 entries.Sort(CompareEntries);
@@ -415,16 +450,26 @@ internal static class CacheArchive
         var managedCount = 0;
         try
         {
-            foreach (var file in new DirectoryInfo(root).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
+            // The predicate is where an entry's name is in scope without a string behind it, so it both
+            // applies the managed-entry rule and tallies the files that are not entries; the transform then
+            // runs for managed entries alone and keeps only what reading one needs.
+            var enumerable = new FileSystemEnumerable<ManagedCacheFile>(
+                root,
+                static (ref FileSystemEntry entry) => new ManagedCacheFile(entry.ToFullPath(), entry.Length),
+                ManagedEntryEnumeration)
             {
-                if (!IsManagedCacheEntry(file))
+                ShouldIncludePredicate = (ref FileSystemEntry entry) =>
                 {
-                    unmanagedFileCount++;
-                    continue;
-                }
+                    if (IsManagedCacheEntry(ref entry)) return true;
+                    if (!entry.IsDirectory) unmanagedFileCount++;
+                    return false;
+                },
+            };
 
+            foreach (var file in enumerable)
+            {
                 if (managedCount == managed.Length) Grow(ref managed, managedCount);
-                managed[managedCount++] = new(file.Name, file.FullName, file.Length);
+                managed[managedCount++] = file;
             }
 
             // Each entry costs an open and a parse, and the reads are independent of each other, so they
@@ -436,12 +481,14 @@ internal static class CacheArchive
                 var file = located[index];
                 try
                 {
-                    var metadata = ReadCacheEntryMetadata(file.Path, file.Name.AsSpan(0, 64), file.Bytes, DefaultLimits.MaximumEntryBytes);
-                    entries[index] = new(category, file.Name, metadata.CacheKey, metadata.FetchedAt, file.Bytes, null);
+                    var metadata = ReadCacheEntryMetadata(file.Path, GetExpectedCacheKeyHash(file.Path), file.Bytes, DefaultLimits.MaximumEntryBytes);
+                    entries[index] = new(category, null, metadata.CacheKey, metadata.FetchedAt, file.Bytes, null);
                 }
                 catch (Exception exception) when (IsExpectedFailure(exception))
                 {
-                    entries[index] = new(category, file.Name, null, null, file.Bytes, exception.Message);
+                    // The physical name is the only identity an entry that failed validation has, so it is
+                    // built here and nowhere else.
+                    entries[index] = new(category, Path.GetFileName(file.Path), null, null, file.Bytes, exception.Message);
                 }
             });
 
@@ -518,14 +565,19 @@ internal static class CacheArchive
             var root = GetCategoryRoot(Categories[categoryIndex].Name, directories);
             if (!Directory.Exists(root)) continue;
 
-            foreach (var file in new DirectoryInfo(root).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
+            var enumerable = new FileSystemEnumerable<ManagedCacheFile>(
+                root,
+                static (ref FileSystemEntry entry) => new ManagedCacheFile(entry.ToFullPath(), entry.Length),
+                ManagedEntryEnumeration)
             {
-                if (!IsManagedCacheEntry(file)) continue;
+                ShouldIncludePredicate = static (ref FileSystemEntry entry) => IsManagedCacheEntry(ref entry),
+            };
 
-                var fileName = file.Name;
-                var path = file.FullName;
-                var bytes = file.Length;
-                var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), bytes, DefaultLimits.MaximumEntryBytes);
+            foreach (var file in enumerable)
+            {
+                var path = file.Path;
+                var bytes = file.Bytes;
+                var fetchedAt = ValidateCacheEntry(path, GetExpectedCacheKeyHash(path), bytes, DefaultLimits.MaximumEntryBytes);
                 beforeBytes = checked(beforeBytes + bytes);
                 if (fetchedAt >= cutoff) continue;
 
@@ -727,8 +779,12 @@ internal static class CacheArchive
 
         var cacheKey = cacheKeyElement.GetString()!;
         var persistedHash = hashElement.GetString()!;
-        var actualHash = GetCacheKeySha256(cacheKey);
-        if (!expectedHash.Equals(persistedHash, StringComparison.Ordinal) || !string.Equals(actualHash, persistedHash, StringComparison.Ordinal))
+
+        // The digest is only ever compared, so it is written into a stack buffer instead of into a string
+        // built once per entry and dropped on the next line.
+        Span<char> actualHash = stackalloc char[CacheKeyHashLength];
+        WriteCacheKeySha256(cacheKey, actualHash);
+        if (!expectedHash.Equals(persistedHash, StringComparison.Ordinal) || !actualHash.SequenceEqual(persistedHash))
         {
             throw new InvalidDataException($"Cache entry identity does not match its file name: {Path.GetFileName(path)}.");
         }
@@ -749,11 +805,11 @@ internal static class CacheArchive
         }
     }
 
-    private static bool IsCacheFileName(string fileName)
+    private static bool IsCacheFileName(ReadOnlySpan<char> fileName)
     {
-        if (fileName.Length != 69 || !fileName.EndsWith(".json", StringComparison.Ordinal)) return false;
+        if (fileName.Length != CacheFileNameLength || !fileName.EndsWith(".json", StringComparison.Ordinal)) return false;
 
-        for (var i = 0; i < 64; i++)
+        for (var i = 0; i < CacheKeyHashLength; i++)
         {
             var value = fileName[i];
             if (!((uint)(value - '0') <= 9 || (uint)(value - 'a') <= 5)) return false;
@@ -762,7 +818,8 @@ internal static class CacheArchive
         return true;
     }
 
-    private static string GetCacheKeySha256(string cacheKey)
+    /// <summary>Writes a cache key's lowercase hex SHA-256 into <paramref name="destination"/>, which must hold 64 characters.</summary>
+    private static void WriteCacheKeySha256(string cacheKey, Span<char> destination)
     {
         var maximumByteCount = Encoding.UTF8.GetMaxByteCount(cacheKey.Length);
         byte[]? rented = null;
@@ -774,7 +831,7 @@ internal static class CacheArchive
             var length = Encoding.UTF8.GetBytes(cacheKey, utf8);
             Span<byte> hash = stackalloc byte[SHA256.HashSizeInBytes];
             SHA256.HashData(utf8[..length], hash);
-            return Convert.ToHexStringLower(hash);
+            Convert.TryToHexStringLower(hash, destination, out _);
         }
         finally
         {
@@ -859,5 +916,5 @@ internal static class CacheArchive
     private readonly record struct CacheEntryMetadata(string CacheKey, DateTimeOffset FetchedAt);
 
     /// <summary>One hash-named cache file located by inspection, with the size the enumeration already knew.</summary>
-    private readonly record struct ManagedCacheFile(string Name, string Path, long Bytes);
+    private readonly record struct ManagedCacheFile(string Path, long Bytes);
 }

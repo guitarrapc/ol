@@ -47,33 +47,6 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
-    public async Task CreatePrivateStagingDirectory_OnUnix_UsesOwnerOnlyPermissions()
-    {
-        var stagingRoot = CacheArchive.CreatePrivateStagingDirectory();
-        try
-        {
-            await Assert.That(Directory.Exists(stagingRoot)).IsTrue();
-            if (OperatingSystem.IsWindows()) return;
-
-            const UnixFileMode accessPermissions = UnixFileMode.UserRead
-                | UnixFileMode.UserWrite
-                | UnixFileMode.UserExecute
-                | UnixFileMode.GroupRead
-                | UnixFileMode.GroupWrite
-                | UnixFileMode.GroupExecute
-                | UnixFileMode.OtherRead
-                | UnixFileMode.OtherWrite
-                | UnixFileMode.OtherExecute;
-            var mode = File.GetUnixFileMode(stagingRoot) & accessPermissions;
-            await Assert.That(mode).IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-        finally
-        {
-            if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
-        }
-    }
-
-    [Test]
     public async Task ValidateArchiveOutputPaths_WhenCreatedDirectoryWasReplacedByLink_Rejects()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-output-link-{Guid.NewGuid():N}");

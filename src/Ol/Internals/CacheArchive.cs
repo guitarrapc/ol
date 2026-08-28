@@ -744,6 +744,9 @@ internal static class CacheArchive
 
     private static CacheEntryMetadata ReadCacheEntryMetadata(string path, ReadOnlySpan<char> expectedHash, byte[] buffer, int length)
     {
+        // Opening the entry is the step that would follow a link out of the cache, so the check that it is
+        // not one sits here, against the filesystem, rather than resting on what the enumeration saw.
+        ValidateLinkFreeEntry(path);
         var read = 0;
         using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
@@ -870,6 +873,30 @@ internal static class CacheArchive
                 && relative != ".."
                 && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
                 && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Rechecks one entry against the filesystem immediately before it is opened. The attributes the
+    /// enumeration reported were read before the rest of the directory was, so by the time this entry is
+    /// reached they are too old to decide whether the path still leads outside the cache. Only the entry
+    /// itself is rechecked: its parent directories were validated in the same pass that located it, and
+    /// re-walking them per entry is what made inspection cost a stat call for every path component.
+    /// </summary>
+    private static void ValidateLinkFreeEntry(string path)
+    {
+        try
+        {
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
+            }
+        }
+        catch (FileNotFoundException)
+        {
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
     }
 
     private static void ValidateLinkFreePath(string path, string pathKind = "Cache")

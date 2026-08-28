@@ -116,8 +116,9 @@ internal sealed class CacheCommands
     /// <param name="path">Cache directory or .olcache archive path. Defaults to the resolved cache location.</param>
     /// <param name="format">Output format: text or markdown.</param>
     /// <param name="cacheDir">Root directory containing the managed cache categories when path is omitted.</param>
+    /// <param name="verbose">List every managed entry instead of only the entries that failed validation.</param>
     [Command("info")]
-    public int Info([Argument] string? path = null, CacheInfoFormat format = CacheInfoFormat.Text, string? cacheDir = null)
+    public int Info([Argument] string? path = null, CacheInfoFormat format = CacheInfoFormat.Text, string? cacheDir = null, bool verbose = false)
     {
         if (path is not null && cacheDir is not null)
         {
@@ -132,11 +133,11 @@ internal sealed class CacheCommands
                 : CacheArchive.Inspect(path);
             if (format == CacheInfoFormat.Markdown)
             {
-                WriteMarkdownInfo(result);
+                WriteMarkdownInfo(result, verbose);
             }
             else
             {
-                WriteTextInfo(result);
+                WriteTextInfo(result, verbose);
             }
 
             return 0;
@@ -225,7 +226,14 @@ internal sealed class CacheCommands
         }
     }
 
-    private static void WriteMarkdownInfo(CacheInspectionResult result)
+    /// <summary>
+    /// Reports whether an entry belongs in the entry table. A managed cache grows to thousands of valid
+    /// entries whose sizes and counts the category table already carries, so only the entries that failed
+    /// validation are worth a row by default; <c>--verbose</c> asks for the complete listing.
+    /// </summary>
+    private static bool IsReportedEntry(CacheEntryInfo entry, bool verbose) => verbose || entry.Error is not null;
+
+    private static void WriteMarkdownInfo(CacheInspectionResult result, bool verbose)
     {
         Console.WriteLine(result.IsArchive ? "# Cache archive" : "# Cache directory");
         Console.WriteLine();
@@ -265,7 +273,7 @@ internal sealed class CacheCommands
         }
 
         Console.WriteLine();
-        Console.WriteLine("## Entries");
+        Console.WriteLine(verbose ? "## Entries" : "## Invalid entries");
         Console.WriteLine();
         Console.WriteLine("| Category | Cache key | Fetched at | Size | Status | Details |");
         Console.WriteLine("|---|---|---|---:|---|---|");
@@ -275,8 +283,10 @@ internal sealed class CacheCommands
             var category = result.Categories[i];
             for (var j = 0; j < category.Entries.Count; j++)
             {
-                hasEntries = true;
                 var entry = category.Entries[j];
+                if (!IsReportedEntry(entry, verbose)) continue;
+
+                hasEntries = true;
                 if (entry.Error is not null)
                 {
                     Console.WriteLine($"| {EscapeMarkdown(category.Category)} | - | - | {FormatBytes(entry.Bytes)} | invalid | {EscapeMarkdown($"File: {entry.Name}; {entry.Error}")} |");
@@ -288,10 +298,17 @@ internal sealed class CacheCommands
             }
         }
 
-        if (!hasEntries) Console.WriteLine("| - | - | - | - | - | No managed entries. |");
+        if (!hasEntries) Console.WriteLine($"| - | - | - | - | - | {EmptyEntryReason(result)} |");
     }
 
-    private static void WriteTextInfo(CacheInspectionResult result)
+    /// <summary>
+    /// Names why an entry table is empty. An empty cache and a cache whose entries all validated are
+    /// different answers, and the default report reaches the second one far more often.
+    /// </summary>
+    private static string EmptyEntryReason(CacheInspectionResult result)
+        => result.EntryCount == 0 ? "No managed entries." : "No invalid entries.";
+
+    private static void WriteTextInfo(CacheInspectionResult result, bool verbose)
     {
         using var writer = new PooledStreamBufferWriter(Console.OpenStandardOutput());
         TextTable.WriteLine(writer, result.IsArchive ? "Cache archive"u8 : "Cache directory"u8);
@@ -328,8 +345,8 @@ internal sealed class CacheCommands
         WriteTextCategories(writer, result);
 
         TextTable.WriteNewLine(writer);
-        TextTable.WriteLine(writer, "Entries:"u8);
-        WriteTextEntries(writer, result);
+        TextTable.WriteLine(writer, verbose ? "Entries:"u8 : "Invalid entries:"u8);
+        WriteTextEntries(writer, result, verbose);
     }
 
     private static void WriteProperty(System.Buffers.IBufferWriter<byte> writer, ReadOnlySpan<byte> property, string value, ReadOnlySpan<int> widths)
@@ -397,7 +414,7 @@ internal sealed class CacheCommands
     /// <summary>One entry row's derived text, kept between the width pass and the write pass.</summary>
     private readonly record struct EntryCells(string CacheKey, string FetchedAt, string Size, string Details);
 
-    private static void WriteTextEntries(System.Buffers.IBufferWriter<byte> writer, CacheInspectionResult result)
+    private static void WriteTextEntries(System.Buffers.IBufferWriter<byte> writer, CacheInspectionResult result, bool verbose)
     {
         Span<int> widths = stackalloc int[]
         {
@@ -408,11 +425,21 @@ internal sealed class CacheCommands
             "Status"u8.Length,
             "Details"u8.Length,
         };
-        var entryCount = 0;
-        for (var i = 0; i < result.Categories.Count; i++) entryCount += result.Categories[i].Entries.Count;
+
+        // Only reported rows are counted, so the default report neither sizes storage for the thousands
+        // of valid entries it will not print nor builds the cell text they would have needed.
+        var rowCount = 0;
+        for (var i = 0; i < result.Categories.Count; i++)
+        {
+            var entries = result.Categories[i].Entries;
+            for (var j = 0; j < entries.Count; j++)
+            {
+                if (IsReportedEntry(entries[j], verbose)) rowCount++;
+            }
+        }
 
         // Built strings, so the width pass keeps what it derived instead of building each one twice.
-        var cells = ArrayPool<EntryCells>.Shared.Rent(Math.Max(1, entryCount));
+        var cells = ArrayPool<EntryCells>.Shared.Rent(Math.Max(1, rowCount));
         try
         {
             var next = 0;
@@ -422,6 +449,8 @@ internal sealed class CacheCommands
                 for (var j = 0; j < category.Entries.Count; j++)
                 {
                     var entry = category.Entries[j];
+                    if (!IsReportedEntry(entry, verbose)) continue;
+
                     var row = new EntryCells(
                         entry.Error is null ? entry.CacheKey ?? "-" : "-",
                         entry.Error is null ? entry.FetchedAt?.ToString("O") ?? "-" : "-",
@@ -437,8 +466,9 @@ internal sealed class CacheCommands
                 }
             }
 
-            var hasEntries = entryCount != 0;
-            if (!hasEntries) TextTable.Include(ref widths[5], "No managed entries."u8);
+            var hasEntries = rowCount != 0;
+            var emptyReason = hasEntries ? null : EmptyEntryReason(result);
+            if (emptyReason is not null) TextTable.Include(ref widths[5], emptyReason);
             TextTable.WriteCell(writer, "Category"u8, widths[0]);
             TextTable.WriteCell(writer, "Cache key"u8, widths[1]);
             TextTable.WriteCell(writer, "Fetched at"u8, widths[2]);
@@ -448,10 +478,10 @@ internal sealed class CacheCommands
             TextTable.WriteNewLine(writer);
             TextTable.WriteSeparator(writer, widths);
 
-            if (!hasEntries)
+            if (emptyReason is not null)
             {
                 for (var i = 0; i < widths.Length - 1; i++) TextTable.WriteCell(writer, "-"u8, widths[i]);
-                TextTable.WriteCell(writer, "No managed entries."u8, widths[^1], last: true);
+                TextTable.WriteCell(writer, emptyReason, widths[^1], last: true);
                 TextTable.WriteNewLine(writer);
                 return;
             }
@@ -462,6 +492,8 @@ internal sealed class CacheCommands
                 var category = result.Categories[i];
                 for (var j = 0; j < category.Entries.Count; j++)
                 {
+                    if (!IsReportedEntry(category.Entries[j], verbose)) continue;
+
                     var row = cells[next++];
                     TextTable.WriteCell(writer, category.Category, widths[0]);
                     TextTable.WriteCell(writer, row.CacheKey, widths[1]);

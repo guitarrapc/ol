@@ -297,7 +297,7 @@ internal static class CacheArchive
                     entries.Add(new(category, staged.FileName, metadata.CacheKey, metadata.FetchedAt, new FileInfo(staged.SourcePath).Length, null));
                 }
 
-                entries.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
+                entries.Sort(CompareEntries);
                 categories.Add(new(category, category, entries, 0));
             }
 
@@ -362,13 +362,24 @@ internal static class CacheArchive
                 }
             });
 
-            Array.Sort(entries, static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
+            Array.Sort(entries, CompareEntries);
             return new(category, root, entries, unmanagedFileCount);
         }
         finally
         {
             ArrayPool<ManagedCacheFile>.Shared.Return(managed, clearArray: true);
         }
+    }
+
+    /// <summary>
+    /// Orders entries by the logical cache key a reader is looking for rather than by the opaque hash the
+    /// file is named after, and settles ties on that unique name. An entry too invalid to have a key sorts
+    /// first, which is also the only kind the default report shows.
+    /// </summary>
+    private static int CompareEntries(CacheEntryInfo left, CacheEntryInfo right)
+    {
+        var byCacheKey = StringComparer.Ordinal.Compare(left.CacheKey, right.CacheKey);
+        return byCacheKey != 0 ? byCacheKey : StringComparer.Ordinal.Compare(left.Name, right.Name);
     }
 
     /// <summary>Replaces a full rental with a larger one, returning the old buffer once its content moved.</summary>

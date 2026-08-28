@@ -217,46 +217,62 @@ internal static class CacheArchive
         var inputPath = Path.GetFullPath(archivePath);
         ValidateLinkFreePath(inputPath, "Archive");
         ValidateArchiveOutsideCache(inputPath, directories);
-        var archiveLength = new FileInfo(inputPath).Length;
-        if (archiveLength <= 0 || archiveLength > DefaultLimits.MaximumArchiveBytes)
+        // One handle serves both passes: the second pass rewinds it rather than reopening the path, so the
+        // bytes that were validated are the bytes that get restored even if the path is replaced meanwhile.
+        using var input = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (input.Length <= 0 || input.Length > DefaultLimits.MaximumArchiveBytes)
         {
             throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
         }
 
-        // Validated in full before anything is written, and each entry owns its bytes, so what a restore
-        // holds is the expanded content itself rather than a buffer that has to grow to fit it.
-        var entries = ReadArchive(inputPath, retainContent: true, DefaultLimits);
+        // The archive is validated end to end before the first byte is written. Doing that in a pass of its
+        // own is what keeps a restore's memory at one entry: the alternative is holding every entry until the
+        // last one has been judged, which costs the whole expanded archive.
+        var entries = ReadArchive(input, DefaultLimits, onEntry: null);
+        input.Seek(0, SeekOrigin.Begin);
+
         var destinationRoots = new string?[Categories.Length];
-        for (var i = 0; i < entries.Count; i++)
-        {
-            var destinationRoot = PrepareDestinationRoot(entries[i].Category, directories, destinationRoots);
-            var destinationPath = Path.Combine(destinationRoot, entries[i].FileName);
-            var temporaryPath = Path.Combine(destinationRoot, $".{entries[i].FileName}.{Guid.NewGuid():N}.tmp");
-
-            // The temporary file is the first thing a restore writes, and it is written into this directory,
-            // so the directory is checked here as well as before the replacement. Only the first entry of a
-            // category is preceded by the walk in PrepareDestinationRoot; without this, every entry after it
-            // would write before anything looked at the directory again.
-            ValidateLinkFreeDestination(destinationRoot);
-            try
-            {
-                using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                {
-                    output.Write(entries[i].Content ?? throw new InvalidDataException($"Cache entry content was not retained: {entries[i].FileName}."));
-                }
-
-                // Rechecked because replacement is the step a link would redirect.
-                ValidateLinkFreeDestination(destinationRoot);
-                ValidateLinkFreeDestination(destinationPath);
-                File.Move(temporaryPath, destinationPath, overwrite: true);
-            }
-            finally
-            {
-                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-            }
-        }
-
+        ReadArchive(input, DefaultLimits, (category, fileName, content) =>
+            RestoreEntry(category, fileName, content, directories, destinationRoots));
         return entries.Count;
+    }
+
+    /// <summary>
+    /// Writes one validated entry into its category, through a temporary file that is renamed over the
+    /// destination, so a reader of the cache never sees a partially written entry.
+    /// </summary>
+    private static void RestoreEntry(
+        string category,
+        string fileName,
+        ReadOnlySpan<byte> content,
+        CacheDirectories directories,
+        string?[] destinationRoots)
+    {
+        var destinationRoot = PrepareDestinationRoot(category, directories, destinationRoots);
+        var destinationPath = Path.Combine(destinationRoot, fileName);
+        var temporaryPath = Path.Combine(destinationRoot, $".{fileName}.{Guid.NewGuid():N}.tmp");
+
+        // The temporary file is the first thing a restore writes, and it is written into this directory,
+        // so the directory is checked here as well as before the replacement. Only the first entry of a
+        // category is preceded by the walk in PrepareDestinationRoot; without this, every entry after it
+        // would write before anything looked at the directory again.
+        ValidateLinkFreeDestination(destinationRoot);
+        try
+        {
+            using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                output.Write(content);
+            }
+
+            // Rechecked because replacement is the step a link would redirect.
+            ValidateLinkFreeDestination(destinationRoot);
+            ValidateLinkFreeDestination(destinationPath);
+            File.Move(temporaryPath, destinationPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
     }
 
     /// <summary>
@@ -384,7 +400,8 @@ internal static class CacheArchive
             throw new InvalidDataException($"Archive size must be between 1 and {DefaultLimits.MaximumArchiveBytes} bytes.");
         }
 
-        var archiveEntries = ReadArchive(archivePath, retainContent: false, DefaultLimits);
+        using var input = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var archiveEntries = ReadArchive(input, DefaultLimits, onEntry: null);
         var categories = new List<CacheCategoryInfo>(Categories.Length);
         for (var categoryIndex = 0; categoryIndex < Categories.Length; categoryIndex++)
         {
@@ -594,15 +611,19 @@ internal static class CacheArchive
     /// each entry also keeps its own bytes, so the caller can write them out without reading the archive
     /// again; inspection reports and discards, so it passes false and every entry is read into scratch.
     /// </summary>
-    private static List<ArchiveEntry> ReadArchive(string inputPath, bool retainContent, CacheArchiveLimits limits)
+    /// <summary>
+    /// Reads one pass over an archive, validating every entry and describing each one. <paramref name="onEntry"/>
+    /// sees an entry's bytes while they are still in the read buffer and must not keep them; nothing here holds
+    /// content past the entry it belongs to, so a pass costs one entry of memory however large the archive is.
+    /// </summary>
+    private static List<ArchiveEntry> ReadArchive(Stream input, CacheArchiveLimits limits, ArchiveEntryHandler? onEntry)
     {
         var entries = new List<ArchiveEntry>();
         var names = new HashSet<string>(StringComparer.Ordinal);
         var manifestSeen = false;
         long expandedBytes = 0;
-        using var input = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var gzip = new GZipStream(input, CompressionMode.Decompress, leaveOpen: false);
-        using var reader = new TarReader(gzip, leaveOpen: false);
+        using var gzip = new GZipStream(input, CompressionMode.Decompress, leaveOpen: true);
+        using var reader = new TarReader(gzip, leaveOpen: true);
         TarEntry? entry;
         while ((entry = reader.GetNextEntry(copyData: false)) is not null)
         {
@@ -633,30 +654,19 @@ internal static class CacheArchive
 
             var length = (int)entry.Length;
             CacheEntryMetadata metadata;
-            byte[]? retained = null;
-            if (retainContent)
+            var scratch = ArrayPool<byte>.Shared.Rent(length);
+            try
             {
-                // Retained bytes outlive the read and are exactly the entry, so the entry owns its own array
-                // rather than a slice of a shared one that would have to grow, copy, and be returned.
-                retained = GC.AllocateUninitializedArray<byte>(length);
-                entry.DataStream.ReadExactly(retained);
-                metadata = ReadCacheEntryContent(fileName.AsSpan(0, CacheKeyHashLength), fileName, retained);
+                entry.DataStream.ReadExactly(scratch.AsSpan(0, length));
+                metadata = ReadCacheEntryContent(fileName.AsSpan(0, CacheKeyHashLength), fileName, scratch.AsMemory(0, length));
+                onEntry?.Invoke(category, fileName, scratch.AsSpan(0, length));
             }
-            else
+            finally
             {
-                var scratch = ArrayPool<byte>.Shared.Rent(length);
-                try
-                {
-                    entry.DataStream.ReadExactly(scratch.AsSpan(0, length));
-                    metadata = ReadCacheEntryContent(fileName.AsSpan(0, CacheKeyHashLength), fileName, scratch.AsMemory(0, length));
-                }
-                finally
-                {
-                    ArrayPool<byte>.Shared.Return(scratch);
-                }
+                ArrayPool<byte>.Shared.Return(scratch);
             }
 
-            entries.Add(new(category, fileName, retained, metadata.CacheKey, metadata.FetchedAt, length));
+            entries.Add(new(category, fileName, metadata.CacheKey, metadata.FetchedAt, length));
         }
 
         if (!manifestSeen) throw new InvalidDataException("Archive manifest is missing.");
@@ -949,14 +959,16 @@ internal static class CacheArchive
 
     private readonly record struct CacheCategory(string Name);
     private readonly record struct ArchiveSourceEntry(string SourcePath, string ArchivePath, int CategoryIndex);
-    /// <summary>One validated archive entry; <c>Content</c> is its bytes, and null when the read did not retain them.</summary>
+    /// <summary>What one pass over an archive established about an entry. Its bytes are not among it.</summary>
     private readonly record struct ArchiveEntry(
         string Category,
         string FileName,
-        byte[]? Content,
         string CacheKey,
         DateTimeOffset FetchedAt,
         long Bytes);
+
+    /// <summary>Receives one validated entry's bytes, which are only valid for the duration of the call.</summary>
+    private delegate void ArchiveEntryHandler(string category, string fileName, ReadOnlySpan<byte> content);
     private readonly record struct CacheEntryMetadata(string CacheKey, DateTimeOffset FetchedAt);
 
     private readonly record struct ManagedCacheFile(string Path, long Bytes);

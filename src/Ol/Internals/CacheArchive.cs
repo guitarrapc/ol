@@ -881,21 +881,18 @@ internal static class CacheArchive
     /// reached they are too old to decide whether the path still leads outside the cache. Only the entry
     /// itself is rechecked: its parent directories were validated in the same pass that located it, and
     /// re-walking them per entry is what made inspection cost a stat call for every path component.
+    ///
+    /// A failure to read the attributes is raised rather than swallowed. <see cref="ValidateLinkFreePath"/>
+    /// tolerates a missing component because it walks a path whose parents may legitimately not exist yet;
+    /// here the only path is a file the caller is about to open, and treating "it vanished" as "it is fine"
+    /// would let the open proceed against whatever took its place without any check having been made.
+    /// Every way this can fail is an expected failure, so it is reported exactly as a failed open would be.
     /// </summary>
     private static void ValidateLinkFreeEntry(string path)
     {
-        try
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
         {
-            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-            {
-                throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
-            }
-        }
-        catch (FileNotFoundException)
-        {
-        }
-        catch (DirectoryNotFoundException)
-        {
+            throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
         }
     }
 

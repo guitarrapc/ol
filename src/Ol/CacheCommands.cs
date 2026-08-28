@@ -92,12 +92,12 @@ internal sealed class CacheCommands
     {
         try
         {
-            var result = CacheArchive.Inspect(CachePaths.Resolve(cacheDir));
+            var result = CacheArchive.Summarize(CachePaths.Resolve(cacheDir));
             Console.WriteLine("Cache locations:");
             for (var i = 0; i < result.Categories.Count; i++)
             {
                 var category = result.Categories[i];
-                Console.WriteLine($"  {category.Category}: {category.Path} ({FormatEntryCount(category.Entries.Count)}, {FormatBytes(GetCategoryBytes(category))})");
+                Console.WriteLine($"  {category.Category}: {category.Path} ({FormatEntryCount(category.EntryCount)}, {FormatBytes(category.Bytes)})");
             }
 
             Console.WriteLine($"Total: {FormatEntryCount(result.EntryCount)} ({FormatBytes(result.TotalBytes)})");

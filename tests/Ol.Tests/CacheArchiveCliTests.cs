@@ -189,6 +189,86 @@ public sealed class CacheArchiveCliTests
         }
     }
 
+    /// <summary>
+    /// Counting and sizing an entry never depended on its content validating, so a corrupt entry has to stay
+    /// in the totals rather than fail the command. This is what lets the listing skip reading entries at all.
+    /// </summary>
+    [Test]
+    public async Task CacheList_WithInvalidEntry_CountsItWithoutFailing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-list-invalid-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        const string cacheKey = "pkg:npm/invalid@1.0.0";
+        Directory.CreateDirectory(category);
+        await File.WriteAllTextAsync(Path.Combine(category, $"{PackageMetadataCache.GetCacheKeySha256(cacheKey)}.json"), "{}");
+
+        try
+        {
+            var result = await RunOlAsync("cache", "list", "--cache-dir", source);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Total: 1 entry");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>A listing still refuses to describe an entry that points outside the cache.</summary>
+    [Test]
+    public async Task CacheList_WithLinkedManagedEntry_RejectsCacheTarget()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-list-linked-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source", "package-metadata");
+        var outside = Path.Combine(root, "outside");
+        var outsideCache = new PackageMetadataCache(outside);
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        Directory.CreateDirectory(source);
+        await outsideCache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+        var link = Path.Combine(source, Path.GetFileName(outsideCache.GetPath(cacheKey)));
+        File.CreateSymbolicLink(link, outsideCache.GetPath(cacheKey));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "list", "--cache-dir", Path.Combine(root, "source"));
+
+            await Assert.That(result.ExitCode).IsEqualTo(1);
+            await Assert.That(result.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+        }
+        finally
+        {
+            if (File.Exists(link)) File.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>Unknown sibling files are not entries, so they change neither the count nor the bytes.</summary>
+    [Test]
+    public async Task CacheList_WithUnmanagedSibling_ExcludesItFromCountsAndBytes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-list-sibling-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var category = Path.Combine(source, "package-metadata");
+        var cache = new PackageMetadataCache(category);
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+        await File.WriteAllTextAsync(Path.Combine(category, "notes.txt"), new string('x', 4096));
+
+        try
+        {
+            var result = await RunOlAsync("cache", "list", "--cache-dir", source);
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("Total: 1 entry");
+            await Assert.That(result.Stdout).DoesNotContain("4.0 KiB");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Test]
     public async Task CacheInfo_WithDirectoryAndArchive_ShowsLogicalEntries()
     {

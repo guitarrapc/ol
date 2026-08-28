@@ -43,6 +43,40 @@ internal readonly record struct CacheCategoryInfo(
     IReadOnlyList<CacheEntryInfo> Entries,
     int UnmanagedFileCount);
 
+internal readonly record struct CacheCategorySummary(
+    string Category,
+    string Path,
+    int EntryCount,
+    long Bytes);
+
+/// <summary>
+/// What a cache listing reports: where each managed category is, how many entries it holds, and how many
+/// bytes they occupy. None of those answers depends on an entry's content, so a summary never reads one.
+/// </summary>
+internal readonly record struct CacheSummary(
+    IReadOnlyList<CacheCategorySummary> Categories)
+{
+    public int EntryCount
+    {
+        get
+        {
+            var count = 0;
+            for (var i = 0; i < Categories.Count; i++) count += Categories[i].EntryCount;
+            return count;
+        }
+    }
+
+    public long TotalBytes
+    {
+        get
+        {
+            long bytes = 0;
+            for (var i = 0; i < Categories.Count; i++) bytes = checked(bytes + Categories[i].Bytes);
+            return bytes;
+        }
+    }
+}
+
 internal readonly record struct CacheInspectionResult(
     bool IsArchive,
     string Path,
@@ -213,6 +247,62 @@ internal static class CacheArchive
         }
     }
 
+    /// <summary>
+    /// Counts and measures the managed entries in each category without reading any of them. An entry's
+    /// count and size come from the directory itself, so validating thousands of entries to print three
+    /// numbers that would be identical either way is work a listing does not owe. Use <see cref="Inspect"/>
+    /// when the caller needs an entry's logical key, timestamp, or validity.
+    /// </summary>
+    public static CacheSummary Summarize(CacheDirectories directories)
+    {
+        ValidateCachePaths(directories);
+        var categories = new CacheCategorySummary[Categories.Length];
+        for (var i = 0; i < Categories.Length; i++)
+        {
+            var category = Categories[i].Name;
+            categories[i] = SummarizeCategory(category, GetCategoryRoot(category, directories));
+        }
+
+        return new(categories);
+    }
+
+    private static CacheCategorySummary SummarizeCategory(string category, string root)
+    {
+        if (File.Exists(root)) throw new InvalidDataException($"Cache category path must be a directory: {root}.");
+        if (!Directory.Exists(root)) return new(category, root, 0, 0);
+
+        // Every entry shares the category root, so its components are checked once here instead of
+        // once per file; each entry then only has to answer for itself.
+        ValidateLinkFreePath(root);
+        var entryCount = 0;
+        long bytes = 0;
+        foreach (var file in new DirectoryInfo(root).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
+        {
+            if (!IsManagedCacheEntry(file)) continue;
+
+            entryCount++;
+            bytes = checked(bytes + file.Length);
+        }
+
+        return new(category, root, entryCount, bytes);
+    }
+
+    /// <summary>
+    /// Reports whether a located file is one of the managed cache entries, and rejects one that is a link
+    /// rather than a file. Both answers come from data the directory enumeration already carried, so
+    /// neither costs a stat call.
+    /// </summary>
+    private static bool IsManagedCacheEntry(FileInfo file)
+    {
+        if (!IsCacheFileName(file.Name)) return false;
+        if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
+        }
+
+        return true;
+    }
+
     public static CacheInspectionResult Inspect(CacheDirectories directories, string? displayPath = null)
     {
         ValidateCachePaths(directories);
@@ -327,21 +417,14 @@ internal static class CacheArchive
         {
             foreach (var file in new DirectoryInfo(root).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
             {
-                var fileName = file.Name;
-                if (!IsCacheFileName(fileName))
+                if (!IsManagedCacheEntry(file))
                 {
                     unmanagedFileCount++;
                     continue;
                 }
 
-                // Attributes and Length are carried by the directory enumeration, so neither costs a stat call.
-                if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
-                }
-
                 if (managedCount == managed.Length) Grow(ref managed, managedCount);
-                managed[managedCount++] = new(fileName, file.FullName, file.Length);
+                managed[managedCount++] = new(file.Name, file.FullName, file.Length);
             }
 
             // Each entry costs an open and a parse, and the reads are independent of each other, so they
@@ -437,16 +520,9 @@ internal static class CacheArchive
 
             foreach (var file in new DirectoryInfo(root).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
             {
+                if (!IsManagedCacheEntry(file)) continue;
+
                 var fileName = file.Name;
-                if (!IsCacheFileName(fileName)) continue;
-
-                // Attributes and Length are carried by the directory enumeration, and the category root was
-                // already checked by ValidateCachePaths, so reaching an entry costs no stat call of its own.
-                if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
-                }
-
                 var path = file.FullName;
                 var bytes = file.Length;
                 var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), bytes, DefaultLimits.MaximumEntryBytes);

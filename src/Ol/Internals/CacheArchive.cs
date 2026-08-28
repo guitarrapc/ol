@@ -79,6 +79,8 @@ internal static class CacheArchive
     private const string ManifestName = "ol-cache-manifest.json";
     private const string ManifestContent = "{\"FormatVersion\":1}";
     private const int MaximumStackCacheKeyBytes = 512;
+    private const int InitialManagedFileCapacity = 256;
+    private static ReadOnlySpan<byte> Utf8Preamble => [0xEF, 0xBB, 0xBF];
     private static readonly DateTimeOffset DeterministicTimestamp = DateTimeOffset.UnixEpoch;
     internal static readonly long RecommendedArchiveBytes = 1L * 1024 * 1024;
     internal static readonly CacheArchiveLimits DefaultLimits = new(
@@ -309,35 +311,74 @@ internal static class CacheArchive
 
     private static CacheCategoryInfo InspectCategory(string category, string root)
     {
-        var entries = new List<CacheEntryInfo>();
         var unmanagedFileCount = 0;
         if (File.Exists(root)) throw new InvalidDataException($"Cache category path must be a directory: {root}.");
-        if (!Directory.Exists(root)) return new(category, root, entries, unmanagedFileCount);
+        if (!Directory.Exists(root)) return new(category, root, [], unmanagedFileCount);
 
-        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))
+        // Every entry shares the category root, so its components are checked once here instead of
+        // once per file; each entry then only has to answer for itself.
+        ValidateLinkFreePath(root);
+
+        // The located files are discarded once their entries exist, and a managed cache holds thousands
+        // of them, so the list they are gathered into is borrowed from the pool rather than grown.
+        var managed = ArrayPool<ManagedCacheFile>.Shared.Rent(InitialManagedFileCapacity);
+        var managedCount = 0;
+        try
         {
-            var fileName = Path.GetFileName(path);
-            if (!IsCacheFileName(fileName))
+            foreach (var file in new DirectoryInfo(root).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
             {
-                unmanagedFileCount++;
-                continue;
+                var fileName = file.Name;
+                if (!IsCacheFileName(fileName))
+                {
+                    unmanagedFileCount++;
+                    continue;
+                }
+
+                // Attributes and Length are carried by the directory enumeration, so neither costs a stat call.
+                if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
+                }
+
+                if (managedCount == managed.Length) Grow(ref managed, managedCount);
+                managed[managedCount++] = new(fileName, file.FullName, file.Length);
             }
 
-            ValidateLinkFreePath(path);
-            var bytes = new FileInfo(path).Length;
-            try
+            // Each entry costs an open and a parse, and the reads are independent of each other, so they
+            // run concurrently; the index keeps them apart and the sort restores the reported order.
+            var located = managed;
+            var entries = new CacheEntryInfo[managedCount];
+            Parallel.For(0, managedCount, index =>
             {
-                var metadata = ReadCacheEntryMetadata(path, fileName.AsSpan(0, 64), DefaultLimits.MaximumEntryBytes);
-                entries.Add(new(category, fileName, metadata.CacheKey, metadata.FetchedAt, bytes, null));
-            }
-            catch (Exception exception) when (IsExpectedFailure(exception))
-            {
-                entries.Add(new(category, fileName, null, null, bytes, exception.Message));
-            }
+                var file = located[index];
+                try
+                {
+                    var metadata = ReadCacheEntryMetadata(file.Path, file.Name.AsSpan(0, 64), file.Bytes, DefaultLimits.MaximumEntryBytes);
+                    entries[index] = new(category, file.Name, metadata.CacheKey, metadata.FetchedAt, file.Bytes, null);
+                }
+                catch (Exception exception) when (IsExpectedFailure(exception))
+                {
+                    entries[index] = new(category, file.Name, null, null, file.Bytes, exception.Message);
+                }
+            });
+
+            Array.Sort(entries, static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
+            return new(category, root, entries, unmanagedFileCount);
         }
+        finally
+        {
+            ArrayPool<ManagedCacheFile>.Shared.Return(managed, clearArray: true);
+        }
+    }
 
-        entries.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
-        return new(category, root, entries, unmanagedFileCount);
+    /// <summary>Replaces a full rental with a larger one, returning the old buffer once its content moved.</summary>
+    private static void Grow(ref ManagedCacheFile[] buffer, int count)
+    {
+        var grown = ArrayPool<ManagedCacheFile>.Shared.Rent(buffer.Length * 2);
+        buffer.AsSpan(0, count).CopyTo(grown);
+        var replaced = buffer;
+        buffer = grown;
+        ArrayPool<ManagedCacheFile>.Shared.Return(replaced, clearArray: true);
     }
 
     public static bool TryParseMaxAge(string? value, out TimeSpan? maximumAge)
@@ -383,17 +424,27 @@ internal static class CacheArchive
             var root = GetCategoryRoot(Categories[categoryIndex].Name, directories);
             if (!Directory.Exists(root)) continue;
 
-            foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))
+            foreach (var file in new DirectoryInfo(root).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
             {
-                var fileName = Path.GetFileName(path);
+                var fileName = file.Name;
                 if (!IsCacheFileName(fileName)) continue;
-                ValidateLinkFreePath(path);
-                var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), DefaultLimits.MaximumEntryBytes);
-                var bytes = new FileInfo(path).Length;
+
+                // Attributes and Length are carried by the directory enumeration, and the category root was
+                // already checked by ValidateCachePaths, so reaching an entry costs no stat call of its own.
+                if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    throw new InvalidDataException("Cache path must not contain symbolic links or reparse points.");
+                }
+
+                var path = file.FullName;
+                var bytes = file.Length;
+                var fetchedAt = ValidateCacheEntry(path, fileName.AsSpan(0, 64), bytes, DefaultLimits.MaximumEntryBytes);
                 beforeBytes = checked(beforeBytes + bytes);
                 if (fetchedAt >= cutoff) continue;
 
                 reclaimedBytes = checked(reclaimedBytes + bytes);
+                // Deletion is the one step that must not act on stale attributes, so the entry is rechecked
+                // against the filesystem here rather than against what the enumeration reported.
                 ValidateLinkFreePath(path);
                 if (!dryRun) File.Delete(path);
                 count = checked(count + 1);
@@ -532,11 +583,44 @@ internal static class CacheArchive
     private static DateTimeOffset ValidateCacheEntry(string path, ReadOnlySpan<char> expectedHash, long maximumEntryBytes)
         => ReadCacheEntryMetadata(path, expectedHash, maximumEntryBytes).FetchedAt;
 
+    private static DateTimeOffset ValidateCacheEntry(string path, ReadOnlySpan<char> expectedHash, long length, long maximumEntryBytes)
+        => ReadCacheEntryMetadata(path, expectedHash, length, maximumEntryBytes).FetchedAt;
+
     private static CacheEntryMetadata ReadCacheEntryMetadata(string path, ReadOnlySpan<char> expectedHash, long maximumEntryBytes)
+        => ReadCacheEntryMetadata(path, expectedHash, new FileInfo(path).Length, maximumEntryBytes);
+
+    private static CacheEntryMetadata ReadCacheEntryMetadata(string path, ReadOnlySpan<char> expectedHash, long length, long maximumEntryBytes)
     {
-        var length = new FileInfo(path).Length;
         if (length <= 0 || length > maximumEntryBytes) throw new InvalidDataException($"Cache entry size is invalid: {Path.GetFileName(path)}.");
-        using var content = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var buffer = ArrayPool<byte>.Shared.Rent((int)length);
+        try
+        {
+            return ReadCacheEntryMetadata(path, expectedHash, buffer, (int)length);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static CacheEntryMetadata ReadCacheEntryMetadata(string path, ReadOnlySpan<char> expectedHash, byte[] buffer, int length)
+    {
+        var read = 0;
+        using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            while (read < length)
+            {
+                var chunk = RandomAccess.Read(handle, buffer.AsSpan(read, length - read), read);
+                if (chunk == 0) break;
+                read += chunk;
+            }
+        }
+
+        // Reading the bytes ourselves means the UTF-8 preamble a stream parse would have skipped is still here.
+        var content = buffer.AsMemory(0, read);
+        if (content.Span.StartsWith(Utf8Preamble)) content = content[Utf8Preamble.Length..];
+
+        // The document reads straight out of the rented buffer, so it must not outlive this scope.
         using var document = JsonDocument.Parse(content, new JsonDocumentOptions { MaxDepth = 64 });
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object
@@ -686,4 +770,7 @@ internal static class CacheArchive
     private readonly record struct ArchiveSourceEntry(string SourcePath, string ArchivePath, int CategoryIndex);
     private readonly record struct StagedEntry(string Category, string FileName, string SourcePath);
     private readonly record struct CacheEntryMetadata(string CacheKey, DateTimeOffset FetchedAt);
+
+    /// <summary>One hash-named cache file located by inspection, with the size the enumeration already knew.</summary>
+    private readonly record struct ManagedCacheFile(string Name, string Path, long Bytes);
 }

@@ -390,6 +390,33 @@ public sealed class CacheArchiveCliTests
     }
 
     [Test]
+    public async Task CacheInfo_WithLinkedEntry_RejectsCacheTarget()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-linked-entry-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source", "package-metadata");
+        var outside = Path.Combine(root, "outside");
+        var outsideCache = new PackageMetadataCache(outside);
+        const string cacheKey = "pkg:npm/example@1.0.0";
+        Directory.CreateDirectory(source);
+        await outsideCache.WriteAsync(new PackageMetadataRecord(cacheKey, "npm-registry", "MIT", string.Empty, [], []));
+        var link = Path.Combine(source, Path.GetFileName(outsideCache.GetPath(cacheKey)));
+        File.CreateSymbolicLink(link, outsideCache.GetPath(cacheKey));
+
+        try
+        {
+            var info = await RunOlAsync("cache", "info", "--cache-dir", Path.Combine(root, "source"));
+
+            await Assert.That(info.ExitCode).IsEqualTo(1);
+            await Assert.That(info.Stderr).Contains("Cache path must not contain symbolic links or reparse points");
+        }
+        finally
+        {
+            if (File.Exists(link)) File.Delete(link);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Inspect_WithCategoryRootAsFile_RejectsInvalidLocation()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-root-file-{Guid.NewGuid():N}");

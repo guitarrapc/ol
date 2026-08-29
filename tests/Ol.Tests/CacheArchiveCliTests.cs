@@ -1612,6 +1612,185 @@ public sealed class CacheArchiveCliTests
         }
     }
 
+    /// <summary>
+    /// A directory opens as an access failure, which names the permissions rather than the mistake, so the
+    /// mistake is named first. `cache info` accepts a directory, which is exactly why one reaches `unpack`.
+    /// </summary>
+    [Test]
+    public async Task Unpack_WithDirectoryAsArchive_RejectsBeforeWritingAnything()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-archive-dir-{Guid.NewGuid():N}");
+        var archive = Path.Combine(root, "not-an-archive");
+        var cacheRoot = Path.Combine(root, "cache");
+        Directory.CreateDirectory(archive);
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", cacheRoot);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains($"Archive path must be a file: {archive}");
+            await Assert.That(Directory.Exists(cacheRoot)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>Inspection takes a directory on purpose, so the guard `unpack` needs must not reach it.</summary>
+    [Test]
+    public async Task CacheInfo_WithDirectoryAsPath_InspectsItRatherThanRejectingIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-dir-{Guid.NewGuid():N}");
+        var cache = new PackageMetadataCache(Path.Combine(root, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var info = await RunOlAsync("cache", "info", root);
+
+            await Assert.That(info.ExitCode).IsEqualTo(0).Because(info.Stderr);
+            await Assert.That(info.Stdout).Contains("Cache directory");
+            await Assert.That(info.Stdout).Contains("1 entry");
+            await Assert.That(info.Stderr).DoesNotContain("Archive path must be a file");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The archive-size limits are checked before anything is read, and are the only guard against a caller
+    /// handing over a file the format was never meant to carry.
+    /// </summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Unpack_WithArchiveOutsideSizeLimits_Rejects(bool empty)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-archive-size-{Guid.NewGuid():N}");
+        var cacheRoot = Path.Combine(root, "cache");
+        var archive = Path.Combine(root, "cache.olcache");
+        Directory.CreateDirectory(root);
+        if (empty)
+        {
+            await File.WriteAllBytesAsync(archive, []);
+        }
+        else
+        {
+            // One byte past the hard limit, so the guard is what rejects it rather than the gzip reader.
+            await using var oversized = new FileStream(archive, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            oversized.SetLength(CacheArchive.DefaultLimits.MaximumArchiveBytes + 1);
+        }
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", cacheRoot);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains($"Archive size must be between 1 and {CacheArchive.DefaultLimits.MaximumArchiveBytes} bytes");
+            await Assert.That(Directory.Exists(cacheRoot)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>Inspection applies the same archive-size guard, and reads nothing before it does.</summary>
+    [Test]
+    public async Task CacheInfo_WithOversizedArchive_Rejects()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-size-{Guid.NewGuid():N}");
+        var archive = Path.Combine(root, "cache.olcache");
+        Directory.CreateDirectory(root);
+        await using (var oversized = new FileStream(archive, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            oversized.SetLength(CacheArchive.DefaultLimits.MaximumArchiveBytes + 1);
+        }
+
+        try
+        {
+            var info = await RunOlAsync("cache", "info", archive);
+
+            await Assert.That(info.ExitCode).IsEqualTo(1);
+            await Assert.That(info.Stderr).Contains($"Archive size must be between 1 and {CacheArchive.DefaultLimits.MaximumArchiveBytes} bytes");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A restore reads the archive twice: once to judge it, once to write it. Both passes must see the same
+    /// entries, so a round trip that spans all three categories is compared byte for byte rather than by count.
+    /// </summary>
+    [Test]
+    public async Task PackAndUnpack_AcrossEveryCategory_RestoresEveryEntryByteForByte()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-allcat-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var restored = Path.Combine(root, "restored");
+        var archive = Path.Combine(root, "cache.olcache");
+        var packageCache = new PackageMetadataCache(Path.Combine(source, "package-metadata"));
+        var sourceCache = new SourceRepositoryCache(Path.Combine(source, "source-repository"));
+        var fileCache = new DeclaredGitHubFileCache(Path.Combine(source, "github-file"));
+
+        for (var i = 0; i < 6; i++)
+        {
+            await packageCache.WriteAsync(new PackageMetadataRecord(
+                FormattableString.Invariant($"pkg:npm/all-{i}@1.0.0"),
+                "npm-registry",
+                "MIT",
+                string.Empty,
+                [new string((char)('a' + i), 4096)],
+                []));
+            var target = new SourceRepositoryTarget("owner", FormattableString.Invariant($"repository-{i}"), "default");
+            await sourceCache.WriteAsync(new SourceRepositoryRecord(
+                target.CacheKey,
+                "github-license-api",
+                "none",
+                target.Repository,
+                target.Ref,
+                System.Net.HttpStatusCode.OK,
+                new GitHubLicenseResult("MIT", "mit", "MIT License", "LICENSE", "sha", string.Empty),
+                [],
+                []));
+            DeclaredGitHubFileTarget.TryCreate(
+                FormattableString.Invariant($"https://github.com/owner/repository-{i}/blob/main/LICENSE"),
+                out var fileTarget);
+            fileCache.Write(fileTarget, System.Net.HttpStatusCode.OK, Encoding.UTF8.GetBytes(new string((char)('a' + i), 2048)));
+        }
+
+        try
+        {
+            var pack = await RunOlAsync("cache", "pack", archive, "--cache-dir", source);
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", restored);
+
+            await Assert.That(pack.ExitCode).IsEqualTo(0).Because(pack.Stderr);
+            await Assert.That(unpack.ExitCode).IsEqualTo(0).Because(unpack.Stderr);
+
+            // Every managed file the pack saw has to come back with identical bytes, in every category.
+            var expected = Directory.GetFiles(source, "*", SearchOption.AllDirectories);
+            await Assert.That(expected.Length).IsGreaterThan(0);
+            foreach (var path in expected)
+            {
+                var restoredPath = Path.Combine(restored, Path.GetRelativePath(source, path));
+                await Assert.That(File.Exists(restoredPath)).IsTrue().Because(restoredPath);
+                await Assert.That(await File.ReadAllBytesAsync(restoredPath))
+                    .IsEquivalentTo(await File.ReadAllBytesAsync(path), TUnit.Assertions.Enums.CollectionOrdering.Matching)
+                    .Because(restoredPath);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CacheEntryJson(string cacheKey)
         => FormattableString.Invariant($$"""{"SchemaVersion":1,"CacheKey":"{{cacheKey}}","CacheKeySha256":"{{PackageMetadataCache.GetCacheKeySha256(cacheKey)}}","FetchedAt":"2026-08-01T00:00:00+00:00"}""");
 

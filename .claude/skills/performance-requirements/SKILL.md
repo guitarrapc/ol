@@ -89,6 +89,9 @@ Run tests after each implementation refactor. For meaningful changes to inventor
 | Sorting, view projection, duplicate purls | `ScanViewBenchmark` |
 | Report rendering fixed cost | `TextReportRendererBenchmark`, `JsonReportRendererBenchmark` |
 | Policy evaluation | `LicensePolicyBenchmark` |
+| Cache archive pack/unpack/inspect, cache directory list/prune | `CacheArchiveBenchmark` |
 | Anything that shifts cost between stages | `E2EBenchmark` |
 
 Benchmark end to end when a local optimization may move cost to another pipeline stage.
+
+`CacheArchiveBenchmark` measures two archive shapes, and both rows have to be read. Every regression these operations have had scaled with the entry count while the content stayed constant, so a shape of a few large entries reports a bounded cost for a design whose cost is not bounded, and a shape of many small entries hides one that scales with content. A change that moves only `UnpackManyEntries` is a per-entry cost; one that moves only `UnpackLargeEntries` is a per-byte cost; the Gen2 column on the large-entry row is what a buffer that grows with the expanded archive looks like.

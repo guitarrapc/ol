@@ -1613,6 +1613,55 @@ public sealed class CacheArchiveCliTests
     }
 
     /// <summary>
+    /// A directory opens as an access failure, which names the permissions rather than the mistake, so the
+    /// mistake is named first. `cache info` accepts a directory, which is exactly why one reaches `unpack`.
+    /// </summary>
+    [Test]
+    public async Task Unpack_WithDirectoryAsArchive_RejectsBeforeWritingAnything()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-archive-dir-{Guid.NewGuid():N}");
+        var archive = Path.Combine(root, "not-an-archive");
+        var cacheRoot = Path.Combine(root, "cache");
+        Directory.CreateDirectory(archive);
+
+        try
+        {
+            var unpack = await RunOlAsync("cache", "unpack", archive, "--cache-dir", cacheRoot);
+
+            await Assert.That(unpack.ExitCode).IsEqualTo(1);
+            await Assert.That(unpack.Stderr).Contains($"Archive path must be a file: {archive}");
+            await Assert.That(Directory.Exists(cacheRoot)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>Inspection takes a directory on purpose, so the guard `unpack` needs must not reach it.</summary>
+    [Test]
+    public async Task CacheInfo_WithDirectoryAsPath_InspectsItRatherThanRejectingIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ol-cache-info-dir-{Guid.NewGuid():N}");
+        var cache = new PackageMetadataCache(Path.Combine(root, "package-metadata"));
+        await cache.WriteAsync(new PackageMetadataRecord("pkg:npm/example@1.0.0", "npm-registry", "MIT", string.Empty, [], []));
+
+        try
+        {
+            var info = await RunOlAsync("cache", "info", root);
+
+            await Assert.That(info.ExitCode).IsEqualTo(0).Because(info.Stderr);
+            await Assert.That(info.Stdout).Contains("Cache directory");
+            await Assert.That(info.Stdout).Contains("1 entry");
+            await Assert.That(info.Stderr).DoesNotContain("Archive path must be a file");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// The archive-size limits are checked before anything is read, and are the only guard against a caller
     /// handing over a file the format was never meant to carry.
     /// </summary>

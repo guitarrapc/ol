@@ -736,57 +736,67 @@ internal static class CheckRenderer
                 }
             }
 
-            var pairs = new ComponentOrigin[occurrences.Length];
-            var pairCount = 0;
-            for (var occurrenceIndex = 0; occurrenceIndex < occurrences.Length; occurrenceIndex++)
+            // Sized for every occurrence, but only the violating and distinct pairs survive: rent the scratch
+            // buffer so its unused tail is not retained for the length of the Markdown write.
+            var pairs = ArrayPool<ComponentOrigin>.Shared.Rent(occurrences.Length);
+            try
             {
-                var occurrence = occurrences[occurrenceIndex];
-                if ((uint)occurrence.ComponentIndex >= (uint)violationByComponent.Length
-                    || (uint)occurrence.ContextIndex >= (uint)contexts.Length)
+                var pairCount = 0;
+                for (var occurrenceIndex = 0; occurrenceIndex < occurrences.Length; occurrenceIndex++)
                 {
-                    continue;
+                    var occurrence = occurrences[occurrenceIndex];
+                    if ((uint)occurrence.ComponentIndex >= (uint)violationByComponent.Length
+                        || (uint)occurrence.ContextIndex >= (uint)contexts.Length)
+                    {
+                        continue;
+                    }
+
+                    var violationIndex = violationByComponent[occurrence.ComponentIndex];
+                    if (violationIndex < 0 || GetUsageOriginPrimary(contexts[occurrence.ContextIndex]).IsEmpty) continue;
+                    pairs[pairCount++] = new ComponentOrigin(
+                        violationIndex,
+                        violations[violationIndex].ComponentIndex,
+                        occurrence.ContextIndex);
                 }
 
-                var violationIndex = violationByComponent[occurrence.ComponentIndex];
-                if (violationIndex < 0 || GetUsageOriginPrimary(contexts[occurrence.ContextIndex]).IsEmpty) continue;
-                pairs[pairCount++] = new ComponentOrigin(
-                    violationIndex,
-                    violations[violationIndex].ComponentIndex,
-                    occurrence.ContextIndex);
-            }
-
-            if (pairCount == 0)
-            {
-                return new UsageOriginProjection([], [], []);
-            }
-
-            var comparer = new ComponentOriginComparer(contexts, originFirst: false);
-            Array.Sort(pairs, 0, pairCount, comparer);
-            var distinctCount = 0;
-            for (var i = 0; i < pairCount; i++)
-            {
-                if (distinctCount != 0
-                    && pairs[distinctCount - 1].ViolationIndex == pairs[i].ViolationIndex
-                    && UsageOriginEquals(contexts[pairs[distinctCount - 1].ContextIndex], contexts[pairs[i].ContextIndex]))
+                if (pairCount == 0)
                 {
-                    continue;
+                    return new UsageOriginProjection([], [], []);
                 }
 
-                pairs[distinctCount++] = pairs[i];
-            }
+                var comparer = new ComponentOriginComparer(contexts, originFirst: false);
+                Array.Sort(pairs, 0, pairCount, comparer);
+                var distinctCount = 0;
+                for (var i = 0; i < pairCount; i++)
+                {
+                    if (distinctCount != 0
+                        && pairs[distinctCount - 1].ViolationIndex == pairs[i].ViolationIndex
+                        && UsageOriginEquals(contexts[pairs[distinctCount - 1].ContextIndex], contexts[pairs[i].ContextIndex]))
+                    {
+                        continue;
+                    }
 
-            var ranges = new OriginRange[violations.Length];
-            for (var start = 0; start < distinctCount;)
+                    pairs[distinctCount++] = pairs[i];
+                }
+
+                var ranges = new OriginRange[violations.Length];
+                for (var start = 0; start < distinctCount;)
+                {
+                    var end = start + 1;
+                    while (end < distinctCount && pairs[end].ViolationIndex == pairs[start].ViolationIndex) end++;
+                    ranges[pairs[start].ViolationIndex] = new OriginRange(start, end - start);
+                    start = end;
+                }
+
+                var byViolation = pairs.AsSpan(0, distinctCount).ToArray();
+                var byOrigin = byViolation.AsSpan().ToArray();
+                Array.Sort(byOrigin, new ComponentOriginComparer(contexts, originFirst: true));
+                return new UsageOriginProjection(byViolation, byOrigin, ranges);
+            }
+            finally
             {
-                var end = start + 1;
-                while (end < distinctCount && pairs[end].ViolationIndex == pairs[start].ViolationIndex) end++;
-                ranges[pairs[start].ViolationIndex] = new OriginRange(start, end - start);
-                start = end;
+                ArrayPool<ComponentOrigin>.Shared.Return(pairs);
             }
-
-            var byOrigin = pairs.AsSpan(0, distinctCount).ToArray();
-            Array.Sort(byOrigin, new ComponentOriginComparer(contexts, originFirst: true));
-            return new UsageOriginProjection(pairs, byOrigin, ranges);
         }
 
         public ReadOnlySpan<ComponentOrigin> GetOrigins(int violationIndex)

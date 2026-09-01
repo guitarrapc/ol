@@ -570,12 +570,13 @@ internal static class CheckRenderer
         }
         else
         {
-            WriteUtf8(writer, "| Package | Version | Ecosystem | Purl | License/Status | Reason | Mechanism | Reference | Path |"u8);
+            WriteUtf8(writer, "| Package | Version | Ecosystem | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |"u8);
             WriteNewLine(writer);
-            WriteUtf8(writer, "|---|---|---|---|---|---|---|---|---|"u8);
+            WriteUtf8(writer, "|---|---|---|---|---|---|---|---|---|---|"u8);
             WriteNewLine(writer);
 
             using var rootPaths = DependencyPathResolver.BuildRootPaths(report.Inventory);
+            var usageOrigins = UsageOriginProjection.Create(report.Inventory, components, violations, rootPaths);
             for (var i = 0; i < violations.Length; i++)
             {
                 var violation = violations[i];
@@ -601,10 +602,14 @@ internal static class CheckRenderer
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, row.Reference);
                 WriteUtf8(writer, " | "u8);
+                WriteMarkdownOrigins(writer, usageOrigins.GetOrigins(i), report.Inventory.Contexts);
+                WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, row.Path);
                 WriteUtf8(writer, " |"u8);
                 WriteNewLine(writer);
             }
+
+            WriteMarkdownUsageOrigins(writer, usageOrigins, components, report.Inventory.Contexts);
         }
 
         mechanismTally.WriteMarkdown(writer);
@@ -671,6 +676,245 @@ internal static class CheckRenderer
 
     /// <summary>One violation row's derived text, kept between the width pass and the write pass.</summary>
     private readonly record struct ViolationRow(bool Tallied, bool NamedMechanism, UnresolvedMechanismKind MechanismKind, string Reference, string Path);
+
+    /// <summary>Associates one violated report component with one inventory resolution context.</summary>
+    private readonly record struct ComponentOrigin(int ViolationIndex, int ComponentIndex, int ContextIndex);
+
+    /// <summary>Locates a report component in the inventory when no dependency-path index was built.</summary>
+    private readonly record struct ComponentIdentity(
+        Utf8Slice Name,
+        Utf8Slice Version,
+        Utf8Slice Purl,
+        Utf8Slice SourceId,
+        string Ecosystem)
+    {
+        public ComponentIdentity(in ScanComponent component)
+            : this(component.Name, component.Version, component.Purl, component.SourceId, component.Ecosystem)
+        {
+        }
+    }
+
+    /// <summary>Projects distinct usage origins once for both the violation rows and the origin summary.</summary>
+    private readonly record struct UsageOriginProjection(
+        ComponentOrigin[] ByViolation,
+        ComponentOrigin[] ByOrigin,
+        OriginRange[] Ranges)
+    {
+        public static UsageOriginProjection Create(
+            in DependencyInventory inventory,
+            ReadOnlySpan<ScanComponent> components,
+            ReadOnlySpan<LicensePolicyViolation> violations,
+            scoped in DependencyRootPaths rootPaths)
+        {
+            var contexts = inventory.Contexts;
+            var occurrences = inventory.Occurrences;
+            if (contexts.Length == 0 || occurrences.Length == 0)
+            {
+                return new UsageOriginProjection([], [], []);
+            }
+
+            var violationByComponent = new int[inventory.Components.Length];
+            violationByComponent.AsSpan().Fill(-1);
+            Dictionary<ComponentIdentity, int>? inventoryByIdentity = null;
+            for (var violationIndex = 0; violationIndex < violations.Length; violationIndex++)
+            {
+                var reportComponentIndex = violations[violationIndex].ComponentIndex;
+                ref readonly var component = ref components[reportComponentIndex];
+                var inventoryComponentIndex = rootPaths.FindComponentIndex(component, reportComponentIndex);
+                if (inventoryComponentIndex < 0)
+                {
+                    inventoryByIdentity ??= BuildInventoryIdentityIndex(inventory.Components);
+                    if (!inventoryByIdentity.TryGetValue(new ComponentIdentity(component), out inventoryComponentIndex))
+                    {
+                        inventoryComponentIndex = -1;
+                    }
+                }
+
+                if ((uint)inventoryComponentIndex < (uint)violationByComponent.Length)
+                {
+                    violationByComponent[inventoryComponentIndex] = violationIndex;
+                }
+            }
+
+            var pairs = new ComponentOrigin[occurrences.Length];
+            var pairCount = 0;
+            for (var occurrenceIndex = 0; occurrenceIndex < occurrences.Length; occurrenceIndex++)
+            {
+                var occurrence = occurrences[occurrenceIndex];
+                if ((uint)occurrence.ComponentIndex >= (uint)violationByComponent.Length
+                    || (uint)occurrence.ContextIndex >= (uint)contexts.Length)
+                {
+                    continue;
+                }
+
+                var violationIndex = violationByComponent[occurrence.ComponentIndex];
+                if (violationIndex < 0 || GetUsageOriginPrimary(contexts[occurrence.ContextIndex]).IsEmpty) continue;
+                pairs[pairCount++] = new ComponentOrigin(
+                    violationIndex,
+                    violations[violationIndex].ComponentIndex,
+                    occurrence.ContextIndex);
+            }
+
+            if (pairCount == 0)
+            {
+                return new UsageOriginProjection([], [], []);
+            }
+
+            var comparer = new ComponentOriginComparer(contexts, originFirst: false);
+            Array.Sort(pairs, 0, pairCount, comparer);
+            var distinctCount = 0;
+            for (var i = 0; i < pairCount; i++)
+            {
+                if (distinctCount != 0
+                    && pairs[distinctCount - 1].ViolationIndex == pairs[i].ViolationIndex
+                    && UsageOriginEquals(contexts[pairs[distinctCount - 1].ContextIndex], contexts[pairs[i].ContextIndex]))
+                {
+                    continue;
+                }
+
+                pairs[distinctCount++] = pairs[i];
+            }
+
+            var ranges = new OriginRange[violations.Length];
+            for (var start = 0; start < distinctCount;)
+            {
+                var end = start + 1;
+                while (end < distinctCount && pairs[end].ViolationIndex == pairs[start].ViolationIndex) end++;
+                ranges[pairs[start].ViolationIndex] = new OriginRange(start, end - start);
+                start = end;
+            }
+
+            var byOrigin = pairs.AsSpan(0, distinctCount).ToArray();
+            Array.Sort(byOrigin, new ComponentOriginComparer(contexts, originFirst: true));
+            return new UsageOriginProjection(pairs, byOrigin, ranges);
+        }
+
+        public ReadOnlySpan<ComponentOrigin> GetOrigins(int violationIndex)
+        {
+            if ((uint)violationIndex >= (uint)Ranges.Length) return [];
+            var range = Ranges[violationIndex];
+            return ByViolation.AsSpan(range.Start, range.Length);
+        }
+
+        private static Dictionary<ComponentIdentity, int> BuildInventoryIdentityIndex(ScanComponent[] components)
+        {
+            var result = new Dictionary<ComponentIdentity, int>(components.Length);
+            for (var i = 0; i < components.Length; i++) result.TryAdd(new ComponentIdentity(components[i]), i);
+            return result;
+        }
+    }
+
+    private readonly record struct OriginRange(int Start, int Length);
+
+    private sealed class ComponentOriginComparer(DependencyResolutionContext[] contexts, bool originFirst) : IComparer<ComponentOrigin>
+    {
+        public int Compare(ComponentOrigin left, ComponentOrigin right)
+        {
+            var byOrigin = CompareUsageOrigin(contexts[left.ContextIndex], contexts[right.ContextIndex]);
+            var byViolation = left.ViolationIndex.CompareTo(right.ViolationIndex);
+            return originFirst
+                ? byOrigin != 0 ? byOrigin : byViolation
+                : byViolation != 0 ? byViolation : byOrigin;
+        }
+    }
+
+    private static Utf8Slice GetUsageOriginPrimary(in DependencyResolutionContext context)
+        => context.ProjectIdentity.IsEmpty ? context.InputPath : context.ProjectIdentity;
+
+    private static Utf8Slice GetUsageOriginInputPath(in DependencyResolutionContext context)
+        => context.ProjectIdentity.IsEmpty
+            || context.InputPath.IsEmpty
+            || context.ProjectIdentity.Equals(context.InputPath)
+                ? default
+                : context.InputPath;
+
+    private static int CompareUsageOrigin(in DependencyResolutionContext left, in DependencyResolutionContext right)
+    {
+        var byPrimary = Utf8Slice.CompareOrdinal(GetUsageOriginPrimary(left), GetUsageOriginPrimary(right));
+        return byPrimary != 0
+            ? byPrimary
+            : Utf8Slice.CompareOrdinal(GetUsageOriginInputPath(left), GetUsageOriginInputPath(right));
+    }
+
+    private static bool UsageOriginEquals(in DependencyResolutionContext left, in DependencyResolutionContext right)
+        => GetUsageOriginPrimary(left).Equals(GetUsageOriginPrimary(right))
+            && GetUsageOriginInputPath(left).Equals(GetUsageOriginInputPath(right));
+
+    private static void WriteMarkdownOrigin(IBufferWriter<byte> writer, in DependencyResolutionContext context)
+    {
+        WriteMarkdownValue(writer, GetUsageOriginPrimary(context));
+        var inputPath = GetUsageOriginInputPath(context);
+        if (inputPath.IsEmpty) return;
+        WriteUtf8(writer, " ("u8);
+        WriteMarkdownValue(writer, inputPath);
+        WriteUtf8(writer, ")"u8);
+    }
+
+    private static void WriteMarkdownOrigins(
+        IBufferWriter<byte> writer,
+        ReadOnlySpan<ComponentOrigin> origins,
+        DependencyResolutionContext[] contexts)
+    {
+        if (origins.IsEmpty)
+        {
+            WriteUtf8(writer, "-"u8);
+            return;
+        }
+
+        for (var i = 0; i < origins.Length; i++)
+        {
+            if (i != 0) WriteUtf8(writer, ", "u8);
+            WriteMarkdownOrigin(writer, contexts[origins[i].ContextIndex]);
+        }
+    }
+
+    private static void WriteMarkdownUsageOrigins(
+        IBufferWriter<byte> writer,
+        in UsageOriginProjection projection,
+        ReadOnlySpan<ScanComponent> components,
+        DependencyResolutionContext[] contexts)
+    {
+        WriteNewLine(writer);
+        WriteUtf8(writer, "### Usage origins"u8);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
+        var origins = projection.ByOrigin;
+        if (origins.Length == 0)
+        {
+            WriteUtf8(writer, "No usage origins are recorded for these violations."u8);
+            WriteNewLine(writer);
+            return;
+        }
+
+        WriteUtf8(writer, "| Origin | Violating packages |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "|---|---|"u8);
+        WriteNewLine(writer);
+        for (var start = 0; start < origins.Length;)
+        {
+            ref readonly var origin = ref contexts[origins[start].ContextIndex];
+            var end = start + 1;
+            while (end < origins.Length && UsageOriginEquals(origin, contexts[origins[end].ContextIndex])) end++;
+
+            WriteUtf8(writer, "| "u8);
+            WriteMarkdownOrigin(writer, origin);
+            WriteUtf8(writer, " | "u8);
+            for (var i = start; i < end; i++)
+            {
+                if (i != start) WriteUtf8(writer, ", "u8);
+                ref readonly var component = ref components[origins[i].ComponentIndex];
+                WriteMarkdownValue(writer, component.Name);
+                if (!component.Version.IsEmpty)
+                {
+                    WriteUtf8(writer, " "u8);
+                    WriteMarkdownValue(writer, component.Version);
+                }
+            }
+            WriteUtf8(writer, " |"u8);
+            WriteNewLine(writer);
+            start = end;
+        }
+    }
 
     /// <summary>Projects the Mechanism and Reference columns and the mechanism tally key.</summary>
     /// <remarks>

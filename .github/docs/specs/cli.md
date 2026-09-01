@@ -168,6 +168,8 @@ Every field is written unconditionally and with every count, for the reason `inp
 
 The complete inventory is independent of sorted, filtered, or grouped views. Occurrence indexes address `inventory.components`, never displayed component or group indexes. The report identifies inputs with logical references and content hashes. It accepts input and SPDX JSON with an optional UTF-8 BOM.
 
+`inventory.contexts[].projectOrigin` identifies the project or workspace that produced a resolution context without disclosing its absolute local path. When a directory input discovers a resolver document whose project origin is an absolute path inside that directory, Ol stores the origin relative to the directory input with `/` separators. When an adapter identifies the origin by the resolver input's basename — for example `Gemfile.lock`, `Package.resolved`, or `Podfile.lock` — Ol expands it to that discovered file's path relative to the directory input. An absolute origin outside the directory input, or one read from an explicitly named file with no directory scope, is reduced to its basename. Other relative logical origins supplied by an adapter are retained unchanged.
+
 <a id="contract-report-privacy"></a>
 
 No value Ol constructs for a report, baseline, SARIF document, or diagnostic may contain a token value, an absolute local path, or a hidden cache path. Use logical identifiers, basenames, relative paths, and hashes. Authentication may be reported only as a mode, never as a credential value. The explicit `cache list` and `cache info` inspection commands are the exception for cache paths: the user asks them to reveal where managed caches are stored.

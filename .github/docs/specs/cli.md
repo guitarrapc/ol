@@ -279,10 +279,12 @@ The cache root is selected by `--cache-dir`, then `OL_CACHE_DIR`, then legacy ca
 <a id="contract-policy-report-input"></a>
 
 ```text
-ol check --report <scan.json> --allow-licenses <SPDX-ids>
+ol check --report <scan.json> --allow-licenses <SPDX-ids> [--format <text|markdown>]
 ```
 
 `check` reads one ungrouped canonical JSON report. It performs no dependency parsing, evidence collection, cache access, or network access. Invalid, malformed, grouped, or unsupported-schema reports are command failures. A report [whose input declared no resolved dependencies](#contract-empty-inventory) is readable and complete, and is reported as inconclusive rather than evaluated.
+
+`--format text` is the default and writes the terminal-oriented result described below. `--format markdown` writes one GitHub-flavored Markdown document to stdout, including the persisted scan input and source, component status counts, component supply counts, resolved SPDX expressions in use, ecosystem counts, policy result, and every violation. Each violation retains the package, version, ecosystem, purl, license or status, policy reason, unresolved mechanism, reference, and dependency path. An unresolved-mechanism tally and scan discovery warnings follow the violation table when present. The complete document is written before `check` returns exit `2` or `3`, so a CI step can redirect stdout to `GITHUB_STEP_SUMMARY` without a second summary command or a separate output file.
 
 <a id="contract-policy-filtered-report"></a>
 

@@ -32,7 +32,8 @@ public sealed class CliCheckTests
         await Assert.That(result.Stdout).DoesNotContain("--concurrency");
         await Assert.That(result.Stdout).DoesNotContain("--retry");
         await Assert.That(result.Stdout).DoesNotContain("--dependency");
-        await Assert.That(result.Stdout).DoesNotContain("--format");
+        await Assert.That(result.Stdout).Contains("--format <CheckFormat>");
+        await Assert.That(result.Stdout).Contains("Output format: text or markdown.");
     }
 
     [Test]
@@ -82,6 +83,67 @@ public sealed class CliCheckTests
             await Assert.That(result.ExitCode).IsEqualTo(0);
             await Assert.That(result.Stderr).IsEmpty();
             await Assert.That(result.Stdout).Contains("License check passed: 1 component satisfies the allow-list.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_RendersScanContextAndPolicyFindings()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxForMarkdownAsync();
+        try
+        {
+            var result = await RunCheckWorkflowAsync(
+                root,
+                "--input", inputPath,
+                "--allow-licenses", "MIT",
+                "--no-external-evidence",
+                "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2);
+            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).Contains("### ol license check");
+            await Assert.That(result.Stdout).Contains("#### Scan overview");
+            await Assert.That(result.Stdout).Contains("| Status | Components |");
+            await Assert.That(result.Stdout).Contains("| matched | 2 |");
+            await Assert.That(result.Stdout).Contains("| unknown | 1 |");
+            await Assert.That(result.Stdout).Contains("#### License expressions in use");
+            await Assert.That(result.Stdout).Contains("| GPL-3.0-only | 1 |");
+            await Assert.That(result.Stdout).Contains("| MIT | 1 |");
+            await Assert.That(result.Stdout).Contains("#### Policy result");
+            await Assert.That(result.Stdout).Contains("#### Violations");
+            await Assert.That(result.Stdout).Contains("| forbidden | 1.0.0 | npm | pkg:npm/forbidden@1.0.0 | GPL-3.0-only | license is not allowed |");
+            await Assert.That(result.Stdout).Contains("| unknown | 1.0.0 | npm | pkg:npm/unknown@1.0.0 | unknown | license is unresolved | - | - | - |");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_WhenPolicyPasses_RendersPassedResult()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        try
+        {
+            var result = await RunCheckWorkflowAsync(
+                root,
+                "--input", inputPath,
+                "--allow-licenses", "MIT",
+                "--no-external-evidence",
+                "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).Contains("| Result | passed |");
+            await Assert.That(result.Stdout).Contains("No policy violations.");
+            await Assert.That(result.Stdout).DoesNotContain("#### Unresolved mechanisms");
         }
         finally
         {
@@ -1691,6 +1753,25 @@ public sealed class CliCheckTests
 
     private static string FixturePath(string fileName)
         => Path.Combine(AppContext.BaseDirectory, "Fixtures", fileName);
+
+    private static async Task<string> WriteCycloneDxForMarkdownAsync()
+    {
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        const string json =
+            """
+            {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.6",
+              "components": [
+                { "type": "library", "name": "allowed", "version": "1.0.0", "purl": "pkg:npm/allowed@1.0.0", "licenses": [{ "expression": "MIT" }] },
+                { "type": "library", "name": "forbidden", "version": "1.0.0", "purl": "pkg:npm/forbidden@1.0.0", "licenses": [{ "expression": "GPL-3.0-only" }] },
+                { "type": "library", "name": "unknown", "version": "1.0.0", "purl": "pkg:npm/unknown@1.0.0" }
+              ]
+            }
+            """;
+        await File.WriteAllTextAsync(inputPath, json, Encoding.UTF8);
+        return inputPath;
+    }
 
     private static async Task<string> WriteCycloneDxAsync(string? license, string version = "1.0.0")
     {

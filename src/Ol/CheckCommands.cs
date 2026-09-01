@@ -1114,11 +1114,17 @@ internal static class CheckRenderer
         for (var i = 0; i < value.Length; i++)
         {
             var current = value[i];
-            if (current is not ((byte)'|' or (byte)'\r' or (byte)'\n')) continue;
+            if (current is not ((byte)'|' or (byte)'\r' or (byte)'\n' or (byte)'&' or (byte)'<' or (byte)'>')) continue;
 
             WriteUtf8(writer, value[start..i]);
-            if (current == (byte)'|') WriteUtf8(writer, "\\|"u8);
-            else WriteUtf8(writer, " "u8);
+            WriteUtf8(writer, current switch
+            {
+                (byte)'|' => "\\|"u8,
+                (byte)'&' => "&amp;"u8,
+                (byte)'<' => "&lt;"u8,
+                (byte)'>' => "&gt;"u8,
+                _ => " "u8,
+            });
             start = i + 1;
         }
 
@@ -1138,11 +1144,17 @@ internal static class CheckRenderer
         for (var i = 0; i < value.Length; i++)
         {
             var current = value[i];
-            if (current is not ('|' or '\r' or '\n')) continue;
+            if (current is not ('|' or '\r' or '\n' or '&' or '<' or '>')) continue;
 
             WriteUtf8(writer, value.AsSpan(start, i - start));
-            if (current == '|') WriteUtf8(writer, "\\|"u8);
-            else WriteUtf8(writer, " "u8);
+            WriteUtf8(writer, current switch
+            {
+                '|' => "\\|"u8,
+                '&' => "&amp;"u8,
+                '<' => "&lt;"u8,
+                '>' => "&gt;"u8,
+                _ => " "u8,
+            });
             start = i + 1;
         }
 

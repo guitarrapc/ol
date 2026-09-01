@@ -220,6 +220,36 @@ public sealed class CliCheckTests
     }
 
     [Test]
+    public async Task Check_WithMarkdownFormat_EscapesHtmlInUntrustedTableValues()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            var document = JsonNode.Parse(scan.Stdout)!.AsObject();
+            var component = document["components"]!.AsArray()[0]!.AsObject();
+            component["name"] = "<details>&example";
+            component["ecosystem"] = "npm</td>&";
+            await File.WriteAllTextAsync(reportPath, document.ToJsonString());
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| &lt;details&gt;&amp;example | 1.0.0 | npm&lt;/td&gt;&amp; | MIT | matched |");
+            await Assert.That(result.Stdout).DoesNotContain("| <details>&example |");
+            await Assert.That(result.Stdout).DoesNotContain("npm</td>&");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
     public async Task Check_WithMarkdownFormat_RestoresComponentSupplyFromReport()
     {
         var root = FindRepositoryRoot();

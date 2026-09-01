@@ -1099,67 +1099,15 @@ internal static class CheckRenderer
 
     /// <summary>Writes a table value while keeping source-backed UTF-8 values zero-copy.</summary>
     private static void WriteMarkdownValue(IBufferWriter<byte> writer, Utf8Slice value)
-        => WriteMarkdownValue(writer, value.Span);
+        => MarkdownTableCellWriter.Write(writer, value);
 
     /// <summary>Writes a UTF-8 table value while keeping source-backed bytes zero-copy.</summary>
     private static void WriteMarkdownValue(IBufferWriter<byte> writer, ReadOnlySpan<byte> value)
-    {
-        if (value.IsEmpty)
-        {
-            WriteUtf8(writer, "-"u8);
-            return;
-        }
-
-        var start = 0;
-        for (var i = 0; i < value.Length; i++)
-        {
-            var current = value[i];
-            if (current is not ((byte)'|' or (byte)'\r' or (byte)'\n' or (byte)'&' or (byte)'<' or (byte)'>')) continue;
-
-            WriteUtf8(writer, value[start..i]);
-            WriteUtf8(writer, current switch
-            {
-                (byte)'|' => "\\|"u8,
-                (byte)'&' => "&amp;"u8,
-                (byte)'<' => "&lt;"u8,
-                (byte)'>' => "&gt;"u8,
-                _ => " "u8,
-            });
-            start = i + 1;
-        }
-
-        WriteUtf8(writer, value[start..]);
-    }
+        => MarkdownTableCellWriter.Write(writer, value);
 
     /// <summary>Writes an owned table value without allocating an escaped copy.</summary>
     private static void WriteMarkdownValue(IBufferWriter<byte> writer, string value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            WriteUtf8(writer, "-"u8);
-            return;
-        }
-
-        var start = 0;
-        for (var i = 0; i < value.Length; i++)
-        {
-            var current = value[i];
-            if (current is not ('|' or '\r' or '\n' or '&' or '<' or '>')) continue;
-
-            WriteUtf8(writer, value.AsSpan(start, i - start));
-            WriteUtf8(writer, current switch
-            {
-                '|' => "\\|"u8,
-                '&' => "&amp;"u8,
-                '<' => "&lt;"u8,
-                '>' => "&gt;"u8,
-                _ => " "u8,
-            });
-            start = i + 1;
-        }
-
-        WriteUtf8(writer, value.AsSpan(start));
-    }
+        => MarkdownTableCellWriter.Write(writer, value);
 
     private static ReadOnlySpan<byte> LicenseOrStatus(in ScanComponent component, LicensePolicyViolationKind kind)
         => component.Status == LicenseStatus.Matched ? Display(component.License) : Status(kind);

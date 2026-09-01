@@ -653,62 +653,13 @@ internal static class ReportRenderer
         throw new ArgumentOutOfRangeException(nameof(targetIndex));
     }
 
-    /// <summary>
-    /// Writes a source-backed value into a table cell without decoding it.
-    /// </summary>
-    /// <remarks>
-    /// The only character a cell has to escape is the one that would end it, and in UTF-8 that byte never
-    /// occurs inside a multi-byte sequence, so the scan is safe on bytes and the value is copied rather
-    /// than translated.
-    /// </remarks>
+    /// <summary>Writes a source-backed value into a table cell without decoding it.</summary>
     private static void WriteMarkdownValue(IBufferWriter<byte> writer, Utf8Slice value)
-    {
-        var remaining = value.Span;
-        if (remaining.IsEmpty)
-        {
-            WriteUtf8(writer, "-"u8);
-            return;
-        }
-
-        while (true)
-        {
-            var index = remaining.IndexOf((byte)'|');
-            if (index < 0)
-            {
-                WriteUtf8(writer, remaining);
-                return;
-            }
-
-            WriteUtf8(writer, remaining[..index]);
-            WriteUtf8(writer, "\\|"u8);
-            remaining = remaining[(index + 1)..];
-        }
-    }
+        => MarkdownTableCellWriter.Write(writer, value);
 
     /// <summary>Writes a value the report owns as text, such as an ecosystem name or a resolved path.</summary>
     private static void WriteMarkdownValue(IBufferWriter<byte> writer, string value)
-    {
-        if (value.Length == 0)
-        {
-            WriteUtf8(writer, "-"u8);
-            return;
-        }
-
-        var remaining = value.AsSpan();
-        while (true)
-        {
-            var index = remaining.IndexOf('|');
-            if (index < 0)
-            {
-                WriteUtf8(writer, remaining);
-                return;
-            }
-
-            WriteUtf8(writer, remaining[..index]);
-            WriteUtf8(writer, "\\|"u8);
-            remaining = remaining[(index + 1)..];
-        }
-    }
+        => MarkdownTableCellWriter.Write(writer, value);
 
     private static void WriteCount(IBufferWriter<byte> writer, int count)
     {

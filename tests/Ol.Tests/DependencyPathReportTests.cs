@@ -18,6 +18,7 @@ public sealed class DependencyPathReportTests
     private static readonly SemaphoreSlim CliGate = new(1, 1);
 
     private const string TransitivePath = "pkg:nuget/Direct@1.0.0 > pkg:nuget/Transitive@2.0.0";
+    private const string TransitiveMarkdownPath = "pkg:nuget/Direct@1.0.0 &gt; pkg:nuget/Transitive@2.0.0";
 
     [Test]
     public async Task Check_WithTransitiveViolation_ShowsTheIntroducingPath()
@@ -115,7 +116,7 @@ public sealed class DependencyPathReportTests
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
             await Assert.That(section).Contains("| NAME | VERSION | REASON | REFERENCE | PATH |");
-            await Assert.That(section).Contains($"| Transitive | 2.0.0 | declared_license_location_not_collected | https://example.test/transitive-LICENSE.txt | {TransitivePath} |");
+            await Assert.That(section).Contains($"| Transitive | 2.0.0 | declared_license_location_not_collected | https://example.test/transitive-LICENSE.txt | {TransitiveMarkdownPath} |");
         }
         finally
         {

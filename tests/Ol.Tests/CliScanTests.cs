@@ -3971,6 +3971,40 @@ public sealed class CliScanTests
     }
 
     [Test]
+    public async Task Scan_WithMarkdownFormat_EscapesHtmlInUntrustedTableValues()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-markdown-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(inputPath, """
+                {
+                  "bomFormat": "CycloneDX",
+                  "specVersion": "1.6",
+                  "components": [
+                    {
+                      "name": "<details>&example|next\nline",
+                      "version": "1.0.0",
+                      "purl": "pkg:npm/example@1.0.0",
+                      "licenses": [{ "license": { "id": "MIT" } }]
+                    }
+                  ]
+                }
+                """);
+
+            var result = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "markdown", "--quiet");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| &lt;details&gt;&amp;example\\|next line | 1.0.0 | MIT | npm | unknown | matched | sbom |");
+            await Assert.That(result.Stdout).DoesNotContain("<details>");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
     public async Task Scan_WithNuGetAssetsAndCachedMetadata_ReusesNuGetEnrichment()
     {
         var root = FindRepositoryRoot();

@@ -784,6 +784,7 @@ public static class ScanReportReader
         var status = LicenseStatus.Unknown;
         var statusSeen = false;
         var dependency = DependencyType.Unknown;
+        var suppliedBy = ComponentSupply.None;
         LicenseCandidate[] candidates = [];
         string[] warnings = [];
 
@@ -796,6 +797,7 @@ public static class ScanReportReader
             else if (reader.ValueTextEquals("purl"u8)) purl = ReadString(ref reader);
             else if (reader.ValueTextEquals("sourceId"u8)) sourceId = ReadString(ref reader);
             else if (reader.ValueTextEquals("dependency"u8)) dependency = ParseDependencyType(ReadString(ref reader));
+            else if (reader.ValueTextEquals("suppliedBy"u8)) suppliedBy = ParseComponentSupply(ReadStringArray(ref reader));
             else if (reader.ValueTextEquals("usage"u8)) usage = ParseUsage(ReadString(ref reader));
             else if (reader.ValueTextEquals("status"u8))
             {
@@ -835,9 +837,27 @@ public static class ScanReportReader
             Utf8Slice.FromString(sourceId),
             candidates.Length == 0 ? default : candidates[0],
             candidates.Length <= 1 ? [] : candidates[1..],
-            LicenseCandidateIdentifiers.ParseWarnings(warnings));
+            LicenseCandidateIdentifiers.ParseWarnings(warnings),
+            default,
+            suppliedBy);
         error = string.Empty;
         return true;
+    }
+
+    private static ComponentSupply ParseComponentSupply(string[] values)
+    {
+        var result = ComponentSupply.None;
+        for (var i = 0; i < values.Length; i++)
+        {
+            result |= values[i] switch
+            {
+                "sbom" => ComponentSupply.Sbom,
+                "package-manager" => ComponentSupply.PackageManager,
+                _ => ComponentSupply.None,
+            };
+        }
+
+        return result;
     }
 
     private static LicenseCandidate[] ReadCandidates(ref Utf8JsonReader reader)

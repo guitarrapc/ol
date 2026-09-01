@@ -509,7 +509,7 @@ internal static class CheckRenderer
         }
     }
 
-    /// <summary>Writes the scan context and policy result as GitHub-flavored Markdown.</summary>
+    /// <summary>Writes the policy result and scan evidence as GitHub-flavored Markdown.</summary>
     public static void WriteMarkdown(
         IBufferWriter<byte> writer,
         in ScanReport report,
@@ -524,91 +524,14 @@ internal static class CheckRenderer
         var components = report.Components;
         var summary = ScanSummary.Create(components);
 
-        WriteUtf8(writer, "### ol license check"u8);
+        WriteUtf8(writer, "## ol license check"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
 
-        WriteUtf8(writer, "#### Scan overview"u8);
+        WriteUtf8(writer, "### Result"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
-        WriteUtf8(writer, "- input: `"u8);
-        WriteMarkdownValue(writer, report.Inventory.Input.Kind.Name);
-        WriteUtf8(writer, "/"u8);
-        WriteMarkdownValue(writer, report.Inventory.Input.Format.Name);
-        WriteUtf8(writer, "`"u8);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "- source: "u8);
-        WriteMarkdownValue(writer, report.SourceReference);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "- SPDX license list: "u8);
-        WriteMarkdownValue(writer, report.LicenseListVersion);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "- components: "u8);
-        WriteInt32(writer, components.Length);
-        WriteNewLine(writer);
-        if (report.View.IsFiltered)
-        {
-            WriteUtf8(writer, "- dependency filter: `"u8);
-            WriteMarkdownValue(writer, report.View.DependencyFilter);
-            WriteUtf8(writer, "`, "u8);
-            WriteInt32(writer, report.View.ExcludedCount);
-            WriteUtf8(writer, " excluded, "u8);
-            WriteInt32(writer, report.View.ExcludedUnknownCount);
-            WriteUtf8(writer, " with unknown relationship"u8);
-            WriteNewLine(writer);
-        }
-
-        WriteNewLine(writer);
-        WriteUtf8(writer, "| Status | Components |"u8);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "|---|---:|"u8);
-        WriteNewLine(writer);
-        WriteMarkdownCountRow(writer, "matched"u8, summary.Matched);
-        WriteMarkdownCountRow(writer, "conflict"u8, summary.Conflict);
-        WriteMarkdownCountRow(writer, "unknown"u8, summary.Unknown);
-        WriteMarkdownCountRow(writer, "ambiguous"u8, summary.Ambiguous);
-        WriteMarkdownCountRow(writer, "invalid"u8, summary.Invalid);
-        WriteMarkdownCountRow(writer, "error"u8, summary.Error);
-
-        WriteNewLine(writer);
-        WriteUtf8(writer, "#### Evidence diagnostics"u8);
-        WriteNewLine(writer);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "| Diagnostic | Count |"u8);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "|---|---:|"u8);
-        WriteNewLine(writer);
-        WriteMarkdownCountTextRow(writer, "Warnings on unresolved components"u8, summary.UnresolvedWarningCount);
-        WriteMarkdownCountTextRow(writer, "Warnings on resolved components"u8, summary.ResolvedWarningCount);
-        WriteMarkdownCountTextRow(writer, "Deprecated SPDX identifiers"u8, summary.DeprecatedSpdxCount);
-
-        WriteNewLine(writer);
-        WriteUtf8(writer, "#### Component supply"u8);
-        WriteNewLine(writer);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "| Supply | Components |"u8);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "|---|---:|"u8);
-        WriteNewLine(writer);
-        WriteMarkdownCountRow(writer, "SBOM only"u8, summary.SbomOnlyCount);
-        WriteMarkdownCountRow(writer, "Package manager only"u8, summary.PackageManagerOnlyCount);
-        WriteMarkdownCountRow(writer, "Both"u8, summary.BothSuppliedCount);
-
-        WriteNewLine(writer);
-        WriteUtf8(writer, "#### License expressions in use"u8);
-        WriteNewLine(writer);
-        WriteNewLine(writer);
-        WriteMarkdownLicenseCounts(writer, components);
-
-        WriteNewLine(writer);
-        WriteUtf8(writer, "#### Ecosystems"u8);
-        WriteNewLine(writer);
-        WriteNewLine(writer);
-        WriteMarkdownEcosystemCounts(writer, components);
-
-        WriteNewLine(writer);
-        WriteUtf8(writer, "#### Policy result"u8);
-        WriteNewLine(writer);
+        WriteMarkdownResultBanner(writer, report.DeclaresNoComponents, violations, policyComponentCount);
         WriteNewLine(writer);
         WriteUtf8(writer, "| Item | Value |"u8);
         WriteNewLine(writer);
@@ -636,9 +559,10 @@ internal static class CheckRenderer
         }
 
         WriteNewLine(writer);
-        WriteUtf8(writer, "#### Violations"u8);
+        WriteUtf8(writer, "### Violations"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
+        var mechanismTally = new MechanismTally();
         if (violations.IsEmpty)
         {
             WriteUtf8(writer, "No policy violations."u8);
@@ -652,7 +576,6 @@ internal static class CheckRenderer
             WriteNewLine(writer);
 
             using var rootPaths = DependencyPathResolver.BuildRootPaths(report.Inventory);
-            var mechanismTally = new MechanismTally();
             for (var i = 0; i < violations.Length; i++)
             {
                 var violation = violations[i];
@@ -670,7 +593,7 @@ internal static class CheckRenderer
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, component.Purl);
                 WriteUtf8(writer, " | "u8);
-                WriteMarkdownValue(writer, LicenseOrStatus(component, violation.Kind));
+                WriteMarkdownValue(writer, MarkdownLicenseOrStatus(component, violation.Kind));
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, Reason(violation.Kind));
                 WriteUtf8(writer, " | "u8);
@@ -682,10 +605,23 @@ internal static class CheckRenderer
                 WriteUtf8(writer, " |"u8);
                 WriteNewLine(writer);
             }
-
-            mechanismTally.WriteMarkdown(writer);
         }
 
+        mechanismTally.WriteMarkdown(writer);
+
+        WriteNewLine(writer);
+        WriteUtf8(writer, "### Resolved license usage"u8);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
+        WriteMarkdownLicenseCounts(writer, components);
+
+        WriteNewLine(writer);
+        WriteMarkdownCoverage(writer, summary, components);
+
+        WriteNewLine(writer);
+        WriteMarkdownAllComponents(writer, components);
+
+        WriteNewLine(writer);
         WriteMarkdownScanDiagnostics(writer, report);
     }
 
@@ -822,7 +758,7 @@ internal static class CheckRenderer
             });
 
             WriteNewLine(writer);
-            WriteUtf8(writer, "#### Unresolved mechanisms"u8);
+            WriteUtf8(writer, "### Unresolved mechanisms"u8);
             WriteNewLine(writer);
             WriteNewLine(writer);
             WriteUtf8(writer, "| Mechanism | Components |"u8);
@@ -881,7 +817,63 @@ internal static class CheckRenderer
         }
     }
 
-    private static void WriteMarkdownEcosystemCounts(IBufferWriter<byte> writer, ReadOnlySpan<ScanComponent> components)
+    private static void WriteMarkdownResultBanner(
+        IBufferWriter<byte> writer,
+        bool declaresNoComponents,
+        ReadOnlySpan<LicensePolicyViolation> violations,
+        int policyComponentCount)
+    {
+        WriteUtf8(writer, "> "u8);
+        if (declaresNoComponents)
+        {
+            WriteUtf8(writer, "⚠️ **inconclusive** — report declares no resolved dependencies."u8);
+        }
+        else if (!violations.IsEmpty && IsIncomplete(violations))
+        {
+            WriteUtf8(writer, "⚠️ **inconclusive** — collection failures make the result inconclusive."u8);
+        }
+        else if (violations.IsEmpty)
+        {
+            WriteUtf8(writer, "✅ **passed** — "u8);
+            WriteInt32(writer, policyComponentCount);
+            WriteUtf8(writer, policyComponentCount == 1 ? " component satisfies the allow-list."u8 : " components satisfy the allow-list."u8);
+        }
+        else
+        {
+            WriteUtf8(writer, "❌ **failed** — "u8);
+            WriteInt32(writer, violations.Length);
+            WriteUtf8(writer, violations.Length == 1 ? " violation."u8 : " violations."u8);
+        }
+
+        WriteNewLine(writer);
+    }
+
+    private static void WriteMarkdownCoverage(IBufferWriter<byte> writer, in ScanSummary summary, ReadOnlySpan<ScanComponent> components)
+    {
+        WriteUtf8(writer, "### Coverage"u8);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "| Coverage | Components |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "|---|---:|"u8);
+        WriteNewLine(writer);
+        WriteMarkdownCountRow(writer, "components"u8, components.Length);
+        WriteMarkdownCountRow(writer, "matched"u8, summary.Matched);
+        WriteMarkdownCountRow(writer, "conflict"u8, summary.Conflict);
+        WriteMarkdownCountRow(writer, "unknown"u8, summary.Unknown);
+        WriteMarkdownCountRow(writer, "ambiguous"u8, summary.Ambiguous);
+        WriteMarkdownCountRow(writer, "invalid"u8, summary.Invalid);
+        WriteMarkdownCountRow(writer, "error"u8, summary.Error);
+        WriteMarkdownCountRow(writer, "SBOM only"u8, summary.SbomOnlyCount);
+        WriteMarkdownCountRow(writer, "Package manager only"u8, summary.PackageManagerOnlyCount);
+        WriteMarkdownCountRow(writer, "Both"u8, summary.BothSuppliedCount);
+        WriteMarkdownCountRow(writer, "Warnings on unresolved components"u8, summary.UnresolvedWarningCount);
+        WriteMarkdownCountRow(writer, "Warnings on resolved components"u8, summary.ResolvedWarningCount);
+        WriteMarkdownCountRow(writer, "Deprecated SPDX identifiers"u8, summary.DeprecatedSpdxCount);
+        WriteMarkdownEcosystemRows(writer, components);
+    }
+
+    private static void WriteMarkdownEcosystemRows(IBufferWriter<byte> writer, ReadOnlySpan<ScanComponent> components)
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         for (var i = 0; i < components.Length; i++)
@@ -890,12 +882,7 @@ internal static class CheckRenderer
             counts[ecosystem] = counts.TryGetValue(ecosystem, out var count) ? count + 1 : 1;
         }
 
-        if (counts.Count == 0)
-        {
-            WriteUtf8(writer, "No components."u8);
-            WriteNewLine(writer);
-            return;
-        }
+        if (counts.Count == 0) return;
 
         var ordered = new KeyValuePair<string, int>[counts.Count];
         ((ICollection<KeyValuePair<string, int>>)counts).CopyTo(ordered, 0);
@@ -905,13 +892,9 @@ internal static class CheckRenderer
             return byCount != 0 ? byCount : StringComparer.Ordinal.Compare(left.Key, right.Key);
         });
 
-        WriteUtf8(writer, "| Ecosystem | Components |"u8);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "|---|---:|"u8);
-        WriteNewLine(writer);
         for (var i = 0; i < ordered.Length; i++)
         {
-            WriteUtf8(writer, "| "u8);
+            WriteUtf8(writer, "| Ecosystem: "u8);
             WriteMarkdownValue(writer, ordered[i].Key);
             WriteUtf8(writer, " | "u8);
             WriteInt32(writer, ordered[i].Value);
@@ -920,14 +903,79 @@ internal static class CheckRenderer
         }
     }
 
-    private static void WriteMarkdownScanDiagnostics(IBufferWriter<byte> writer, in ScanReport report)
+    private static void WriteMarkdownAllComponents(IBufferWriter<byte> writer, ReadOnlySpan<ScanComponent> components)
     {
-        if (report.InputDiscovery is null && report.Warnings is not { Length: > 0 }) return;
+        WriteUtf8(writer, "### All components"u8);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "<details>"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "<summary>Show all components ("u8);
+        WriteInt32(writer, components.Length);
+        WriteUtf8(writer, ")</summary>"u8);
+        WriteNewLine(writer);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "| Package | Version | Ecosystem | License | Status | Dependency | Supply | Purl |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "|---|---|---|---|---|---|---|---|"u8);
+        WriteNewLine(writer);
+        for (var i = 0; i < components.Length; i++)
+        {
+            ref readonly var component = ref components[i];
+            WriteUtf8(writer, "| "u8);
+            WriteMarkdownValue(writer, component.Name);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.Version);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.Ecosystem);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, Display(component.License));
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.Status.ToUtf8());
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, GetDependencyTypeUtf8(component.DependencyType));
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, GetSuppliedByUtf8(component.SuppliedBy));
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, component.Purl);
+            WriteUtf8(writer, " |"u8);
+            WriteNewLine(writer);
+        }
 
         WriteNewLine(writer);
-        WriteUtf8(writer, "#### Scan diagnostics"u8);
+        WriteUtf8(writer, "</details>"u8);
+        WriteNewLine(writer);
+    }
+
+    private static void WriteMarkdownScanDiagnostics(IBufferWriter<byte> writer, in ScanReport report)
+    {
+        WriteUtf8(writer, "### Diagnostics"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
+        WriteUtf8(writer, "- input: `"u8);
+        WriteMarkdownValue(writer, report.Inventory.Input.Kind.Name);
+        WriteUtf8(writer, "/"u8);
+        WriteMarkdownValue(writer, report.Inventory.Input.Format.Name);
+        WriteUtf8(writer, "`"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "- source: "u8);
+        WriteMarkdownValue(writer, report.SourceReference);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "- SPDX license list: "u8);
+        WriteMarkdownValue(writer, report.LicenseListVersion);
+        WriteNewLine(writer);
+        if (report.View.IsFiltered)
+        {
+            WriteUtf8(writer, "- dependency filter: `"u8);
+            WriteMarkdownValue(writer, report.View.DependencyFilter);
+            WriteUtf8(writer, "`, "u8);
+            WriteInt32(writer, report.View.ExcludedCount);
+            WriteUtf8(writer, " excluded, "u8);
+            WriteInt32(writer, report.View.ExcludedUnknownCount);
+            WriteUtf8(writer, " with unknown relationship"u8);
+            WriteNewLine(writer);
+        }
+
         if (report.InputDiscovery is { } inputDiscovery)
         {
             WriteUtf8(writer, "- detected input files: "u8);
@@ -953,6 +1001,20 @@ internal static class CheckRenderer
                 WriteInt32(writer, inputDiscovery.IncompleteInputSetCount);
                 WriteNewLine(writer);
             }
+        }
+
+        if (report.ExcludedInputPaths is { Length: > 0 } excludedInputPaths)
+        {
+            WriteUtf8(writer, "- excluded input paths: "u8);
+            for (var i = 0; i < excludedInputPaths.Length; i++)
+            {
+                if (i != 0) WriteUtf8(writer, ", "u8);
+                WriteUtf8(writer, "`"u8);
+                WriteMarkdownValue(writer, excludedInputPaths[i]);
+                WriteUtf8(writer, "`"u8);
+            }
+
+            WriteNewLine(writer);
         }
 
         if (report.Warnings is { Length: > 0 } warnings)
@@ -1089,6 +1151,26 @@ internal static class CheckRenderer
 
     private static ReadOnlySpan<byte> LicenseOrStatus(in ScanComponent component, LicensePolicyViolationKind kind)
         => component.Status == LicenseStatus.Matched ? Display(component.License) : Status(kind);
+
+    private static ReadOnlySpan<byte> MarkdownLicenseOrStatus(in ScanComponent component, LicensePolicyViolationKind kind)
+        => !component.License.IsEmpty ? Display(component.License) : Status(kind);
+
+    private static ReadOnlySpan<byte> GetDependencyTypeUtf8(DependencyType value) => value switch
+    {
+        DependencyType.Unknown => "unknown"u8,
+        DependencyType.Root => "root"u8,
+        DependencyType.Direct => "direct"u8,
+        DependencyType.Transitive => "transitive"u8,
+        _ => default,
+    };
+
+    private static ReadOnlySpan<byte> GetSuppliedByUtf8(ComponentSupply value) => value switch
+    {
+        ComponentSupply.Sbom => "sbom"u8,
+        ComponentSupply.PackageManager => "package-manager"u8,
+        ComponentSupply.Sbom | ComponentSupply.PackageManager => "sbom,package-manager"u8,
+        _ => "-"u8,
+    };
 
     private static void WriteInt32(IBufferWriter<byte> writer, int value)
     {

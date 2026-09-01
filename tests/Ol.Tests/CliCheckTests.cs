@@ -106,18 +106,31 @@ public sealed class CliCheckTests
 
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stderr).IsEmpty();
-            await Assert.That(result.Stdout).Contains("### ol license check");
-            await Assert.That(result.Stdout).Contains("#### Scan overview");
-            await Assert.That(result.Stdout).Contains("| Status | Components |");
+            await Assert.That(result.Stdout).Contains("## ol license check");
+            await Assert.That(result.Stdout).DoesNotContain("### ol license check");
+            await Assert.That(result.Stdout).Contains("### Result");
+            await Assert.That(result.Stdout).Contains("> ❌ **failed** — 2 violations.");
+            await Assert.That(result.Stdout).Contains("| Allow-list | MIT |");
+            await Assert.That(result.Stdout).Contains("| Violations | 2 |");
+            await Assert.That(result.Stdout).Contains("### Violations");
+            await Assert.That(result.Stdout).Contains("### Unresolved mechanisms");
+            await Assert.That(result.Stdout).Contains("### Resolved license usage");
+            await Assert.That(result.Stdout).Contains("### Coverage");
+            await Assert.That(result.Stdout).Contains("### All components");
+            await Assert.That(result.Stdout).Contains("<summary>Show all components (3)</summary>");
+            await Assert.That(result.Stdout).Contains("| allowed | 1.0.0 | npm | MIT | matched |");
+            await Assert.That(result.Stdout).Contains("### Diagnostics");
             await Assert.That(result.Stdout).Contains("| matched | 2 |");
             await Assert.That(result.Stdout).Contains("| unknown | 1 |");
-            await Assert.That(result.Stdout).Contains("#### License expressions in use");
             await Assert.That(result.Stdout).Contains("| GPL-3.0-only | 1 |");
             await Assert.That(result.Stdout).Contains("| MIT | 1 |");
-            await Assert.That(result.Stdout).Contains("#### Policy result");
-            await Assert.That(result.Stdout).Contains("#### Violations");
             await Assert.That(result.Stdout).Contains("| forbidden | 1.0.0 | npm | pkg:npm/forbidden@1.0.0 | GPL-3.0-only | license is not allowed |");
             await Assert.That(result.Stdout).Contains("| unknown | 1.0.0 | npm | pkg:npm/unknown@1.0.0 | unknown | license is unresolved | - | - | - |");
+            await Assert.That(result.Stdout.IndexOf("### Result", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### All components", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### All components", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Diagnostics", StringComparison.Ordinal));
         }
         finally
         {
@@ -141,13 +154,123 @@ public sealed class CliCheckTests
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
             await Assert.That(result.Stderr).IsEmpty();
-            await Assert.That(result.Stdout).Contains("| Result | passed |");
+            await Assert.That(result.Stdout).Contains("> ✅ **passed** — 1 component satisfies the allow-list.");
             await Assert.That(result.Stdout).Contains("No policy violations.");
-            await Assert.That(result.Stdout).DoesNotContain("#### Unresolved mechanisms");
+            await Assert.That(result.Stdout).DoesNotContain("### Unresolved mechanisms");
         }
         finally
         {
             File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_WhenReportDeclaresNoComponents_RendersInconclusiveResult()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"ol-check-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(inputPath, """{ "bomFormat": "CycloneDX", "specVersion": "1.6", "components": [] }""", Encoding.UTF8);
+        try
+        {
+            var result = await RunCheckWorkflowAsync(
+                root,
+                "--input", inputPath,
+                "--allow-licenses", "MIT",
+                "--no-external-evidence",
+                "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(3);
+            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).Contains("> ⚠️ **inconclusive** — report declares no resolved dependencies.");
+            await Assert.That(result.Stdout).Contains("| Result | inconclusive |");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_ShowsUnresolvedLicenseEvidence()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            var document = JsonNode.Parse(scan.Stdout)!.AsObject();
+            var component = document["components"]!.AsArray()[0]!.AsObject();
+            component["status"] = "conflict";
+            component["license"] = "MIT, Apache-2.0 (?)";
+            await File.WriteAllTextAsync(reportPath, document.ToJsonString());
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| example | 1.0.0 | npm | pkg:npm/example@1.0.0 | MIT, Apache-2.0 (?) | license evidence conflicts |");
+            await Assert.That(result.Stdout).Contains("| example | 1.0.0 | npm | MIT, Apache-2.0 (?) | conflict |");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_RestoresComponentSupplyFromReport()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            var document = JsonNode.Parse(scan.Stdout)!.AsObject();
+            var suppliedBy = new JsonArray();
+            suppliedBy.Add("sbom");
+            suppliedBy.Add("package-manager");
+            document["components"]!.AsArray()[0]!["suppliedBy"] = suppliedBy;
+            await File.WriteAllTextAsync(reportPath, document.ToJsonString());
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| SBOM only | 0 |");
+            await Assert.That(result.Stdout).Contains("| Package manager only | 0 |");
+            await Assert.That(result.Stdout).Contains("| Both | 1 |");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_PreservesExcludedInputScope()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("MIT");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            await File.WriteAllTextAsync(reportPath, AddInputScope(scan.Stdout, "product-a/docs", "product-b/docs"));
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("- excluded input paths: `product-a/docs`, `product-b/docs`");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
         }
     }
 

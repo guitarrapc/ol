@@ -934,7 +934,7 @@ internal static class ScanInputIngestion
         }
 
         logicalPath ??= Path.GetFileName(absolutePath.Replace('\\', '/'));
-        logicalProjectIdentity = Utf8Slice.FromOwnedBytes(Encoding.UTF8.GetBytes(logicalPath));
+        logicalProjectIdentity = Utf8Slice.FromString(logicalPath);
         return true;
     }
 

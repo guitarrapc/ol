@@ -237,12 +237,12 @@ internal static class YarnLockGraphParser
                 for (var i = 0; i < nodes.Length; i++)
                 {
                     if (!nodes[i].IsWorkspace) continue;
-                    contexts[contextCount++] = new DependencyResolutionContext(GetWorkspaceOrigin(nodes[i].Resolution), default, default, default, default, default);
+                    contexts[contextCount++] = new DependencyResolutionContext(GetWorkspaceOrigin(nodes[i].Resolution), default, default, default, default, default, default);
                 }
             }
             else
             {
-                contexts[contextCount++] = new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("yarn.lock"u8.ToArray()), default, default, default, default, default);
+                contexts[contextCount++] = new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("yarn.lock"u8.ToArray()), default, default, default, default, default, default);
             }
 
             if (contextCount == 0) throw new JsonException("Yarn Berry lock must contain at least one workspace entry.");
@@ -254,7 +254,7 @@ internal static class YarnLockGraphParser
                 var tail = 0;
                 if (workspaces)
                 {
-                    var workspaceIndex = FindWorkspaceByOrigin(nodes, contexts[contextIndex].ProjectOrigin);
+                    var workspaceIndex = FindWorkspaceByOrigin(nodes, contexts[contextIndex].ProjectIdentity);
                     depths[workspaceIndex] = 0;
                     EnsureCapacity(ref queue, tail);
                     queue[tail++] = workspaceIndex;

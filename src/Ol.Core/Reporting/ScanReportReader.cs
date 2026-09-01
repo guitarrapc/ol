@@ -514,11 +514,12 @@ public static class ScanReportReader
         {
             while (reader.Read() && reader.TokenType == JsonTokenType.StartObject)
             {
-                string projectOrigin = string.Empty, target = string.Empty, runtime = string.Empty;
+                string inputPath = string.Empty, projectIdentity = string.Empty, target = string.Empty, runtime = string.Empty;
                 string platform = string.Empty, architecture = string.Empty, variant = string.Empty;
                 while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
                 {
-                    if (reader.ValueTextEquals("projectOrigin"u8)) projectOrigin = ReadString(ref reader);
+                    if (reader.ValueTextEquals("inputPath"u8)) inputPath = ReadString(ref reader);
+                    else if (reader.ValueTextEquals("projectIdentity"u8)) projectIdentity = ReadString(ref reader);
                     else if (reader.ValueTextEquals("target"u8)) target = ReadString(ref reader);
                     else if (reader.ValueTextEquals("runtime"u8)) runtime = ReadString(ref reader);
                     else if (reader.ValueTextEquals("platform"u8)) platform = ReadString(ref reader);
@@ -533,12 +534,13 @@ public static class ScanReportReader
 
                 EnsureCapacity(ref result, count);
                 result[count++] = new DependencyResolutionContext(
-                    Utf8Slice.FromString(projectOrigin),
+                    Utf8Slice.FromString(projectIdentity),
                     Utf8Slice.FromString(target),
                     Utf8Slice.FromString(runtime),
                     Utf8Slice.FromString(platform),
                     Utf8Slice.FromString(architecture),
-                    Utf8Slice.FromString(variant));
+                    Utf8Slice.FromString(variant),
+                    Utf8Slice.FromString(inputPath));
             }
 
             return result.AsSpan(0, count).ToArray();

@@ -89,19 +89,21 @@ public readonly record struct ScanInputDescriptor(
     Utf8Slice SpecificationVersion);
 
 /// <summary>Identifies the resolver conditions for one dependency graph.</summary>
-/// <param name="ProjectOrigin">The project or workspace that owns the graph.</param>
+/// <param name="ProjectIdentity">The resolver's identity for the project or workspace that owns the graph.</param>
 /// <param name="Target">The target framework or language target.</param>
 /// <param name="Runtime">The runtime or resolver runtime identifier.</param>
 /// <param name="Platform">The operating system or platform.</param>
 /// <param name="Architecture">The target architecture.</param>
 /// <param name="Variant">The resolver-specific configuration or variant.</param>
+/// <param name="InputPath">The logical path of the resolver input that produced the context.</param>
 public readonly record struct DependencyResolutionContext(
-    Utf8Slice ProjectOrigin,
+    Utf8Slice ProjectIdentity,
     Utf8Slice Target,
     Utf8Slice Runtime,
     Utf8Slice Platform,
     Utf8Slice Architecture,
-    Utf8Slice Variant);
+    Utf8Slice Variant,
+    Utf8Slice InputPath);
 
 /// <summary>Locates one package component occurrence in one resolution context.</summary>
 /// <param name="ContextIndex">The owning resolution-context index, or <see cref="UnspecifiedContext"/>.</param>

@@ -42,7 +42,7 @@ internal static class ComposerLockInputParser
         var edgeCount = 0;
         try
         {
-            ReadManifest(sources[0], ref requirements, ref requirementCount, out var projectOrigin);
+            ReadManifest(sources[0], ref requirements, ref requirementCount, out var projectIdentity);
             ReadLock(
                 sources[1],
                 ref nodes,
@@ -147,11 +147,11 @@ internal static class ComposerLockInputParser
                     ref edgeCount);
             }
 
-            if (projectOrigin.IsEmpty) projectOrigin = Utf8Slice.FromOwnedBytes("composer-project"u8.ToArray());
+            if (projectIdentity.IsEmpty) projectIdentity = Utf8Slice.FromOwnedBytes("composer-project"u8.ToArray());
             var contextVariant = pluginApiVersion.IsEmpty ? default : CreatePrefixedValue("plugin-api="u8, pluginApiVersion);
             return new DependencyInventory(
                 new ScanInputDescriptor(default, default, string.Empty, string.Empty, default),
-                [new DependencyResolutionContext(projectOrigin, default, default, default, default, contextVariant)],
+                [new DependencyResolutionContext(projectIdentity, default, default, default, default, contextVariant, default)],
                 components.AsSpan(0, nodeCount).ToArray(),
                 retainGraph ? occurrences.AsSpan(0, nodeCount).ToArray() : [],
                 retainGraph ? edges.AsSpan(0, edgeCount).ToArray() : [],
@@ -181,19 +181,19 @@ internal static class ComposerLockInputParser
         byte[] source,
         ref ComposerRequirement[] requirements,
         ref int requirementCount,
-        out Utf8Slice projectOrigin)
+        out Utf8Slice projectIdentity)
     {
         var offset = HasUtf8Bom(source) ? 3 : 0;
         var reader = new Utf8JsonReader(source.AsSpan(offset));
-        projectOrigin = default;
+        projectIdentity = default;
         RequireToken(ref reader, JsonTokenType.StartObject, "composer.json root must be an object.");
         while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
         {
             RequireCurrentToken(ref reader, JsonTokenType.PropertyName, "composer.json contains an invalid root property.");
             if (reader.ValueTextEquals("name"u8))
             {
-                projectOrigin = ReadString(ref reader, source, offset);
-                ValidateOptionalPackageName(projectOrigin.Span);
+                projectIdentity = ReadString(ref reader, source, offset);
+                ValidateOptionalPackageName(projectIdentity.Span);
             }
             else if (reader.ValueTextEquals("require"u8))
             {

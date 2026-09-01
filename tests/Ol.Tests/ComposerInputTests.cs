@@ -23,7 +23,7 @@ public sealed class ComposerInputTests
         await Assert.That(inventory.Input.Kind).IsEqualTo(ScanInputKind.PackageManager);
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.ComposerLock);
         await Assert.That(inventory.Contexts).Count().IsEqualTo(1);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("example/app");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("example/app");
         await Assert.That(inventory.Contexts[0].Variant.ToString()).IsEqualTo("plugin-api=2.6.0");
 
         await Assert.That(inventory.Components).Count().IsEqualTo(5);
@@ -165,7 +165,7 @@ public sealed class ComposerInputTests
 
         var inventory = DependencyInputScanner.ScanBundle(inputs, Spdx, ScanInputFormat.ComposerLock);
 
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("composer-project");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("composer-project");
         await Assert.That(inventory.Components[0].DependencyType).IsEqualTo(DependencyType.Unknown);
         await Assert.That(inventory.Edges).IsEmpty();
     }

@@ -22,7 +22,7 @@ public sealed class MavenInputTests
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.MavenDependencyTree);
         await Assert.That(inventory.Input.SpecificationVersion.IsEmpty).IsTrue();
         await Assert.That(inventory.Contexts).Count().IsEqualTo(1);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("com.example:demo");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("com.example:demo");
         await Assert.That(inventory.Contexts[0].Variant.IsEmpty).IsTrue();
 
         await Assert.That(inventory.Components).Count().IsEqualTo(3);

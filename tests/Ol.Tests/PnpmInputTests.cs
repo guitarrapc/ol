@@ -21,8 +21,8 @@ public sealed class PnpmInputTests
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.PnpmLock);
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("9.0");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(2);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo(".");
-        await Assert.That(inventory.Contexts[1].ProjectOrigin.ToString()).IsEqualTo("packages/a");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo(".");
+        await Assert.That(inventory.Contexts[1].ProjectIdentity.ToString()).IsEqualTo("packages/a");
 
         await Assert.That(inventory.Components).Count().IsEqualTo(5);
         await Assert.That(inventory.Occurrences).Count().IsEqualTo(6);

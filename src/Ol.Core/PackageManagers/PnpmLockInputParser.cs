@@ -126,7 +126,7 @@ internal static class PnpmLockInputParser
             for (var importerIndex = 0; importerIndex < importerCount; importerIndex++)
             {
                 EnsureCapacity(ref contexts, contextCount);
-                contexts[contextCount++] = new DependencyResolutionContext(nodes[importerIndex].Identity, default, default, default, default, default);
+                contexts[contextCount++] = new DependencyResolutionContext(nodes[importerIndex].Identity, default, default, default, default, default, default);
             }
 
             depths = ArrayPool<int>.Shared.Rent(nodeCount);

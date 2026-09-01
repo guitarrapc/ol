@@ -143,6 +143,7 @@ internal static class ScanInputIngestion
                 if (consumed[i]) continue;
                 DependencyInventory inventory;
                 DependencyInputHandler handler;
+                var contextInputIndex = i;
                 if (TryCollectInputBundle(files, i, consumed, out handler, out var bundleIndexes, out var missingCompanionName))
                 {
                     if (missingCompanionName is not null)
@@ -194,6 +195,8 @@ internal static class ScanInputIngestion
                     {
                         packageArtifactInputs[packageArtifactInputCount++] = new ResolvedPackageArtifactInput(files[bundleIndexes[0]].Path, artifactHandler.Collector);
                     }
+
+                    contextInputIndex = bundleIndexes[^1];
                 }
                 else
                 {
@@ -223,7 +226,7 @@ internal static class ScanInputIngestion
                     }
                 }
 
-                inventory = NormalizeProjectOrigins(inventory, files[i].InputRoot, files[i].InputRelativePath);
+                inventory = AttachContextProvenance(inventory, files[contextInputIndex].InputRoot, files[contextInputIndex].InputRelativePath);
                 KnownUnsupportedInputCandidates.ObserveScannedInput(inventory, handler, ref inputCandidateDiagnostics);
 
                 // A repository-wide SBOM and per-project package-manager inputs describe one resolution at two
@@ -884,57 +887,27 @@ internal static class ScanInputIngestion
         collectedByPath[path] = new CollectedInputFile(path, logicalPath, discovered, inputRoot, inputRelativePath);
     }
 
-    private static DependencyInventory NormalizeProjectOrigins(DependencyInventory inventory, string? inputRoot, string inputRelativePath)
+    private static DependencyInventory AttachContextProvenance(DependencyInventory inventory, string? inputRoot, string inputRelativePath)
     {
-        var inputFileName = inputRelativePath.AsSpan();
-        var separator = inputFileName.LastIndexOf('/');
-        if (separator >= 0) inputFileName = inputFileName[(separator + 1)..];
-        var inputFileNameByteCount = inputRoot is null ? -1 : Encoding.UTF8.GetByteCount(inputFileName);
-        byte[]? inputFileNameUtf8 = null;
-        var inputFileNameEncoded = false;
-        var logicalInputPath = default(Utf8Slice);
+        if (inventory.Contexts.Length == 0) return inventory;
 
-        DependencyResolutionContext[]? normalizedContexts = null;
+        var inputPath = Utf8Slice.FromString(inputRelativePath);
+        // Parser results are owned by this ingestion operation, so attach provenance in place.
         for (var contextIndex = 0; contextIndex < inventory.Contexts.Length; contextIndex++)
         {
             var context = inventory.Contexts[contextIndex];
-            Utf8Slice projectOrigin;
-            if (context.ProjectOrigin.Length == inputFileNameByteCount)
-            {
-                inputFileNameUtf8 ??= new byte[inputFileNameByteCount];
-                if (!inputFileNameEncoded)
-                {
-                    Encoding.UTF8.GetBytes(inputFileName, inputFileNameUtf8);
-                    inputFileNameEncoded = true;
-                }
-
-                if (context.ProjectOrigin.Span.SequenceEqual(inputFileNameUtf8))
-                {
-                    if (logicalInputPath.IsEmpty) logicalInputPath = Utf8Slice.FromString(inputRelativePath);
-                    projectOrigin = logicalInputPath;
-                }
-                else if (!TryGetLogicalProjectOrigin(context.ProjectOrigin, inputRoot, out projectOrigin))
-                {
-                    continue;
-                }
-            }
-            else if (!TryGetLogicalProjectOrigin(context.ProjectOrigin, inputRoot, out projectOrigin))
-            {
-                continue;
-            }
-
-            if (context.ProjectOrigin.Equals(projectOrigin)) continue;
-
-            normalizedContexts ??= inventory.Contexts.ToArray();
-            normalizedContexts[contextIndex] = context with { ProjectOrigin = projectOrigin };
+            var projectIdentity = TryGetLogicalProjectIdentity(context.ProjectIdentity, inputRoot, out var logicalProjectIdentity)
+                ? logicalProjectIdentity
+                : context.ProjectIdentity;
+            inventory.Contexts[contextIndex] = context with { ProjectIdentity = projectIdentity, InputPath = inputPath };
         }
 
-        return normalizedContexts is null ? inventory : inventory with { Contexts = normalizedContexts };
+        return inventory;
     }
 
-    private static bool TryGetLogicalProjectOrigin(Utf8Slice projectOrigin, string? inputRoot, out Utf8Slice logicalProjectOrigin)
+    private static bool TryGetLogicalProjectIdentity(Utf8Slice projectIdentity, string? inputRoot, out Utf8Slice logicalProjectIdentity)
     {
-        var path = projectOrigin.Span;
+        var path = projectIdentity.Span;
         var isAbsolute = path.Length > 0 && path[0] is (byte)'/' or (byte)'\\'
             || path.Length >= 3
                 && (path[0] is >= (byte)'A' and <= (byte)'Z' || path[0] is >= (byte)'a' and <= (byte)'z')
@@ -942,12 +915,12 @@ internal static class ScanInputIngestion
                 && path[2] is (byte)'/' or (byte)'\\';
         if (!isAbsolute)
         {
-            logicalProjectOrigin = default;
+            logicalProjectIdentity = default;
             return false;
         }
 
         string? logicalPath = null;
-        var absolutePath = projectOrigin.ToString();
+        var absolutePath = projectIdentity.ToString();
         if (inputRoot is not null && Path.IsPathFullyQualified(absolutePath))
         {
             var relativePath = Path.GetRelativePath(inputRoot, absolutePath);
@@ -961,7 +934,7 @@ internal static class ScanInputIngestion
         }
 
         logicalPath ??= Path.GetFileName(absolutePath.Replace('\\', '/'));
-        logicalProjectOrigin = Utf8Slice.FromOwnedBytes(Encoding.UTF8.GetBytes(logicalPath));
+        logicalProjectIdentity = Utf8Slice.FromOwnedBytes(Encoding.UTF8.GetBytes(logicalPath));
         return true;
     }
 

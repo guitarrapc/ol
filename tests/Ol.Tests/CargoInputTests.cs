@@ -22,9 +22,9 @@ public sealed class CargoInputTests
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.CargoMetadata);
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("1");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(2);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("workspace-app");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("workspace-app");
         await Assert.That(inventory.Contexts[0].Variant.ToString()).IsEqualTo("features=default,cli");
-        await Assert.That(inventory.Contexts[1].ProjectOrigin.ToString()).IsEqualTo("workspace-tool");
+        await Assert.That(inventory.Contexts[1].ProjectIdentity.ToString()).IsEqualTo("workspace-tool");
 
         await Assert.That(inventory.Components).Count().IsEqualTo(4);
         await Assert.That(inventory.Occurrences).Count().IsEqualTo(6);

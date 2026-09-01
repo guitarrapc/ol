@@ -26,7 +26,7 @@ internal static class NuGetAssetsInputParser
         var packageLibraryCount = 0;
         try
         {
-            ReadProject(source, offset, ref directDependencies, ref directCount, out var specificationVersion, out var projectOrigin);
+            ReadProject(source, offset, ref directDependencies, ref directCount, out var specificationVersion, out var projectIdentity);
             ReadPackageLibraries(source, offset, ref packageLibraries, ref packageLibraryCount);
             var componentIndexCapacity = GetNodeIndexCapacity(packageLibraryCount);
             componentIndexes = ArrayPool<int>.Shared.Rent(componentIndexCapacity);
@@ -36,7 +36,7 @@ internal static class NuGetAssetsInputParser
                 offset,
                 packageLibraries.AsSpan(0, packageLibraryCount),
                 directDependencies.AsSpan(0, directCount),
-                projectOrigin,
+                projectIdentity,
                 componentIndexes,
                 componentIndexCapacity,
                 ref contexts,
@@ -85,10 +85,10 @@ internal static class NuGetAssetsInputParser
         ref DirectDependency[] directDependencies,
         ref int directCount,
         out Utf8Slice specificationVersion,
-        out Utf8Slice projectOrigin)
+        out Utf8Slice projectIdentity)
     {
         specificationVersion = default;
-        projectOrigin = default;
+        projectIdentity = default;
         var reader = CreateReader(source, offset);
         RequireToken(ref reader, JsonTokenType.StartObject, "NuGet project.assets.json root must be an object.");
         while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
@@ -110,7 +110,7 @@ internal static class NuGetAssetsInputParser
             else if (reader.ValueTextEquals("project"u8))
             {
                 reader.Read();
-                ReadProjectObject(ref reader, source, offset, ref directDependencies, ref directCount, ref projectOrigin);
+                ReadProjectObject(ref reader, source, offset, ref directDependencies, ref directCount, ref projectIdentity);
             }
             else
             {
@@ -119,7 +119,7 @@ internal static class NuGetAssetsInputParser
             }
         }
 
-        if (specificationVersion.IsEmpty || projectOrigin.IsEmpty)
+        if (specificationVersion.IsEmpty || projectIdentity.IsEmpty)
         {
             throw new JsonException("NuGet project.assets.json is missing version or project restore metadata.");
         }
@@ -131,7 +131,7 @@ internal static class NuGetAssetsInputParser
         int offset,
         ref DirectDependency[] directDependencies,
         ref int directCount,
-        ref Utf8Slice projectOrigin)
+        ref Utf8Slice projectIdentity)
     {
         RequireCurrentToken(ref reader, JsonTokenType.StartObject, "NuGet project must be an object.");
         while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
@@ -144,7 +144,7 @@ internal static class NuGetAssetsInputParser
             if (reader.ValueTextEquals("restore"u8))
             {
                 reader.Read();
-                ReadRestore(ref reader, source, offset, ref projectOrigin);
+                ReadRestore(ref reader, source, offset, ref projectIdentity);
             }
             else if (reader.ValueTextEquals("frameworks"u8))
             {
@@ -159,7 +159,7 @@ internal static class NuGetAssetsInputParser
         }
     }
 
-    private static void ReadRestore(ref Utf8JsonReader reader, byte[] source, int offset, ref Utf8Slice projectOrigin)
+    private static void ReadRestore(ref Utf8JsonReader reader, byte[] source, int offset, ref Utf8Slice projectIdentity)
     {
         RequireCurrentToken(ref reader, JsonTokenType.StartObject, "NuGet project restore must be an object.");
         while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
@@ -171,7 +171,7 @@ internal static class NuGetAssetsInputParser
 
             if (reader.ValueTextEquals("projectPath"u8))
             {
-                projectOrigin = ReadString(ref reader, source, offset);
+                projectIdentity = ReadString(ref reader, source, offset);
             }
             else
             {
@@ -271,7 +271,7 @@ internal static class NuGetAssetsInputParser
         int offset,
         ReadOnlySpan<Utf8Slice> packageLibraries,
         ReadOnlySpan<DirectDependency> directDependencies,
-        Utf8Slice projectOrigin,
+        Utf8Slice projectIdentity,
         int[] componentIndexes,
         int componentIndexCapacity,
         ref DependencyResolutionContext[] contexts,
@@ -304,7 +304,7 @@ internal static class NuGetAssetsInputParser
                 SplitTarget(targetIdentity, out var target, out var runtime);
                 EnsureCapacity(ref contexts, contextCount);
                 var contextIndex = contextCount;
-                contexts[contextCount++] = new DependencyResolutionContext(projectOrigin, target, runtime, default, default, default);
+                contexts[contextCount++] = new DependencyResolutionContext(projectIdentity, target, runtime, default, default, default, default);
                 reader.Read();
                 ReadTarget(
                     ref reader,

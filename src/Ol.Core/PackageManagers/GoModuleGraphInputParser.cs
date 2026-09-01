@@ -75,7 +75,7 @@ internal static class GoModuleGraphInputParser
             for (var mainOffset = 0; mainOffset < mainCount; mainOffset++)
             {
                 EnsureCapacity(ref contexts, contextCount);
-                contexts[contextCount++] = new DependencyResolutionContext(nodes[mainIndexes[mainOffset]].Path, default, default, default, default, default);
+                contexts[contextCount++] = new DependencyResolutionContext(nodes[mainIndexes[mainOffset]].Path, default, default, default, default, default, default);
             }
 
             if (!retainGraph)

@@ -21,7 +21,7 @@ public sealed class RubyInputTests
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.BundlerLock);
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("2.6.5");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(2);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("Gemfile.lock");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("Gemfile.lock");
         await Assert.That(inventory.Contexts[0].Runtime.ToString()).IsEqualTo("ruby 3.3.6p108");
         await Assert.That(inventory.Contexts[0].Platform.ToString()).IsEqualTo("ruby");
         await Assert.That(inventory.Contexts[0].Variant.ToString()).IsEqualTo("bundler=2.6.5");

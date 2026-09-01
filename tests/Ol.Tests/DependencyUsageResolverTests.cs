@@ -181,7 +181,7 @@ public sealed class DependencyUsageResolverTests
 
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext("app", default, default, default, default, default)],
+            [new DependencyResolutionContext("app", default, default, default, default, default, "project.assets.json")],
             components,
             occurrences,
             [],

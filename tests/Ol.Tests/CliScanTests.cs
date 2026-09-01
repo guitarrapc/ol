@@ -3648,7 +3648,8 @@ public sealed class CliScanTests
         await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(6);
         await Assert.That(inventory.GetProperty("edges").GetArrayLength()).IsEqualTo(5);
         var winContext = inventory.GetProperty("contexts")[1];
-        await Assert.That(winContext.GetProperty("projectOrigin").GetString()).IsEqualTo("App.csproj");
+        await Assert.That(winContext.GetProperty("projectIdentity").GetString()).IsEqualTo("App.csproj");
+        await Assert.That(winContext.GetProperty("inputPath").GetString()).IsEqualTo("nuget-project.assets.json");
         await Assert.That(first.Stdout).DoesNotContain("/private/src");
         await Assert.That(winContext.GetProperty("target").GetString()).IsEqualTo("net8.0");
         await Assert.That(winContext.GetProperty("runtime").GetString()).IsEqualTo("win-x64");
@@ -3659,7 +3660,7 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithDirectoryInput_StoresProjectOriginRelativeToInputRoot()
+    public async Task Scan_WithDirectoryInput_StoresProjectIdentityRelativeToInputRoot()
     {
         var root = FindRepositoryRoot();
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-project-origin-{Guid.NewGuid():N}");
@@ -3683,8 +3684,10 @@ public sealed class CliScanTests
             await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var contexts = report.RootElement.GetProperty("inventory").GetProperty("contexts");
-            await Assert.That(contexts[0].GetProperty("projectOrigin").GetString()).IsEqualTo("src/App/App.csproj");
-            await Assert.That(contexts[1].GetProperty("projectOrigin").GetString()).IsEqualTo("src/App/App.csproj");
+            await Assert.That(contexts[0].GetProperty("projectIdentity").GetString()).IsEqualTo("src/App/App.csproj");
+            await Assert.That(contexts[1].GetProperty("projectIdentity").GetString()).IsEqualTo("src/App/App.csproj");
+            await Assert.That(contexts[0].GetProperty("inputPath").GetString()).IsEqualTo("src/App/obj/project.assets.json");
+            await Assert.That(contexts[1].GetProperty("inputPath").GetString()).IsEqualTo("src/App/obj/project.assets.json");
             await Assert.That(stdout).DoesNotContain(temporaryDirectory);
         }
         finally
@@ -3694,7 +3697,7 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithProjectOriginOutsideDirectoryInput_StoresOnlyFileName()
+    public async Task Scan_WithProjectIdentityOutsideDirectoryInput_StoresOnlyFileName()
     {
         var root = FindRepositoryRoot();
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-project-origin-outside-{Guid.NewGuid():N}");
@@ -3718,8 +3721,10 @@ public sealed class CliScanTests
             await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
             using var report = JsonDocument.Parse(stdout);
             var contexts = report.RootElement.GetProperty("inventory").GetProperty("contexts");
-            await Assert.That(contexts[0].GetProperty("projectOrigin").GetString()).IsEqualTo("External.csproj");
-            await Assert.That(contexts[1].GetProperty("projectOrigin").GetString()).IsEqualTo("External.csproj");
+            await Assert.That(contexts[0].GetProperty("projectIdentity").GetString()).IsEqualTo("External.csproj");
+            await Assert.That(contexts[1].GetProperty("projectIdentity").GetString()).IsEqualTo("External.csproj");
+            await Assert.That(contexts[0].GetProperty("inputPath").GetString()).IsEqualTo("src/App/obj/project.assets.json");
+            await Assert.That(contexts[1].GetProperty("inputPath").GetString()).IsEqualTo("src/App/obj/project.assets.json");
         }
         finally
         {
@@ -3728,7 +3733,7 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithOverlappingDirectoryInputs_KeepsProjectOriginDeterministic()
+    public async Task Scan_WithOverlappingDirectoryInputs_KeepsProjectIdentityDeterministic()
     {
         var root = FindRepositoryRoot();
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-project-origin-overlap-{Guid.NewGuid():N}");
@@ -3760,7 +3765,7 @@ public sealed class CliScanTests
     }
 
     [Test]
-    public async Task Scan_WithDirectoryInput_StoresDiscoveredLockFilePathsAsProjectOrigins()
+    public async Task Scan_WithDirectoryInput_SeparatesDiscoveredLockFilePathsFromProjectIdentities()
     {
         var root = FindRepositoryRoot();
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-lock-project-origin-{Guid.NewGuid():N}");
@@ -3781,9 +3786,65 @@ public sealed class CliScanTests
 
             await Assert.That(exitCode).IsEqualTo(0);
             await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
-            await Assert.That(stdout).Contains("\"projectOrigin\": \"ruby/Gemfile.lock\"");
-            await Assert.That(stdout).Contains("\"projectOrigin\": \"swift/Package.resolved\"");
-            await Assert.That(stdout).Contains("\"projectOrigin\": \"ios/Podfile.lock\"");
+            using var report = JsonDocument.Parse(stdout);
+            var contexts = report.RootElement.GetProperty("inventory").GetProperty("contexts").EnumerateArray().ToArray();
+
+            var bundlerContexts = contexts.Where(static context => context.GetProperty("projectIdentity").GetString() == "Gemfile.lock").ToArray();
+            await Assert.That(bundlerContexts).Count().IsEqualTo(2);
+            await Assert.That(bundlerContexts.All(static context => context.GetProperty("inputPath").GetString() == "ruby/Gemfile.lock")).IsTrue();
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "Package.resolved").GetProperty("inputPath").GetString()).IsEqualTo("swift/Package.resolved");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "Podfile.lock").GetProperty("inputPath").GetString()).IsEqualTo("ios/Podfile.lock");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryInput_SeparatesInputPathFromProjectIdentity()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-context-input-path-{Guid.NewGuid():N}");
+        var fixtureDirectory = Path.Combine(AppContext.BaseDirectory, "Fixtures");
+        var cargoDirectory = Path.Combine(temporaryDirectory, "cargo");
+        var composerDirectory = Path.Combine(temporaryDirectory, "composer");
+        var goDirectory = Path.Combine(temporaryDirectory, "go");
+        var mavenDirectory = Path.Combine(temporaryDirectory, "maven");
+        var npmDirectory = Path.Combine(temporaryDirectory, "npm");
+        var pipDirectory = Path.Combine(temporaryDirectory, "pip");
+        Directory.CreateDirectory(cargoDirectory);
+        Directory.CreateDirectory(composerDirectory);
+        Directory.CreateDirectory(goDirectory);
+        Directory.CreateDirectory(mavenDirectory);
+        Directory.CreateDirectory(npmDirectory);
+        Directory.CreateDirectory(pipDirectory);
+        File.Copy(Path.Combine(fixtureDirectory, "cargo-metadata.json"), Path.Combine(cargoDirectory, "cargo-metadata.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "composer.json"), Path.Combine(composerDirectory, "composer.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "composer.lock"), Path.Combine(composerDirectory, "composer.lock"));
+        File.Copy(Path.Combine(fixtureDirectory, "go-list-modules.json"), Path.Combine(goDirectory, "go-list-modules.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "go-mod-graph.txt"), Path.Combine(goDirectory, "go-mod-graph.txt"));
+        File.Copy(Path.Combine(fixtureDirectory, "maven-dependency-tree.json"), Path.Combine(mavenDirectory, "maven-dependency-tree.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "package-lock.json"), Path.Combine(npmDirectory, "package-lock.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "pip-inspect.json"), Path.Combine(pipDirectory, "pip-inspect.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var contexts = report.RootElement.GetProperty("inventory").GetProperty("contexts").EnumerateArray().ToArray();
+
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "workspace-app").GetProperty("inputPath").GetString()).IsEqualTo("cargo/cargo-metadata.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "workspace-tool").GetProperty("inputPath").GetString()).IsEqualTo("cargo/cargo-metadata.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "example/app").GetProperty("inputPath").GetString()).IsEqualTo("composer/composer.lock");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "example.com/app").GetProperty("inputPath").GetString()).IsEqualTo("go/go-mod-graph.txt");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "com.example:demo").GetProperty("inputPath").GetString()).IsEqualTo("maven/maven-dependency-tree.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "root-app").GetProperty("inputPath").GetString()).IsEqualTo("npm/package-lock.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "packages/a").GetProperty("inputPath").GetString()).IsEqualTo("npm/package-lock.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "pip-environment").GetProperty("inputPath").GetString()).IsEqualTo("pip/pip-inspect.json");
         }
         finally
         {

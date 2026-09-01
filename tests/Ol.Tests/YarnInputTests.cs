@@ -16,7 +16,7 @@ public sealed class YarnInputTests
 
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("1");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(1);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("yarn.lock");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("yarn.lock");
         await Assert.That(inventory.Components).Count().IsEqualTo(3);
         await Assert.That(inventory.Occurrences).Count().IsEqualTo(3);
         await Assert.That(inventory.Edges).Count().IsEqualTo(2);
@@ -32,8 +32,8 @@ public sealed class YarnInputTests
 
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("8");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(2);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo(".");
-        await Assert.That(inventory.Contexts[1].ProjectOrigin.ToString()).IsEqualTo("packages/a");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo(".");
+        await Assert.That(inventory.Contexts[1].ProjectIdentity.ToString()).IsEqualTo("packages/a");
         await Assert.That(inventory.Components).Count().IsEqualTo(3);
         await Assert.That(inventory.Occurrences).Count().IsEqualTo(4);
         await Assert.That(inventory.Edges).Count().IsEqualTo(4);

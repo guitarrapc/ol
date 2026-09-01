@@ -20,7 +20,7 @@ public sealed class NuGetInputTests
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.NuGetAssets);
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("3");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(2);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("/private/src/App/App.csproj");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("/private/src/App/App.csproj");
         await Assert.That(inventory.Contexts[0].Target.ToString()).IsEqualTo("net8.0");
         await Assert.That(inventory.Contexts[0].Runtime.IsEmpty).IsTrue();
         await Assert.That(inventory.Contexts[1].Target.ToString()).IsEqualTo("net8.0");

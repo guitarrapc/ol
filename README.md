@@ -111,7 +111,7 @@ jobs:
         env:
           OL_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Detect license violations
-        run: ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+        run: ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --format markdown > "$GITHUB_STEP_SUMMARY"
 ```
 
 Commit a previous report to detect added packages and license changes when a pull request updates dependencies. OSS libraries sometimes change licenses between versions; `diff` makes those changes visible.
@@ -136,7 +136,7 @@ jobs:
       - name: Compare license changes
         run: ol diff --previous before.json --current after.json
       - name: Detect license violations
-        run: ol check --report after.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+        run: ol check --report after.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --format markdown > "$GITHUB_STEP_SUMMARY"
 ```
 
 ## Usage
@@ -167,7 +167,7 @@ Commands:
 | Command | Purpose |
 |---|---|
 | `ol scan` | Collect license evidence from resolved dependencies and produce a report. |
-| `ol check` | Evaluate a canonical JSON report against an allow-list. |
+| `ol check` | Evaluate a canonical JSON report against an allow-list; `--format markdown` includes the scan context and findings in CI-friendly tables. |
 | `ol diff` | Compare two canonical JSON reports. |
 | `ol skill install` | Install the bundled license-scan Agent Skill for Codex or Claude. |
 | `ol skill export-plugin` | Export the skill as a portable Agent Plugin package. |

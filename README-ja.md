@@ -110,7 +110,7 @@ jobs:
         env:
           OL_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: ライセンス違反を検出
-        run: ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+        run: ol check --report ol-report.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --format markdown > "$GITHUB_STEP_SUMMARY"
 ```
 
 過去のレポートをコミットしておくことで、PRでパッケージ変更があったときに、ライセンスの変更や新規追加を検出できます。OSSライブラリは時にバージョン変更でライセンスが変わることがありますが、olを使うことで検知できます。
@@ -135,7 +135,7 @@ jobs:
       - name: ライセンス変更を比較
         run: ol diff --previous before.json --current after.json
       - name: ライセンス違反を検出
-        run: ol check --report after.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause
+        run: ol check --report after.json --allow-licenses MIT,Apache-2.0,BSD-3-Clause --format markdown > "$GITHUB_STEP_SUMMARY"
 ```
 
 ## 使い方
@@ -166,7 +166,7 @@ Commands:
 | コマンド | 役割 |
 |---|---|
 | `ol scan` | 解決済み依存関係からライセンス証拠を収集し、レポートを生成する。 |
-| `ol check` | canonical JSONレポートを許可リストで評価する。 |
+| `ol check` | canonical JSONレポートを許可リストで評価する。`--format markdown`でスキャン概要と検出内容をCI向けテーブルに出力できる。 |
 | `ol diff` | 2つのcanonical JSONレポートを比較する。 |
 | `ol skill install` | 同梱されたlicense-scan Agent SkillをCodexまたはClaude向けにインストールする。 |
 | `ol skill export-plugin` | SkillをポータブルなAgent Pluginとして出力する。 |

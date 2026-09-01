@@ -2,6 +2,7 @@
 using BenchmarkDotNet.Attributes;
 using Ol.Core;
 using Ol.Core.Licensing;
+using Ol.Core.Reporting;
 
 /// <summary>Measures the CI-facing projection of a large unresolved policy result.</summary>
 [MemoryDiagnoser]
@@ -16,6 +17,7 @@ public class CheckRendererBenchmark
     private readonly ScanComponent[] linkedComponents = new ScanComponent[ComponentCount];
     private readonly LicensePolicyViolation[] linkedViolations = new LicensePolicyViolation[ComponentCount];
     private readonly DependencyInventory linkedInventory;
+    private readonly ScanReport linkedReport;
 
     public CheckRendererBenchmark()
     {
@@ -72,6 +74,7 @@ public class CheckRendererBenchmark
         }
 
         linkedInventory = new DependencyInventory(default, [], linkedComponents, occurrences, edges);
+        linkedReport = new ScanReport(1, "benchmark", "3.0.0", linkedInventory, linkedComponents, [], []);
     }
 
     [Benchmark]
@@ -87,6 +90,14 @@ public class CheckRendererBenchmark
     {
         buffer.Clear();
         CheckRenderer.Write(buffer, linkedInventory, linkedComponents, linkedViolations, ComponentCount);
+        return buffer.WrittenCount;
+    }
+
+    [Benchmark]
+    public int WriteMarkdownReport()
+    {
+        buffer.Clear();
+        CheckRenderer.WriteMarkdown(buffer, linkedReport, linkedViolations, ComponentCount, allowLicenses: "MIT");
         return buffer.WrittenCount;
     }
 }

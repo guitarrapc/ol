@@ -69,6 +69,21 @@ public sealed class ScanReportInputTests
     }
 
     [Test]
+    public async Task TryRead_WithInventoryContext_RestoresInputPathSeparatelyFromProjectIdentity()
+    {
+        var json = Report(Component()).Replace(
+            "\"components\":",
+            "\"inventory\": { \"contexts\": [{ \"inputPath\": \"src/app/cargo-metadata.json\", \"projectIdentity\": \"workspace-app\", \"target\": \"\", \"runtime\": \"\", \"platform\": \"\", \"architecture\": \"\", \"variant\": \"\" }], \"components\": [], \"occurrences\": [], \"edges\": [] }, \"components\":",
+            StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.Inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("workspace-app");
+        await Assert.That(report.Inventory.Contexts[0].InputPath.ToString()).IsEqualTo("src/app/cargo-metadata.json");
+    }
+
+    [Test]
     public async Task TryRead_WithInputScope_RestoresExcludedInputPaths()
     {
         var json = Report(Component()).Replace(

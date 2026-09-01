@@ -3648,7 +3648,8 @@ public sealed class CliScanTests
         await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(6);
         await Assert.That(inventory.GetProperty("edges").GetArrayLength()).IsEqualTo(5);
         var winContext = inventory.GetProperty("contexts")[1];
-        await Assert.That(winContext.GetProperty("projectOrigin").GetString()).IsEqualTo("App.csproj");
+        await Assert.That(winContext.GetProperty("projectIdentity").GetString()).IsEqualTo("App.csproj");
+        await Assert.That(winContext.GetProperty("inputPath").GetString()).IsEqualTo("nuget-project.assets.json");
         await Assert.That(first.Stdout).DoesNotContain("/private/src");
         await Assert.That(winContext.GetProperty("target").GetString()).IsEqualTo("net8.0");
         await Assert.That(winContext.GetProperty("runtime").GetString()).IsEqualTo("win-x64");
@@ -3656,6 +3657,199 @@ public sealed class CliScanTests
         await Assert.That(winContext.GetProperty("architecture").GetString()).IsEmpty();
         await Assert.That(inventory.GetProperty("occurrences")[1].GetProperty("componentIndex").GetInt32()).IsEqualTo(1);
         await Assert.That(inventory.GetProperty("edges")[0].GetProperty("fromOccurrenceIndex").GetInt32()).IsEqualTo(-1);
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryInput_StoresProjectIdentityRelativeToInputRoot()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-project-origin-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "src", "App");
+        var assetsDirectory = Path.Combine(projectDirectory, "obj");
+        var assetsPath = Path.Combine(assetsDirectory, "project.assets.json");
+        var projectPath = Path.Combine(projectDirectory, "App.csproj");
+        Directory.CreateDirectory(assetsDirectory);
+        var fixture = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"));
+        fixture = fixture.Replace(
+            "\"projectPath\": \"/private/src/App/App.csproj\"",
+            $"\"projectPath\": {JsonSerializer.Serialize(projectPath)}",
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(assetsPath, fixture, Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--input-format", "nuget-assets", "--no-external-evidence", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var contexts = report.RootElement.GetProperty("inventory").GetProperty("contexts");
+            await Assert.That(contexts[0].GetProperty("projectIdentity").GetString()).IsEqualTo("src/App/App.csproj");
+            await Assert.That(contexts[1].GetProperty("projectIdentity").GetString()).IsEqualTo("src/App/App.csproj");
+            await Assert.That(contexts[0].GetProperty("inputPath").GetString()).IsEqualTo("src/App/obj/project.assets.json");
+            await Assert.That(contexts[1].GetProperty("inputPath").GetString()).IsEqualTo("src/App/obj/project.assets.json");
+            await Assert.That(stdout).DoesNotContain(temporaryDirectory);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithProjectIdentityOutsideDirectoryInput_StoresOnlyFileName()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-project-origin-outside-{Guid.NewGuid():N}");
+        var inputDirectory = Path.Combine(temporaryDirectory, "repository");
+        var assetsDirectory = Path.Combine(inputDirectory, "src", "App", "obj");
+        var assetsPath = Path.Combine(assetsDirectory, "project.assets.json");
+        var projectPath = Path.Combine(temporaryDirectory, "outside", "External.csproj");
+        Directory.CreateDirectory(assetsDirectory);
+        var fixture = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"));
+        fixture = fixture.Replace(
+            "\"projectPath\": \"/private/src/App/App.csproj\"",
+            $"\"projectPath\": {JsonSerializer.Serialize(projectPath)}",
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(assetsPath, fixture, Encoding.UTF8);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", inputDirectory, "--input-format", "nuget-assets", "--no-external-evidence", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var contexts = report.RootElement.GetProperty("inventory").GetProperty("contexts");
+            await Assert.That(contexts[0].GetProperty("projectIdentity").GetString()).IsEqualTo("External.csproj");
+            await Assert.That(contexts[1].GetProperty("projectIdentity").GetString()).IsEqualTo("External.csproj");
+            await Assert.That(contexts[0].GetProperty("inputPath").GetString()).IsEqualTo("src/App/obj/project.assets.json");
+            await Assert.That(contexts[1].GetProperty("inputPath").GetString()).IsEqualTo("src/App/obj/project.assets.json");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithOverlappingDirectoryInputs_KeepsProjectIdentityDeterministic()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-project-origin-overlap-{Guid.NewGuid():N}");
+        var projectDirectory = Path.Combine(temporaryDirectory, "src", "App");
+        var assetsDirectory = Path.Combine(projectDirectory, "obj");
+        var assetsPath = Path.Combine(assetsDirectory, "project.assets.json");
+        var projectPath = Path.Combine(projectDirectory, "App.csproj");
+        Directory.CreateDirectory(assetsDirectory);
+        var fixture = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "nuget-project.assets.json"));
+        fixture = fixture.Replace(
+            "\"projectPath\": \"/private/src/App/App.csproj\"",
+            $"\"projectPath\": {JsonSerializer.Serialize(projectPath)}",
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(assetsPath, fixture, Encoding.UTF8);
+
+        try
+        {
+            var outerFirst = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--input", projectDirectory, "--input-format", "nuget-assets", "--no-external-evidence", "--format", "json");
+            var innerFirst = await RunOlAsync(root, "scan", "--input", projectDirectory, "--input", temporaryDirectory, "--input-format", "nuget-assets", "--no-external-evidence", "--format", "json");
+
+            await Assert.That(outerFirst.ExitCode).IsEqualTo(0);
+            await Assert.That(innerFirst.ExitCode).IsEqualTo(0);
+            await Assert.That(outerFirst.Stdout).IsEqualTo(innerFirst.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryInput_SeparatesDiscoveredLockFilePathsFromProjectIdentities()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-lock-project-origin-{Guid.NewGuid():N}");
+        var fixtureDirectory = Path.Combine(AppContext.BaseDirectory, "Fixtures");
+        var bundlerDirectory = Path.Combine(temporaryDirectory, "ruby");
+        var swiftDirectory = Path.Combine(temporaryDirectory, "swift");
+        var cocoaPodsDirectory = Path.Combine(temporaryDirectory, "ios");
+        Directory.CreateDirectory(bundlerDirectory);
+        Directory.CreateDirectory(swiftDirectory);
+        Directory.CreateDirectory(cocoaPodsDirectory);
+        File.Copy(Path.Combine(fixtureDirectory, "Gemfile.lock"), Path.Combine(bundlerDirectory, "Gemfile.lock"));
+        File.Copy(Path.Combine(fixtureDirectory, "Package.resolved"), Path.Combine(swiftDirectory, "Package.resolved"));
+        File.Copy(Path.Combine(fixtureDirectory, "Podfile.lock"), Path.Combine(cocoaPodsDirectory, "Podfile.lock"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var contexts = report.RootElement.GetProperty("inventory").GetProperty("contexts").EnumerateArray().ToArray();
+
+            var bundlerContexts = contexts.Where(static context => context.GetProperty("projectIdentity").GetString() == "Gemfile.lock").ToArray();
+            await Assert.That(bundlerContexts).Count().IsEqualTo(2);
+            await Assert.That(bundlerContexts.All(static context => context.GetProperty("inputPath").GetString() == "ruby/Gemfile.lock")).IsTrue();
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "Package.resolved").GetProperty("inputPath").GetString()).IsEqualTo("swift/Package.resolved");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "Podfile.lock").GetProperty("inputPath").GetString()).IsEqualTo("ios/Podfile.lock");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Scan_WithDirectoryInput_SeparatesInputPathFromProjectIdentity()
+    {
+        var root = FindRepositoryRoot();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"ol-context-input-path-{Guid.NewGuid():N}");
+        var fixtureDirectory = Path.Combine(AppContext.BaseDirectory, "Fixtures");
+        var cargoDirectory = Path.Combine(temporaryDirectory, "cargo");
+        var composerDirectory = Path.Combine(temporaryDirectory, "composer");
+        var goDirectory = Path.Combine(temporaryDirectory, "go");
+        var mavenDirectory = Path.Combine(temporaryDirectory, "maven");
+        var npmDirectory = Path.Combine(temporaryDirectory, "npm");
+        var pipDirectory = Path.Combine(temporaryDirectory, "pip");
+        Directory.CreateDirectory(cargoDirectory);
+        Directory.CreateDirectory(composerDirectory);
+        Directory.CreateDirectory(goDirectory);
+        Directory.CreateDirectory(mavenDirectory);
+        Directory.CreateDirectory(npmDirectory);
+        Directory.CreateDirectory(pipDirectory);
+        File.Copy(Path.Combine(fixtureDirectory, "cargo-metadata.json"), Path.Combine(cargoDirectory, "cargo-metadata.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "composer.json"), Path.Combine(composerDirectory, "composer.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "composer.lock"), Path.Combine(composerDirectory, "composer.lock"));
+        File.Copy(Path.Combine(fixtureDirectory, "go-list-modules.json"), Path.Combine(goDirectory, "go-list-modules.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "go-mod-graph.txt"), Path.Combine(goDirectory, "go-mod-graph.txt"));
+        File.Copy(Path.Combine(fixtureDirectory, "maven-dependency-tree.json"), Path.Combine(mavenDirectory, "maven-dependency-tree.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "package-lock.json"), Path.Combine(npmDirectory, "package-lock.json"));
+        File.Copy(Path.Combine(fixtureDirectory, "pip-inspect.json"), Path.Combine(pipDirectory, "pip-inspect.json"));
+
+        try
+        {
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence", "--format", "json");
+
+            await Assert.That(exitCode).IsEqualTo(0);
+            await Assert.That(CliTestAssembly.DiagnosticsOnly(stderr)).IsEmpty();
+            using var report = JsonDocument.Parse(stdout);
+            var contexts = report.RootElement.GetProperty("inventory").GetProperty("contexts").EnumerateArray().ToArray();
+
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "workspace-app").GetProperty("inputPath").GetString()).IsEqualTo("cargo/cargo-metadata.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "workspace-tool").GetProperty("inputPath").GetString()).IsEqualTo("cargo/cargo-metadata.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "example/app").GetProperty("inputPath").GetString()).IsEqualTo("composer/composer.lock");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "example.com/app").GetProperty("inputPath").GetString()).IsEqualTo("go/go-mod-graph.txt");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "com.example:demo").GetProperty("inputPath").GetString()).IsEqualTo("maven/maven-dependency-tree.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "root-app").GetProperty("inputPath").GetString()).IsEqualTo("npm/package-lock.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "packages/a").GetProperty("inputPath").GetString()).IsEqualTo("npm/package-lock.json");
+            await Assert.That(contexts.Single(static context => context.GetProperty("projectIdentity").GetString() == "pip-environment").GetProperty("inputPath").GetString()).IsEqualTo("pip/pip-inspect.json");
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
     }
 
     [Test]

@@ -143,6 +143,7 @@ internal static class ScanInputIngestion
                 if (consumed[i]) continue;
                 DependencyInventory inventory;
                 DependencyInputHandler handler;
+                var contextInputIndex = i;
                 if (TryCollectInputBundle(files, i, consumed, out handler, out var bundleIndexes, out var missingCompanionName))
                 {
                     if (missingCompanionName is not null)
@@ -194,6 +195,8 @@ internal static class ScanInputIngestion
                     {
                         packageArtifactInputs[packageArtifactInputCount++] = new ResolvedPackageArtifactInput(files[bundleIndexes[0]].Path, artifactHandler.Collector);
                     }
+
+                    contextInputIndex = bundleIndexes[^1];
                 }
                 else
                 {
@@ -223,6 +226,7 @@ internal static class ScanInputIngestion
                     }
                 }
 
+                inventory = AttachContextProvenance(inventory, files[contextInputIndex].InputRoot, files[contextInputIndex].InputRelativePath);
                 KnownUnsupportedInputCandidates.ObserveScannedInput(inventory, handler, ref inputCandidateDiagnostics);
 
                 // A repository-wide SBOM and per-project package-manager inputs describe one resolution at two
@@ -415,7 +419,8 @@ internal static class ScanInputIngestion
                     throw new InvalidOperationException($"Explicit input file is inside an excluded input path: {selection.Paths[inputIndex]}");
                 }
 
-                AddCollectedFile(collectedByPath, inputPath, Path.GetFileName(inputPath), discovered: false);
+                var fileName = Path.GetFileName(inputPath);
+                AddCollectedFile(collectedByPath, inputPath, fileName, discovered: false, inputRoot: null, fileName);
                 continue;
             }
 
@@ -475,7 +480,7 @@ internal static class ScanInputIngestion
         };
         foreach (var file in entries)
         {
-            AddCollectedFile(collectedByPath, file.Path, file.LogicalPath, discovered: true);
+            AddCollectedFile(collectedByPath, file.Path, file.LogicalPath, discovered: true, file.InputRoot, file.InputRelativePath);
         }
 
         inputCandidateDiagnostics = matcher.Diagnostics;
@@ -856,7 +861,7 @@ internal static class ScanInputIngestion
     private static bool IsDirectorySeparator(char value)
         => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
 
-    private static void AddCollectedFile(Dictionary<string, CollectedInputFile> collectedByPath, string path, string logicalPath, bool discovered)
+    private static void AddCollectedFile(Dictionary<string, CollectedInputFile> collectedByPath, string path, string logicalPath, bool discovered, string? inputRoot, string inputRelativePath)
     {
         if (collectedByPath.TryGetValue(path, out var existing))
         {
@@ -866,10 +871,71 @@ internal static class ScanInputIngestion
             if (string.CompareOrdinal(logicalPath, existing.LogicalPath) >= 0)
             {
                 logicalPath = existing.LogicalPath;
+                inputRoot = existing.InputRoot ?? inputRoot;
+                if (existing.InputRoot is not null) inputRelativePath = existing.InputRelativePath;
+            }
+            else
+            {
+                if (inputRoot is null && existing.InputRoot is not null)
+                {
+                    inputRoot = existing.InputRoot;
+                    inputRelativePath = existing.InputRelativePath;
+                }
             }
         }
 
-        collectedByPath[path] = new CollectedInputFile(path, logicalPath, discovered);
+        collectedByPath[path] = new CollectedInputFile(path, logicalPath, discovered, inputRoot, inputRelativePath);
+    }
+
+    private static DependencyInventory AttachContextProvenance(DependencyInventory inventory, string? inputRoot, string inputRelativePath)
+    {
+        if (inventory.Contexts.Length == 0) return inventory;
+
+        var inputPath = Utf8Slice.FromString(inputRelativePath);
+        // Parser results are owned by this ingestion operation, so attach provenance in place.
+        for (var contextIndex = 0; contextIndex < inventory.Contexts.Length; contextIndex++)
+        {
+            var context = inventory.Contexts[contextIndex];
+            var projectIdentity = TryGetLogicalProjectIdentity(context.ProjectIdentity, inputRoot, out var logicalProjectIdentity)
+                ? logicalProjectIdentity
+                : context.ProjectIdentity;
+            inventory.Contexts[contextIndex] = context with { ProjectIdentity = projectIdentity, InputPath = inputPath };
+        }
+
+        return inventory;
+    }
+
+    private static bool TryGetLogicalProjectIdentity(Utf8Slice projectIdentity, string? inputRoot, out Utf8Slice logicalProjectIdentity)
+    {
+        var path = projectIdentity.Span;
+        var isAbsolute = path.Length > 0 && path[0] is (byte)'/' or (byte)'\\'
+            || path.Length >= 3
+                && (path[0] is >= (byte)'A' and <= (byte)'Z' || path[0] is >= (byte)'a' and <= (byte)'z')
+                && path[1] == (byte)':'
+                && path[2] is (byte)'/' or (byte)'\\';
+        if (!isAbsolute)
+        {
+            logicalProjectIdentity = default;
+            return false;
+        }
+
+        string? logicalPath = null;
+        var absolutePath = projectIdentity.ToString();
+        if (inputRoot is not null && Path.IsPathFullyQualified(absolutePath))
+        {
+            var relativePath = Path.GetRelativePath(inputRoot, absolutePath);
+            if (!Path.IsPathFullyQualified(relativePath)
+                && !relativePath.Equals("..", StringComparison.Ordinal)
+                && !relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
+            {
+                logicalPath = relativePath.Replace('\\', '/');
+            }
+        }
+
+        logicalPath ??= Path.GetFileName(absolutePath.Replace('\\', '/'));
+        logicalProjectIdentity = Utf8Slice.FromString(logicalPath);
+        return true;
     }
 
     private static string GetInputSourceReference(string[] inputPaths)
@@ -884,7 +950,7 @@ internal static class ScanInputIngestion
     }
 
     /// <summary>One physical input file, and whether directory discovery proposed it rather than the user naming it.</summary>
-    private readonly record struct CollectedInputFile(string Path, string LogicalPath, bool Discovered);
+    private readonly record struct CollectedInputFile(string Path, string LogicalPath, bool Discovered, string? InputRoot, string InputRelativePath);
 
     /// <summary>Canonical paths used for pruning and logical paths persisted in the report.</summary>
     private readonly record struct ResolvedInputExclusions(string[] FullPaths, string[] LogicalPaths, bool[]? SkippedDirectoryInputs);
@@ -941,7 +1007,7 @@ internal static class ScanInputIngestion
         {
             var fullPath = entry.ToFullPath();
             var relativePath = Path.GetRelativePath(directory, fullPath).Replace('\\', '/');
-            return new CollectedInputFile(fullPath, string.Concat(rootName, "/", relativePath), Discovered: true);
+            return new CollectedInputFile(fullPath, string.Concat(rootName, "/", relativePath), Discovered: true, directory, relativePath);
         }
 
         private bool IsExcluded(ref FileSystemEntry entry)

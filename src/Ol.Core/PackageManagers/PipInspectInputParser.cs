@@ -9,7 +9,7 @@ namespace Ol.Core.PackageManagers;
 internal static class PipInspectInputParser
 {
     private static ReadOnlySpan<byte> PurlPrefix => "pkg:pypi/"u8;
-    private static readonly Utf8Slice ProjectOrigin = Utf8Slice.FromOwnedBytes("pip-environment"u8.ToArray());
+    private static readonly Utf8Slice ProjectIdentity = Utf8Slice.FromOwnedBytes("pip-environment"u8.ToArray());
     private static readonly Utf8Slice DirectSourceVariant = Utf8Slice.FromOwnedBytes("source=direct"u8.ToArray());
     private static readonly LicenseEvidence LicenseExpressionEvidence = new(
         LicenseEvidenceKind.DependencyInput,
@@ -60,7 +60,7 @@ internal static class PipInspectInputParser
 
             var contexts = new[]
             {
-                new DependencyResolutionContext(ProjectOrigin, pythonVersion, implementation, platform, architecture, CreatePipVariant(pipVersion)),
+                new DependencyResolutionContext(ProjectIdentity, pythonVersion, implementation, platform, architecture, CreatePipVariant(pipVersion), default),
             };
             if (!retainGraph)
             {

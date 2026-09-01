@@ -263,7 +263,7 @@ public class DependencyInputScannerBenchmark
     private readonly SpdxLicenseIndex spdx = new(["Apache-2.0", "MIT"], ["Classpath-exception-2.0"]);
     private readonly DependencyInputRegistry singleMarkerDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: false);
     private readonly DependencyInputRegistry signatureDetectionRegistry = CreateDetectionRegistry(useNuGetSignature: true);
-    private readonly Utf8Slice projectOrigin = "src/App/App.csproj";
+    private readonly Utf8Slice projectIdentity = "src/App/App.csproj";
     private readonly Utf8Slice target = "net8.0";
     private readonly Utf8Slice directName = "Direct.Package";
     private readonly Utf8Slice directVersion = "1.0.0";
@@ -307,11 +307,11 @@ public class DependencyInputScannerBenchmark
     private readonly Utf8Slice bundlerRackVersion = "3.1.8";
     private readonly Utf8Slice mavenName = "library";
     private readonly Utf8Slice mavenVersion = "2.0.0";
-    private readonly Utf8Slice swiftProjectOrigin = "Package.resolved";
+    private readonly Utf8Slice swiftProjectIdentity = "Package.resolved";
     private readonly Utf8Slice swiftName = "swift-log";
     private readonly Utf8Slice swiftVersion = "1.6.2";
     private readonly Utf8Slice swiftRepository = "https://github.com/apple/swift-log.git";
-    private readonly Utf8Slice cocoaPodsProjectOrigin = "Podfile.lock";
+    private readonly Utf8Slice cocoaPodsProjectIdentity = "Podfile.lock";
     private readonly Utf8Slice cocoaPodsName = "Moya";
     private readonly Utf8Slice cocoaPodsVersion = "15.0.0";
 
@@ -425,7 +425,7 @@ public class DependencyInputScannerBenchmark
         components[1] = new ScanComponent(sharedName, sharedVersion, default, "nuget", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:nuget/Shared.Package@2.0.0"u8.ToArray()), sharedSourceId, default, []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(projectOrigin, target, default, default, default, default)],
+            [new DependencyResolutionContext(projectIdentity, target, default, default, default, default, default)],
             components,
             [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)]);
@@ -439,7 +439,7 @@ public class DependencyInputScannerBenchmark
         components[1] = new ScanComponent(npmNativeName, npmNativeVersion, default, "npm", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/native-addon@2.0.0"u8.ToArray()), npmNativeSourceId, default, []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(npmRoot, default, default, default, default, default)],
+            [new DependencyResolutionContext(npmRoot, default, default, default, default, default, default)],
             components,
             [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
@@ -452,7 +452,7 @@ public class DependencyInputScannerBenchmark
         var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(npmRoot, default, default, default, default, default)],
+            [new DependencyResolutionContext(npmRoot, default, default, default, default, default, default)],
             [component],
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)]);
@@ -464,7 +464,7 @@ public class DependencyInputScannerBenchmark
         var component = new ScanComponent(npmDirectName, npmDirectVersion, default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:npm/left-pad@1.3.0"u8.ToArray()), npmDirectSourceId, default, []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("yarn.lock"u8.ToArray()), default, default, default, default, default)],
+            [new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("yarn.lock"u8.ToArray()), default, default, default, default, default, default)],
             [component],
             [new DependencyOccurrence(0, 0)],
             []);
@@ -476,7 +476,7 @@ public class DependencyInputScannerBenchmark
         var component = new ScanComponent(cargoName, cargoVersion, default, "cargo", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:cargo/itoa@1.0.0"u8.ToArray()), cargoSourceId, default, []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(cargoRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("features=default"u8.ToArray()))],
+            [new DependencyResolutionContext(cargoRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("features=default"u8.ToArray()), default)],
             [component],
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
@@ -489,7 +489,7 @@ public class DependencyInputScannerBenchmark
         var component = new ScanComponent(goName, goVersion, default, "golang", DependencyType.Direct, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:golang/github.com/google/uuid@v1.6.0"u8.ToArray()), Utf8Slice.FromOwnedBytes(goSourceId.Span.ToArray()), default, []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(goRoot, default, default, default, default, default)],
+            [new DependencyResolutionContext(goRoot, default, default, default, default, default, default)],
             [component],
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
@@ -504,7 +504,7 @@ public class DependencyInputScannerBenchmark
         components[1] = new ScanComponent(pythonUrllibName, pythonUrllibVersion, default, "pypi", DependencyType.Transitive, LicenseStatus.Unknown, Utf8Slice.FromOwnedBytes("pkg:pypi/urllib3@2.5.0"u8.ToArray()), Utf8Slice.FromOwnedBytes("urllib3@2.5.0"u8.ToArray()), default, []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(pythonRoot, pythonTarget, pythonRuntime, pythonPlatform, pythonArchitecture, Utf8Slice.FromOwnedBytes("pip=25.1"u8.ToArray()))],
+            [new DependencyResolutionContext(pythonRoot, pythonTarget, pythonRuntime, pythonPlatform, pythonArchitecture, Utf8Slice.FromOwnedBytes("pip=25.1"u8.ToArray()), default)],
             components,
             [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
@@ -519,7 +519,7 @@ public class DependencyInputScannerBenchmark
         components[1] = new ScanComponent(composerPsrLogName, composerPsrLogVersion, composerLicense, "composer", DependencyType.Transitive, LicenseStatus.Matched, Utf8Slice.FromOwnedBytes("pkg:composer/psr/log@3.0.2"u8.ToArray()), Utf8Slice.FromOwnedBytes("psr/log@3.0.2"u8.ToArray()), default, []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(composerRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("plugin-api=2.6.0"u8.ToArray()))],
+            [new DependencyResolutionContext(composerRoot, default, default, default, default, Utf8Slice.FromOwnedBytes("plugin-api=2.6.0"u8.ToArray()), default)],
             components,
             [new DependencyOccurrence(0, 0), new DependencyOccurrence(0, 1)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0), new DependencyEdge(0, 0, 1)],
@@ -542,7 +542,7 @@ public class DependencyInputScannerBenchmark
             []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(bundlerRoot, default, default, bundlerPlatform, default, Utf8Slice.FromOwnedBytes("bundler=2.6.5"u8.ToArray()))],
+            [new DependencyResolutionContext(bundlerRoot, default, default, bundlerPlatform, default, Utf8Slice.FromOwnedBytes("bundler=2.6.5"u8.ToArray()), default)],
             [component],
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
@@ -565,7 +565,7 @@ public class DependencyInputScannerBenchmark
             []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("com.example:app"u8.ToArray()), default, default, default, default, default)],
+            [new DependencyResolutionContext(Utf8Slice.FromOwnedBytes("com.example:app"u8.ToArray()), default, default, default, default, default, default)],
             [component],
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)],
@@ -590,7 +590,7 @@ public class DependencyInputScannerBenchmark
             swiftRepository);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(swiftProjectOrigin, default, default, default, default, Utf8Slice.FromOwnedBytes("origin-hash=benchmark"u8.ToArray()))],
+            [new DependencyResolutionContext(swiftProjectIdentity, default, default, default, default, Utf8Slice.FromOwnedBytes("origin-hash=benchmark"u8.ToArray()), default)],
             [component],
             [new DependencyOccurrence(0, 0)],
             [],
@@ -613,7 +613,7 @@ public class DependencyInputScannerBenchmark
             []);
         return new DependencyInventory(
             default,
-            [new DependencyResolutionContext(cocoaPodsProjectOrigin, default, default, default, default, Utf8Slice.FromOwnedBytes("cocoapods=1.16.2"u8.ToArray()))],
+            [new DependencyResolutionContext(cocoaPodsProjectIdentity, default, default, default, default, Utf8Slice.FromOwnedBytes("cocoapods=1.16.2"u8.ToArray()), default)],
             [component],
             [new DependencyOccurrence(0, 0)],
             [new DependencyEdge(0, DependencyOccurrence.ContextRoot, 0)]);

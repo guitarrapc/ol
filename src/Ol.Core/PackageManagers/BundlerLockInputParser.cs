@@ -9,7 +9,7 @@ namespace Ol.Core.PackageManagers;
 internal static class BundlerLockInputParser
 {
     private static ReadOnlySpan<byte> PurlPrefix => "pkg:gem/"u8;
-    private static readonly Utf8Slice ProjectOrigin = Utf8Slice.FromOwnedBytes("Gemfile.lock"u8.ToArray());
+    private static readonly Utf8Slice ProjectIdentity = Utf8Slice.FromOwnedBytes("Gemfile.lock"u8.ToArray());
     private static readonly Utf8Slice RegistryVariant = Utf8Slice.FromOwnedBytes("source=registry"u8.ToArray());
     private static readonly Utf8Slice GitVariant = Utf8Slice.FromOwnedBytes("source=git"u8.ToArray());
     private static readonly Utf8Slice PathVariant = Utf8Slice.FromOwnedBytes("source=path"u8.ToArray());
@@ -252,7 +252,7 @@ internal static class BundlerLockInputParser
         var contextVariant = CreateContextVariant(bundlerVersion);
         for (var i = 0; i < platforms.Length; i++)
         {
-            contexts[i] = new DependencyResolutionContext(ProjectOrigin, default, rubyVersion, platforms[i], default, contextVariant);
+            contexts[i] = new DependencyResolutionContext(ProjectIdentity, default, rubyVersion, platforms[i], default, contextVariant, default);
         }
 
         var occurrenceCapacity = checked(nodes.Length * platforms.Length);

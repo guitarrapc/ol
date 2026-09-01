@@ -104,7 +104,7 @@ public sealed class DependencyRootPathsTests
             new DependencyEdge(0, DependencyOccurrence.ContextRoot, 1),
             new DependencyEdge(0, 1, 2),
         };
-        var contexts = new[] { new DependencyResolutionContext("app", "net10.0", "", "", "", "runtime") };
+        var contexts = new[] { new DependencyResolutionContext("app", "net10.0", "", "", "", "runtime", "project.assets.json") };
         return new DependencyInventory(default, contexts, components, occurrences, edges);
     }
 

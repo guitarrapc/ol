@@ -22,7 +22,7 @@ public sealed class PythonInputTests
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.PipInspect);
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("1");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(1);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("pip-environment");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("pip-environment");
         await Assert.That(inventory.Contexts[0].Target.ToString()).IsEqualTo("3.12.3");
         await Assert.That(inventory.Contexts[0].Runtime.ToString()).IsEqualTo("cpython");
         await Assert.That(inventory.Contexts[0].Platform.ToString()).IsEqualTo("linux");

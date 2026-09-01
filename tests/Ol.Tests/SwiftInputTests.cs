@@ -21,7 +21,7 @@ public sealed class SwiftInputTests
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.SwiftPackageResolved);
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("3");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(1);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("Package.resolved");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("Package.resolved");
         await Assert.That(inventory.Contexts[0].Variant.ToString()).IsEqualTo("origin-hash=fixture-origin");
         await Assert.That(inventory.Components).Count().IsEqualTo(2);
         await Assert.That(inventory.Occurrences).Count().IsEqualTo(2);

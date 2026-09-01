@@ -23,7 +23,7 @@ public sealed class GoModuleGraphInputTests
         await Assert.That(inventory.Input.Kind).IsEqualTo(ScanInputKind.PackageManager);
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.GoModuleGraph);
         await Assert.That(inventory.Contexts).Count().IsEqualTo(1);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("example.com/app");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("example.com/app");
         await Assert.That(inventory.Contexts[0].Target.IsEmpty).IsTrue();
         await Assert.That(inventory.Contexts[0].Platform.IsEmpty).IsTrue();
         await Assert.That(inventory.Contexts[0].Architecture.IsEmpty).IsTrue();

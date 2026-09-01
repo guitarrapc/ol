@@ -12,8 +12,8 @@ public sealed class DependencyInventoryTests
         var input = new ScanInputDescriptor(ScanInputKind.PackageManager, ScanInputFormat.NuGetAssets, "project.assets.json", "sha256", "1");
         var contexts = new[]
         {
-            new DependencyResolutionContext("src/App/App.csproj", "net10.0", "win-x64", "windows", "x64", "runtime"),
-            new DependencyResolutionContext("src/App/App.csproj", "net10.0", "linux-x64", "linux", "x64", "runtime"),
+            new DependencyResolutionContext("src/App/App.csproj", "net10.0", "win-x64", "windows", "x64", "runtime", "src/App/obj/project.assets.json"),
+            new DependencyResolutionContext("src/App/App.csproj", "net10.0", "linux-x64", "linux", "x64", "runtime", "src/App/obj/project.assets.json"),
         };
         var components = new[]
         {

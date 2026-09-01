@@ -104,7 +104,7 @@ internal static class NpmPackageLockInputParser
                 : !rootName.IsEmpty
                     ? rootName
                     : Utf8Slice.FromOwnedBytes("."u8.ToArray());
-            contexts[contextCount++] = new DependencyResolutionContext(rootOrigin, default, default, default, default, default);
+            contexts[contextCount++] = new DependencyResolutionContext(rootOrigin, default, default, default, default, default, default);
             for (var i = 0; i < nodeCount; i++)
             {
                 var node = nodes[i];
@@ -114,7 +114,7 @@ internal static class NpmPackageLockInputParser
                 }
 
                 EnsureCapacity(ref contexts, contextCount);
-                contexts[contextCount++] = new DependencyResolutionContext(node.Path, default, default, default, default, default);
+                contexts[contextCount++] = new DependencyResolutionContext(node.Path, default, default, default, default, default, default);
             }
 
             depths = ArrayPool<int>.Shared.Rent(Math.Max(nodeCount, 1));
@@ -125,7 +125,7 @@ internal static class NpmPackageLockInputParser
             {
                 if (contextIndex > 0)
                 {
-                    var contextOrigin = contexts[contextIndex].ProjectOrigin;
+                    var contextOrigin = contexts[contextIndex].ProjectIdentity;
                     if (!TryGetNodeIndex(nodes.AsSpan(0, nodeCount), nodeIndexes, indexCapacity, contextOrigin.Span, out contextRootNode))
                     {
                         throw new JsonException("npm workspace context does not match a package entry.");

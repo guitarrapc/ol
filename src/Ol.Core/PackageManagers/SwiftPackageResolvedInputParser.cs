@@ -13,7 +13,7 @@ internal static class SwiftPackageResolvedInputParser
     private const byte LocationField = 1 << 2;
     private const byte StateField = 1 << 3;
     private const byte RequiredPinFields = IdentityField | KindField | LocationField | StateField;
-    private static readonly Utf8Slice ProjectOrigin = Utf8Slice.FromOwnedBytes("Package.resolved"u8.ToArray());
+    private static readonly Utf8Slice ProjectIdentity = Utf8Slice.FromOwnedBytes("Package.resolved"u8.ToArray());
     private static readonly Utf8Slice FormatVersion2 = Utf8Slice.FromOwnedBytes("2"u8.ToArray());
     private static readonly Utf8Slice FormatVersion3 = Utf8Slice.FromOwnedBytes("3"u8.ToArray());
     private static ReadOnlySpan<byte> PurlPrefix => "pkg:swift/"u8;
@@ -109,7 +109,7 @@ internal static class SwiftPackageResolvedInputParser
 
             return new DependencyInventory(
                 new ScanInputDescriptor(default, default, string.Empty, string.Empty, formatVersion == 2 ? FormatVersion2 : FormatVersion3),
-                [new DependencyResolutionContext(ProjectOrigin, default, default, default, default, CreateOriginVariant(originHash))],
+                [new DependencyResolutionContext(ProjectIdentity, default, default, default, default, CreateOriginVariant(originHash), default)],
                 components,
                 occurrences,
                 [],

@@ -8,7 +8,7 @@ namespace Ol.Core.PackageManagers;
 
 internal static class CocoaPodsLockInputParser
 {
-    private static readonly Utf8Slice ProjectOrigin = Utf8Slice.FromOwnedBytes("Podfile.lock"u8.ToArray());
+    private static readonly Utf8Slice ProjectIdentity = Utf8Slice.FromOwnedBytes("Podfile.lock"u8.ToArray());
     private static readonly Utf8Slice PrivateSpecRepoVariant = Utf8Slice.FromOwnedBytes("source=private-spec-repo"u8.ToArray());
     private static readonly Utf8Slice ExternalSourceVariant = Utf8Slice.FromOwnedBytes("source=external"u8.ToArray());
     private static ReadOnlySpan<byte> PurlPrefix => "pkg:cocoapods/"u8;
@@ -231,7 +231,7 @@ internal static class CocoaPodsLockInputParser
                 var edges = retainGraph ? ProjectEdges(nodes, dependencies, directNames, nodeIndexes, nodeIndexCapacity) : [];
                 return new DependencyInventory(
                     new ScanInputDescriptor(default, default, string.Empty, string.Empty, cocoapodsVersion),
-                    [new DependencyResolutionContext(ProjectOrigin, default, default, default, default, CreateVersionVariant(cocoapodsVersion))],
+                    [new DependencyResolutionContext(ProjectIdentity, default, default, default, default, CreateVersionVariant(cocoapodsVersion), default)],
                     components,
                     occurrences,
                     edges,

@@ -21,7 +21,7 @@ public sealed class CocoaPodsInputTests
         await Assert.That(inventory.Input.Format).IsEqualTo(ScanInputFormat.CocoaPodsLock);
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("1.16.2");
         await Assert.That(inventory.Contexts).Count().IsEqualTo(1);
-        await Assert.That(inventory.Contexts[0].ProjectOrigin.ToString()).IsEqualTo("Podfile.lock");
+        await Assert.That(inventory.Contexts[0].ProjectIdentity.ToString()).IsEqualTo("Podfile.lock");
         await Assert.That(inventory.Contexts[0].Variant.ToString()).IsEqualTo("cocoapods=1.16.2");
         await Assert.That(inventory.Components).Count().IsEqualTo(2);
 

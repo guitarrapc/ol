@@ -118,7 +118,8 @@ internal static class CargoMetadataInputParser
                     default,
                     default,
                     default,
-                    CreateFeatureVariant(features.AsSpan(node.FeatureStart, node.FeatureCount)));
+                    CreateFeatureVariant(features.AsSpan(node.FeatureStart, node.FeatureCount)),
+                    default);
             }
 
             if (!retainGraph)

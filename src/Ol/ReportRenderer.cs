@@ -1110,7 +1110,8 @@ internal static class ReportRenderer
         {
             var context = inventory.Contexts[i];
             writer.WriteStartObject();
-            WriteLogicalPath(writer, "projectOrigin"u8, context.ProjectOrigin);
+            WriteLogicalPath(writer, "inputPath"u8, context.InputPath);
+            WriteLogicalPath(writer, "projectIdentity"u8, context.ProjectIdentity);
             writer.WriteString("target"u8, context.Target.Span);
             writer.WriteString("runtime"u8, context.Runtime.Span);
             writer.WriteString("platform"u8, context.Platform.Span);

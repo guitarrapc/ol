@@ -216,7 +216,7 @@ internal static class MavenDependencyTreeInputParser
             var occurrenceCount = nodes.Length - 1;
             return new DependencyInventory(
                 new ScanInputDescriptor(default, default, string.Empty, string.Empty, default),
-                [new DependencyResolutionContext(CreateProjectOrigin(root.GroupId, root.ArtifactId), default, default, default, default, default)],
+                [new DependencyResolutionContext(CreateProjectIdentity(root.GroupId, root.ArtifactId), default, default, default, default, default, default)],
                 components.AsSpan(0, componentCount).ToArray(),
                 retainGraph ? occurrences!.AsSpan(0, occurrenceCount).ToArray() : [],
                 retainGraph ? edges!.AsSpan(0, occurrenceCount).ToArray() : [],
@@ -236,7 +236,7 @@ internal static class MavenDependencyTreeInputParser
         }
     }
 
-    private static Utf8Slice CreateProjectOrigin(Utf8Slice groupId, Utf8Slice artifactId)
+    private static Utf8Slice CreateProjectIdentity(Utf8Slice groupId, Utf8Slice artifactId)
     {
         var bytes = new byte[checked(groupId.Length + 1 + artifactId.Length)];
         groupId.Span.CopyTo(bytes);

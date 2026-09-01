@@ -48,15 +48,19 @@ internal static class MarkdownTableCellWriter
     }
 
     /// <summary>Writes owned text without allocating an escaped copy.</summary>
-    public static void Write(IBufferWriter<byte> writer, string value)
+    public static void Write(IBufferWriter<byte> writer, string? value)
+        => Write(writer, value.AsSpan());
+
+    /// <summary>Writes UTF-16 text without allocating an escaped copy.</summary>
+    public static void Write(IBufferWriter<byte> writer, ReadOnlySpan<char> value)
     {
-        if (string.IsNullOrEmpty(value))
+        if (value.IsEmpty)
         {
             WriteUtf8(writer, "-"u8);
             return;
         }
 
-        var remaining = value.AsSpan();
+        var remaining = value;
         while (true)
         {
             var index = remaining.IndexOfAny(TextEscapes);

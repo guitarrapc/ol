@@ -131,7 +131,8 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("No usage origins are recorded for these violations.");
             await Assert.That(result.Stdout.IndexOf("### Result", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal));
-            await Assert.That(result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Unresolved mechanisms", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### Unresolved mechanisms", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### All components", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### All components", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Diagnostics", StringComparison.Ordinal));

@@ -124,10 +124,15 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| unknown | 1 |");
             await Assert.That(result.Stdout).Contains("| GPL-3.0-only | 1 |");
             await Assert.That(result.Stdout).Contains("| MIT | 1 |");
+            await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
             await Assert.That(result.Stdout).Contains("| forbidden | 1.0.0 | npm | pkg:npm/forbidden@1.0.0 | GPL-3.0-only | license is not allowed |");
-            await Assert.That(result.Stdout).Contains("| unknown | 1.0.0 | npm | pkg:npm/unknown@1.0.0 | unknown | license is unresolved | - | - | - |");
+            await Assert.That(result.Stdout).Contains("| unknown | 1.0.0 | npm | pkg:npm/unknown@1.0.0 | unknown | license is unresolved | - | - | - | - |");
+            await Assert.That(result.Stdout).Contains("### Usage origins");
+            await Assert.That(result.Stdout).Contains("No usage origins are recorded for these violations.");
             await Assert.That(result.Stdout.IndexOf("### Result", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal));
-            await Assert.That(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Unresolved mechanisms", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### Unresolved mechanisms", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### All components", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### All components", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Diagnostics", StringComparison.Ordinal));
@@ -135,6 +140,43 @@ public sealed class CliCheckTests
         finally
         {
             File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_RendersDistinctUsageOriginsForViolations()
+    {
+        var root = FindRepositoryRoot();
+        var inputDirectory = Path.Combine(Path.GetTempPath(), $"ol-check-origin-{Guid.NewGuid():N}");
+        var lockDirectory = Path.Combine(inputDirectory, "apps", "web");
+        Directory.CreateDirectory(lockDirectory);
+        File.Copy(FixturePath("package-lock.json"), Path.Combine(lockDirectory, "package-lock.json"));
+        try
+        {
+            var result = await RunCheckWorkflowAsync(
+                root,
+                "--input", inputDirectory,
+                "--allow-licenses", "Apache-2.0",
+                "--no-external-evidence",
+                "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
+            await Assert.That(result.Stderr).IsEmpty();
+            await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
+            await Assert.That(result.Stdout).Contains("| shared | 1.0.0 | npm | pkg:npm/shared@1.0.0 | MIT | license is not allowed | - | - | packages/a (apps/web/package-lock.json), root-app (apps/web/package-lock.json) |");
+            await Assert.That(result.Stdout).Contains("### Usage origins");
+
+            var usageOriginsStart = result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal);
+            var usageOriginsEnd = result.Stdout.IndexOf("### Resolved license usage", usageOriginsStart, StringComparison.Ordinal);
+            var usageOrigins = result.Stdout[usageOriginsStart..usageOriginsEnd];
+            await Assert.That(usageOrigins).Contains("| Origin | Violating packages |");
+            await Assert.That(usageOrigins).Contains("| packages/a (apps/web/package-lock.json) | shared 1.0.0, workspace-only 6.0.0 |");
+            await Assert.That(usageOrigins).Contains("| root-app (apps/web/package-lock.json) |");
+            await Assert.That(usageOrigins.Split("shared 1.0.0", StringSplitOptions.None)).Count().IsEqualTo(3);
+        }
+        finally
+        {
+            Directory.Delete(inputDirectory, recursive: true);
         }
     }
 
@@ -156,6 +198,7 @@ public sealed class CliCheckTests
             await Assert.That(result.Stderr).IsEmpty();
             await Assert.That(result.Stdout).Contains("> ✅ **passed** — 1 component satisfies the allow-list.");
             await Assert.That(result.Stdout).Contains("No policy violations.");
+            await Assert.That(result.Stdout).DoesNotContain("### Usage origins");
             await Assert.That(result.Stdout).DoesNotContain("### Unresolved mechanisms");
         }
         finally

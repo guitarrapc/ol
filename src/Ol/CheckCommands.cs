@@ -477,6 +477,7 @@ internal static class CheckRenderer
         // The reference and the path are built strings, so the width pass keeps what it derived and the
         // write pass replays it. Resolve first, so nothing sits between the rental and its try.
         using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
+        var inventoryComponents = ComponentInventoryProjection.Create(inventory.Components, components);
         var rows = ArrayPool<ViolationRow>.Shared.Rent(violations.Length);
         try
         {
@@ -484,7 +485,7 @@ internal static class CheckRenderer
             {
                 var violation = violations[i];
                 ref readonly var component = ref components[violation.ComponentIndex];
-                var path = DependencyPathText.Introducer(inventory, rootPaths, component, violation.ComponentIndex);
+                var path = DependencyPath(inventory, rootPaths, inventoryComponents.Get(violation.ComponentIndex));
                 var row = ProjectViolation(component, violation.Kind, path);
                 rows[i] = row;
                 TextTable.Include(ref widths[0], Display(component.Name));
@@ -601,7 +602,8 @@ internal static class CheckRenderer
         else
         {
             using var rootPaths = DependencyPathResolver.BuildRootPaths(report.Inventory);
-            var packageSources = ProjectPackageSources(report.Inventory, components, violations, rootPaths);
+            var inventoryComponents = ComponentInventoryProjection.Create(report.Inventory.Components, components);
+            var packageSources = ProjectPackageSources(report.Inventory, violations, inventoryComponents);
             WriteMarkdownViolationGroups(writer, violations, components, packageSources);
             WriteNewLine(writer);
             WriteUtf8(writer, "<details open>"u8);
@@ -616,12 +618,12 @@ internal static class CheckRenderer
             WriteUtf8(writer, "|---|---|---|---|---|---|---|---|---|---|---|"u8);
             WriteNewLine(writer);
 
-            var usageOrigins = UsageOriginProjection.Create(report.Inventory, components, violations, rootPaths);
+            var usageOrigins = UsageOriginProjection.Create(report.Inventory, violations, inventoryComponents);
             for (var i = 0; i < violations.Length; i++)
             {
                 var violation = violations[i];
                 ref readonly var component = ref components[violation.ComponentIndex];
-                var path = DependencyPathText.Introducer(report.Inventory, rootPaths, component, violation.ComponentIndex);
+                var path = DependencyPath(report.Inventory, rootPaths, inventoryComponents.Get(violation.ComponentIndex));
                 var row = ProjectViolation(component, violation.Kind, path);
                 WriteUtf8(writer, "| "u8);
                 WriteMarkdownValue(writer, component.Name);
@@ -732,9 +734,8 @@ internal static class CheckRenderer
 
     private static PackageSourceDisplayKind[] ProjectPackageSources(
         in DependencyInventory inventory,
-        ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<LicensePolicyViolation> violations,
-        scoped in DependencyRootPaths rootPaths)
+        in ComponentInventoryProjection inventoryComponents)
     {
         var inventorySources = new PackageSourceDisplayKind[inventory.Components.Length];
         var occurrences = inventory.Occurrences;
@@ -754,8 +755,7 @@ internal static class CheckRenderer
         for (var i = 0; i < violations.Length; i++)
         {
             var reportComponentIndex = violations[i].ComponentIndex;
-            ref readonly var component = ref components[reportComponentIndex];
-            var inventoryComponentIndex = rootPaths.FindComponentIndex(component, reportComponentIndex);
+            var inventoryComponentIndex = inventoryComponents.Get(reportComponentIndex);
             if ((uint)inventoryComponentIndex < (uint)inventorySources.Length)
             {
                 result[i] = inventorySources[inventoryComponentIndex];
@@ -788,6 +788,16 @@ internal static class CheckRenderer
             PackageSourceDisplayKind.Mixed => "mixed"u8,
             _ => "unknown"u8,
         };
+
+    private static string DependencyPath(
+        in DependencyInventory inventory,
+        scoped in DependencyRootPaths rootPaths,
+        int inventoryComponentIndex)
+    {
+        if (inventoryComponentIndex < 0) return string.Empty;
+        var path = rootPaths.GetPath(inventoryComponentIndex);
+        return path.Length > 1 ? DependencyPathText.Format(inventory, path) : string.Empty;
+    }
 
     private readonly record struct ViolationSummaryRow(
         LicensePolicyViolationKind Kind,
@@ -833,18 +843,84 @@ internal static class CheckRenderer
     /// <summary>Associates one violated report component with one inventory resolution context.</summary>
     private readonly record struct ComponentOrigin(int ViolationIndex, int ComponentIndex, int ContextIndex);
 
-    /// <summary>Locates a report component in the inventory when no dependency-path index was built.</summary>
-    private readonly record struct ComponentIdentity(
+    /// <summary>Identifies a report row using the fields persisted in both the result and inventory projections.</summary>
+    private readonly record struct ComponentProjectionKey(
         Utf8Slice Name,
         Utf8Slice Version,
         Utf8Slice Purl,
         Utf8Slice SourceId,
-        string Ecosystem)
+        string Ecosystem,
+        DependencyType DependencyType)
     {
-        public ComponentIdentity(in ScanComponent component)
-            : this(component.Name, component.Version, component.Purl, component.SourceId, component.Ecosystem)
+        public ComponentProjectionKey(in ScanComponent component)
+            : this(
+                component.Name,
+                component.Version,
+                component.Purl,
+                component.SourceId,
+                component.Ecosystem,
+                component.DependencyType)
         {
         }
+    }
+
+    private readonly record struct ComponentIndexChain(int Head, int Tail);
+
+    /// <summary>Maps sorted report rows one-to-one onto the inventory rows they were copied from.</summary>
+    private readonly record struct ComponentInventoryProjection(int[] ByReportComponent)
+    {
+        public static ComponentInventoryProjection Create(
+            ReadOnlySpan<ScanComponent> inventoryComponents,
+            ReadOnlySpan<ScanComponent> reportComponents)
+        {
+            if (inventoryComponents.IsEmpty || reportComponents.IsEmpty)
+            {
+                return new ComponentInventoryProjection([]);
+            }
+
+            var next = new int[inventoryComponents.Length];
+            next.AsSpan().Fill(-1);
+            var chains = new Dictionary<ComponentProjectionKey, ComponentIndexChain>(inventoryComponents.Length);
+            for (var i = 0; i < inventoryComponents.Length; i++)
+            {
+                var key = new ComponentProjectionKey(inventoryComponents[i]);
+                if (chains.TryGetValue(key, out var chain))
+                {
+                    next[chain.Tail] = i;
+                    chains[key] = chain with { Tail = i };
+                }
+                else
+                {
+                    chains.Add(key, new ComponentIndexChain(i, i));
+                }
+            }
+
+            var result = new int[reportComponents.Length];
+            result.AsSpan().Fill(-1);
+            for (var i = 0; i < reportComponents.Length; i++)
+            {
+                var key = new ComponentProjectionKey(reportComponents[i]);
+                if (!chains.TryGetValue(key, out var chain)) continue;
+
+                result[i] = chain.Head;
+                var following = next[chain.Head];
+                if (following < 0)
+                {
+                    chains.Remove(key);
+                }
+                else
+                {
+                    chains[key] = chain with { Head = following };
+                }
+            }
+
+            return new ComponentInventoryProjection(result);
+        }
+
+        public int Get(int reportComponentIndex)
+            => (uint)reportComponentIndex < (uint)ByReportComponent.Length
+                ? ByReportComponent[reportComponentIndex]
+                : -1;
     }
 
     /// <summary>Projects distinct usage origins once for both the violation rows and the origin summary.</summary>
@@ -855,9 +931,8 @@ internal static class CheckRenderer
     {
         public static UsageOriginProjection Create(
             in DependencyInventory inventory,
-            ReadOnlySpan<ScanComponent> components,
             ReadOnlySpan<LicensePolicyViolation> violations,
-            scoped in DependencyRootPaths rootPaths)
+            in ComponentInventoryProjection inventoryComponents)
         {
             var contexts = inventory.Contexts;
             var occurrences = inventory.Occurrences;
@@ -868,20 +943,10 @@ internal static class CheckRenderer
 
             var violationByComponent = new int[inventory.Components.Length];
             violationByComponent.AsSpan().Fill(-1);
-            Dictionary<ComponentIdentity, int>? inventoryByIdentity = null;
             for (var violationIndex = 0; violationIndex < violations.Length; violationIndex++)
             {
                 var reportComponentIndex = violations[violationIndex].ComponentIndex;
-                ref readonly var component = ref components[reportComponentIndex];
-                var inventoryComponentIndex = rootPaths.FindComponentIndex(component, reportComponentIndex);
-                if (inventoryComponentIndex < 0)
-                {
-                    inventoryByIdentity ??= BuildInventoryIdentityIndex(inventory.Components);
-                    if (!inventoryByIdentity.TryGetValue(new ComponentIdentity(component), out inventoryComponentIndex))
-                    {
-                        inventoryComponentIndex = -1;
-                    }
-                }
+                var inventoryComponentIndex = inventoryComponents.Get(reportComponentIndex);
 
                 if ((uint)inventoryComponentIndex < (uint)violationByComponent.Length)
                 {
@@ -957,13 +1022,6 @@ internal static class CheckRenderer
             if ((uint)violationIndex >= (uint)Ranges.Length) return [];
             var range = Ranges[violationIndex];
             return ByViolation.AsSpan(range.Start, range.Length);
-        }
-
-        private static Dictionary<ComponentIdentity, int> BuildInventoryIdentityIndex(ScanComponent[] components)
-        {
-            var result = new Dictionary<ComponentIdentity, int>(components.Length);
-            for (var i = 0; i < components.Length; i++) result.TryAdd(new ComponentIdentity(components[i]), i);
-            return result;
         }
     }
 

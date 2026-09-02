@@ -227,6 +227,8 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Package source | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
             await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl |");
             await Assert.That(result.Stdout).Contains("| private-gem | 2.0.0 | gem | git | - | unknown | license is unresolved | package_metadata_no_purl |");
+            await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl | - | Gemfile.lock (debug/Gemfile.lock) | - |");
+            await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl | - | Gemfile.lock (release/Gemfile.lock) | - |");
         }
         finally
         {

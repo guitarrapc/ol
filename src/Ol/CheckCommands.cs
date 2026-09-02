@@ -896,10 +896,11 @@ internal static class CheckRenderer
             return;
         }
 
-        WriteUtf8(writer, "| Origin | Violating packages |"u8);
+        WriteUtf8(writer, "| Origin | Ecosystem | Violating packages |"u8);
         WriteNewLine(writer);
-        WriteUtf8(writer, "|---|---|"u8);
+        WriteUtf8(writer, "|---|---|---|"u8);
         WriteNewLine(writer);
+        var ecosystems = new HashSet<string>(StringComparer.Ordinal);
         for (var start = 0; start < origins.Length;)
         {
             ref readonly var origin = ref contexts[origins[start].ContextIndex];
@@ -908,6 +909,8 @@ internal static class CheckRenderer
 
             WriteUtf8(writer, "| "u8);
             WriteMarkdownOrigin(writer, origin);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownOriginEcosystems(writer, origins[start..end], components, ecosystems);
             WriteUtf8(writer, " | "u8);
             for (var i = start; i < end; i++)
             {
@@ -923,6 +926,23 @@ internal static class CheckRenderer
             WriteUtf8(writer, " |"u8);
             WriteNewLine(writer);
             start = end;
+        }
+    }
+
+    private static void WriteMarkdownOriginEcosystems(
+        IBufferWriter<byte> writer,
+        ReadOnlySpan<ComponentOrigin> origins,
+        ReadOnlySpan<ScanComponent> components,
+        HashSet<string> ecosystems)
+    {
+        ecosystems.Clear();
+        var written = 0;
+        for (var i = 0; i < origins.Length; i++)
+        {
+            var ecosystem = components[origins[i].ComponentIndex].Ecosystem;
+            if (!ecosystems.Add(ecosystem)) continue;
+            if (written++ != 0) WriteUtf8(writer, ", "u8);
+            WriteMarkdownValue(writer, ecosystem);
         }
     }
 

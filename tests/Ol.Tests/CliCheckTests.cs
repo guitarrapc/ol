@@ -177,14 +177,48 @@ public sealed class CliCheckTests
             var usageOriginsStart = result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal);
             var usageOriginsEnd = result.Stdout.IndexOf("### Resolved license usage", usageOriginsStart, StringComparison.Ordinal);
             var usageOrigins = result.Stdout[usageOriginsStart..usageOriginsEnd];
-            await Assert.That(usageOrigins).Contains("| Origin | Violating packages |");
-            await Assert.That(usageOrigins).Contains("| packages/a (apps/web/package-lock.json) | shared 1.0.0, workspace-only 6.0.0 |");
-            await Assert.That(usageOrigins).Contains("| root-app (apps/web/package-lock.json) |");
+            await Assert.That(usageOrigins).Contains("| Origin | Ecosystem | Violating packages |");
+            await Assert.That(usageOrigins).Contains("| packages/a (apps/web/package-lock.json) | npm | shared 1.0.0, workspace-only 6.0.0 |");
+            await Assert.That(usageOrigins).Contains("| root-app (apps/web/package-lock.json) | npm |");
             await Assert.That(usageOrigins.Split("shared 1.0.0", StringSplitOptions.None)).Count().IsEqualTo(3);
         }
         finally
         {
             Directory.Delete(inputDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_WhenOriginHasMultipleEcosystems_RendersEachDistinctEcosystem()
+    {
+        var root = FindRepositoryRoot();
+        var inputDirectory = Path.Combine(Path.GetTempPath(), $"ol-check-origin-{Guid.NewGuid():N}");
+        var lockDirectory = Path.Combine(inputDirectory, "apps", "web");
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-report-{Guid.NewGuid():N}.json");
+        Directory.CreateDirectory(lockDirectory);
+        File.Copy(FixturePath("package-lock.json"), Path.Combine(lockDirectory, "package-lock.json"));
+        try
+        {
+            var scan = await RunOlAsync(root, "scan", "--input", inputDirectory, "--no-external-evidence", "--format", "Json");
+            await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            var document = JsonNode.Parse(scan.Stdout)!.AsObject();
+            var reportComponent = document["components"]!.AsArray()
+                .Single(static node => node!["name"]!.GetValue<string>() == "workspace-only")!;
+            var inventoryComponent = document["inventory"]!["components"]!.AsArray()
+                .Single(static node => node!["name"]!.GetValue<string>() == "workspace-only")!;
+            reportComponent["ecosystem"] = "nuget";
+            inventoryComponent["ecosystem"] = "nuget";
+            await File.WriteAllTextAsync(reportPath, document.ToJsonString());
+
+            var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "Apache-2.0", "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| packages/a (apps/web/package-lock.json) | npm, nuget | shared 1.0.0, workspace-only 6.0.0 |");
+        }
+        finally
+        {
+            Directory.Delete(inputDirectory, recursive: true);
+            if (File.Exists(reportPath)) File.Delete(reportPath);
         }
     }
 

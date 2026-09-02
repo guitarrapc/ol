@@ -8,17 +8,24 @@ internal ref struct SpdxExpression
     private readonly ReadOnlySpan<byte> value;
     private readonly SpdxLicenseIndex spdxLicenseIndex;
     private readonly FrozenSet<string>? allowedLicenses;
+    private readonly HashSet<string>? licenseIds;
     private Span<char> output;
     private int position;
     private int outputCount;
     private bool hasDeprecatedLicense;
 
-    private SpdxExpression(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, Span<char> output, FrozenSet<string>? allowedLicenses = null)
+    private SpdxExpression(
+        ReadOnlySpan<byte> value,
+        SpdxLicenseIndex spdxLicenseIndex,
+        Span<char> output,
+        FrozenSet<string>? allowedLicenses = null,
+        HashSet<string>? licenseIds = null)
     {
         this.value = value;
         this.spdxLicenseIndex = spdxLicenseIndex;
         this.output = output;
         this.allowedLicenses = allowedLicenses;
+        this.licenseIds = licenseIds;
         position = 0;
         outputCount = 0;
     }
@@ -60,6 +67,12 @@ internal ref struct SpdxExpression
     {
         var parser = new SpdxExpression(value, spdxLicenseIndex, [], allowedLicenses);
         return parser.TryParseExpression(out allowed) && parser.IsAtEnd();
+    }
+
+    public static bool TryCollectLicenseIds(ReadOnlySpan<byte> value, SpdxLicenseIndex spdxLicenseIndex, HashSet<string> licenseIds)
+    {
+        var parser = new SpdxExpression(value, spdxLicenseIndex, [], licenseIds: licenseIds);
+        return parser.TryParseExpression(out _) && parser.IsAtEnd();
     }
 
     private bool TryParseExpression(out bool allowed)
@@ -168,6 +181,7 @@ internal ref struct SpdxExpression
 
         hasDeprecatedLicense |= spdxLicenseIndex.IsDeprecatedLicenseId(normalizedLicense);
         Append(normalizedLicense);
+        licenseIds?.Add(normalizedLicense);
         allowed = allowedLicenses?.Contains(normalizedLicense) ?? false;
         return true;
     }

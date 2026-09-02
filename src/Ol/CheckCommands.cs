@@ -5,6 +5,7 @@ using ConsoleAppFramework;
 using Ol.Core;
 using Ol.Core.Licensing;
 using Ol.Core.Reporting;
+using Ol.Core.Spdx;
 using Ol.Internals;
 
 /// <summary>Check a canonical JSON scan report against an allow-list.</summary>
@@ -161,6 +162,7 @@ internal sealed class CheckCommands
             using var writer = new PooledStreamBufferWriter(Console.OpenStandardOutput());
             if (format == CheckFormat.Markdown)
             {
+                var resolvedLicenseIds = CollectResolvedLicenseIds(components, policy, reportSpdx.Index);
                 CheckRenderer.WriteMarkdown(
                     writer,
                     persisted,
@@ -170,7 +172,8 @@ internal sealed class CheckCommands
                     developmentAllowedCount,
                     excludePackages is null ? -1 : excludedCount,
                     ambiguityAllowedCount,
-                    allowLicenses);
+                    allowLicenses,
+                    resolvedLicenseIds);
             }
             else
             {
@@ -219,6 +222,32 @@ internal sealed class CheckCommands
         }
 
         return [.. paths];
+    }
+
+    private static string CollectResolvedLicenseIds(
+        ReadOnlySpan<ScanComponent> components,
+        LicenseAllowPolicy policy,
+        SpdxLicenseIndex spdxLicenseIndex)
+    {
+        var licenseIds = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < components.Length; i++)
+        {
+            ref readonly var component = ref components[i];
+            if (component.Status != LicenseStatus.Matched
+                || component.License.IsEmpty
+                || !policy.IsInScope(component))
+            {
+                continue;
+            }
+
+            SpdxExpression.TryCollectLicenseIds(component.License.Span, spdxLicenseIndex, licenseIds);
+        }
+
+        if (licenseIds.Count == 0) return string.Empty;
+        var ordered = new string[licenseIds.Count];
+        licenseIds.CopyTo(ordered);
+        Array.Sort(ordered, StringComparer.Ordinal);
+        return string.Join(',', ordered);
     }
 
     /// <summary>Reads every supplied baseline and unions them, or reports the first that cannot be read.</summary>
@@ -519,7 +548,8 @@ internal static class CheckRenderer
         int developmentAllowedCount = -1,
         int excludedCount = -1,
         int ambiguityAllowedCount = 0,
-        string allowLicenses = "")
+        string allowLicenses = "",
+        string resolvedLicenseIds = "")
     {
         var components = report.Components;
         var summary = ScanSummary.Create(components);
@@ -539,6 +569,7 @@ internal static class CheckRenderer
         WriteNewLine(writer);
         WriteMarkdownTextRow(writer, "Result"u8, GetMarkdownResult(report.DeclaresNoComponents, violations));
         WriteMarkdownTextRow(writer, "Allow-list"u8, allowLicenses);
+        WriteMarkdownTextRow(writer, "Resolved license IDs"u8, resolvedLicenseIds);
         WriteMarkdownCountTextRow(writer, "Evaluated components"u8, policyComponentCount);
         WriteMarkdownCountTextRow(writer, "Violations"u8, violations.Length);
         WriteMarkdownOptionalTextRow(writer, "Acknowledged by baseline"u8, acknowledgedCount);

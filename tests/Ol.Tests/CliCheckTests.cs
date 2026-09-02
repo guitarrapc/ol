@@ -111,6 +111,7 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("### Result");
             await Assert.That(result.Stdout).Contains("> ❌ **failed** — 2 violations.");
             await Assert.That(result.Stdout).Contains("| Allow-list | MIT |");
+            await Assert.That(result.Stdout).Contains("| Resolved license IDs | GPL-3.0-only,MIT |");
             await Assert.That(result.Stdout).Contains("| Violations | 2 |");
             await Assert.That(result.Stdout).Contains("### Violations");
             await Assert.That(result.Stdout).Contains("### Unresolved mechanisms");
@@ -144,6 +145,55 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### All components", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### All components", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Diagnostics", StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_ResolvedLicenseIds_FlattensExpressionsAndOmitsExceptions()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxAsync("(MIT OR Apache-2.0) AND GPL-2.0-only WITH Classpath-exception-2.0");
+        try
+        {
+            var result = await RunCheckWorkflowAsync(
+                root,
+                "--input", inputPath,
+                "--allow-licenses", "BSD-3-Clause",
+                "--no-external-evidence",
+                "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| Resolved license IDs | Apache-2.0,GPL-2.0-only,MIT |");
+            await Assert.That(result.Stdout).DoesNotContain("Resolved license IDs | Apache-2.0,Classpath-exception-2.0");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_ResolvedLicenseIds_OmitsComponentsOutsidePolicyScope()
+    {
+        var root = FindRepositoryRoot();
+        var inputPath = await WriteCycloneDxWithRootAsync(rootLicense: "GPL-3.0-only", dependencyLicense: "Apache-2.0");
+        try
+        {
+            var result = await RunCheckWorkflowAsync(
+                root,
+                "--input", inputPath,
+                "--allow-licenses", "MIT",
+                "--exclude-packages", "pkg:npm/example",
+                "--no-external-evidence",
+                "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| Resolved license IDs | - |");
+            await Assert.That(result.Stdout).Contains("| Evaluated components | 0 |");
         }
         finally
         {

@@ -43,6 +43,10 @@ public sealed class LicenseAllowPolicy
     /// <summary>Gets the normalized exclusion prefixes in the order they were supplied.</summary>
     public ReadOnlySpan<string> ExclusionPrefixes => excludedPackages is null ? [] : excludedPackages.Prefixes;
 
+    internal bool IsInScope(in ScanComponent component)
+        => component.DependencyType != DependencyType.Root
+            && (excludedPackages is not { } prefixes || !prefixes.Contains(component.Purl));
+
     /// <summary>Creates an immutable allow-list from SPDX License Identifiers.</summary>
     public static bool TryCreate(ReadOnlySpan<string> licenseIds, SpdxLicenseIndex spdxLicenseIndex, out LicenseAllowPolicy policy, out string error)
         => TryCreate(licenseIds, [], [], spdxLicenseIndex, out policy, out error);

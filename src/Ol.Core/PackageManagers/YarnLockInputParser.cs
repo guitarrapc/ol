@@ -227,7 +227,7 @@ internal static class YarnLockGraphParser
             for (var i = 0; i < nodes.Length; i++)
             {
                 var node = nodes[i];
-                if (node.IsWorkspace) continue;
+                if (node.IsWorkspace || (workspaces && !IsBerryNpmResolution(node.Resolution))) continue;
                 componentByNode[i] = componentCount;
                 components[componentCount++] = new ScanComponent(node.Name, node.Version, default, "npm", DependencyType.Unknown, LicenseStatus.Unknown, CreatePurl(node.Name, node.Version), node.Resolution, default, []);
             }
@@ -438,6 +438,18 @@ internal static class YarnLockGraphParser
         var marker = resolution.Span.IndexOf("@workspace:"u8);
         if (marker < 0) throw new JsonException("Yarn workspace resolution is malformed.");
         return resolution.Slice(marker + 11, resolution.Length - marker - 11);
+    }
+
+    private static bool IsBerryNpmResolution(Utf8Slice resolution)
+    {
+        var value = resolution.Span;
+        var separator = value.Length > 1 ? value[1..].IndexOf((byte)'@') : -1;
+        if (separator < 0) return false;
+        var reference = value[(separator + 2)..];
+        if (reference.StartsWith("npm:"u8)) return true;
+        if (!reference.StartsWith("virtual:"u8)) return false;
+        var hash = reference.IndexOf((byte)'#');
+        return hash >= 0 && reference[(hash + 1)..].StartsWith("npm:"u8);
     }
 
     private static Utf8Slice CreateVirtualVariant(Utf8Slice resolution)

@@ -42,6 +42,51 @@ public sealed class YarnInputTests
         await Assert.That(FindComponent(inventory, "shared-package@npm:2.1.0").DependencyType).IsEqualTo(DependencyType.Direct);
         await Assert.That(FindComponent(inventory, "peer-package@virtual:abc123#npm:3.0.0").DependencyType).IsEqualTo(DependencyType.Unknown);
         await Assert.That(FindVariant(inventory, "peer-package@virtual:abc123#npm:3.0.0").ToString()).IsEqualTo("virtual=abc123");
+        await Assert.That(inventory.Occurrences.All(static occurrence => occurrence.PackageSource == PackageSourceKind.Registry)).IsTrue();
+    }
+
+    [Test]
+    public async Task Scan_YarnBerryProtocolNodes_AreTraversalOnly()
+    {
+        var input = Encoding.UTF8.GetBytes(
+            """
+            __metadata:
+              version: 8
+            "app@workspace:.":
+              version: 0.0.0-use.local
+              resolution: "app@workspace:."
+              dependencies:
+                patched: "patch:patched@npm%3A1.0.0#./patch.diff"
+                portal-package: "portal:./portal"
+                linked-package: "link:./linked"
+                file-package: "file:./file"
+            "patched@patch:patched@npm%3A1.0.0#./patch.diff":
+              version: 1.0.0
+              resolution: "patched@patch:patched@npm%3A1.0.0#./patch.diff"
+              dependencies:
+                child: "npm:^2.0.0"
+            "portal-package@portal:./portal":
+              version: 0.0.0-use.local
+              resolution: "portal-package@portal:./portal"
+            "linked-package@link:./linked":
+              version: 0.0.0-use.local
+              resolution: "linked-package@link:./linked"
+            "file-package@file:./file":
+              version: 1.0.0
+              resolution: "file-package@file:./file"
+            "child@npm:^2.0.0":
+              version: 2.0.0
+              resolution: "child@npm:2.0.0"
+            """);
+
+        var inventory = DependencyInputScanner.Scan(input, Spdx);
+
+        await Assert.That(inventory.Components).Count().IsEqualTo(1);
+        await Assert.That(inventory.Occurrences).Count().IsEqualTo(1);
+        await Assert.That(inventory.Components[0].SourceId.ToString()).IsEqualTo("child@npm:2.0.0");
+        await Assert.That(inventory.Components[0].Purl.ToString()).IsEqualTo("pkg:npm/child@2.0.0");
+        await Assert.That(inventory.Components[0].DependencyType).IsEqualTo(DependencyType.Transitive);
+        await Assert.That(inventory.Occurrences[0].PackageSource).IsEqualTo(PackageSourceKind.Registry);
     }
 
     [Test]

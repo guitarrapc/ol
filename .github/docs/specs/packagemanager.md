@@ -103,7 +103,7 @@ Each pnpm importer becomes a resolution context. Link and workspace nodes partic
 
 ## JavaScript Yarn resolved input
 
-Yarn Classic and Berry use separate detectors and parsers. Classic version 1 provides a descriptor-to-resolution graph but no workspace root manifest, so it produces one `yarn.lock` context and keeps relationship classification unknown; optional-only incoming resolutions retain an `optional` variant. Berry metadata version 8 workspace resolutions become contexts, while npm resolutions become components. Workspace/protocol nodes are traversal-only, and virtual resolution hashes are retained as `virtual` variants. A resolution that cannot be uniquely reached without Berry install state remains an unknown occurrence in the first workspace context rather than being discarded or guessed.
+Yarn Classic and Berry use separate detectors and parsers. Classic version 1 provides a descriptor-to-resolution graph but no workspace root manifest, so it produces one `yarn.lock` context and keeps relationship classification unknown; optional-only incoming resolutions retain an `optional` variant. Berry metadata version 8 workspace resolutions become contexts, while npm resolutions become components with registry package sources. Workspace/protocol nodes are traversal-only and do not receive npm purls or package sources, and virtual resolution hashes are retained as `virtual` variants. A resolution that cannot be uniquely reached without Berry install state remains an unknown occurrence in the first workspace context rather than being discarded or guessed.
 
 ## Rust Cargo resolved input
 

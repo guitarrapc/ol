@@ -460,12 +460,29 @@ public sealed class CliCheckTests
         {
             var scan = await RunOlAsync(root, "scan", "--input", inputPath, "--no-external-evidence", "--format", "Json");
             await Assert.That(scan.ExitCode).IsEqualTo(0).Because(scan.Stderr);
+            var scanDocument = JsonNode.Parse(scan.Stdout)!.AsObject();
+            var tool = scanDocument["metadata"]!["tool"]!;
+            var toolName = tool["name"]!.GetValue<string>();
+            var toolVersion = tool["version"]!.GetValue<string>();
+            var licenseListVersion = scanDocument["metadata"]!["spdx"]!["licenseListVersion"]!.GetValue<string>();
             await File.WriteAllTextAsync(reportPath, AddInputScope(scan.Stdout, "product-a/docs", "product-b/docs"));
 
             var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--format", "markdown");
 
             await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            var source = $"- source: {toolName} {toolVersion}";
+            var spdx = $"- SPDX license list: {licenseListVersion}";
+            const string Input = "- input: `sbom/cyclonedx`";
+            const string Excluded = "- excluded input paths: `product-a/docs`, `product-b/docs`";
+            const string Detected = "- detected input files: 1";
+            await Assert.That(result.Stdout).Contains(source);
+            await Assert.That(result.Stdout).Contains(spdx);
+            await Assert.That(result.Stdout).DoesNotContain("https://github.com/spdx/license-list-data/");
             await Assert.That(result.Stdout).Contains("- excluded input paths: `product-a/docs`, `product-b/docs`");
+            await Assert.That(result.Stdout.IndexOf(source, StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf(spdx, StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf(spdx, StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf(Input, StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf(Input, StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf(Excluded, StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf(Excluded, StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf(Detected, StringComparison.Ordinal));
         }
         finally
         {

@@ -21,6 +21,7 @@ namespace Ol.Core.Reporting;
 /// none is having none. Nullable only because an optional parameter cannot default to an array.
 /// </param>
 /// <param name="InputDiscovery">What discovery found, ignored, and skipped, or null when the report never stated it.</param>
+/// <param name="Tool">The tool that produced the report, or the default value when older input omitted it.</param>
 public readonly record struct ScanReport(
     int SchemaVersion,
     string SourceReference,
@@ -31,7 +32,8 @@ public readonly record struct ScanReport(
     string[] ExcludedInputPaths,
     ScanReportViewScope View = default,
     string[]? Warnings = null,
-    ScanReportInputDiscovery? InputDiscovery = null)
+    ScanReportInputDiscovery? InputDiscovery = null,
+    ScanReportTool Tool = default)
 {
     /// <summary>The warning identifier a scan writes when a recognized input contributed no inventory.</summary>
     public const string EmptyInventoryWarning = "input_declares_no_components";
@@ -58,6 +60,9 @@ public readonly record struct ScanReport(
         }
     }
 }
+
+/// <summary>Identifies the tool that produced a persisted scan report.</summary>
+public readonly record struct ScanReportTool(string Name, string Version);
 
 /// <summary>What input discovery found, ignored, and skipped in the producing scan.</summary>
 /// <remarks>
@@ -130,6 +135,7 @@ public static class ScanReportReader
             DependencyUsage[] componentUsages = [];
             string[] warnings = [];
             ScanReportInputDiscovery? inputDiscovery = null;
+            var tool = default(ScanReportTool);
 
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
@@ -143,7 +149,7 @@ public static class ScanReportReader
                 }
                 else if (reader.ValueTextEquals("metadata"u8))
                 {
-                    if (!TryReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input, ref excludedInputPaths, ref view, ref inputDiscovery, out error)) return false;
+                    if (!TryReadMetadata(ref reader, ref sourceReference, ref licenseListVersion, ref input, ref excludedInputPaths, ref view, ref inputDiscovery, ref tool, out error)) return false;
                 }
                 else if (reader.ValueTextEquals("inventory"u8))
                 {
@@ -186,7 +192,7 @@ public static class ScanReportReader
             var restored = inventory is { } value
                 ? new DependencyInventory(input, value.Contexts, value.Components, value.Occurrences, value.Edges, value.OccurrenceVariants)
                 : new DependencyInventory(input, [], [], [], [], []);
-            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages, excludedInputPaths, view, warnings, inputDiscovery);
+            report = new ScanReport(schemaVersion, sourceReference, licenseListVersion, restored, components, componentUsages, excludedInputPaths, view, warnings, inputDiscovery, tool);
             error = string.Empty;
             return true;
         }
@@ -205,6 +211,7 @@ public static class ScanReportReader
         ref string[] excludedInputPaths,
         ref ScanReportViewScope view,
         ref ScanReportInputDiscovery? inputDiscovery,
+        ref ScanReportTool tool,
         out string error)
     {
         if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
@@ -215,7 +222,11 @@ public static class ScanReportReader
 
         while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
         {
-            if (reader.ValueTextEquals("input"u8))
+            if (reader.ValueTextEquals("tool"u8))
+            {
+                tool = ReadToolMetadata(ref reader);
+            }
+            else if (reader.ValueTextEquals("input"u8))
             {
                 if (!TryReadInputMetadata(ref reader, out input))
                 {
@@ -254,6 +265,26 @@ public static class ScanReportReader
 
         error = string.Empty;
         return true;
+    }
+
+    private static ScanReportTool ReadToolMetadata(ref Utf8JsonReader reader)
+    {
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return default;
+
+        var name = string.Empty;
+        var version = string.Empty;
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            if (reader.ValueTextEquals("name"u8)) name = ReadString(ref reader);
+            else if (reader.ValueTextEquals("version"u8)) version = ReadString(ref reader);
+            else
+            {
+                reader.Read();
+                reader.Skip();
+            }
+        }
+
+        return new ScanReportTool(name, version);
     }
 
     private static bool TryReadView(ref Utf8JsonReader reader, out ScanReportViewScope view, out string error)

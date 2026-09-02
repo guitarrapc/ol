@@ -50,6 +50,8 @@ public sealed class ScanReportInputTests
 
         await Assert.That(parsed).IsTrue();
         await Assert.That(error).IsEmpty();
+        await Assert.That(report.Tool.Name).IsEqualTo("ol");
+        await Assert.That(report.Tool.Version).IsEqualTo("0.1.0-dev");
         await Assert.That(report.LicenseListVersion).IsEqualTo("5e59516");
         await Assert.That(report.SourceReference).IsEqualTo("sbom.json");
         await Assert.That(report.Components).Count().IsEqualTo(1);

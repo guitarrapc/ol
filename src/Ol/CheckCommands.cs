@@ -1393,27 +1393,42 @@ internal static class CheckRenderer
         WriteUtf8(writer, "### Diagnostics"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
+        WriteUtf8(writer, "- source: "u8);
+        if (!string.IsNullOrEmpty(report.Tool.Name))
+        {
+            WriteMarkdownValue(writer, report.Tool.Name);
+            if (!string.IsNullOrEmpty(report.Tool.Version))
+            {
+                WriteUtf8(writer, " "u8);
+                WriteMarkdownValue(writer, report.Tool.Version);
+            }
+        }
+        else
+        {
+            WriteMarkdownValue(writer, report.SourceReference);
+        }
+        WriteNewLine(writer);
+        WriteUtf8(writer, "- SPDX license list: "u8);
+        WriteMarkdownValue(writer, report.LicenseListVersion);
+        WriteNewLine(writer);
         WriteUtf8(writer, "- input: `"u8);
         WriteMarkdownValue(writer, report.Inventory.Input.Kind.Name);
         WriteUtf8(writer, "/"u8);
         WriteMarkdownValue(writer, report.Inventory.Input.Format.Name);
         WriteUtf8(writer, "`"u8);
         WriteNewLine(writer);
-        WriteUtf8(writer, "- source: "u8);
-        WriteMarkdownValue(writer, report.SourceReference);
-        WriteNewLine(writer);
-        WriteUtf8(writer, "- SPDX license list: "u8);
-        WriteMarkdownValue(writer, report.LicenseListVersion);
-        WriteNewLine(writer);
-        if (report.View.IsFiltered)
+
+        if (report.ExcludedInputPaths is { Length: > 0 } excludedInputPaths)
         {
-            WriteUtf8(writer, "- dependency filter: `"u8);
-            WriteMarkdownValue(writer, report.View.DependencyFilter);
-            WriteUtf8(writer, "`, "u8);
-            WriteInt32(writer, report.View.ExcludedCount);
-            WriteUtf8(writer, " excluded, "u8);
-            WriteInt32(writer, report.View.ExcludedUnknownCount);
-            WriteUtf8(writer, " with unknown relationship"u8);
+            WriteUtf8(writer, "- excluded input paths: "u8);
+            for (var i = 0; i < excludedInputPaths.Length; i++)
+            {
+                if (i != 0) WriteUtf8(writer, ", "u8);
+                WriteUtf8(writer, "`"u8);
+                WriteMarkdownValue(writer, excludedInputPaths[i]);
+                WriteUtf8(writer, "`"u8);
+            }
+
             WriteNewLine(writer);
         }
 
@@ -1444,17 +1459,15 @@ internal static class CheckRenderer
             }
         }
 
-        if (report.ExcludedInputPaths is { Length: > 0 } excludedInputPaths)
+        if (report.View.IsFiltered)
         {
-            WriteUtf8(writer, "- excluded input paths: "u8);
-            for (var i = 0; i < excludedInputPaths.Length; i++)
-            {
-                if (i != 0) WriteUtf8(writer, ", "u8);
-                WriteUtf8(writer, "`"u8);
-                WriteMarkdownValue(writer, excludedInputPaths[i]);
-                WriteUtf8(writer, "`"u8);
-            }
-
+            WriteUtf8(writer, "- dependency filter: `"u8);
+            WriteMarkdownValue(writer, report.View.DependencyFilter);
+            WriteUtf8(writer, "`, "u8);
+            WriteInt32(writer, report.View.ExcludedCount);
+            WriteUtf8(writer, " excluded, "u8);
+            WriteInt32(writer, report.View.ExcludedUnknownCount);
+            WriteUtf8(writer, " with unknown relationship"u8);
             WriteNewLine(writer);
         }
 

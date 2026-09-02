@@ -593,7 +593,6 @@ internal static class CheckRenderer
         WriteUtf8(writer, "### Violations"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
-        var mechanismTally = new MechanismTally();
         if (violations.IsEmpty)
         {
             WriteUtf8(writer, "No policy violations."u8);
@@ -623,8 +622,6 @@ internal static class CheckRenderer
                 ref readonly var component = ref components[violation.ComponentIndex];
                 var path = DependencyPathText.Introducer(report.Inventory, rootPaths, component, violation.ComponentIndex);
                 var row = ProjectViolation(component, violation.Kind, path);
-                if (row.Tallied) mechanismTally.Add(row.MechanismKind);
-
                 WriteUtf8(writer, "| "u8);
                 WriteMarkdownValue(writer, component.Name);
                 WriteUtf8(writer, " | "u8);
@@ -654,8 +651,6 @@ internal static class CheckRenderer
             WriteNewLine(writer);
             WriteMarkdownUsageOrigins(writer, usageOrigins, components, report.Inventory.Contexts);
         }
-
-        mechanismTally.WriteMarkdown(writer);
 
         WriteNewLine(writer);
         WriteUtf8(writer, "### Resolved license usage"u8);
@@ -1205,38 +1200,6 @@ internal static class CheckRenderer
             }
         }
 
-        public void WriteMarkdown(IBufferWriter<byte> writer)
-        {
-            if (counts.Count == 0) return;
-
-            var ordered = new KeyValuePair<UnresolvedMechanismKind, int>[counts.Count];
-            ((ICollection<KeyValuePair<UnresolvedMechanismKind, int>>)counts).CopyTo(ordered, 0);
-            Array.Sort(ordered, static (left, right) =>
-            {
-                var byCount = right.Value.CompareTo(left.Value);
-                return byCount != 0
-                    ? byCount
-                    : UnresolvedMechanism.GetNameUtf8(left.Key).SequenceCompareTo(UnresolvedMechanism.GetNameUtf8(right.Key));
-            });
-
-            WriteNewLine(writer);
-            WriteUtf8(writer, "### Unresolved mechanisms"u8);
-            WriteNewLine(writer);
-            WriteNewLine(writer);
-            WriteUtf8(writer, "| Mechanism | Components |"u8);
-            WriteNewLine(writer);
-            WriteUtf8(writer, "|---|---:|"u8);
-            WriteNewLine(writer);
-            for (var i = 0; i < ordered.Length; i++)
-            {
-                WriteUtf8(writer, "| "u8);
-                WriteUtf8(writer, UnresolvedMechanism.GetNameUtf8(ordered[i].Key));
-                WriteUtf8(writer, " | "u8);
-                WriteInt32(writer, ordered[i].Value);
-                WriteUtf8(writer, " |"u8);
-                WriteNewLine(writer);
-            }
-        }
     }
 
     private static void WriteMarkdownLicenseCounts(IBufferWriter<byte> writer, ReadOnlySpan<ScanComponent> components)

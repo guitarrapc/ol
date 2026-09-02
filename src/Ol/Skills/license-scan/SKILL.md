@@ -86,7 +86,7 @@ If a combined scan surprises you, rerun the same scope with each input alone and
 
 `ol check` exits `0` pass, `2` policy violations, `3` inconclusive — the run proved nothing, so fix the pipeline or retry rather than treat it as a licensing fact. A CI job that collapses `2` and `3` cannot tell a registry outage from a forbidden license. Two things reach `3`: every finding was a collection failure, or the report carries `input_declares_no_components` and there was nothing to evaluate at all.
 
-Violations name a `Mechanism` and end with an `Unresolved mechanisms` tally. **Read the tally first.** A hundred unresolved rows are usually a few populations, and one decision covers each.
+In Markdown output, read the `Violations` summary first. It groups violations by `Reason`, `Mechanism`, and ecosystem before the detailed rows. A hundred unresolved rows are usually a few populations, and one decision covers each. Text output retains its trailing `Unresolved mechanisms` tally.
 
 | Mechanism | What it means | Action |
 |---|---|---|

@@ -119,7 +119,7 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| license is unresolved | - | npm | 1 | unknown 1.0.0 |");
             await Assert.That(result.Stdout).Contains("<details open>");
             await Assert.That(result.Stdout).Contains("<summary>Violation details (2)</summary>");
-            await Assert.That(result.Stdout).Contains("### Unresolved mechanisms");
+            await Assert.That(result.Stdout).DoesNotContain("### Unresolved mechanisms");
             await Assert.That(result.Stdout).Contains("### Resolved license usage");
             await Assert.That(result.Stdout).Contains("### Coverage");
             await Assert.That(result.Stdout).Contains("### All components");
@@ -145,8 +145,7 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("No usage origins are recorded for these violations.");
             await Assert.That(result.Stdout.IndexOf("### Result", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal));
-            await Assert.That(result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Unresolved mechanisms", StringComparison.Ordinal));
-            await Assert.That(result.Stdout.IndexOf("### Unresolved mechanisms", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal));
+            await Assert.That(result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### Resolved license usage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### Coverage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### All components", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("### All components", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Diagnostics", StringComparison.Ordinal));

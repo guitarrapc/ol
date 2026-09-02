@@ -601,6 +601,15 @@ internal static class CheckRenderer
         }
         else
         {
+            WriteMarkdownViolationGroups(writer, violations, components);
+            WriteNewLine(writer);
+            WriteUtf8(writer, "<details open>"u8);
+            WriteNewLine(writer);
+            WriteUtf8(writer, "<summary>Violation details ("u8);
+            WriteInt32(writer, violations.Length);
+            WriteUtf8(writer, ")</summary>"u8);
+            WriteNewLine(writer);
+            WriteNewLine(writer);
             WriteUtf8(writer, "| Package | Version | Ecosystem | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |"u8);
             WriteNewLine(writer);
             WriteUtf8(writer, "|---|---|---|---|---|---|---|---|---|---|"u8);
@@ -640,6 +649,9 @@ internal static class CheckRenderer
                 WriteNewLine(writer);
             }
 
+            WriteNewLine(writer);
+            WriteUtf8(writer, "</details>"u8);
+            WriteNewLine(writer);
             WriteMarkdownUsageOrigins(writer, usageOrigins, components, report.Inventory.Contexts);
         }
 
@@ -707,6 +719,43 @@ internal static class CheckRenderer
 
     /// <summary>One violation row's derived text, kept between the width pass and the write pass.</summary>
     private readonly record struct ViolationRow(bool Tallied, bool NamedMechanism, UnresolvedMechanismKind MechanismKind, string Reference, string Path);
+
+    private readonly record struct ViolationSummaryRow(
+        LicensePolicyViolationKind Kind,
+        bool NamedMechanism,
+        UnresolvedMechanismKind MechanismKind,
+        int ComponentIndex);
+
+    private sealed class ViolationSummaryRowComparer(ScanComponent[] components) : IComparer<ViolationSummaryRow>
+    {
+        public int Compare(ViolationSummaryRow left, ViolationSummaryRow right)
+        {
+            var byKind = left.Kind.CompareTo(right.Kind);
+            if (byKind != 0) return byKind;
+
+            var byNamedMechanism = left.NamedMechanism.CompareTo(right.NamedMechanism);
+            if (byNamedMechanism != 0) return byNamedMechanism;
+
+            if (left.NamedMechanism)
+            {
+                var byMechanism = UnresolvedMechanism.GetNameUtf8(left.MechanismKind)
+                    .SequenceCompareTo(UnresolvedMechanism.GetNameUtf8(right.MechanismKind));
+                if (byMechanism != 0) return byMechanism;
+            }
+
+            ref readonly var leftComponent = ref components[left.ComponentIndex];
+            ref readonly var rightComponent = ref components[right.ComponentIndex];
+            var byEcosystem = StringComparer.Ordinal.Compare(leftComponent.Ecosystem, rightComponent.Ecosystem);
+            if (byEcosystem != 0) return byEcosystem;
+
+            var byName = Utf8Slice.CompareOrdinal(leftComponent.Name, rightComponent.Name);
+            if (byName != 0) return byName;
+            var byVersion = Utf8Slice.CompareOrdinal(leftComponent.Version, rightComponent.Version);
+            if (byVersion != 0) return byVersion;
+            var byPurl = Utf8Slice.CompareOrdinal(leftComponent.Purl, rightComponent.Purl);
+            return byPurl != 0 ? byPurl : left.ComponentIndex.CompareTo(right.ComponentIndex);
+        }
+    }
 
     /// <summary>Associates one violated report component with one inventory resolution context.</summary>
     private readonly record struct ComponentOrigin(int ViolationIndex, int ComponentIndex, int ContextIndex);
@@ -977,6 +1026,99 @@ internal static class CheckRenderer
         }
     }
 
+    private static void WriteMarkdownViolationGroups(
+        IBufferWriter<byte> writer,
+        ReadOnlySpan<LicensePolicyViolation> violations,
+        ScanComponent[] components)
+    {
+        WriteUtf8(writer, "| Reason | Mechanism | Ecosystem | Violations | Packages |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "|---|---|---|---:|---|"u8);
+        WriteNewLine(writer);
+
+        var rows = ArrayPool<ViolationSummaryRow>.Shared.Rent(violations.Length);
+        try
+        {
+            for (var i = 0; i < violations.Length; i++)
+            {
+                var violation = violations[i];
+                ProjectMechanism(components[violation.ComponentIndex], violation.Kind, out var namedMechanism, out var mechanismKind);
+                rows[i] = new ViolationSummaryRow(violation.Kind, namedMechanism, mechanismKind, violation.ComponentIndex);
+            }
+
+            Array.Sort(rows, 0, violations.Length, new ViolationSummaryRowComparer(components));
+            for (var start = 0; start < violations.Length;)
+            {
+                var end = start + 1;
+                while (end < violations.Length && ViolationGroupEquals(rows[start], rows[end], components)) end++;
+
+                ref readonly var first = ref rows[start];
+                ref readonly var component = ref components[first.ComponentIndex];
+                WriteUtf8(writer, "| "u8);
+                WriteMarkdownValue(writer, Reason(first.Kind));
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, MechanismUtf8(first.NamedMechanism, first.MechanismKind));
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownValue(writer, component.Ecosystem);
+                WriteUtf8(writer, " | "u8);
+                WriteInt32(writer, end - start);
+                WriteUtf8(writer, " | "u8);
+                WriteMarkdownViolationPackages(writer, rows.AsSpan(start, end - start), components);
+                WriteUtf8(writer, " |"u8);
+                WriteNewLine(writer);
+                start = end;
+            }
+        }
+        finally
+        {
+            ArrayPool<ViolationSummaryRow>.Shared.Return(rows);
+        }
+    }
+
+    private static bool ViolationGroupEquals(
+        in ViolationSummaryRow left,
+        in ViolationSummaryRow right,
+        ScanComponent[] components)
+        => left.Kind == right.Kind
+            && left.NamedMechanism == right.NamedMechanism
+            && (!left.NamedMechanism || left.MechanismKind == right.MechanismKind)
+            && StringComparer.Ordinal.Equals(
+                components[left.ComponentIndex].Ecosystem,
+                components[right.ComponentIndex].Ecosystem);
+
+    private static void WriteMarkdownViolationPackages(
+        IBufferWriter<byte> writer,
+        ReadOnlySpan<ViolationSummaryRow> rows,
+        ScanComponent[] components)
+    {
+        for (var start = 0; start < rows.Length;)
+        {
+            ref readonly var component = ref components[rows[start].ComponentIndex];
+            var end = start + 1;
+            while (end < rows.Length)
+            {
+                ref readonly var next = ref components[rows[end].ComponentIndex];
+                if (!component.Name.Equals(next.Name) || !component.Version.Equals(next.Version)) break;
+                end++;
+            }
+
+            if (start != 0) WriteUtf8(writer, ", "u8);
+            WriteMarkdownValue(writer, component.Name);
+            if (!component.Version.IsEmpty)
+            {
+                WriteUtf8(writer, " "u8);
+                WriteMarkdownValue(writer, component.Version);
+            }
+            if (end - start > 1)
+            {
+                WriteUtf8(writer, " ×"u8);
+                WriteInt32(writer, end - start);
+            }
+
+            start = end;
+        }
+    }
+
     /// <summary>Projects the Mechanism and Reference columns and the mechanism tally key.</summary>
     /// <remarks>
     /// A resolved license the allow-list rejects has no collection mechanism to name, so it is left out of
@@ -985,22 +1127,37 @@ internal static class CheckRenderer
     /// </remarks>
     private static ViolationRow ProjectViolation(in ScanComponent component, LicensePolicyViolationKind kind, string path)
     {
+        ProjectMechanism(component, kind, out var namedMechanism, out var mechanismKind);
         if (kind == LicensePolicyViolationKind.NotAllowed)
         {
             return new ViolationRow(Tallied: false, NamedMechanism: false, default, "-", path);
         }
 
-        if (!UnresolvedMechanism.TryGetReason(component, out var reason))
+        if (!namedMechanism)
         {
             return new ViolationRow(Tallied: true, NamedMechanism: false, UnresolvedMechanismKind.None, "-", path);
         }
 
-        var reference = UnresolvedMechanism.GetReference(component, reason);
-        return new ViolationRow(Tallied: true, NamedMechanism: true, reason, reference.Length == 0 ? "-" : reference, path);
+        var reference = UnresolvedMechanism.GetReference(component, mechanismKind);
+        return new ViolationRow(Tallied: true, NamedMechanism: true, mechanismKind, reference.Length == 0 ? "-" : reference, path);
+    }
+
+    private static void ProjectMechanism(
+        in ScanComponent component,
+        LicensePolicyViolationKind kind,
+        out bool namedMechanism,
+        out UnresolvedMechanismKind mechanismKind)
+    {
+        mechanismKind = UnresolvedMechanismKind.None;
+        namedMechanism = kind != LicensePolicyViolationKind.NotAllowed
+            && UnresolvedMechanism.TryGetReason(component, out mechanismKind);
     }
 
     private static ReadOnlySpan<byte> MechanismUtf8(in ViolationRow row)
-        => row.NamedMechanism ? UnresolvedMechanism.GetNameUtf8(row.MechanismKind) : "-"u8;
+        => MechanismUtf8(row.NamedMechanism, row.MechanismKind);
+
+    private static ReadOnlySpan<byte> MechanismUtf8(bool namedMechanism, UnresolvedMechanismKind mechanismKind)
+        => namedMechanism ? UnresolvedMechanism.GetNameUtf8(mechanismKind) : "-"u8;
 
     /// <summary>
     /// Counts how many violations each unresolved mechanism explains.

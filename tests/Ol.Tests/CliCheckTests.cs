@@ -114,6 +114,11 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| Resolved license IDs | GPL-3.0-only,MIT |");
             await Assert.That(result.Stdout).Contains("| Violations | 2 |");
             await Assert.That(result.Stdout).Contains("### Violations");
+            await Assert.That(result.Stdout).Contains("| Reason | Mechanism | Ecosystem | Violations | Packages |");
+            await Assert.That(result.Stdout).Contains("| license is not allowed | - | npm | 1 | forbidden 1.0.0 |");
+            await Assert.That(result.Stdout).Contains("| license is unresolved | - | npm | 1 | unknown 1.0.0 |");
+            await Assert.That(result.Stdout).Contains("<details open>");
+            await Assert.That(result.Stdout).Contains("<summary>Violation details (2)</summary>");
             await Assert.That(result.Stdout).Contains("### Unresolved mechanisms");
             await Assert.That(result.Stdout).Contains("### Resolved license usage");
             await Assert.That(result.Stdout).Contains("### Coverage");
@@ -198,6 +203,35 @@ public sealed class CliCheckTests
         finally
         {
             File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownFormat_ViolationGroups_CollapseRepeatedPackages()
+    {
+        var root = FindRepositoryRoot();
+        var inputDirectory = Path.Combine(Path.GetTempPath(), $"ol-check-groups-{Guid.NewGuid():N}");
+        var debugDirectory = Path.Combine(inputDirectory, "debug");
+        var releaseDirectory = Path.Combine(inputDirectory, "release");
+        Directory.CreateDirectory(debugDirectory);
+        Directory.CreateDirectory(releaseDirectory);
+        File.Copy(FixturePath("Gemfile.lock"), Path.Combine(debugDirectory, "Gemfile.lock"));
+        File.Copy(FixturePath("Gemfile.lock"), Path.Combine(releaseDirectory, "Gemfile.lock"));
+        try
+        {
+            var result = await RunCheckWorkflowAsync(
+                root,
+                "--input", inputDirectory,
+                "--allow-licenses", "MIT",
+                "--no-external-evidence",
+                "--format", "markdown");
+
+            await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| license is unresolved | package_metadata_no_purl | - | 4 | local-gem 0.1.0 ×2, private-gem 2.0.0 ×2 |");
+        }
+        finally
+        {
+            Directory.Delete(inputDirectory, recursive: true);
         }
     }
 
@@ -292,6 +326,8 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("No policy violations.");
             await Assert.That(result.Stdout).DoesNotContain("### Usage origins");
             await Assert.That(result.Stdout).DoesNotContain("### Unresolved mechanisms");
+            await Assert.That(result.Stdout).DoesNotContain("| Reason | Mechanism | Ecosystem | Violations | Packages |");
+            await Assert.That(result.Stdout).DoesNotContain("Violation details");
         }
         finally
         {

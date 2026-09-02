@@ -425,171 +425,213 @@
     "occurrences": [
       {
         "contextIndex": -1,
-        "componentIndex": 0
+        "componentIndex": 0,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 1
+        "componentIndex": 1,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 2
+        "componentIndex": 2,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 3
+        "componentIndex": 3,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 4
+        "componentIndex": 4,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 5
+        "componentIndex": 5,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 6
+        "componentIndex": 6,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 7
+        "componentIndex": 7,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 8
+        "componentIndex": 8,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 9
+        "componentIndex": 9,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 10
+        "componentIndex": 10,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 11
+        "componentIndex": 11,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 12
+        "componentIndex": 12,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 13
+        "componentIndex": 13,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 14
+        "componentIndex": 14,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 15
+        "componentIndex": 15,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 16
+        "componentIndex": 16,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 17
+        "componentIndex": 17,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 18
+        "componentIndex": 18,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 19
+        "componentIndex": 19,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 20
+        "componentIndex": 20,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 21
+        "componentIndex": 21,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 22
+        "componentIndex": 22,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 23
+        "componentIndex": 23,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 24
+        "componentIndex": 24,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 25
+        "componentIndex": 25,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 26
+        "componentIndex": 26,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 27
+        "componentIndex": 27,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 28
+        "componentIndex": 28,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 29
+        "componentIndex": 29,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 30
+        "componentIndex": 30,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 31
+        "componentIndex": 31,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 32
+        "componentIndex": 32,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 33
+        "componentIndex": 33,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 34
+        "componentIndex": 34,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 35
+        "componentIndex": 35,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 36
+        "componentIndex": 36,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 37
+        "componentIndex": 37,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 38
+        "componentIndex": 38,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 39
+        "componentIndex": 39,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 40
+        "componentIndex": 40,
+        "packageSource": "unknown"
       },
       {
         "contextIndex": -1,
-        "componentIndex": 41
+        "componentIndex": 41,
+        "packageSource": "unknown"
       }
     ],
     "edges": [

@@ -105,10 +105,39 @@ public readonly record struct DependencyResolutionContext(
     Utf8Slice Variant,
     Utf8Slice InputPath);
 
+/// <summary>Classifies where a resolver obtained one package occurrence.</summary>
+public enum PackageSourceKind : byte
+{
+    /// <summary>The input does not state a package source.</summary>
+    Unknown = 0,
+
+    /// <summary>A package registry or module repository supplied the package.</summary>
+    Registry,
+
+    /// <summary>A registry known to be private supplied the package.</summary>
+    PrivateRegistry,
+
+    /// <summary>A Git repository supplied the package.</summary>
+    Git,
+
+    /// <summary>A local filesystem path supplied the package.</summary>
+    LocalPath,
+
+    /// <summary>A Python <c>direct_url</c> supplied the distribution.</summary>
+    DirectUrl,
+
+    /// <summary>An ecosystem-specific external source supplied the package.</summary>
+    External,
+}
+
 /// <summary>Locates one package component occurrence in one resolution context.</summary>
 /// <param name="ContextIndex">The owning resolution-context index, or <see cref="UnspecifiedContext"/>.</param>
 /// <param name="ComponentIndex">The package component index in the owning inventory.</param>
-public readonly record struct DependencyOccurrence(int ContextIndex, int ComponentIndex)
+/// <param name="PackageSource">Where the resolver obtained this occurrence.</param>
+public readonly record struct DependencyOccurrence(
+    int ContextIndex,
+    int ComponentIndex,
+    PackageSourceKind PackageSource = PackageSourceKind.Unknown)
 {
     /// <summary>Indicates that the input supplied no resolution context.</summary>
     public const int UnspecifiedContext = -1;

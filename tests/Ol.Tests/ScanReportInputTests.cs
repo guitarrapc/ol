@@ -86,6 +86,34 @@ public sealed class ScanReportInputTests
     }
 
     [Test]
+    public async Task TryRead_WithOccurrencePackageSource_RestoresTypedValue()
+    {
+        var json = Report(Component()).Replace(
+            "\"components\":",
+            "\"inventory\": { \"contexts\": [], \"components\": [{ \"name\": \"example\", \"version\": \"1.0.0\", \"ecosystem\": \"npm\", \"dependency\": \"direct\", \"purl\": \"pkg:npm/example@1.0.0\", \"sourceId\": \"example\" }], \"occurrences\": [{ \"contextIndex\": -1, \"componentIndex\": 0, \"packageSource\": \"registry\" }], \"edges\": [] }, \"components\":",
+            StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.Inventory.Occurrences[0].PackageSource).IsEqualTo(PackageSourceKind.Registry);
+    }
+
+    [Test]
+    public async Task TryRead_WithLegacySourceVariant_DoesNotInferPackageSource()
+    {
+        var json = Report(Component()).Replace(
+            "\"components\":",
+            "\"inventory\": { \"contexts\": [], \"components\": [{ \"name\": \"example\", \"version\": \"1.0.0\", \"ecosystem\": \"npm\", \"dependency\": \"direct\", \"purl\": \"pkg:npm/example@1.0.0\", \"sourceId\": \"example\" }], \"occurrences\": [{ \"contextIndex\": -1, \"componentIndex\": 0, \"variant\": \"source=git\" }], \"edges\": [] }, \"components\":",
+            StringComparison.Ordinal);
+
+        var parsed = ScanReportReader.TryRead(Encoding.UTF8.GetBytes(json), out var report, out var error);
+
+        await Assert.That(parsed).IsTrue().Because(error);
+        await Assert.That(report.Inventory.Occurrences[0].PackageSource).IsEqualTo(PackageSourceKind.Unknown);
+    }
+
+    [Test]
     public async Task TryRead_WithInputScope_RestoresExcludedInputPaths()
     {
         var json = Report(Component()).Replace(

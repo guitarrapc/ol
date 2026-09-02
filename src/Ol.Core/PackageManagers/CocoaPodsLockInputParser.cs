@@ -218,7 +218,13 @@ internal static class CocoaPodsLockInputParser
                         default,
                         []);
                     if (!retainGraph) continue;
-                    occurrences[nodeIndex] = new DependencyOccurrence(0, nodeIndex);
+                    occurrences[nodeIndex] = new DependencyOccurrence(0, nodeIndex, source switch
+                    {
+                        PodSource.Public => PackageSourceKind.Registry,
+                        PodSource.Private => PackageSourceKind.PrivateRegistry,
+                        PodSource.External => PackageSourceKind.External,
+                        _ => PackageSourceKind.Unknown,
+                    });
                     var variant = source switch
                     {
                         PodSource.Private => PrivateSpecRepoVariant,

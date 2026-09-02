@@ -32,6 +32,7 @@ public sealed class CocoaPodsInputTests
         await Assert.That(moya.Purl.ToString()).IsEqualTo("pkg:cocoapods/Moya@15.0.0");
         await Assert.That(alamofire.Purl.ToString()).IsEqualTo("pkg:cocoapods/Alamofire@5.10.2");
         await Assert.That(inventory.Occurrences).Count().IsEqualTo(2);
+        await Assert.That(inventory.Occurrences.All(static occurrence => occurrence.PackageSource == PackageSourceKind.Registry)).IsTrue();
         await Assert.That(inventory.Edges).Count().IsEqualTo(2);
         await Assert.That(HasEdge(inventory, DependencyOccurrence.ContextRoot, FindOccurrence(inventory, moya))).IsTrue();
         await Assert.That(HasEdge(inventory, FindOccurrence(inventory, moya), FindOccurrence(inventory, alamofire))).IsTrue();
@@ -66,6 +67,7 @@ public sealed class CocoaPodsInputTests
 
         await Assert.That(inventory.Components[0].Purl.IsEmpty).IsTrue();
         await Assert.That(inventory.Components[0].Ecosystem).IsEqualTo("-");
+        await Assert.That(inventory.Occurrences[0].PackageSource).IsEqualTo(PackageSourceKind.PrivateRegistry);
         await Assert.That(inventory.OccurrenceVariants![0].Value.ToString()).IsEqualTo("source=private-spec-repo");
     }
 
@@ -127,6 +129,7 @@ public sealed class CocoaPodsInputTests
         var inventory = DependencyInputScanner.Scan(input, Spdx, expectedFormat: ScanInputFormat.CocoaPodsLock);
 
         await Assert.That(inventory.Components[0].Purl.IsEmpty).IsTrue();
+        await Assert.That(inventory.Occurrences[0].PackageSource).IsEqualTo(PackageSourceKind.External);
         await Assert.That(inventory.OccurrenceVariants![0].Value.ToString()).IsEqualTo("source=external");
     }
 

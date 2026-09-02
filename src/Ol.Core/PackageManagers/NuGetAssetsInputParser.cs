@@ -515,7 +515,7 @@ internal static class NuGetAssetsInputParser
                     components[componentIndex] = component with { DependencyType = DependencyTypes.Merge(component.DependencyType, dependencyType) };
                 }
 
-                occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex);
+                occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex, PackageSourceKind.Registry);
             }
 
             for (var i = 0; i < nodes.Length; i++)

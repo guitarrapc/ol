@@ -161,7 +161,7 @@ internal static class NpmPackageLockInputParser
                     components[componentIndex] = component with { DependencyType = DependencyTypes.Merge(component.DependencyType, dependencyType) };
                     EnsureCapacity(ref occurrences, occurrenceCount);
                     occurrenceByNode[nodeIndex] = occurrenceCount;
-                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex);
+                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex, PackageSourceKind.Registry);
                     if (!nodes[nodeIndex].Variant.IsEmpty)
                     {
                         EnsureCapacity(ref occurrenceVariants, occurrenceVariantCount);

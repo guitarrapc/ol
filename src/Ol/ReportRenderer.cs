@@ -1145,6 +1145,7 @@ internal static class ReportRenderer
             writer.WriteStartObject();
             writer.WriteNumber("contextIndex", occurrence.ContextIndex);
             writer.WriteNumber("componentIndex", occurrence.ComponentIndex);
+            writer.WriteString("packageSource"u8, GetPackageSourceUtf8(occurrence.PackageSource));
             if (occurrenceVariants is not null
                 && occurrenceVariantIndex < occurrenceVariants.Length
                 && occurrenceVariants[occurrenceVariantIndex].OccurrenceIndex == i)
@@ -1170,6 +1171,17 @@ internal static class ReportRenderer
         writer.WriteEndArray();
         writer.WriteEndObject();
     }
+
+    private static ReadOnlySpan<byte> GetPackageSourceUtf8(PackageSourceKind value) => value switch
+    {
+        PackageSourceKind.Registry => "registry"u8,
+        PackageSourceKind.PrivateRegistry => "private-registry"u8,
+        PackageSourceKind.Git => "git"u8,
+        PackageSourceKind.LocalPath => "local-path"u8,
+        PackageSourceKind.DirectUrl => "direct-url"u8,
+        PackageSourceKind.External => "external"u8,
+        _ => "unknown"u8,
+    };
 
     private static void WriteLogicalPath(Utf8JsonWriter writer, ReadOnlySpan<byte> propertyName, Utf8Slice value)
     {

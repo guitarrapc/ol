@@ -648,11 +648,16 @@ public static class ScanReportReader
             {
                 var contextIndex = DependencyOccurrence.UnspecifiedContext;
                 var componentIndex = -1;
+                var packageSource = PackageSourceKind.Unknown;
                 string variant = string.Empty;
                 while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
                 {
                     if (reader.ValueTextEquals("contextIndex"u8)) contextIndex = ReadInt32(ref reader);
                     else if (reader.ValueTextEquals("componentIndex"u8)) componentIndex = ReadInt32(ref reader);
+                    else if (reader.ValueTextEquals("packageSource"u8))
+                    {
+                        packageSource = ParsePackageSource(ReadString(ref reader));
+                    }
                     else if (reader.ValueTextEquals("variant"u8)) variant = ReadString(ref reader);
                     else
                     {
@@ -662,7 +667,7 @@ public static class ScanReportReader
                 }
 
                 EnsureCapacity(ref result, count);
-                result[count] = new DependencyOccurrence(contextIndex, componentIndex);
+                result[count] = new DependencyOccurrence(contextIndex, componentIndex, packageSource);
                 if (variant.Length != 0)
                 {
                     variantResults ??= ArrayPool<DependencyOccurrenceVariant>.Shared.Rent(8);
@@ -1024,6 +1029,17 @@ public static class ScanReportReader
         "direct" => DependencyType.Direct,
         "transitive" => DependencyType.Transitive,
         _ => DependencyType.Unknown,
+    };
+
+    private static PackageSourceKind ParsePackageSource(string value) => value switch
+    {
+        "registry" => PackageSourceKind.Registry,
+        "private-registry" => PackageSourceKind.PrivateRegistry,
+        "git" => PackageSourceKind.Git,
+        "local-path" => PackageSourceKind.LocalPath,
+        "direct-url" => PackageSourceKind.DirectUrl,
+        "external" => PackageSourceKind.External,
+        _ => PackageSourceKind.Unknown,
     };
 
     private static DependencyUsage ParseUsage(string value) => value switch

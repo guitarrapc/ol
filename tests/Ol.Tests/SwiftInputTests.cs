@@ -34,6 +34,7 @@ public sealed class SwiftInputTests
         await Assert.That(swiftLog.Purl.ToString()).IsEqualTo("pkg:swift/github.com/apple/swift-log@1.6.2");
         await Assert.That(swiftLog.SourceId.ToString()).IsEqualTo("swift-log@1.6.2");
         await Assert.That(swiftLog.RepositoryUrl.ToString()).IsEqualTo("https://github.com/apple/swift-log.git");
+        await Assert.That(inventory.Occurrences[0].PackageSource).IsEqualTo(PackageSourceKind.Git);
         await Assert.That(inventory.OccurrenceVariants![0].Value.ToString()).IsEqualTo("kind=remoteSourceControl;revision=aaaaaaaa");
 
         var branchPin = inventory.Components[1];
@@ -75,6 +76,7 @@ public sealed class SwiftInputTests
         await Assert.That(inventory.Input.SpecificationVersion.ToString()).IsEqualTo("2");
         await Assert.That(inventory.Components[0].Purl.IsEmpty).IsTrue();
         await Assert.That(inventory.Components[0].RepositoryUrl.IsEmpty).IsTrue();
+        await Assert.That(inventory.Occurrences[0].PackageSource).IsEqualTo(PackageSourceKind.LocalPath);
     }
 
     [Test]

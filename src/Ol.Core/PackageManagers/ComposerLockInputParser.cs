@@ -121,7 +121,7 @@ internal static class ComposerLockInputParser
                 for (var nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++)
                 {
                     EnsureCapacity(ref occurrences, nodeIndex);
-                    occurrences[nodeIndex] = new DependencyOccurrence(0, nodeIndex);
+                    occurrences[nodeIndex] = new DependencyOccurrence(0, nodeIndex, PackageSourceKind.Registry);
 
                     // Development-only means the lock places it in packages-dev and no production requirement reaches it.
                     if (nodes[nodeIndex].Dev && !productionReachable[nodeIndex])

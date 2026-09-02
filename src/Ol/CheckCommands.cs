@@ -718,45 +718,39 @@ internal static class CheckRenderer
     /// <summary>One violation row's derived text, kept between the width pass and the write pass.</summary>
     private readonly record struct ViolationRow(bool Tallied, bool NamedMechanism, UnresolvedMechanismKind MechanismKind, string Reference, string Path);
 
-    private enum PackageSourceKind : byte
+    private enum PackageSourceDisplayKind : byte
     {
         Unknown,
         Registry,
+        PrivateRegistry,
         Git,
         LocalPath,
-        Direct,
-        PrivateSpecRepository,
+        DirectUrl,
         External,
         Mixed,
     }
 
-    private static PackageSourceKind[] ProjectPackageSources(
+    private static PackageSourceDisplayKind[] ProjectPackageSources(
         in DependencyInventory inventory,
         ReadOnlySpan<ScanComponent> components,
         ReadOnlySpan<LicensePolicyViolation> violations,
         scoped in DependencyRootPaths rootPaths)
     {
-        var inventorySources = new PackageSourceKind[inventory.Components.Length];
-        var variants = inventory.OccurrenceVariants;
-        if (variants is not null)
+        var inventorySources = new PackageSourceDisplayKind[inventory.Components.Length];
+        var occurrences = inventory.Occurrences;
+        for (var i = 0; i < occurrences.Length; i++)
         {
-            for (var i = 0; i < variants.Length; i++)
-            {
-                var variant = variants[i];
-                if ((uint)variant.OccurrenceIndex >= (uint)inventory.Occurrences.Length) continue;
-                var source = ParsePackageSource(variant.Value.Span);
-                if (source == PackageSourceKind.Unknown) continue;
-
-                var componentIndex = inventory.Occurrences[variant.OccurrenceIndex].ComponentIndex;
-                if ((uint)componentIndex >= (uint)inventorySources.Length) continue;
-                ref var current = ref inventorySources[componentIndex];
-                current = current == PackageSourceKind.Unknown || current == source
-                    ? source
-                    : PackageSourceKind.Mixed;
-            }
+            var occurrence = occurrences[i];
+            if ((uint)occurrence.ComponentIndex >= (uint)inventorySources.Length) continue;
+            if (occurrence.PackageSource == PackageSourceKind.Unknown) continue;
+            var source = GetPackageSourceDisplayKind(occurrence.PackageSource);
+            ref var current = ref inventorySources[occurrence.ComponentIndex];
+            current = current == PackageSourceDisplayKind.Unknown || current == source
+                ? source
+                : PackageSourceDisplayKind.Mixed;
         }
 
-        var result = new PackageSourceKind[violations.Length];
+        var result = new PackageSourceDisplayKind[violations.Length];
         for (var i = 0; i < violations.Length; i++)
         {
             var reportComponentIndex = violations[i].ComponentIndex;
@@ -771,50 +765,35 @@ internal static class CheckRenderer
         return result;
     }
 
-    private static PackageSourceKind ParsePackageSource(ReadOnlySpan<byte> variant)
+    private static PackageSourceDisplayKind GetPackageSourceDisplayKind(PackageSourceKind source) => source switch
     {
-        ReadOnlySpan<byte> prefix = "source="u8;
-        for (var start = 0; start < variant.Length;)
-        {
-            var endOffset = variant[start..].IndexOf((byte)';');
-            var end = endOffset < 0 ? variant.Length : start + endOffset;
-            var value = variant[start..end];
-            if (value.StartsWith(prefix))
-            {
-                var source = value[prefix.Length..];
-                if (source.SequenceEqual("registry"u8)) return PackageSourceKind.Registry;
-                if (source.SequenceEqual("git"u8)) return PackageSourceKind.Git;
-                if (source.SequenceEqual("path"u8)) return PackageSourceKind.LocalPath;
-                if (source.SequenceEqual("direct"u8)) return PackageSourceKind.Direct;
-                if (source.SequenceEqual("private-spec-repo"u8)) return PackageSourceKind.PrivateSpecRepository;
-                if (source.SequenceEqual("external"u8)) return PackageSourceKind.External;
-                return PackageSourceKind.Unknown;
-            }
+        PackageSourceKind.Registry => PackageSourceDisplayKind.Registry,
+        PackageSourceKind.PrivateRegistry => PackageSourceDisplayKind.PrivateRegistry,
+        PackageSourceKind.Git => PackageSourceDisplayKind.Git,
+        PackageSourceKind.LocalPath => PackageSourceDisplayKind.LocalPath,
+        PackageSourceKind.DirectUrl => PackageSourceDisplayKind.DirectUrl,
+        PackageSourceKind.External => PackageSourceDisplayKind.External,
+        _ => PackageSourceDisplayKind.Unknown,
+    };
 
-            start = end + 1;
-        }
-
-        return PackageSourceKind.Unknown;
-    }
-
-    private static ReadOnlySpan<byte> GetPackageSourceUtf8(PackageSourceKind source)
+    private static ReadOnlySpan<byte> GetPackageSourceUtf8(PackageSourceDisplayKind source)
         => source switch
         {
-            PackageSourceKind.Registry => "registry"u8,
-            PackageSourceKind.Git => "git"u8,
-            PackageSourceKind.LocalPath => "local path"u8,
-            PackageSourceKind.Direct => "direct"u8,
-            PackageSourceKind.PrivateSpecRepository => "private spec repository"u8,
-            PackageSourceKind.External => "external"u8,
-            PackageSourceKind.Mixed => "mixed"u8,
-            _ => "-"u8,
+            PackageSourceDisplayKind.Registry => "registry"u8,
+            PackageSourceDisplayKind.PrivateRegistry => "private registry"u8,
+            PackageSourceDisplayKind.Git => "git"u8,
+            PackageSourceDisplayKind.LocalPath => "local path"u8,
+            PackageSourceDisplayKind.DirectUrl => "direct URL"u8,
+            PackageSourceDisplayKind.External => "external"u8,
+            PackageSourceDisplayKind.Mixed => "mixed"u8,
+            _ => "unknown"u8,
         };
 
     private readonly record struct ViolationSummaryRow(
         LicensePolicyViolationKind Kind,
         bool NamedMechanism,
         UnresolvedMechanismKind MechanismKind,
-        PackageSourceKind PackageSource,
+        PackageSourceDisplayKind PackageSource,
         int ComponentIndex);
 
     private sealed class ViolationSummaryRowComparer(ScanComponent[] components) : IComparer<ViolationSummaryRow>
@@ -1124,7 +1103,7 @@ internal static class CheckRenderer
         IBufferWriter<byte> writer,
         ReadOnlySpan<LicensePolicyViolation> violations,
         ScanComponent[] components,
-        ReadOnlySpan<PackageSourceKind> packageSources)
+        ReadOnlySpan<PackageSourceDisplayKind> packageSources)
     {
         WriteUtf8(writer, "| Reason | Mechanism | Ecosystem | Package source | Violations | Packages |"u8);
         WriteNewLine(writer);

@@ -191,7 +191,7 @@ internal static class MavenDependencyTreeInputParser
                 for (var nodeIndex = 1; nodeIndex < nodes.Length; nodeIndex++)
                 {
                     var occurrenceIndex = nodeIndex - 1;
-                    occurrences[occurrenceIndex] = new DependencyOccurrence(0, componentByNode[nodeIndex]);
+                    occurrences[occurrenceIndex] = new DependencyOccurrence(0, componentByNode[nodeIndex], PackageSourceKind.Registry);
 
                     // Maven resolves one effective scope per tree position; `test` is the only scope that is never
                     // part of a production build. `provided`/`system`/`optional` stay runtime (conservative).

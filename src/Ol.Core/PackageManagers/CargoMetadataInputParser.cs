@@ -185,7 +185,10 @@ internal static class CargoMetadataInputParser
                     EnsureCapacity(ref occurrences, occurrenceCount);
                     var occurrenceIndex = occurrenceCount;
                     occurrenceByNode[nodeIndex] = occurrenceIndex;
-                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex);
+                    occurrences[occurrenceCount++] = new DependencyOccurrence(
+                        contextIndex,
+                        componentIndex,
+                        GetOccurrencePackageSource(nodes[nodeIndex].SourceKind));
 
                     if (depths[nodeIndex] != int.MinValue && !productionReachable[nodeIndex])
                     {
@@ -834,6 +837,14 @@ internal static class CargoMetadataInputParser
         PackageSourceKind.Git => "git"u8,
         PackageSourceKind.Path => "path"u8,
         _ => "other"u8,
+    };
+
+    private static Ol.Core.PackageSourceKind GetOccurrencePackageSource(PackageSourceKind sourceKind) => sourceKind switch
+    {
+        PackageSourceKind.CratesIo or PackageSourceKind.Registry => Ol.Core.PackageSourceKind.Registry,
+        PackageSourceKind.Git => Ol.Core.PackageSourceKind.Git,
+        PackageSourceKind.Path => Ol.Core.PackageSourceKind.LocalPath,
+        _ => Ol.Core.PackageSourceKind.Unknown,
     };
 
     private static PackageSourceKind GetSourceKind(Utf8Slice source)

@@ -48,6 +48,9 @@ public sealed class CargoInputTests
         await Assert.That(FindVariant(inventory, 0, git.SourceId.ToString()).ToString()).IsEqualTo("source=git;target=cfg(unix)");
         await Assert.That(FindVariant(inventory, 1, itoa.SourceId.ToString()).ToString()).IsEqualTo("source=registry;kind=build;target=cfg(target_os = \"linux\")");
         await Assert.That(FindVariant(inventory, 1, local.SourceId.ToString()).ToString()).IsEqualTo("source=path");
+        await Assert.That(FindPackageSource(inventory, 0, serde.SourceId.ToString())).IsEqualTo(PackageSourceKind.Registry);
+        await Assert.That(FindPackageSource(inventory, 0, git.SourceId.ToString())).IsEqualTo(PackageSourceKind.Git);
+        await Assert.That(FindPackageSource(inventory, 1, local.SourceId.ToString())).IsEqualTo(PackageSourceKind.LocalPath);
     }
 
     [Test]
@@ -206,6 +209,11 @@ public sealed class CargoInputTests
 
         throw new InvalidOperationException($"Occurrence not found: {contextIndex}/{sourceId}");
     }
+
+    private static PackageSourceKind FindPackageSource(DependencyInventory inventory, int contextIndex, string sourceId)
+        => inventory.Occurrences.Single(occurrence =>
+            occurrence.ContextIndex == contextIndex
+            && inventory.Components[occurrence.ComponentIndex].SourceId.ToString() == sourceId).PackageSource;
 
     private static string GetFixturePath(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 }

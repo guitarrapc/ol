@@ -53,6 +53,9 @@ public sealed class RubyInputTests
         var rackProtectionOccurrence = FindOccurrence(inventory, rackProtection.SourceId.ToString());
         var privateOccurrence = FindOccurrence(inventory, privateGem.SourceId.ToString());
         var localOccurrence = FindOccurrence(inventory, localGem.SourceId.ToString());
+        await Assert.That(inventory.Occurrences[i18nOccurrence].PackageSource).IsEqualTo(PackageSourceKind.Registry);
+        await Assert.That(inventory.Occurrences[privateOccurrence].PackageSource).IsEqualTo(PackageSourceKind.Git);
+        await Assert.That(inventory.Occurrences[localOccurrence].PackageSource).IsEqualTo(PackageSourceKind.LocalPath);
         await Assert.That(HasEdge(inventory, DependencyOccurrence.ContextRoot, i18nOccurrence)).IsTrue();
         await Assert.That(HasEdge(inventory, i18nOccurrence, concurrentOccurrence)).IsTrue();
         await Assert.That(HasEdge(inventory, DependencyOccurrence.ContextRoot, rackProtectionOccurrence)).IsTrue();
@@ -126,6 +129,7 @@ public sealed class RubyInputTests
 
         await Assert.That(inventory.Components[0].Purl.IsEmpty).IsTrue();
         await Assert.That(inventory.Components[0].Ecosystem).IsEqualTo("-");
+        await Assert.That(inventory.Occurrences[0].PackageSource).IsEqualTo(PackageSourceKind.PrivateRegistry);
         await Assert.That(inventory.OccurrenceVariants![0].Value.ToString()).IsEqualTo("source=registry");
     }
 

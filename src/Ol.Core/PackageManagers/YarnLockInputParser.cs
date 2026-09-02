@@ -299,7 +299,7 @@ internal static class YarnLockGraphParser
                     if (componentIndex < 0 || (!includeUnknown && depths[i] == int.MinValue)) continue;
                     occurrenceByNode[i] = occurrenceCount;
                     EnsureCapacity(ref occurrences, occurrenceCount);
-                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex);
+                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex, PackageSourceKind.Registry);
                     if (workspaces && depths[i] != int.MinValue)
                     {
                         var dependencyType = depths[i] == 0 ? DependencyType.Direct : DependencyType.Transitive;

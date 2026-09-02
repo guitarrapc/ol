@@ -102,7 +102,13 @@ internal static class SwiftPackageResolvedInputParser
                     purl.IsEmpty ? default : pin.Location);
                 if (retainGraph)
                 {
-                    occurrences[pinIndex] = new DependencyOccurrence(0, pinIndex);
+                    occurrences[pinIndex] = new DependencyOccurrence(0, pinIndex, pin.Kind.Span switch
+                    {
+                        var kind when kind.SequenceEqual("remoteSourceControl"u8) => PackageSourceKind.Git,
+                        var kind when kind.SequenceEqual("localSourceControl"u8) => PackageSourceKind.LocalPath,
+                        var kind when kind.SequenceEqual("registry"u8) => PackageSourceKind.Registry,
+                        _ => PackageSourceKind.Unknown,
+                    });
                     variants[pinIndex] = new DependencyOccurrenceVariant(pinIndex, CreateVariant(pin.Kind, pin.Revision));
                 }
             }

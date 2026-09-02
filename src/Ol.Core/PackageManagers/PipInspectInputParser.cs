@@ -77,7 +77,10 @@ internal static class PipInspectInputParser
             var variantCount = 0;
             for (var nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++)
             {
-                occurrences[nodeIndex] = new DependencyOccurrence(0, nodeIndex);
+                occurrences[nodeIndex] = new DependencyOccurrence(
+                    0,
+                    nodeIndex,
+                    nodes[nodeIndex].HasDirectUrl ? PackageSourceKind.DirectUrl : PackageSourceKind.Registry);
                 if (nodes[nodeIndex].HasDirectUrl) variantCount++;
                 if (nodes[nodeIndex].Requested != 1) continue;
                 EnsureCapacity(ref edges, edgeCount);

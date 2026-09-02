@@ -306,7 +306,7 @@ internal static class BundlerLockInputParser
                     if (!IsCompatible(node, platform)) continue;
                     EnsureCapacity(ref occurrences, occurrenceCount);
                     occurrenceByNode[nodeIndex] = occurrenceCount;
-                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, nodeIndex);
+                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, nodeIndex, GetPackageSource(node));
                     if (depths[nodeIndex] != int.MinValue)
                     {
                         var dependencyType = depths[nodeIndex] == 0 ? DependencyType.Direct : DependencyType.Transitive;
@@ -519,6 +519,15 @@ internal static class BundlerLockInputParser
         node.Platform.Span.CopyTo(bytes.AsSpan(index));
         return Utf8Slice.FromOwnedBytes(bytes);
     }
+
+    private static PackageSourceKind GetPackageSource(BundlerNode node) => node.Source switch
+    {
+        BundlerSource.RubyGems when node.PublicRubyGems => PackageSourceKind.Registry,
+        BundlerSource.RubyGems => PackageSourceKind.PrivateRegistry,
+        BundlerSource.Git => PackageSourceKind.Git,
+        BundlerSource.Path => PackageSourceKind.LocalPath,
+        _ => PackageSourceKind.Unknown,
+    };
 
     private static Utf8Slice CreateSourceId(Utf8Slice name, Utf8Slice version)
     {

@@ -46,6 +46,9 @@ public sealed class GoModuleGraphInputTests
         await Assert.That(local.Purl.IsEmpty).IsTrue();
         await Assert.That(forked.Purl.ToString()).IsEqualTo("pkg:golang/github.com/acme/forked@v1.1.0");
         await Assert.That(retracted.Purl.ToString()).IsEqualTo("pkg:golang/example.com/retracted@v1.0.0");
+        await Assert.That(FindPackageSource(inventory, direct.SourceId.ToString())).IsEqualTo(PackageSourceKind.Registry);
+        await Assert.That(FindPackageSource(inventory, local.SourceId.ToString())).IsEqualTo(PackageSourceKind.LocalPath);
+        await Assert.That(FindPackageSource(inventory, forked.SourceId.ToString())).IsEqualTo(PackageSourceKind.Registry);
 
         await Assert.That(FindVariant(inventory, local.SourceId.ToString()).ToString()).IsEqualTo("replace=local");
         await Assert.That(FindVariant(inventory, forked.SourceId.ToString()).ToString()).IsEqualTo("replace=github.com/acme/forked@v1.1.0");
@@ -126,6 +129,10 @@ public sealed class GoModuleGraphInputTests
 
         throw new InvalidOperationException($"Occurrence not found: {sourceId}");
     }
+
+    private static PackageSourceKind FindPackageSource(DependencyInventory inventory, string sourceId)
+        => inventory.Occurrences.Single(occurrence =>
+            inventory.Components[occurrence.ComponentIndex].SourceId.ToString() == sourceId).PackageSource;
 
     private static string GetFixturePath(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 }

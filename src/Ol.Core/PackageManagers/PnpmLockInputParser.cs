@@ -162,7 +162,7 @@ internal static class PnpmLockInputParser
                     components[componentIndex] = component with { DependencyType = DependencyTypes.Merge(component.DependencyType, dependencyType) };
                     EnsureCapacity(ref occurrences, occurrenceCount);
                     occurrenceByNode[nodeIndex] = occurrenceCount;
-                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex);
+                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex, PackageSourceKind.Registry);
                     var reach = (ReachKind)reachKinds[nodeIndex];
                     var variant = ComposeOccurrenceVariant(nodes[nodeIndex].BaseVariant, reach);
                     if (!variant.IsEmpty)

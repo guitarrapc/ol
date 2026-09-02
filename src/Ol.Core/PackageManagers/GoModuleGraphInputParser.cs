@@ -130,7 +130,12 @@ internal static class GoModuleGraphInputParser
                     EnsureCapacity(ref occurrences, occurrenceCount);
                     var occurrenceIndex = occurrenceCount;
                     occurrenceByNode[nodeIndex] = occurrenceIndex;
-                    occurrences[occurrenceCount++] = new DependencyOccurrence(contextIndex, componentIndex);
+                    occurrences[occurrenceCount++] = new DependencyOccurrence(
+                        contextIndex,
+                        componentIndex,
+                        nodes[nodeIndex].HasReplacement && nodes[nodeIndex].ReplacementVersion.IsEmpty
+                            ? PackageSourceKind.LocalPath
+                            : PackageSourceKind.Registry);
                     if (!nodes[nodeIndex].Variant.IsEmpty)
                     {
                         EnsureCapacity(ref occurrenceVariants, occurrenceVariantCount);

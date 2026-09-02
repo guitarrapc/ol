@@ -54,6 +54,9 @@ public sealed class PythonInputTests
         var urllib3Occurrence = FindOccurrence(inventory, urllib3.SourceId.ToString());
         var charsetOccurrence = FindOccurrence(inventory, charset.SourceId.ToString());
         var socksOccurrence = FindOccurrence(inventory, socks.SourceId.ToString());
+        var localOccurrence = FindOccurrence(inventory, local.SourceId.ToString());
+        await Assert.That(inventory.Occurrences[requestsOccurrence].PackageSource).IsEqualTo(PackageSourceKind.Registry);
+        await Assert.That(inventory.Occurrences[localOccurrence].PackageSource).IsEqualTo(PackageSourceKind.DirectUrl);
         await Assert.That(inventory.Edges.Any(edge => edge.FromOccurrenceIndex == DependencyOccurrence.ContextRoot && edge.ToOccurrenceIndex == requestsOccurrence)).IsTrue();
         await Assert.That(inventory.Edges.Any(edge => edge.FromOccurrenceIndex == requestsOccurrence && edge.ToOccurrenceIndex == urllib3Occurrence)).IsTrue();
         await Assert.That(inventory.Edges.Any(edge => edge.FromOccurrenceIndex == requestsOccurrence && edge.ToOccurrenceIndex == charsetOccurrence)).IsTrue();

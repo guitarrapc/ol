@@ -115,7 +115,8 @@ public static class DependencyInventoryCombiner
                     var occurrence = inventory.Occurrences[i];
                     occurrences[occurrenceOffset + i] = new DependencyOccurrence(
                         occurrence.ContextIndex < 0 ? occurrence.ContextIndex : occurrence.ContextIndex + contextOffset,
-                        componentRemap[componentOffset + occurrence.ComponentIndex]);
+                        componentRemap[componentOffset + occurrence.ComponentIndex],
+                        occurrence.PackageSource);
                 }
 
                 var inventoryOccurrenceVariants = inventory.OccurrenceVariants;

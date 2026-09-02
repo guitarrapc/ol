@@ -1765,7 +1765,9 @@ public sealed class CliScanTests
             await Assert.That(components[1].GetProperty("name").GetString()).IsEqualTo("zebra");
             await Assert.That(components[0].GetProperty("license").GetString()).IsEqualTo("Apache-2.0");
             await Assert.That(components[1].GetProperty("license").GetString()).IsEqualTo("MIT");
-            await Assert.That(report.RootElement.GetProperty("inventory").GetProperty("occurrences").GetArrayLength()).IsEqualTo(3);
+            var occurrences = report.RootElement.GetProperty("inventory").GetProperty("occurrences");
+            await Assert.That(occurrences.GetArrayLength()).IsEqualTo(3);
+            await Assert.That(occurrences.EnumerateArray().All(static occurrence => occurrence.GetProperty("packageSource").GetString() == "unknown")).IsTrue();
         }
         finally
         {
@@ -2217,6 +2219,7 @@ public sealed class CliScanTests
         await Assert.That(inventory.GetProperty("contexts").GetArrayLength()).IsEqualTo(2);
         await Assert.That(inventory.GetProperty("components").GetArrayLength()).IsEqualTo(7);
         await Assert.That(inventory.GetProperty("occurrences").GetArrayLength()).IsEqualTo(9);
+        await Assert.That(inventory.GetProperty("occurrences").EnumerateArray().All(static occurrence => occurrence.GetProperty("packageSource").GetString() == "registry")).IsTrue();
         await Assert.That(inventory.GetProperty("occurrences").EnumerateArray().Any(static occurrence => occurrence.TryGetProperty("variant", out var variant) && variant.GetString() == "optional;os=linux,!win32;cpu=x64")).IsTrue();
         await Assert.That(stdout).DoesNotContain("node_modules/workspace-a\"");
     }

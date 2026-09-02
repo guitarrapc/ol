@@ -600,7 +600,9 @@ internal static class CheckRenderer
         }
         else
         {
-            WriteMarkdownViolationGroups(writer, violations, components);
+            using var rootPaths = DependencyPathResolver.BuildRootPaths(report.Inventory);
+            var packageSources = ProjectPackageSources(report.Inventory, components, violations, rootPaths);
+            WriteMarkdownViolationGroups(writer, violations, components, packageSources);
             WriteNewLine(writer);
             WriteUtf8(writer, "<details open>"u8);
             WriteNewLine(writer);
@@ -609,12 +611,11 @@ internal static class CheckRenderer
             WriteUtf8(writer, ")</summary>"u8);
             WriteNewLine(writer);
             WriteNewLine(writer);
-            WriteUtf8(writer, "| Package | Version | Ecosystem | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |"u8);
+            WriteUtf8(writer, "| Package | Version | Ecosystem | Package source | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |"u8);
             WriteNewLine(writer);
-            WriteUtf8(writer, "|---|---|---|---|---|---|---|---|---|---|"u8);
+            WriteUtf8(writer, "|---|---|---|---|---|---|---|---|---|---|---|"u8);
             WriteNewLine(writer);
 
-            using var rootPaths = DependencyPathResolver.BuildRootPaths(report.Inventory);
             var usageOrigins = UsageOriginProjection.Create(report.Inventory, components, violations, rootPaths);
             for (var i = 0; i < violations.Length; i++)
             {
@@ -628,6 +629,8 @@ internal static class CheckRenderer
                 WriteMarkdownValue(writer, component.Version);
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, component.Ecosystem);
+                WriteUtf8(writer, " | "u8);
+                WriteUtf8(writer, GetPackageSourceUtf8(packageSources[i]));
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, component.Purl);
                 WriteUtf8(writer, " | "u8);
@@ -715,10 +718,103 @@ internal static class CheckRenderer
     /// <summary>One violation row's derived text, kept between the width pass and the write pass.</summary>
     private readonly record struct ViolationRow(bool Tallied, bool NamedMechanism, UnresolvedMechanismKind MechanismKind, string Reference, string Path);
 
+    private enum PackageSourceKind : byte
+    {
+        Unknown,
+        Registry,
+        Git,
+        LocalPath,
+        Direct,
+        PrivateSpecRepository,
+        External,
+        Mixed,
+    }
+
+    private static PackageSourceKind[] ProjectPackageSources(
+        in DependencyInventory inventory,
+        ReadOnlySpan<ScanComponent> components,
+        ReadOnlySpan<LicensePolicyViolation> violations,
+        scoped in DependencyRootPaths rootPaths)
+    {
+        var inventorySources = new PackageSourceKind[inventory.Components.Length];
+        var variants = inventory.OccurrenceVariants;
+        if (variants is not null)
+        {
+            for (var i = 0; i < variants.Length; i++)
+            {
+                var variant = variants[i];
+                if ((uint)variant.OccurrenceIndex >= (uint)inventory.Occurrences.Length) continue;
+                var source = ParsePackageSource(variant.Value.Span);
+                if (source == PackageSourceKind.Unknown) continue;
+
+                var componentIndex = inventory.Occurrences[variant.OccurrenceIndex].ComponentIndex;
+                if ((uint)componentIndex >= (uint)inventorySources.Length) continue;
+                ref var current = ref inventorySources[componentIndex];
+                current = current == PackageSourceKind.Unknown || current == source
+                    ? source
+                    : PackageSourceKind.Mixed;
+            }
+        }
+
+        var result = new PackageSourceKind[violations.Length];
+        for (var i = 0; i < violations.Length; i++)
+        {
+            var reportComponentIndex = violations[i].ComponentIndex;
+            ref readonly var component = ref components[reportComponentIndex];
+            var inventoryComponentIndex = rootPaths.FindComponentIndex(component, reportComponentIndex);
+            if ((uint)inventoryComponentIndex < (uint)inventorySources.Length)
+            {
+                result[i] = inventorySources[inventoryComponentIndex];
+            }
+        }
+
+        return result;
+    }
+
+    private static PackageSourceKind ParsePackageSource(ReadOnlySpan<byte> variant)
+    {
+        ReadOnlySpan<byte> prefix = "source="u8;
+        for (var start = 0; start < variant.Length;)
+        {
+            var endOffset = variant[start..].IndexOf((byte)';');
+            var end = endOffset < 0 ? variant.Length : start + endOffset;
+            var value = variant[start..end];
+            if (value.StartsWith(prefix))
+            {
+                var source = value[prefix.Length..];
+                if (source.SequenceEqual("registry"u8)) return PackageSourceKind.Registry;
+                if (source.SequenceEqual("git"u8)) return PackageSourceKind.Git;
+                if (source.SequenceEqual("path"u8)) return PackageSourceKind.LocalPath;
+                if (source.SequenceEqual("direct"u8)) return PackageSourceKind.Direct;
+                if (source.SequenceEqual("private-spec-repo"u8)) return PackageSourceKind.PrivateSpecRepository;
+                if (source.SequenceEqual("external"u8)) return PackageSourceKind.External;
+                return PackageSourceKind.Unknown;
+            }
+
+            start = end + 1;
+        }
+
+        return PackageSourceKind.Unknown;
+    }
+
+    private static ReadOnlySpan<byte> GetPackageSourceUtf8(PackageSourceKind source)
+        => source switch
+        {
+            PackageSourceKind.Registry => "registry"u8,
+            PackageSourceKind.Git => "git"u8,
+            PackageSourceKind.LocalPath => "local path"u8,
+            PackageSourceKind.Direct => "direct"u8,
+            PackageSourceKind.PrivateSpecRepository => "private spec repository"u8,
+            PackageSourceKind.External => "external"u8,
+            PackageSourceKind.Mixed => "mixed"u8,
+            _ => "-"u8,
+        };
+
     private readonly record struct ViolationSummaryRow(
         LicensePolicyViolationKind Kind,
         bool NamedMechanism,
         UnresolvedMechanismKind MechanismKind,
+        PackageSourceKind PackageSource,
         int ComponentIndex);
 
     private sealed class ViolationSummaryRowComparer(ScanComponent[] components) : IComparer<ViolationSummaryRow>
@@ -742,6 +838,9 @@ internal static class CheckRenderer
             ref readonly var rightComponent = ref components[right.ComponentIndex];
             var byEcosystem = StringComparer.Ordinal.Compare(leftComponent.Ecosystem, rightComponent.Ecosystem);
             if (byEcosystem != 0) return byEcosystem;
+
+            var byPackageSource = left.PackageSource.CompareTo(right.PackageSource);
+            if (byPackageSource != 0) return byPackageSource;
 
             var byName = Utf8Slice.CompareOrdinal(leftComponent.Name, rightComponent.Name);
             if (byName != 0) return byName;
@@ -1024,11 +1123,12 @@ internal static class CheckRenderer
     private static void WriteMarkdownViolationGroups(
         IBufferWriter<byte> writer,
         ReadOnlySpan<LicensePolicyViolation> violations,
-        ScanComponent[] components)
+        ScanComponent[] components,
+        ReadOnlySpan<PackageSourceKind> packageSources)
     {
-        WriteUtf8(writer, "| Reason | Mechanism | Ecosystem | Violations | Packages |"u8);
+        WriteUtf8(writer, "| Reason | Mechanism | Ecosystem | Package source | Violations | Packages |"u8);
         WriteNewLine(writer);
-        WriteUtf8(writer, "|---|---|---|---:|---|"u8);
+        WriteUtf8(writer, "|---|---|---|---|---:|---|"u8);
         WriteNewLine(writer);
 
         var rows = ArrayPool<ViolationSummaryRow>.Shared.Rent(violations.Length);
@@ -1038,7 +1138,7 @@ internal static class CheckRenderer
             {
                 var violation = violations[i];
                 ProjectMechanism(components[violation.ComponentIndex], violation.Kind, out var namedMechanism, out var mechanismKind);
-                rows[i] = new ViolationSummaryRow(violation.Kind, namedMechanism, mechanismKind, violation.ComponentIndex);
+                rows[i] = new ViolationSummaryRow(violation.Kind, namedMechanism, mechanismKind, packageSources[i], violation.ComponentIndex);
             }
 
             Array.Sort(rows, 0, violations.Length, new ViolationSummaryRowComparer(components));
@@ -1055,6 +1155,8 @@ internal static class CheckRenderer
                 WriteMarkdownValue(writer, MechanismUtf8(first.NamedMechanism, first.MechanismKind));
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, component.Ecosystem);
+                WriteUtf8(writer, " | "u8);
+                WriteUtf8(writer, GetPackageSourceUtf8(first.PackageSource));
                 WriteUtf8(writer, " | "u8);
                 WriteInt32(writer, end - start);
                 WriteUtf8(writer, " | "u8);
@@ -1077,6 +1179,7 @@ internal static class CheckRenderer
         => left.Kind == right.Kind
             && left.NamedMechanism == right.NamedMechanism
             && (!left.NamedMechanism || left.MechanismKind == right.MechanismKind)
+            && left.PackageSource == right.PackageSource
             && StringComparer.Ordinal.Equals(
                 components[left.ComponentIndex].Ecosystem,
                 components[right.ComponentIndex].Ecosystem);

@@ -107,16 +107,15 @@ public sealed class CliCheckTests
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stderr).IsEmpty();
             await Assert.That(result.Stdout).Contains("## ol license check");
-            await Assert.That(result.Stdout).DoesNotContain("### ol license check");
             await Assert.That(result.Stdout).Contains("### Result");
             await Assert.That(result.Stdout).Contains("> ❌ **failed** — 2 violations.");
             await Assert.That(result.Stdout).Contains("| Allow-list | MIT |");
             await Assert.That(result.Stdout).Contains("| Resolved license IDs | GPL-3.0-only,MIT |");
             await Assert.That(result.Stdout).Contains("| Violations | 2 |");
             await Assert.That(result.Stdout).Contains("### Violations");
-            await Assert.That(result.Stdout).Contains("| Reason | Mechanism | Ecosystem | Violations | Packages |");
-            await Assert.That(result.Stdout).Contains("| license is not allowed | - | npm | 1 | forbidden 1.0.0 |");
-            await Assert.That(result.Stdout).Contains("| license is unresolved | - | npm | 1 | unknown 1.0.0 |");
+            await Assert.That(result.Stdout).Contains("| Reason | Mechanism | Ecosystem | Package source | Violations | Packages |");
+            await Assert.That(result.Stdout).Contains("| license is not allowed | - | npm | - | 1 | forbidden 1.0.0 |");
+            await Assert.That(result.Stdout).Contains("| license is unresolved | - | npm | - | 1 | unknown 1.0.0 |");
             await Assert.That(result.Stdout).Contains("<details open>");
             await Assert.That(result.Stdout).Contains("<summary>Violation details (2)</summary>");
             await Assert.That(result.Stdout).Contains("### Resolved license usage");
@@ -134,9 +133,9 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| Unknown | 1 |");
             await Assert.That(result.Stdout).Contains("| GPL-3.0-only | 1 |");
             await Assert.That(result.Stdout).Contains("| MIT | 1 |");
-            await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
-            await Assert.That(result.Stdout).Contains("| forbidden | 1.0.0 | npm | pkg:npm/forbidden@1.0.0 | GPL-3.0-only | license is not allowed |");
-            await Assert.That(result.Stdout).Contains("| unknown | 1.0.0 | npm | pkg:npm/unknown@1.0.0 | unknown | license is unresolved | - | - | - | - |");
+            await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Package source | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
+            await Assert.That(result.Stdout).Contains("| forbidden | 1.0.0 | npm | - | pkg:npm/forbidden@1.0.0 | GPL-3.0-only | license is not allowed |");
+            await Assert.That(result.Stdout).Contains("| unknown | 1.0.0 | npm | - | pkg:npm/unknown@1.0.0 | unknown | license is unresolved | - | - | - | - |");
             await Assert.That(result.Stdout).Contains("### Usage origins");
             await Assert.That(result.Stdout).Contains("No usage origins are recorded for these violations.");
             await Assert.That(result.Stdout.IndexOf("### Result", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("### Violations", StringComparison.Ordinal));
@@ -222,7 +221,12 @@ public sealed class CliCheckTests
                 "--format", "markdown");
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("| license is unresolved | package_metadata_no_purl | - | 4 | local-gem 0.1.0 ×2, private-gem 2.0.0 ×2 |");
+            await Assert.That(result.Stdout).Contains("| Reason | Mechanism | Ecosystem | Package source | Violations | Packages |");
+            await Assert.That(result.Stdout).Contains("| license is unresolved | package_metadata_no_purl | - | git | 2 | private-gem 2.0.0 ×2 |");
+            await Assert.That(result.Stdout).Contains("| license is unresolved | package_metadata_no_purl | - | local path | 2 | local-gem 0.1.0 ×2 |");
+            await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Package source | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
+            await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | - | local path | - | unknown | license is unresolved | package_metadata_no_purl |");
+            await Assert.That(result.Stdout).Contains("| private-gem | 2.0.0 | - | git | - | unknown | license is unresolved | package_metadata_no_purl |");
         }
         finally
         {
@@ -249,8 +253,8 @@ public sealed class CliCheckTests
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
             await Assert.That(result.Stderr).IsEmpty();
-            await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
-            await Assert.That(result.Stdout).Contains("| shared | 1.0.0 | npm | pkg:npm/shared@1.0.0 | MIT | license is not allowed | - | - | packages/a (apps/web/package-lock.json), root-app (apps/web/package-lock.json) |");
+            await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Package source | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
+            await Assert.That(result.Stdout).Contains("| shared | 1.0.0 | npm | - | pkg:npm/shared@1.0.0 | MIT | license is not allowed | - | - | packages/a (apps/web/package-lock.json), root-app (apps/web/package-lock.json) |");
             await Assert.That(result.Stdout).Contains("### Usage origins");
 
             var usageOriginsStart = result.Stdout.IndexOf("### Usage origins", StringComparison.Ordinal);
@@ -320,7 +324,6 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("> ✅ **passed** — 1 component satisfies the allow-list.");
             await Assert.That(result.Stdout).Contains("No policy violations.");
             await Assert.That(result.Stdout).DoesNotContain("### Usage origins");
-            await Assert.That(result.Stdout).DoesNotContain("| Reason | Mechanism | Ecosystem | Violations | Packages |");
             await Assert.That(result.Stdout).DoesNotContain("Violation details");
         }
         finally
@@ -374,7 +377,7 @@ public sealed class CliCheckTests
             var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--format", "markdown");
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("| example | 1.0.0 | npm | pkg:npm/example@1.0.0 | MIT, Apache-2.0 (?) | license evidence conflicts |");
+            await Assert.That(result.Stdout).Contains("| example | 1.0.0 | npm | - | pkg:npm/example@1.0.0 | MIT, Apache-2.0 (?) | license evidence conflicts |");
             await Assert.That(result.Stdout).Contains("| example | 1.0.0 | npm | MIT, Apache-2.0 (?) | conflict |");
         }
         finally

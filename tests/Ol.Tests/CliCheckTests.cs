@@ -222,11 +222,11 @@ public sealed class CliCheckTests
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
             await Assert.That(result.Stdout).Contains("| Reason | Mechanism | Ecosystem | Package source | Violations | Packages |");
-            await Assert.That(result.Stdout).Contains("| license is unresolved | package_metadata_no_purl | - | git | 2 | private-gem 2.0.0 ×2 |");
-            await Assert.That(result.Stdout).Contains("| license is unresolved | package_metadata_no_purl | - | local path | 2 | local-gem 0.1.0 ×2 |");
+            await Assert.That(result.Stdout).Contains("| license is unresolved | package_metadata_no_purl | gem | git | 2 | private-gem 2.0.0 ×2 |");
+            await Assert.That(result.Stdout).Contains("| license is unresolved | package_metadata_no_purl | gem | local path | 2 | local-gem 0.1.0 ×2 |");
             await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Package source | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
-            await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | - | local path | - | unknown | license is unresolved | package_metadata_no_purl |");
-            await Assert.That(result.Stdout).Contains("| private-gem | 2.0.0 | - | git | - | unknown | license is unresolved | package_metadata_no_purl |");
+            await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl |");
+            await Assert.That(result.Stdout).Contains("| private-gem | 2.0.0 | gem | git | - | unknown | license is unresolved | package_metadata_no_purl |");
         }
         finally
         {

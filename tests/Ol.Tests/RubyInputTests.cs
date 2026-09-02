@@ -37,6 +37,7 @@ public sealed class RubyInputTests
         var localGem = FindComponent(inventory, "local-gem@0.1.0");
 
         await Assert.That(i18n.Purl.ToString()).IsEqualTo("pkg:gem/i18n@1.14.7");
+        await Assert.That(i18n.Ecosystem).IsEqualTo("gem");
         await Assert.That(i18n.DependencyType).IsEqualTo(DependencyType.Direct);
         await Assert.That(concurrentRuby.DependencyType).IsEqualTo(DependencyType.Transitive);
         await Assert.That(rack.DependencyType).IsEqualTo(DependencyType.Transitive);
@@ -44,7 +45,9 @@ public sealed class RubyInputTests
         await Assert.That(nokogiri.Purl.ToString()).IsEqualTo("pkg:gem/nokogiri@1.18.0?platform=x86_64-linux-gnu");
         await Assert.That(FindVariant(inventory, nokogiri.SourceId.ToString()).ToString()).IsEqualTo("platform=x86_64-linux-gnu");
         await Assert.That(privateGem.Purl.IsEmpty).IsTrue();
+        await Assert.That(privateGem.Ecosystem).IsEqualTo("gem");
         await Assert.That(localGem.Purl.IsEmpty).IsTrue();
+        await Assert.That(localGem.Ecosystem).IsEqualTo("gem");
         await Assert.That(inventory.Occurrences).Count().IsEqualTo(13);
 
         var concurrentOccurrence = FindOccurrence(inventory, concurrentRuby.SourceId.ToString());
@@ -128,7 +131,7 @@ public sealed class RubyInputTests
         var inventory = DependencyInputScanner.Scan(input, Spdx, expectedFormat: ScanInputFormat.BundlerLock);
 
         await Assert.That(inventory.Components[0].Purl.IsEmpty).IsTrue();
-        await Assert.That(inventory.Components[0].Ecosystem).IsEqualTo("-");
+        await Assert.That(inventory.Components[0].Ecosystem).IsEqualTo("gem");
         await Assert.That(inventory.Occurrences[0].PackageSource).IsEqualTo(PackageSourceKind.PrivateRegistry);
         await Assert.That(inventory.OccurrenceVariants![0].Value.ToString()).IsEqualTo("source=registry");
     }

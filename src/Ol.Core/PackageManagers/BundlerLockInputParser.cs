@@ -239,7 +239,7 @@ internal static class BundlerLockInputParser
                 node.Name,
                 node.Version,
                 default,
-                node.PublicRubyGems ? "gem" : "-",
+                "gem",
                 DependencyType.Unknown,
                 LicenseStatus.Unknown,
                 purl,

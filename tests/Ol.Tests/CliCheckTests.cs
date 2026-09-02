@@ -120,8 +120,16 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("<summary>Show all components (3)</summary>");
             await Assert.That(result.Stdout).Contains("| allowed | 1.0.0 | npm | MIT | matched |");
             await Assert.That(result.Stdout).Contains("### Diagnostics");
-            await Assert.That(result.Stdout).Contains("| matched | 2 |");
-            await Assert.That(result.Stdout).Contains("| unknown | 1 |");
+            await Assert.That(result.Stdout).Contains("| License status | Components |");
+            await Assert.That(result.Stdout).Contains("| Total | 3 |");
+            await Assert.That(result.Stdout).Contains("| Supplied by | Components |");
+            await Assert.That(result.Stdout).Contains("| Finding | Count |");
+            await Assert.That(result.Stdout).Contains("| Ecosystem | Components |");
+            await Assert.That(result.Stdout).DoesNotContain("| Coverage | Components |");
+            await Assert.That(result.Stdout).DoesNotContain("| Ecosystem: npm |");
+            await Assert.That(result.Stdout).DoesNotContain("#### ");
+            await Assert.That(result.Stdout).Contains("| Matched | 2 |");
+            await Assert.That(result.Stdout).Contains("| Unknown | 1 |");
             await Assert.That(result.Stdout).Contains("| GPL-3.0-only | 1 |");
             await Assert.That(result.Stdout).Contains("| MIT | 1 |");
             await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");

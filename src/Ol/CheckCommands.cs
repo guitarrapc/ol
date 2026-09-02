@@ -1107,23 +1107,34 @@ internal static class CheckRenderer
         WriteUtf8(writer, "### Coverage"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
-        WriteUtf8(writer, "| Coverage | Components |"u8);
+        WriteUtf8(writer, "| License status | Components |"u8);
         WriteNewLine(writer);
         WriteUtf8(writer, "|---|---:|"u8);
         WriteNewLine(writer);
-        WriteMarkdownCountRow(writer, "components"u8, components.Length);
-        WriteMarkdownCountRow(writer, "matched"u8, summary.Matched);
-        WriteMarkdownCountRow(writer, "conflict"u8, summary.Conflict);
-        WriteMarkdownCountRow(writer, "unknown"u8, summary.Unknown);
-        WriteMarkdownCountRow(writer, "ambiguous"u8, summary.Ambiguous);
-        WriteMarkdownCountRow(writer, "invalid"u8, summary.Invalid);
-        WriteMarkdownCountRow(writer, "error"u8, summary.Error);
+        WriteMarkdownCountRow(writer, "Total"u8, components.Length);
+        WriteMarkdownCountRow(writer, "Matched"u8, summary.Matched);
+        WriteMarkdownCountRow(writer, "Conflict"u8, summary.Conflict);
+        WriteMarkdownCountRow(writer, "Unknown"u8, summary.Unknown);
+        WriteMarkdownCountRow(writer, "Ambiguous"u8, summary.Ambiguous);
+        WriteMarkdownCountRow(writer, "Invalid"u8, summary.Invalid);
+        WriteMarkdownCountRow(writer, "Error"u8, summary.Error);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "| Supplied by | Components |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "|---|---:|"u8);
+        WriteNewLine(writer);
         WriteMarkdownCountRow(writer, "SBOM only"u8, summary.SbomOnlyCount);
         WriteMarkdownCountRow(writer, "Package manager only"u8, summary.PackageManagerOnlyCount);
         WriteMarkdownCountRow(writer, "Both"u8, summary.BothSuppliedCount);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "| Finding | Count |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "|---|---:|"u8);
+        WriteNewLine(writer);
         WriteMarkdownCountRow(writer, "Warnings on unresolved components"u8, summary.UnresolvedWarningCount);
         WriteMarkdownCountRow(writer, "Warnings on resolved components"u8, summary.ResolvedWarningCount);
         WriteMarkdownCountRow(writer, "Deprecated SPDX identifiers"u8, summary.DeprecatedSpdxCount);
+        WriteNewLine(writer);
         WriteMarkdownEcosystemRows(writer, components);
     }
 
@@ -1135,6 +1146,11 @@ internal static class CheckRenderer
             var ecosystem = components[i].Ecosystem;
             counts[ecosystem] = counts.TryGetValue(ecosystem, out var count) ? count + 1 : 1;
         }
+
+        WriteUtf8(writer, "| Ecosystem | Components |"u8);
+        WriteNewLine(writer);
+        WriteUtf8(writer, "|---|---:|"u8);
+        WriteNewLine(writer);
 
         if (counts.Count == 0) return;
 
@@ -1148,7 +1164,7 @@ internal static class CheckRenderer
 
         for (var i = 0; i < ordered.Length; i++)
         {
-            WriteUtf8(writer, "| Ecosystem: "u8);
+            WriteUtf8(writer, "| "u8);
             WriteMarkdownValue(writer, ordered[i].Key);
             WriteUtf8(writer, " | "u8);
             WriteInt32(writer, ordered[i].Value);

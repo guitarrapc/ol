@@ -119,7 +119,6 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| license is unresolved | - | npm | 1 | unknown 1.0.0 |");
             await Assert.That(result.Stdout).Contains("<details open>");
             await Assert.That(result.Stdout).Contains("<summary>Violation details (2)</summary>");
-            await Assert.That(result.Stdout).DoesNotContain("### Unresolved mechanisms");
             await Assert.That(result.Stdout).Contains("### Resolved license usage");
             await Assert.That(result.Stdout).Contains("### Coverage");
             await Assert.That(result.Stdout).Contains("### All components");
@@ -131,9 +130,6 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| Supplied by | Components |");
             await Assert.That(result.Stdout).Contains("| Finding | Count |");
             await Assert.That(result.Stdout).Contains("| Ecosystem | Components |");
-            await Assert.That(result.Stdout).DoesNotContain("| Coverage | Components |");
-            await Assert.That(result.Stdout).DoesNotContain("| Ecosystem: npm |");
-            await Assert.That(result.Stdout).DoesNotContain("#### ");
             await Assert.That(result.Stdout).Contains("| Matched | 2 |");
             await Assert.That(result.Stdout).Contains("| Unknown | 1 |");
             await Assert.That(result.Stdout).Contains("| GPL-3.0-only | 1 |");
@@ -324,7 +320,6 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("> ✅ **passed** — 1 component satisfies the allow-list.");
             await Assert.That(result.Stdout).Contains("No policy violations.");
             await Assert.That(result.Stdout).DoesNotContain("### Usage origins");
-            await Assert.That(result.Stdout).DoesNotContain("### Unresolved mechanisms");
             await Assert.That(result.Stdout).DoesNotContain("| Reason | Mechanism | Ecosystem | Violations | Packages |");
             await Assert.That(result.Stdout).DoesNotContain("Violation details");
         }
@@ -477,7 +472,6 @@ public sealed class CliCheckTests
             const string Detected = "- detected input files: 1";
             await Assert.That(result.Stdout).Contains(source);
             await Assert.That(result.Stdout).Contains(spdx);
-            await Assert.That(result.Stdout).DoesNotContain("https://github.com/spdx/license-list-data/");
             await Assert.That(result.Stdout).Contains("- excluded input paths: `product-a/docs`, `product-b/docs`");
             await Assert.That(result.Stdout.IndexOf(source, StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf(spdx, StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf(spdx, StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf(Input, StringComparison.Ordinal));

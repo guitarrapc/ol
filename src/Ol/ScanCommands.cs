@@ -194,11 +194,7 @@ internal sealed class ScanCommands
             // Two inputs rarely enumerate the same set, and which of them a component came from is the fact
             // that says whether the second input earned its place. Per component the report already says it;
             // only the totals say it about the run.
-            Console.Error.WriteLine($"  Supplied by: {summary.SbomOnlyCount} sbom only; {summary.PackageManagerOnlyCount} package-manager only; {summary.BothSuppliedCount} both");
-            if (verbose)
-            {
-                WriteSupplyByEcosystem(components, Console.Error);
-            }
+            WriteSupplyTable(summary.SbomOnlyCount, summary.PackageManagerOnlyCount, summary.BothSuppliedCount, components, verbose, Console.Error);
 
             // Zeroed collection counters read as "nothing was needed" rather than "nothing was attempted",
             // which is the whole point of this mode, so state the absence instead of printing the counters.
@@ -208,8 +204,7 @@ internal sealed class ScanCommands
             }
             else
             {
-                WriteEvidenceTable(packageArtifacts, declaredGitHubFiles, packageMetadata, source, Console.Error);
-                Console.Error.WriteLine($"  Run: concurrency {packageMetadata.Concurrency}; retries {packageMetadata.RetryCount}; GitHub auth {source.AuthMode}");
+                WriteEvidenceSummary(scanResult.Inventory.Components.Length, packageArtifacts, declaredGitHubFiles, packageMetadata, source, verbose, Console.Error);
             }
 
             WriteInputDiscoverySummary(
@@ -218,8 +213,9 @@ internal sealed class ScanCommands
                 completed.SkippedIncompleteInputCount,
                 completed.ExcludedInputPaths,
                 scanResult.Inventory.Components,
+                verbose,
                 Console.Error);
-            Console.Error.WriteLine($"  Input: {scanResult.Inventory.Input.SourceReference}; input format {scanResult.Inventory.Input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
+            WriteInputSummary(scanResult.Inventory.Input, spdx, Console.Error);
             if (dependency is not null and not "")
             {
                 Console.Error.WriteLine($"  Filter: {dependencyFilteredCount} component{(dependencyFilteredCount == 1 ? string.Empty : "s")} excluded; {excludedUnknownCount} with unknown dependency type");
@@ -247,7 +243,7 @@ internal sealed class ScanCommands
     }
 
     /// <summary>
-    /// States, per ecosystem, which input kinds supplied its components.
+    /// States which input kinds supplied the displayed components, with an optional ecosystem breakdown.
     /// </summary>
     /// <remarks>
     /// The totals say whether a second input earned its place in the collection; this says where. One
@@ -261,36 +257,61 @@ internal sealed class ScanCommands
     /// NuGet population is package-manager-only in all of them. A hint that always fires is one readers
     /// learn to skip, which costs more than the missed hint.
     ///
-    /// It is a verbose diagnostic rather than a summary fact because the report already carries
-    /// <c>ecosystem</c> and <c>suppliedBy</c> per component, so a consumer of the canonical JSON can
-    /// compute exactly this. Only the human reading a text or Markdown run cannot, and the default
-    /// summary is long enough already.
+    /// The total is a summary fact. Ecosystem rows are verbose diagnostics because the report already
+    /// carries <c>ecosystem</c> and <c>suppliedBy</c> per component, so a consumer of canonical JSON can
+    /// compute them exactly.
     /// </remarks>
-    private static void WriteSupplyByEcosystem(ReadOnlySpan<ScanComponent> components, TextWriter writer)
+    private static void WriteSupplyTable(
+        int sbomOnlyCount,
+        int packageManagerOnlyCount,
+        int bothCount,
+        ReadOnlySpan<ScanComponent> components,
+        bool verbose,
+        TextWriter writer)
     {
         var counts = new Dictionary<string, SupplyCounts>(StringComparer.Ordinal);
-        for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)
+        if (verbose)
         {
-            // An empty ecosystem is displayed as "-" everywhere else in the report, and the generator's
-            // own root component is the usual one, so the rows keep summing to the totals line.
-            var ecosystem = components[componentIndex].Ecosystem;
-            if (string.IsNullOrEmpty(ecosystem)) ecosystem = "-";
-
-            counts.TryGetValue(ecosystem, out var entry);
-            switch (components[componentIndex].SuppliedBy)
+            for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)
             {
-                case ComponentSupply.Sbom: entry.SbomOnly++; break;
-                case ComponentSupply.PackageManager: entry.PackageManagerOnly++; break;
-                case ComponentSupply.Sbom | ComponentSupply.PackageManager: entry.Both++; break;
+                // An empty ecosystem is displayed as "-" everywhere else in the report, and the generator's
+                // own root component is the usual one, so the rows keep summing to the totals line.
+                var ecosystem = components[componentIndex].Ecosystem;
+                if (string.IsNullOrEmpty(ecosystem)) ecosystem = "-";
+
+                counts.TryGetValue(ecosystem, out var entry);
+                switch (components[componentIndex].SuppliedBy)
+                {
+                    case ComponentSupply.Sbom: entry.SbomOnly++; break;
+                    case ComponentSupply.PackageManager: entry.PackageManagerOnly++; break;
+                    case ComponentSupply.Sbom | ComponentSupply.PackageManager: entry.Both++; break;
+                }
+
+                counts[ecosystem] = entry;
             }
-
-            counts[ecosystem] = entry;
         }
 
-        if (counts.Count == 0)
+        var labelWidth = "All components".Length;
+        foreach (var ecosystem in counts.Keys)
         {
-            return;
+            labelWidth = Math.Max(labelWidth, ecosystem.Length);
         }
+
+        const string SbomHeader = "SBOM only";
+        const string PackageManagerHeader = "Package manager only";
+        const string BothHeader = "Both";
+        var sbomWidth = Math.Max(SbomHeader.Length, sbomOnlyCount.ToString().Length);
+        var packageManagerWidth = Math.Max(PackageManagerHeader.Length, packageManagerOnlyCount.ToString().Length);
+        var bothWidth = Math.Max(BothHeader.Length, bothCount.ToString().Length);
+
+        writer.Write("  Supplied by");
+        writer.Write(new string(' ', labelWidth - "Supplied by".Length + 4));
+        writer.Write(SbomHeader.PadLeft(sbomWidth));
+        writer.Write("  ");
+        writer.Write(PackageManagerHeader.PadLeft(packageManagerWidth));
+        writer.Write("  ");
+        writer.WriteLine(BothHeader.PadLeft(bothWidth));
+        WriteSupplyRow("All components", sbomOnlyCount, packageManagerOnlyCount, bothCount);
 
         var ecosystems = new string[counts.Count];
         counts.Keys.CopyTo(ecosystems, 0);
@@ -298,15 +319,19 @@ internal sealed class ScanCommands
         for (var ecosystemIndex = 0; ecosystemIndex < ecosystems.Length; ecosystemIndex++)
         {
             var entry = counts[ecosystems[ecosystemIndex]];
+            WriteSupplyRow(ecosystems[ecosystemIndex], entry.SbomOnly, entry.PackageManagerOnly, entry.Both);
+        }
+
+        void WriteSupplyRow(string label, int sbomOnly, int packageManagerOnly, int both)
+        {
             writer.Write("    ");
-            writer.Write(ecosystems[ecosystemIndex]);
-            writer.Write(": ");
-            writer.Write(entry.SbomOnly);
-            writer.Write(" sbom only; ");
-            writer.Write(entry.PackageManagerOnly);
-            writer.Write(" package-manager only; ");
-            writer.Write(entry.Both);
-            writer.WriteLine(" both");
+            writer.Write(label.PadRight(labelWidth));
+            writer.Write("  ");
+            writer.Write(sbomOnly.ToString().PadLeft(sbomWidth));
+            writer.Write("  ");
+            writer.Write(packageManagerOnly.ToString().PadLeft(packageManagerWidth));
+            writer.Write("  ");
+            writer.WriteLine(both.ToString().PadLeft(bothWidth));
         }
     }
 
@@ -318,81 +343,55 @@ internal sealed class ScanCommands
         public int Both;
     }
 
-    /// <summary>Column headers of the evidence table, in display order.</summary>
-    private static readonly string[] EvidenceColumnHeaders = ["targets", "requests", "cache hits", "cache misses", "docs", "matched", "errors"];
-
-    /// <summary>Row labels of the evidence table, in display order.</summary>
-    private static readonly string[] EvidenceRowLabels = ["Package artifacts", "Declared GitHub files", "Package metadata", "Source repositories"];
-
     /// <summary>
-    /// States what each evidence collector was pointed at and what came back, as one aligned table.
+    /// States each evidence collector's population and outcomes without placing unlike units in shared columns.
     /// </summary>
     /// <remarks>
-    /// A cell for a counter a collector does not have is "-", not 0: a zero would claim it attempted the
-    /// work and found nothing. Counters only one collector has stay in a named line under the table.
+    /// The collectors are successive, overlapping stages. Equations are used only for exhaustive partitions
+    /// of one population, and each line names the unit it counts.
     /// </remarks>
-    internal static void WriteEvidenceTable(
+    internal static void WriteEvidenceSummary(
+        int componentCount,
         in PackageArtifactCollectionSummary packageArtifacts,
         in DeclaredGitHubFileArtifactCollectionSummary declaredGitHubFiles,
         in PackageMetadataSummary packageMetadata,
         in SourceRepositorySummary source,
+        bool verbose,
         TextWriter writer)
     {
-        const string Heading = "  Evidence (full scan)";
         const string RowIndent = "    ";
-        const string NoCounter = "-";
+        var lookupEligibleComponentCount = packageMetadata.SupportedComponentCount
+            - packageMetadata.UnsupportedEcosystemCount
+            - packageMetadata.UnversionedPurlCount;
+        var skippedComponentCount = componentCount
+            - packageMetadata.SupportedComponentCount
+            - packageMetadata.NoPurlCount;
 
-        // Package metadata counts supported components rather than planned lookups here, because the row's
-        // cache hits and misses are counted per component: a lookup count would not sum with them.
-        string[][] rows =
-        [
-            [Count(packageArtifacts.TargetCount), NoCounter, NoCounter, NoCounter, Count(packageArtifacts.DocumentCount), Count(packageArtifacts.MatchedCount), NoCounter],
-            [Count(declaredGitHubFiles.TargetCount), Count(declaredGitHubFiles.GitHubRequestCount), Count(declaredGitHubFiles.CacheHitCount), Count(declaredGitHubFiles.CacheMissCount), Count(declaredGitHubFiles.DocumentCount), Count(declaredGitHubFiles.MatchedCount), Count(declaredGitHubFiles.FetchErrorCount)],
-            [Count(packageMetadata.SupportedComponentCount), NoCounter, Count(packageMetadata.CacheHitCount), Count(packageMetadata.CacheMissCount), NoCounter, NoCounter, Count(packageMetadata.FetchErrorCount)],
-            [Count(source.TargetCount), Count(source.GitHubRequestCount), Count(source.CacheHitCount), Count(source.CacheMissCount), NoCounter, NoCounter, Count(source.FetchErrorCount)],
-        ];
+        writer.WriteLine("  Evidence (full scan)");
+        writer.WriteLine($"{RowIndent}Package artifacts: {Noun(packageArtifacts.TargetCount, "target")}; {Noun(packageArtifacts.DocumentCount, "document")}; {Noun(packageArtifacts.MatchedCount, "SPDX match", "SPDX matches")}");
+        if (verbose) WriteDetails("Package artifacts", $"{packageArtifacts.DocumentCount} documents = {Noun(packageArtifacts.MatchedCount, "SPDX match", "SPDX matches")} + {packageArtifacts.DocumentCount - packageArtifacts.MatchedCount} unmatched");
+        writer.WriteLine($"{RowIndent}Declared GitHub files: {Noun(declaredGitHubFiles.TargetCount, "target")}; {Noun(declaredGitHubFiles.CacheMissCount, "cache miss", "cache misses")}; {Noun(declaredGitHubFiles.FetchErrorCount, "fetch error")}");
+        if (verbose) WriteDetails("Declared GitHub files", $"{Noun(declaredGitHubFiles.CacheHitCount, "cache hit")}; {Noun(declaredGitHubFiles.GitHubRequestCount, "GitHub request")}; {Noun(declaredGitHubFiles.DocumentCount, "document")}; {Noun(declaredGitHubFiles.MatchedCount, "component match", "component matches")}");
+        writer.WriteLine($"{RowIndent}Package metadata: {Noun(packageMetadata.TargetCount, "target")}; {Noun(packageMetadata.CacheMissCount, "component cache miss", "component cache misses")}; {Noun(packageMetadata.FetchErrorCount, "fetch error")}");
+        if (verbose) WriteDetails("Package metadata", $"{Noun(componentCount, "component")} = {lookupEligibleComponentCount} lookup eligible + {packageMetadata.UnsupportedEcosystemCount} in unsupported ecosystems + {packageMetadata.UnversionedPurlCount} with unversioned purl + {packageMetadata.NoPurlCount} without purl + {skippedComponentCount} skipped; {packageMetadata.CacheHitCount} component cache hits; {packageMetadata.RefreshedCount} refreshed");
+        writer.WriteLine($"{RowIndent}Source repositories: {Noun(source.TargetCount, "target")}; {Noun(source.CacheMissCount, "cache miss", "cache misses")}; {Noun(source.FetchErrorCount, "fetch error")}");
+        if (verbose) WriteDetails("Source repositories", $"{Noun(source.CacheHitCount, "cache hit")}; {Noun(source.GitHubRequestCount, "GitHub request")}; {source.UnknownCount} component{(source.UnknownCount == 1 ? string.Empty : "s")} with unknown source-license outcome{(source.UnknownCount == 1 ? string.Empty : "s")}");
 
-        var labelWidth = Heading.Length;
-        for (var rowIndex = 0; rowIndex < EvidenceRowLabels.Length; rowIndex++)
+        if (!verbose) return;
+
+        writer.WriteLine($"  External evidence configuration: concurrency {packageMetadata.Concurrency}; configured retry limit {packageMetadata.RetryCount} per request; GitHub auth {source.AuthMode}");
+
+        void WriteDetails(string collectorName, string details)
         {
-            labelWidth = Math.Max(labelWidth, RowIndent.Length + EvidenceRowLabels[rowIndex].Length);
+            writer.Write(new string(' ', RowIndent.Length + collectorName.Length - "Details".Length));
+            writer.Write("Details: ");
+            writer.WriteLine(details);
         }
-
-        Span<int> widths = stackalloc int[EvidenceColumnHeaders.Length];
-        for (var columnIndex = 0; columnIndex < EvidenceColumnHeaders.Length; columnIndex++)
-        {
-            var width = EvidenceColumnHeaders[columnIndex].Length;
-            for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
-            {
-                width = Math.Max(width, rows[rowIndex][columnIndex].Length);
-            }
-
-            widths[columnIndex] = width;
-        }
-
-        WriteEvidenceRow(Heading, EvidenceColumnHeaders, labelWidth, widths, writer);
-        for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
-        {
-            WriteEvidenceRow(RowIndent + EvidenceRowLabels[rowIndex], rows[rowIndex], labelWidth, widths, writer);
-        }
-
-        writer.WriteLine($"{RowIndent}Package metadata: {packageMetadata.RefreshedCount} refreshed; {packageMetadata.UnsupportedEcosystemCount} unsupported ecosystem{(packageMetadata.UnsupportedEcosystemCount == 1 ? string.Empty : "s")}; {packageMetadata.UnversionedPurlCount} unversioned purl{(packageMetadata.UnversionedPurlCount == 1 ? string.Empty : "s")}; {packageMetadata.NoPurlCount} without purl");
-        writer.WriteLine($"{RowIndent}Source repositories: {source.UnknownCount} component{(source.UnknownCount == 1 ? string.Empty : "s")} without source license");
-
-        static string Count(int value) => value.ToString();
     }
 
-    /// <summary>Writes one evidence row with the label left-aligned and every counter right-aligned in its column.</summary>
-    private static void WriteEvidenceRow(string label, string[] cells, int labelWidth, ReadOnlySpan<int> widths, TextWriter writer)
+    private static void WriteInputSummary(in ScanInputDescriptor input, in SpdxData spdx, TextWriter writer)
     {
-        writer.Write(label.PadRight(labelWidth));
-        for (var columnIndex = 0; columnIndex < cells.Length; columnIndex++)
-        {
-            writer.Write("  ");
-            writer.Write(cells[columnIndex].PadLeft(widths[columnIndex]));
-        }
-
-        writer.WriteLine();
+        writer.WriteLine($"  Input: {input.SourceReference}; {input.Format.DisplayName}; SPDX {spdx.LicenseListVersion} ({spdx.Source})");
     }
 
     private static void WriteInputDiscoverySummary(
@@ -401,40 +400,36 @@ internal sealed class ScanCommands
         int skippedIncompleteInputCount,
         string[] excludedInputPaths,
         ReadOnlySpan<ScanComponent> components,
+        bool verbose,
         TextWriter writer)
     {
         var ignoredCandidateCount = KnownUnsupportedInputCandidates.GetUnresolvedCount(candidateDiagnostics);
-        writer.Write("  Input discovery: ");
-        writer.Write(detectedInputFileCount);
-        writer.Write(detectedInputFileCount == 1 ? " detected file; " : " detected files; ");
-        writer.Write(ignoredCandidateCount);
-        writer.Write(ignoredCandidateCount == 1 ? " ignored candidate" : " ignored candidates");
+        writer.WriteLine($"  Input discovery: {Noun(detectedInputFileCount, "file")}; {Noun(ignoredCandidateCount, "ignored candidate")}; {Noun(skippedIncompleteInputCount, "incomplete input set")}; {Noun(excludedInputPaths.Length, "excluded path")}");
+        if (!verbose) return;
+
         if (ignoredCandidateCount > 0)
         {
-            writer.Write(" (");
+            writer.Write("    Ignored candidate types: ");
             KnownUnsupportedInputCandidates.WriteUnresolvedNames(candidateDiagnostics, writer);
-            writer.Write(')');
+            writer.WriteLine();
         }
 
-        writer.Write("; ");
-        writer.Write(skippedIncompleteInputCount);
-        writer.Write(skippedIncompleteInputCount == 1 ? " incomplete input set" : " incomplete input sets");
-        writer.Write("; ");
-        writer.Write(excludedInputPaths.Length);
-        writer.Write(excludedInputPaths.Length == 1 ? " excluded input path" : " excluded input paths");
         if (excludedInputPaths.Length > 0)
         {
-            writer.Write(" (");
+            writer.WriteLine("    Excluded paths:");
             for (var excludedIndex = 0; excludedIndex < excludedInputPaths.Length; excludedIndex++)
             {
-                if (excludedIndex > 0) writer.Write(", ");
+                writer.Write("      - ");
                 writer.Write(excludedInputPaths[excludedIndex]);
+                writer.WriteLine();
             }
-
-            writer.Write(')');
+        }
+        else
+        {
+            writer.WriteLine("    Excluded paths: none");
         }
 
-        writer.Write("; ecosystems ");
+        writer.Write("    Ecosystems: ");
         var ecosystems = new HashSet<string>(StringComparer.Ordinal);
         for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)
         {
@@ -466,6 +461,9 @@ internal sealed class ScanCommands
 
         writer.WriteLine();
     }
+
+    private static string Noun(int count, string singular, string? plural = null)
+        => $"{count} {(count == 1 ? singular : plural ?? singular + "s")}";
 
     private static void WriteText(
         Stream output,

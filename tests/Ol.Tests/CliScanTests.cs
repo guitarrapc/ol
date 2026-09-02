@@ -595,11 +595,11 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath);
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--verbose");
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
             // Each counter here pluralizes from its own count, as every other counted noun in the summary does.
-            await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 2 unsupported ecosystems; 1 unversioned purl;");
+            await Assert.That(stderr).Contains("Details: 3 components = 0 lookup eligible + 2 in unsupported ecosystems + 1 with unversioned purl + 0 without purl + 0 skipped");
         }
         finally
         {
@@ -630,10 +630,10 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-evidence-packages", "pkg:nuget/MyCompany.");
+            var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", inputPath, "--skip-evidence-packages", "pkg:nuget/MyCompany.", "--verbose");
 
             await Assert.That(exitCode).IsEqualTo(0).Because(stderr);
-            await Assert.That(stderr).Contains("    Package metadata: 0 refreshed; 1 unsupported ecosystem;");
+            await Assert.That(stderr).Contains("Details: 3 components = 0 lookup eligible + 1 in unsupported ecosystems + 0 with unversioned purl + 0 without purl + 2 skipped");
         }
         finally
         {
@@ -1028,8 +1028,8 @@ public sealed class CliScanTests
 
         try
         {
-            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", directory, "--format", "json", "--no-external-evidence");
-            var (_, _, textStderr) = await RunOlAsync(root, "scan", "--input", directory, "--format", "text", "--no-external-evidence");
+            var (exitCode, stdout, stderr) = await RunOlAsync(root, "scan", "--input", directory, "--format", "json", "--no-external-evidence", "--verbose");
+            var (_, _, textStderr) = await RunOlAsync(root, "scan", "--input", directory, "--format", "text", "--no-external-evidence", "--verbose");
 
             await Assert.That(exitCode).IsEqualTo(0);
             using var report = JsonDocument.Parse(stdout);
@@ -1043,8 +1043,12 @@ public sealed class CliScanTests
 
             // The document and the summary describe one scan, so they state the same discovery — and the JSON run
             // writes that summary too, so the two projections agree on every stream.
-            await Assert.That(textStderr).Contains("Input discovery: 1 detected file; 1 ignored candidate (Cargo.toml); 0 incomplete input sets");
-            await Assert.That(stderr).Contains("Input discovery: 1 detected file; 1 ignored candidate (Cargo.toml); 0 incomplete input sets");
+            var expectedDiscovery = string.Join(
+                Environment.NewLine,
+                "  Input discovery: 1 file; 1 ignored candidate; 0 incomplete input sets; 0 excluded paths",
+                "    Ignored candidate types: Cargo.toml");
+            await Assert.That(textStderr).Contains(expectedDiscovery);
+            await Assert.That(stderr).Contains(expectedDiscovery);
         }
         finally
         {
@@ -1592,19 +1596,29 @@ public sealed class CliScanTests
                 await Assert.That(exitCode).IsEqualTo(0);
                 await Assert.That(stderr).StartsWith($"{Environment.NewLine}Scan summary{Environment.NewLine}");
                 await Assert.That(stderr).Contains("  License results: 1 displayed component; 1 matched; 0 conflict; 0 unknown; 0 ambiguous; 0 invalid; 0 error");
-                // One block, because the point of the table is that a counter lands in the same column on every row.
                 await Assert.That(stderr).Contains(string.Join(
                     Environment.NewLine,
-                    "  Evidence (full scan)     targets  requests  cache hits  cache misses  docs  matched  errors",
-                    "    Package artifacts            0         -           -             -     0        0       -",
-                    "    Declared GitHub files        0         0           0             0     0        0       0",
-                    "    Package metadata             0         -           0             0     -        -       0",
-                    "    Source repositories          0         0           0             0     -        -       0",
-                    "    Package metadata: 0 refreshed; 0 unsupported ecosystems; 0 unversioned purls; 1 without purl",
-                    "    Source repositories: 1 component without source license"));
-                await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 0 ignored candidates; 0 incomplete input sets; 0 excluded input paths; ecosystems none");
-                await Assert.That(stderr).Contains("  Input:");
+                    "  Supplied by       SBOM only  Package manager only  Both",
+                    "    All components          1                     0     0",
+                    "  Evidence (full scan)",
+                    "    Package artifacts: 0 targets; 0 documents; 0 SPDX matches",
+                    "    Declared GitHub files: 0 targets; 0 cache misses; 0 fetch errors",
+                    "    Package metadata: 0 targets; 0 component cache misses; 0 fetch errors",
+                    "    Source repositories: 0 targets; 0 cache misses; 0 fetch errors"));
+                await Assert.That(stderr).Contains(string.Join(
+                    Environment.NewLine,
+                    "  Input discovery: 1 file; 0 ignored candidates; 0 incomplete input sets; 0 excluded paths",
+                    "  Input: ol-summary-"));
+                await Assert.That(stderr).Contains("; CycloneDX; SPDX ");
+                await Assert.That(stderr).DoesNotContain("Run settings");
+                await Assert.That(stderr).DoesNotContain("configured retry limit");
             }
+
+            var (verboseExitCode, _, verboseStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "text", "--verbose");
+            await Assert.That(verboseExitCode).IsEqualTo(0);
+            await Assert.That(verboseStderr).Contains("configured retry limit 1 per request");
+            await Assert.That(verboseStderr).Contains("Excluded paths: none");
+            await Assert.That(verboseStderr).Contains("Ecosystems: none");
 
             var (quietExitCode, _, quietStderr) = await RunOlAsync(root, "scan", "--input", sbomPath, "--format", "text", "--quiet");
             await Assert.That(quietExitCode).IsEqualTo(0);
@@ -2355,7 +2369,7 @@ public sealed class CliScanTests
             var (exitCode, _, stderr) = await RunOlAsync(root, "scan", "--input", temporaryDirectory, "--no-external-evidence");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 1 incomplete input set; 0 excluded input paths; ecosystems nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 2 files; 0 ignored candidates; 1 incomplete input set; 0 excluded paths");
         }
         finally
         {
@@ -2648,12 +2662,13 @@ public sealed class CliScanTests
                 "scan",
                 "--input",
                 temporaryDirectory,
-                "--no-external-evidence");
+                "--no-external-evidence",
+                "--verbose");
 
             await Assert.That(exitCode).IsEqualTo(0);
             // Without a committed lockfile --locked cannot succeed, so the advice must not carry it.
             await Assert.That(stderr).Contains("Warning: Rust dependencies were not scanned: Cargo.toml is not a supported input. Run 'cargo metadata --format-version 1 > cargo-metadata.json', then scan cargo-metadata.json.");
-            await Assert.That(stderr).Contains("1 ignored candidate (Cargo.toml)");
+            await Assert.That(stderr).Contains("Ignored candidate types: Cargo.toml");
         }
         finally
         {
@@ -2685,10 +2700,11 @@ public sealed class CliScanTests
                 "scan",
                 "--input",
                 temporaryDirectory,
-                "--no-external-evidence");
+                "--no-external-evidence",
+                "--verbose");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("1 ignored candidate (Cargo.lock)");
+            await Assert.That(stderr).Contains("Ignored candidate types: Cargo.lock");
             await Assert.That(stderr).DoesNotContain("Cargo.toml");
         }
         finally
@@ -2827,10 +2843,14 @@ public sealed class CliScanTests
                 "scan",
                 "--input",
                 temporaryDirectory,
-                "--no-external-evidence");
+                "--no-external-evidence",
+                "--verbose");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 1 detected file; 1 ignored candidate (Cargo.lock); 0 incomplete input sets; 0 excluded input paths; ecosystems nuget");
+            await Assert.That(stderr).Contains(string.Join(
+                Environment.NewLine,
+                "  Input discovery: 1 file; 1 ignored candidate; 0 incomplete input sets; 0 excluded paths",
+                "    Ignored candidate types: Cargo.lock"));
         }
         finally
         {
@@ -2894,10 +2914,12 @@ public sealed class CliScanTests
                 "scan",
                 "--input",
                 temporaryDirectory,
-                "--no-external-evidence");
+                "--no-external-evidence",
+                "--verbose");
 
             await Assert.That(exitCode).IsEqualTo(0);
-            await Assert.That(stderr).Contains("  Input discovery: 2 detected files; 0 ignored candidates; 0 incomplete input sets; 0 excluded input paths; ecosystems cargo, nuget");
+            await Assert.That(stderr).Contains("  Input discovery: 2 files; 0 ignored candidates; 0 incomplete input sets; 0 excluded paths");
+            await Assert.That(stderr).Contains("    Ecosystems: cargo, nuget");
             await Assert.That(stderr).DoesNotContain("Warning: Rust dependencies were not scanned");
         }
         finally
@@ -3327,9 +3349,14 @@ public sealed class CliScanTests
                 Path.Combine(temporaryDirectory, "src", "other", "..", "documents"),
                 "--exclude-input-path",
                 Path.Combine(pagesDirectory, "Cargo.toml"),
-                "--no-external-evidence");
+                "--no-external-evidence",
+                "--verbose");
             await Assert.That(summaryExitCode).IsEqualTo(0).Because(summaryStderr);
-            await Assert.That(summaryStderr).Contains("2 excluded input paths (src/documents, Pages/Cargo.toml)");
+            await Assert.That(summaryStderr).Contains(string.Join(
+                Environment.NewLine,
+                "    Excluded paths:",
+                "      - src/documents",
+                "      - Pages/Cargo.toml"));
         }
         finally
         {
@@ -4324,7 +4351,8 @@ public sealed class CliScanTests
                     "--cache-dir", cacheRoot,
                     "--format", format,
                     "--concurrency", "1",
-                    "--retry", "0");
+                    "--retry", "0",
+                    "--verbose");
 
                 await Assert.That(human.ExitCode).IsEqualTo(0).Because(human.Stderr);
                 for (var index = 0; index < packages.Length; index++)
@@ -4334,9 +4362,11 @@ public sealed class CliScanTests
 
                 await Assert.That(human.Stderr).Contains(string.Join(
                     Environment.NewLine,
-                    "  Evidence (full scan)     targets  requests  cache hits  cache misses  docs  matched  errors",
-                    "    Package artifacts            4         -           -             -     0        0       -",
-                    "    Declared GitHub files        1         0           1             0     1        4       0"));
+                    "  Evidence (full scan)",
+                    "    Package artifacts: 4 targets; 0 documents; 0 SPDX matches",
+                    "              Details: 0 documents = 0 SPDX matches + 0 unmatched",
+                    "    Declared GitHub files: 1 target; 0 cache misses; 0 fetch errors"));
+                await Assert.That(human.Stderr).Contains("                  Details: 1 cache hit; 0 GitHub requests; 1 document; 4 component matches");
             }
         }
         finally

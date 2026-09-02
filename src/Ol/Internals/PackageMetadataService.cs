@@ -415,7 +415,7 @@ internal sealed class PackageMetadataService(
             // package is not published there. Recording it as unknown keeps "asked and told no" separate from
             // "could not ask", which is what makes a private package acknowledgeable instead of permanently errored.
             return exception.StatusCode == HttpStatusCode.NotFound
-                ? CreateNotFoundResult(request)
+                ? await CacheNotFoundResultAsync(request, cancellationToken).ConfigureAwait(false)
                 : CreateFetchError(request);
         }
         catch (HttpRequestException)
@@ -428,21 +428,30 @@ internal sealed class PackageMetadataService(
         }
     }
 
-    private static PackageMetadataLookupResult CreateNotFoundResult(PackageMetadataRequest request)
+    private async Task<PackageMetadataLookupResult> CacheNotFoundResultAsync(
+        PackageMetadataRequest request,
+        CancellationToken cancellationToken)
     {
-        var evidence = new LicenseEvidence(
-            LicenseEvidenceKind.PackageRegistry,
-            PackageRegistry: new PackageRegistryEvidence(PackageMetadataCache.GetCacheKeySha256(request.CacheKey.Span)));
-        var candidate = new LicenseCandidate(
-            LicenseCandidateSource.PackageRegistry,
-            LicenseCandidateKind.Fetch,
-            default,
-            default,
-            LicenseStatus.Unknown,
-            false,
-            LicenseCandidateWarnings.PackageMetadataNotFound,
-            evidence);
-        return new PackageMetadataLookupResult(null, candidate, LookupOutcome.HasCandidate | LookupOutcome.Supported | LookupOutcome.CacheMiss);
+        try
+        {
+            var record = new PackageMetadataRecord(
+                request.CacheKey.ToString(),
+                "package-registry",
+                string.Empty,
+                string.Empty,
+                ["package_metadata_not_found"],
+                [],
+                DateTimeOffset.UtcNow);
+            await cache.WriteAsync(record, cancellationToken).ConfigureAwait(false);
+            return new PackageMetadataLookupResult(
+                new PackageMetadataResolution(record.CacheKey, string.Empty, string.Empty),
+                CreateMetadataCandidate(record),
+                LookupOutcome.HasCandidate | LookupOutcome.Supported | LookupOutcome.CacheMiss);
+        }
+        catch (IOException)
+        {
+            return CreateFetchError(request);
+        }
     }
 
     private static PackageMetadataLookupResult CreateFetchError(PackageMetadataRequest request)

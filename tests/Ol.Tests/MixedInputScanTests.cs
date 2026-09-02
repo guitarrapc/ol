@@ -112,10 +112,11 @@ public sealed class MixedInputScanTests
             "--verbose");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr).Contains("  Supplied by: 2 sbom only; 8 package-manager only; 3 both");
-        await Assert.That(stderr).Contains("    -: 1 sbom only; 0 package-manager only; 0 both");
-        await Assert.That(stderr).Contains("    npm: 1 sbom only; 4 package-manager only; 3 both");
-        await Assert.That(stderr).Contains("    nuget: 0 sbom only; 4 package-manager only; 0 both");
+        await Assert.That(stderr).Contains("  Supplied by       SBOM only  Package manager only  Both");
+        await Assert.That(stderr).Contains("    All components          2                     8     3");
+        await Assert.That(stderr).Contains("    -                       1                     0     0");
+        await Assert.That(stderr).Contains("    npm                     1                     4     3");
+        await Assert.That(stderr).Contains("    nuget                   0                     4     0");
     }
 
     /// <summary>
@@ -136,10 +137,10 @@ public sealed class MixedInputScanTests
             "--verbose");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr.IndexOf("    -: ", StringComparison.Ordinal))
-            .IsLessThan(stderr.IndexOf("    npm: ", StringComparison.Ordinal));
-        await Assert.That(stderr.IndexOf("    npm: ", StringComparison.Ordinal))
-            .IsLessThan(stderr.IndexOf("    nuget: ", StringComparison.Ordinal));
+        await Assert.That(stderr.IndexOf("    -  ", StringComparison.Ordinal))
+            .IsLessThan(stderr.IndexOf("    npm  ", StringComparison.Ordinal));
+        await Assert.That(stderr.IndexOf("    npm  ", StringComparison.Ordinal))
+            .IsLessThan(stderr.IndexOf("    nuget  ", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -159,9 +160,9 @@ public sealed class MixedInputScanTests
             "--no-external-evidence");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr).Contains("  Supplied by: 2 sbom only; 8 package-manager only; 3 both");
-        await Assert.That(stderr).DoesNotContain("    npm: ");
-        await Assert.That(stderr).DoesNotContain("    nuget: ");
+        await Assert.That(stderr).Contains("    All components          2                     8     3");
+        await Assert.That(stderr).DoesNotContain("    npm  ");
+        await Assert.That(stderr).DoesNotContain("    nuget  ");
     }
 
     /// <summary>A single-input scan states one row that repeats the totals, rather than none.</summary>
@@ -177,7 +178,7 @@ public sealed class MixedInputScanTests
             "--verbose");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr).Contains("    npm: 0 sbom only; 7 package-manager only; 0 both");
+        await Assert.That(stderr).Contains("    npm                     0                     7     0");
     }
 
     /// <summary>The rows are part of the summary, so <c>--quiet</c> suppresses them with it.</summary>
@@ -194,8 +195,8 @@ public sealed class MixedInputScanTests
             "--quiet");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr).DoesNotContain("Supplied by:");
-        await Assert.That(stderr).DoesNotContain("    npm: ");
+        await Assert.That(stderr).DoesNotContain("Supplied by");
+        await Assert.That(stderr).DoesNotContain("    npm  ");
     }
 
     /// <summary>
@@ -348,7 +349,7 @@ public sealed class MixedInputScanTests
             "--no-external-evidence");
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stderr).Contains("  Supplied by: 2 sbom only; 4 package-manager only; 3 both");
+        await Assert.That(stderr).Contains("    All components          2                     4     3");
     }
 
     [Test]

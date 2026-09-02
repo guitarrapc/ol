@@ -128,6 +128,36 @@ public sealed class PackageMetadataTests
     }
 
     [Test]
+    public async Task Enrichment_RegistryAnswersNotFound_SecondScanUsesCachedAnswer()
+    {
+        var index = new SpdxLicenseIndex(["MIT"], []);
+        var root = Path.Combine(Path.GetTempPath(), $"ol-package-cache-{Guid.NewGuid():N}");
+        using var handler = new SequenceResponseHandler(HttpStatusCode.NotFound);
+        using var httpClient = new HttpClient(handler);
+        try
+        {
+            var cache = new PackageMetadataCache(root);
+            var firstService = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var secondService = new PackageMetadataService(index, cache, refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var firstComponents = new[] { CreateEnrichmentComponent(index, "pkg:npm/private-pkg@1.0.0") };
+            var secondComponents = new[] { CreateEnrichmentComponent(index, "pkg:npm/private-pkg@1.0.0") };
+
+            var first = await firstService.EnrichAsync(firstComponents, new PackageMetadataResolution?[1], concurrency: 1);
+            var second = await secondService.EnrichAsync(secondComponents, new PackageMetadataResolution?[1], concurrency: 1);
+
+            await Assert.That(first.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(second.Summary.CacheHitCount).IsEqualTo(1);
+            await Assert.That(second.Summary.CacheMissCount).IsEqualTo(0);
+            await Assert.That(second.Components[0].Warnings.ToStrings()).Contains("package_metadata_not_found");
+            await Assert.That(handler.CallCount).IsEqualTo(1);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Enrichment_RegistryFailsTransiently_RemainsCollectionError()
     {
         var index = new SpdxLicenseIndex(["MIT"], []);
@@ -141,10 +171,16 @@ public sealed class PackageMetadataTests
             var resolutions = new PackageMetadataResolution?[components.Length];
 
             var (enriched, summary) = await service.EnrichAsync(components, resolutions, concurrency: 1);
+            var secondService = new PackageMetadataService(index, new PackageMetadataCache(root), refresh: false, retryCount: 0, uncollectedPackages: null, client: httpClient);
+            var secondComponents = new[] { CreateEnrichmentComponent(index, "pkg:npm/example@1.0.0") };
+            var second = await secondService.EnrichAsync(secondComponents, new PackageMetadataResolution?[1], concurrency: 1);
 
             await Assert.That(enriched[0].Status).IsEqualTo(LicenseStatus.Error);
             await Assert.That(enriched[0].Warnings.ToStrings()).Contains("package_metadata_fetch_failed");
             await Assert.That(summary.FetchErrorCount).IsEqualTo(1);
+            await Assert.That(second.Summary.CacheHitCount).IsEqualTo(0);
+            await Assert.That(second.Summary.CacheMissCount).IsEqualTo(1);
+            await Assert.That(handler.CallCount).IsEqualTo(2);
         }
         finally
         {

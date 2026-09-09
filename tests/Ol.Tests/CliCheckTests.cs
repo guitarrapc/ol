@@ -225,12 +225,14 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Package source | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
             await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl |");
             await Assert.That(result.Stdout).Contains("| private-gem | 2.0.0 | gem | git | - | unknown | license is unresolved | package_metadata_no_purl |");
-            await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl | - | Gemfile.lock (debug/Gemfile.lock) | - |");
-            await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl | - | Gemfile.lock (release/Gemfile.lock) | - |");
+            await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl | - | [1] | - |");
+            await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl | - | [2] | - |");
             var allComponents = result.Stdout[result.Stdout.IndexOf("## All components", StringComparison.Ordinal)..];
             await Assert.That(allComponents).Contains("| Purl | Origin(s) |");
-            await Assert.That(allComponents).Contains("| local-gem | 0.1.0 | gem | - | unknown | direct | package-manager | - | Gemfile.lock (debug/Gemfile.lock) |");
-            await Assert.That(allComponents).Contains("| local-gem | 0.1.0 | gem | - | unknown | direct | package-manager | - | Gemfile.lock (release/Gemfile.lock) |");
+            await Assert.That(allComponents).Contains("| local-gem | 0.1.0 | gem | - | unknown | direct | package-manager | - | [1] |");
+            await Assert.That(allComponents).Contains("| local-gem | 0.1.0 | gem | - | unknown | direct | package-manager | - | [2] |");
+            await Assert.That(allComponents).Contains("| [1] | Gemfile.lock | debug/Gemfile.lock |");
+            await Assert.That(allComponents).Contains("| [2] | Gemfile.lock | release/Gemfile.lock |");
             var verbose = await RunCheckWorkflowAsync(root, "--input", inputDirectory, "--allow-licenses", "MIT", "--no-external-evidence", "--verbose");
             await Assert.That(verbose.ExitCode).IsEqualTo(2).Because(verbose.Stderr);
             var localRows = verbose.Stdout.Split('\n').Where(static line => line.StartsWith("local-gem ", StringComparison.Ordinal)).ToArray();
@@ -290,19 +292,19 @@ public sealed class CliCheckTests
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
             await Assert.That(result.Stderr).IsEmpty();
             await Assert.That(result.Stdout).Contains("| Package | Version | Ecosystem | Package source | Purl | License/Status | Reason | Mechanism | Reference | Origin(s) | Path |");
-            await Assert.That(result.Stdout).Contains("| shared | 1.0.0 | npm | registry | pkg:npm/shared@1.0.0 | MIT | license is not allowed | - | - | packages/a (apps/web/package-lock.json), root-app (apps/web/package-lock.json) |");
+            await Assert.That(result.Stdout).Contains("| shared | 1.0.0 | npm | registry | pkg:npm/shared@1.0.0 | MIT | license is not allowed | - | - | [1–2] |");
             await Assert.That(result.Stdout).Contains("## Usage origins");
 
             var usageOriginsStart = result.Stdout.IndexOf("## Usage origins", StringComparison.Ordinal);
             var usageOriginsEnd = result.Stdout.IndexOf("## Resolved license usage", usageOriginsStart, StringComparison.Ordinal);
             var usageOrigins = result.Stdout[usageOriginsStart..usageOriginsEnd];
             await Assert.That(usageOrigins).Contains("| Origin | Ecosystem | Violating packages |");
-            await Assert.That(usageOrigins).Contains("| packages/a (apps/web/package-lock.json) | npm | shared 1.0.0, workspace-only 6.0.0 |");
-            await Assert.That(usageOrigins).Contains("| root-app (apps/web/package-lock.json) | npm |");
+            await Assert.That(usageOrigins).Contains("| [1] | npm | shared 1.0.0, workspace-only 6.0.0 |");
+            await Assert.That(usageOrigins).Contains("| [2] | npm |");
             await Assert.That(usageOrigins.Split("shared 1.0.0", StringSplitOptions.None)).Count().IsEqualTo(3);
             var allComponents = result.Stdout[result.Stdout.IndexOf("## All components", StringComparison.Ordinal)..];
-            await Assert.That(allComponents).Contains("| shared | 1.0.0 | npm | Apache-2.0 | matched | transitive | package-manager | pkg:npm/shared@1.0.0 | root-app (apps/web/package-lock.json) |");
-            await Assert.That(allComponents).Contains("| shared | 1.0.0 | npm | MIT | matched | direct | package-manager | pkg:npm/shared@1.0.0 | packages/a (apps/web/package-lock.json), root-app (apps/web/package-lock.json) |");
+            await Assert.That(allComponents).Contains("| shared | 1.0.0 | npm | Apache-2.0 | matched | transitive | package-manager | pkg:npm/shared@1.0.0 | [2] |");
+            await Assert.That(allComponents).Contains("| shared | 1.0.0 | npm | MIT | matched | direct | package-manager | pkg:npm/shared@1.0.0 | [1–2] |");
         }
         finally
         {
@@ -335,7 +337,7 @@ public sealed class CliCheckTests
             var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "Apache-2.0", "--format", "markdown");
 
             await Assert.That(result.ExitCode).IsEqualTo(2).Because(result.Stderr);
-            await Assert.That(result.Stdout).Contains("| packages/a (apps/web/package-lock.json) | npm, nuget | shared 1.0.0, workspace-only 6.0.0 |");
+            await Assert.That(result.Stdout).Contains("| [1] | npm, nuget | shared 1.0.0, workspace-only 6.0.0 |");
         }
         finally
         {
@@ -368,6 +370,51 @@ public sealed class CliCheckTests
         finally
         {
             File.Delete(inputPath);
+        }
+    }
+
+    [Test]
+    public async Task Check_WithMarkdownOrigins_CompressesOnlyConsecutiveReferencesWhenPolicyPasses()
+    {
+        var reportPath = Path.Combine(Path.GetTempPath(), $"ol-origin-ranges-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(reportPath, """
+            { "schemaVersion": 1, "metadata": { "input": { "kind": "package-manager", "format": "npm-package-lock" }, "spdx": { "licenseListVersion": "3.0" } },
+              "components": [
+                { "name": "a", "version": "1", "ecosystem": "npm", "dependency": "direct", "status": "matched", "license": "MIT" },
+                { "name": "b", "version": "1", "ecosystem": "npm", "dependency": "direct", "status": "matched", "license": "MIT" }
+              ],
+              "inventory": {
+                "components": [
+                  { "name": "a", "version": "1", "ecosystem": "npm", "dependency": "direct" },
+                  { "name": "b", "version": "1", "ecosystem": "npm", "dependency": "direct" }
+                ],
+                "contexts": [
+                  { "projectIdentity": "p1", "inputPath": "one.lock" },
+                  { "projectIdentity": "p2", "inputPath": "two.lock" },
+                  { "projectIdentity": "p3", "inputPath": "three.lock" },
+                  { "projectIdentity": "p4", "inputPath": "four.lock" }
+                ],
+                "occurrences": [
+                  { "componentIndex": 0, "contextIndex": 0 },
+                  { "componentIndex": 1, "contextIndex": 1 },
+                  { "componentIndex": 0, "contextIndex": 2 },
+                  { "componentIndex": 0, "contextIndex": 3 }
+                ], "edges": []
+              }
+            }
+            """);
+        try
+        {
+            var result = await RunOlAsync(FindRepositoryRoot(), "check", "--report", reportPath, "--allow-licenses", "MIT", "--format", "markdown");
+            await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+            await Assert.That(result.Stdout).Contains("| [1], [3–4] |");
+            await Assert.That(result.Stdout).Contains("| [2] | p2 | two.lock |");
+            await Assert.That(result.Stdout.Split("Origin references", StringSplitOptions.None).Length).IsEqualTo(2);
+            await Assert.That(result.Stdout.Split("one.lock", StringSplitOptions.None).Length).IsEqualTo(2);
+        }
+        finally
+        {
+            File.Delete(reportPath);
         }
     }
 

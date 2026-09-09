@@ -614,6 +614,9 @@ internal static class CheckRenderer
     {
         var components = report.Components;
         var summary = ScanSummary.Create(components);
+        var inventoryComponents = ComponentInventoryProjection.Create(report.Inventory.Components, components);
+        var allOrigins = UsageOriginProjection.Create(report.Inventory, [], inventoryComponents, allComponentCount: components.Length);
+        var originIndex = MarkdownOriginIndex.Create(allOrigins, report.Inventory.Contexts);
 
         WriteUtf8(writer, "# License Review (ol)"u8);
         WriteNewLine(writer);
@@ -658,7 +661,6 @@ internal static class CheckRenderer
         else
         {
             using var rootPaths = DependencyPathResolver.BuildRootPaths(report.Inventory);
-            var inventoryComponents = ComponentInventoryProjection.Create(report.Inventory.Components, components);
             var packageSources = ProjectPackageSources(report.Inventory, violations, inventoryComponents);
             WriteMarkdownViolationGroups(writer, violations, components, packageSources);
             WriteNewLine(writer);
@@ -700,7 +702,7 @@ internal static class CheckRenderer
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, row.Reference);
                 WriteUtf8(writer, " | "u8);
-                WriteMarkdownOrigins(writer, usageOrigins.GetOrigins(i), report.Inventory.Contexts);
+                WriteMarkdownOrigins(writer, usageOrigins.GetOrigins(i), originIndex);
                 WriteUtf8(writer, " | "u8);
                 WriteMarkdownValue(writer, row.Path);
                 WriteUtf8(writer, " |"u8);
@@ -710,7 +712,7 @@ internal static class CheckRenderer
             WriteNewLine(writer);
             WriteUtf8(writer, "</details>"u8);
             WriteNewLine(writer);
-            WriteMarkdownUsageOrigins(writer, usageOrigins, components, report.Inventory.Contexts);
+            WriteMarkdownUsageOrigins(writer, usageOrigins, components, report.Inventory.Contexts, originIndex);
         }
 
         WriteNewLine(writer);
@@ -723,7 +725,8 @@ internal static class CheckRenderer
         WriteMarkdownCoverage(writer, summary, components);
 
         WriteNewLine(writer);
-        WriteMarkdownAllComponents(writer, report.Inventory, components);
+        WriteMarkdownAllComponents(writer, components, allOrigins, originIndex);
+        WriteMarkdownOriginIndex(writer, originIndex, report.Inventory.Contexts);
 
         WriteNewLine(writer);
         WriteMarkdownScanDiagnostics(writer, report);
@@ -1120,20 +1123,60 @@ internal static class CheckRenderer
         => GetUsageOriginPrimary(left).Equals(GetUsageOriginPrimary(right))
             && GetUsageOriginInputPath(left).Equals(GetUsageOriginInputPath(right));
 
-    private static void WriteMarkdownOrigin(IBufferWriter<byte> writer, in DependencyResolutionContext context)
+    private readonly record struct MarkdownOriginIndex(int[] Numbers, int[] Contexts)
     {
-        WriteMarkdownValue(writer, GetUsageOriginPrimary(context));
-        var inputPath = GetUsageOriginInputPath(context);
-        if (inputPath.IsEmpty) return;
-        WriteUtf8(writer, " ("u8);
-        WriteMarkdownValue(writer, inputPath);
-        WriteUtf8(writer, ")"u8);
+        public static MarkdownOriginIndex Create(in UsageOriginProjection origins, DependencyResolutionContext[] contexts)
+        {
+            var numbers = new int[contexts.Length];
+            var distinct = new List<int>();
+            foreach (var origin in origins.ByOrigin)
+            {
+                if (distinct.Count == 0 || !UsageOriginEquals(contexts[distinct[^1]], contexts[origin.ContextIndex]))
+                    distinct.Add(origin.ContextIndex);
+                numbers[origin.ContextIndex] = distinct.Count;
+            }
+            return new MarkdownOriginIndex(numbers, distinct.ToArray());
+        }
+    }
+
+    private static void WriteOriginReference(IBufferWriter<byte> writer, int first, int last)
+    {
+        WriteUtf8(writer, "["u8);
+        WriteInt32(writer, first);
+        if (last != first)
+        {
+            WriteUtf8(writer, "–"u8);
+            WriteInt32(writer, last);
+        }
+        WriteUtf8(writer, "]"u8);
+    }
+
+    private static void WriteMarkdownOriginIndex(IBufferWriter<byte> writer, in MarkdownOriginIndex index, DependencyResolutionContext[] contexts)
+    {
+        if (index.Contexts.Length == 0) return;
+        WriteNewLine(writer);
+        WriteUtf8(writer, "<details>\n<summary>Origin references</summary>\n\n| Origin | Project | Input |\n|---|---|---|\n"u8);
+        for (var i = 0; i < index.Contexts.Length; i++)
+        {
+            ref readonly var context = ref contexts[index.Contexts[i]];
+            WriteUtf8(writer, "| "u8);
+            WriteOriginReference(writer, i + 1, i + 1);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, GetUsageOriginPrimary(context));
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownValue(writer, GetUsageOriginInputPath(context));
+            WriteUtf8(writer, " |"u8);
+            WriteNewLine(writer);
+        }
+        WriteNewLine(writer);
+        WriteUtf8(writer, "</details>"u8);
+        WriteNewLine(writer);
     }
 
     private static void WriteMarkdownOrigins(
         IBufferWriter<byte> writer,
         ReadOnlySpan<ComponentOrigin> origins,
-        DependencyResolutionContext[] contexts)
+        in MarkdownOriginIndex index)
     {
         if (origins.IsEmpty)
         {
@@ -1141,10 +1184,15 @@ internal static class CheckRenderer
             return;
         }
 
-        for (var i = 0; i < origins.Length; i++)
+        for (var i = 0; i < origins.Length;)
         {
             if (i != 0) WriteUtf8(writer, ", "u8);
-            WriteMarkdownOrigin(writer, contexts[origins[i].ContextIndex]);
+            var first = index.Numbers[origins[i].ContextIndex];
+            var last = first;
+            i++;
+            while (i < origins.Length && index.Numbers[origins[i].ContextIndex] == last + 1)
+                last = index.Numbers[origins[i++].ContextIndex];
+            WriteOriginReference(writer, first, last);
         }
     }
 
@@ -1152,7 +1200,8 @@ internal static class CheckRenderer
         IBufferWriter<byte> writer,
         in UsageOriginProjection projection,
         ReadOnlySpan<ScanComponent> components,
-        DependencyResolutionContext[] contexts)
+        DependencyResolutionContext[] contexts,
+        in MarkdownOriginIndex index)
     {
         WriteNewLine(writer);
         WriteUtf8(writer, "## Usage origins"u8);
@@ -1178,7 +1227,8 @@ internal static class CheckRenderer
             while (end < origins.Length && UsageOriginEquals(origin, contexts[origins[end].ContextIndex])) end++;
 
             WriteUtf8(writer, "| "u8);
-            WriteMarkdownOrigin(writer, origin);
+            var number = index.Numbers[origins[start].ContextIndex];
+            WriteOriginReference(writer, number, number);
             WriteUtf8(writer, " | "u8);
             WriteMarkdownOriginEcosystems(writer, origins[start..end], components, ecosystems);
             WriteUtf8(writer, " | "u8);
@@ -1545,11 +1595,10 @@ internal static class CheckRenderer
 
     private static void WriteMarkdownAllComponents(
         IBufferWriter<byte> writer,
-        in DependencyInventory inventory,
-        ReadOnlySpan<ScanComponent> components)
+        ReadOnlySpan<ScanComponent> components,
+        in UsageOriginProjection origins,
+        in MarkdownOriginIndex index)
     {
-        var inventoryComponents = ComponentInventoryProjection.Create(inventory.Components, components);
-        var origins = UsageOriginProjection.Create(inventory, [], inventoryComponents, allComponentCount: components.Length);
         WriteUtf8(writer, "## All components"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
@@ -1584,7 +1633,7 @@ internal static class CheckRenderer
             WriteUtf8(writer, " | "u8);
             WriteMarkdownValue(writer, component.Purl);
             WriteUtf8(writer, " | "u8);
-            WriteMarkdownOrigins(writer, origins.GetOrigins(i), inventory.Contexts);
+            WriteMarkdownOrigins(writer, origins.GetOrigins(i), index);
             WriteUtf8(writer, " |"u8);
             WriteNewLine(writer);
         }

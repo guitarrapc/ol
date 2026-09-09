@@ -233,6 +233,22 @@ public sealed class CliCheckTests
             await Assert.That(allComponents).Contains("| Purl | Origin(s) |");
             await Assert.That(allComponents).Contains("| local-gem | 0.1.0 | gem | - | unknown | direct | package-manager | - | Gemfile.lock (debug/Gemfile.lock) |");
             await Assert.That(allComponents).Contains("| local-gem | 0.1.0 | gem | - | unknown | direct | package-manager | - | Gemfile.lock (release/Gemfile.lock) |");
+            var verbose = await RunCheckWorkflowAsync(root, "--input", inputDirectory, "--allow-licenses", "MIT", "--no-external-evidence", "--verbose");
+            await Assert.That(verbose.ExitCode).IsEqualTo(2).Because(verbose.Stderr);
+            var localRows = verbose.Stdout.Split('\n').Where(static line => line.StartsWith("local-gem ", StringComparison.Ordinal)).ToArray();
+            await Assert.That(localRows.Length).IsEqualTo(2);
+            await Assert.That(localRows[0].TrimEnd()).EndsWith("[1]");
+            await Assert.That(localRows[1].TrimEnd()).EndsWith("[2]");
+            var sharedRow = verbose.Stdout.Split('\n').Single(static line => line.StartsWith("i18n ", StringComparison.Ordinal));
+            await Assert.That(sharedRow.TrimEnd()).EndsWith("[1], [2]");
+            await Assert.That(verbose.Stdout.Split('\n').Count(static line => line.StartsWith("[1] ", StringComparison.Ordinal))).IsEqualTo(1);
+            await Assert.That(verbose.Stdout.Split('\n').Count(static line => line.StartsWith("[2] ", StringComparison.Ordinal))).IsEqualTo(1);
+            await Assert.That(verbose.Stdout).Contains("Origins");
+            await Assert.That(verbose.Stdout).Contains("debug/Gemfile.lock");
+            await Assert.That(verbose.Stdout).Contains("release/Gemfile.lock");
+            var normal = await RunCheckWorkflowAsync(root, "--input", inputDirectory, "--allow-licenses", "MIT", "--no-external-evidence");
+            await Assert.That(normal.Stdout).DoesNotContain("Origins");
+            await Assert.That(normal.Stdout).DoesNotContain("[1]");
         }
         finally
         {

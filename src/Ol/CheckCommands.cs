@@ -189,7 +189,8 @@ internal sealed class CheckCommands
                     ambiguityAllowedCount,
                     persisted.ExcludedInputPaths,
                     persisted.View,
-                    persisted.DeclaresNoComponents);
+                    persisted.DeclaresNoComponents,
+                    verbose);
             }
         }
         catch (IOException exception)
@@ -414,7 +415,8 @@ internal static class CheckRenderer
         int ambiguityAllowedCount = 0,
         string[]? excludedInputPaths = null,
         ScanReportViewScope view = default,
-        bool declaresNoComponents = false)
+        bool declaresNoComponents = false,
+        bool verbose = false)
     {
         WriteDependencyFilter(writer, view);
         WriteExcludedInputPaths(writer, excludedInputPaths);
@@ -473,11 +475,39 @@ internal static class CheckRenderer
             "Mechanism"u8.Length,
             "Reference"u8.Length,
             "Path"u8.Length,
+            "Origins"u8.Length,
         };
+        if (!verbose) widths = widths[..9];
         // The reference and the path are built strings, so the width pass keeps what it derived and the
         // write pass replays it. Resolve first, so nothing sits between the rental and its try.
         using var rootPaths = DependencyPathResolver.BuildRootPaths(inventory);
         var inventoryComponents = ComponentInventoryProjection.Create(inventory.Components, components);
+        var origins = verbose
+            ? UsageOriginProjection.Create(inventory, violations, inventoryComponents)
+            : default;
+        var originContexts = new List<int>();
+        var originReferences = verbose ? new string[violations.Length] : [];
+        if (verbose)
+        {
+            var numbers = new int[inventory.Contexts.Length];
+            foreach (var origin in origins.ByOrigin)
+            {
+                if (originContexts.Count == 0 || !UsageOriginEquals(inventory.Contexts[originContexts[^1]], inventory.Contexts[origin.ContextIndex]))
+                    originContexts.Add(origin.ContextIndex);
+                numbers[origin.ContextIndex] = originContexts.Count;
+            }
+            for (var i = 0; i < violations.Length; i++)
+            {
+                var references = new StringBuilder();
+                foreach (var origin in origins.GetOrigins(i))
+                {
+                    if (references.Length != 0) references.Append(", ");
+                    references.Append('[').Append(numbers[origin.ContextIndex]).Append(']');
+                }
+                originReferences[i] = references.Length == 0 ? "-" : references.ToString();
+                TextTable.Include(ref widths[9], originReferences[i]);
+            }
+        }
         var rows = ArrayPool<ViolationRow>.Shared.Rent(violations.Length);
         try
         {
@@ -507,7 +537,8 @@ internal static class CheckRenderer
             TextTable.WriteCell(writer, "Reason"u8, widths[5]);
             TextTable.WriteCell(writer, "Mechanism"u8, widths[6]);
             TextTable.WriteCell(writer, "Reference"u8, widths[7]);
-            TextTable.WriteCell(writer, "Path"u8, widths[8], last: true);
+            TextTable.WriteCell(writer, "Path"u8, widths[8], last: !verbose);
+            if (verbose) TextTable.WriteCell(writer, "Origins"u8, widths[9], last: true);
             TextTable.WriteNewLine(writer);
             TextTable.WriteSeparator(writer, widths);
 
@@ -527,15 +558,44 @@ internal static class CheckRenderer
                 TextTable.WriteCell(writer, Reason(violation.Kind), widths[5]);
                 TextTable.WriteCell(writer, MechanismUtf8(row), widths[6]);
                 TextTable.WriteCell(writer, row.Reference, widths[7]);
-                TextTable.WriteCell(writer, row.Path, widths[8], last: true);
+                TextTable.WriteCell(writer, row.Path, widths[8], last: !verbose);
+                if (verbose) TextTable.WriteCell(writer, originReferences[i], widths[9], last: true);
                 TextTable.WriteNewLine(writer);
             }
 
+            if (verbose) WriteTextOrigins(writer, inventory.Contexts, originContexts);
             mechanismTally.Write(writer);
         }
         finally
         {
             ArrayPool<ViolationRow>.Shared.Return(rows, clearArray: true);
+        }
+    }
+
+    private static void WriteTextOrigins(IBufferWriter<byte> writer, DependencyResolutionContext[] contexts, List<int> originContexts)
+    {
+        if (originContexts.Count == 0) return;
+        Span<int> widths = stackalloc int[] { 6, 7, 5 };
+        for (var i = 0; i < originContexts.Count; i++)
+        {
+            ref readonly var context = ref contexts[originContexts[i]];
+            TextTable.Include(ref widths[0], $"[{i + 1}]");
+            TextTable.Include(ref widths[1], GetUsageOriginPrimary(context).Span);
+            TextTable.Include(ref widths[2], GetUsageOriginInputPath(context).Span);
+        }
+        WriteNewLine(writer);
+        TextTable.WriteCell(writer, "Origin"u8, widths[0]);
+        TextTable.WriteCell(writer, "Project"u8, widths[1]);
+        TextTable.WriteCell(writer, "Input"u8, widths[2], last: true);
+        WriteNewLine(writer);
+        TextTable.WriteSeparator(writer, widths);
+        for (var i = 0; i < originContexts.Count; i++)
+        {
+            ref readonly var context = ref contexts[originContexts[i]];
+            TextTable.WriteCell(writer, $"[{i + 1}]", widths[0]);
+            TextTable.WriteCell(writer, GetUsageOriginPrimary(context).Span, widths[1]);
+            TextTable.WriteCell(writer, GetUsageOriginInputPath(context).Span, widths[2], last: true);
+            WriteNewLine(writer);
         }
     }
 

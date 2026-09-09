@@ -107,7 +107,6 @@ public sealed class CliCheckTests
             await Assert.That(result.ExitCode).IsEqualTo(2);
             await Assert.That(result.Stderr).IsEmpty();
             await Assert.That(result.Stdout).Contains("# License Review (ol)");
-            await Assert.That(result.Stdout).Contains("## Result");
             await Assert.That(result.Stdout).Contains("> ❌ **failed** — 2 violations.");
             await Assert.That(result.Stdout).Contains("| Allow-list | MIT |");
             await Assert.That(result.Stdout).Contains("| Resolved license IDs | GPL-3.0-only,MIT |");
@@ -138,7 +137,6 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| unknown | 1.0.0 | npm | unknown | pkg:npm/unknown@1.0.0 | unknown | license is unresolved | - | - | - | - |");
             await Assert.That(result.Stdout).Contains("## Usage origins");
             await Assert.That(result.Stdout).Contains("No usage origins are recorded for these violations.");
-            await Assert.That(result.Stdout.IndexOf("## Result", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("## Violations", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("## Violations", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("## Usage origins", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("## Usage origins", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("## Resolved license usage", StringComparison.Ordinal));
             await Assert.That(result.Stdout.IndexOf("## Resolved license usage", StringComparison.Ordinal)).IsLessThan(result.Stdout.IndexOf("## Coverage", StringComparison.Ordinal));

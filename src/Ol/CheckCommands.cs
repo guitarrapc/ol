@@ -618,10 +618,6 @@ internal static class CheckRenderer
         WriteUtf8(writer, "# License Review (ol)"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
-
-        WriteUtf8(writer, "## Result"u8);
-        WriteNewLine(writer);
-        WriteNewLine(writer);
         WriteMarkdownResultBanner(writer, report.DeclaresNoComponents, violations, policyComponentCount);
         WriteNewLine(writer);
         WriteUtf8(writer, "| Item | Value |"u8);

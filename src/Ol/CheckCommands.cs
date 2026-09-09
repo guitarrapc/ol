@@ -667,7 +667,7 @@ internal static class CheckRenderer
         WriteMarkdownCoverage(writer, summary, components);
 
         WriteNewLine(writer);
-        WriteMarkdownAllComponents(writer, components);
+        WriteMarkdownAllComponents(writer, report.Inventory, components);
 
         WriteNewLine(writer);
         WriteMarkdownScanDiagnostics(writer, report);
@@ -932,8 +932,11 @@ internal static class CheckRenderer
         public static UsageOriginProjection Create(
             in DependencyInventory inventory,
             ReadOnlySpan<LicensePolicyViolation> violations,
-            in ComponentInventoryProjection inventoryComponents)
+            in ComponentInventoryProjection inventoryComponents,
+            int? allComponentCount = null)
         {
+            // All-components rows use their report index directly; violation rows use the policy selection.
+            var rowCount = allComponentCount ?? violations.Length;
             var contexts = inventory.Contexts;
             var occurrences = inventory.Occurrences;
             if (contexts.Length == 0 || occurrences.Length == 0)
@@ -943,9 +946,9 @@ internal static class CheckRenderer
 
             var violationByComponent = new int[inventory.Components.Length];
             violationByComponent.AsSpan().Fill(-1);
-            for (var violationIndex = 0; violationIndex < violations.Length; violationIndex++)
+            for (var violationIndex = 0; violationIndex < rowCount; violationIndex++)
             {
-                var reportComponentIndex = violations[violationIndex].ComponentIndex;
+                var reportComponentIndex = allComponentCount.HasValue ? violationIndex : violations[violationIndex].ComponentIndex;
                 var inventoryComponentIndex = inventoryComponents.Get(reportComponentIndex);
 
                 if ((uint)inventoryComponentIndex < (uint)violationByComponent.Length)
@@ -973,7 +976,7 @@ internal static class CheckRenderer
                     if (violationIndex < 0 || GetUsageOriginPrimary(contexts[occurrence.ContextIndex]).IsEmpty) continue;
                     pairs[pairCount++] = new ComponentOrigin(
                         violationIndex,
-                        violations[violationIndex].ComponentIndex,
+                        allComponentCount.HasValue ? violationIndex : violations[violationIndex].ComponentIndex,
                         occurrence.ContextIndex);
                 }
 
@@ -997,7 +1000,7 @@ internal static class CheckRenderer
                     pairs[distinctCount++] = pairs[i];
                 }
 
-                var ranges = new OriginRange[violations.Length];
+                var ranges = new OriginRange[rowCount];
                 for (var start = 0; start < distinctCount;)
                 {
                     var end = start + 1;
@@ -1484,8 +1487,13 @@ internal static class CheckRenderer
         }
     }
 
-    private static void WriteMarkdownAllComponents(IBufferWriter<byte> writer, ReadOnlySpan<ScanComponent> components)
+    private static void WriteMarkdownAllComponents(
+        IBufferWriter<byte> writer,
+        in DependencyInventory inventory,
+        ReadOnlySpan<ScanComponent> components)
     {
+        var inventoryComponents = ComponentInventoryProjection.Create(inventory.Components, components);
+        var origins = UsageOriginProjection.Create(inventory, [], inventoryComponents, allComponentCount: components.Length);
         WriteUtf8(writer, "### All components"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
@@ -1496,9 +1504,9 @@ internal static class CheckRenderer
         WriteUtf8(writer, ")</summary>"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
-        WriteUtf8(writer, "| Package | Version | Ecosystem | License | Status | Dependency | Supply | Purl |"u8);
+        WriteUtf8(writer, "| Package | Version | Ecosystem | License | Status | Dependency | Supply | Purl | Origin(s) |"u8);
         WriteNewLine(writer);
-        WriteUtf8(writer, "|---|---|---|---|---|---|---|---|"u8);
+        WriteUtf8(writer, "|---|---|---|---|---|---|---|---|---|"u8);
         WriteNewLine(writer);
         for (var i = 0; i < components.Length; i++)
         {
@@ -1519,6 +1527,8 @@ internal static class CheckRenderer
             WriteMarkdownValue(writer, GetSuppliedByUtf8(component.SuppliedBy));
             WriteUtf8(writer, " | "u8);
             WriteMarkdownValue(writer, component.Purl);
+            WriteUtf8(writer, " | "u8);
+            WriteMarkdownOrigins(writer, origins.GetOrigins(i), inventory.Contexts);
             WriteUtf8(writer, " |"u8);
             WriteNewLine(writer);
         }

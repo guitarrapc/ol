@@ -229,6 +229,10 @@ public sealed class CliCheckTests
             await Assert.That(result.Stdout).Contains("| private-gem | 2.0.0 | gem | git | - | unknown | license is unresolved | package_metadata_no_purl |");
             await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl | - | Gemfile.lock (debug/Gemfile.lock) | - |");
             await Assert.That(result.Stdout).Contains("| local-gem | 0.1.0 | gem | local path | - | unknown | license is unresolved | package_metadata_no_purl | - | Gemfile.lock (release/Gemfile.lock) | - |");
+            var allComponents = result.Stdout[result.Stdout.IndexOf("### All components", StringComparison.Ordinal)..];
+            await Assert.That(allComponents).Contains("| Purl | Origin(s) |");
+            await Assert.That(allComponents).Contains("| local-gem | 0.1.0 | gem | - | unknown | direct | package-manager | - | Gemfile.lock (debug/Gemfile.lock) |");
+            await Assert.That(allComponents).Contains("| local-gem | 0.1.0 | gem | - | unknown | direct | package-manager | - | Gemfile.lock (release/Gemfile.lock) |");
         }
         finally
         {
@@ -282,6 +286,9 @@ public sealed class CliCheckTests
             await Assert.That(usageOrigins).Contains("| packages/a (apps/web/package-lock.json) | npm | shared 1.0.0, workspace-only 6.0.0 |");
             await Assert.That(usageOrigins).Contains("| root-app (apps/web/package-lock.json) | npm |");
             await Assert.That(usageOrigins.Split("shared 1.0.0", StringSplitOptions.None)).Count().IsEqualTo(3);
+            var allComponents = result.Stdout[result.Stdout.IndexOf("### All components", StringComparison.Ordinal)..];
+            await Assert.That(allComponents).Contains("| shared | 1.0.0 | npm | Apache-2.0 | matched | transitive | package-manager | pkg:npm/shared@1.0.0 | root-app (apps/web/package-lock.json) |");
+            await Assert.That(allComponents).Contains("| shared | 1.0.0 | npm | MIT | matched | direct | package-manager | pkg:npm/shared@1.0.0 | packages/a (apps/web/package-lock.json), root-app (apps/web/package-lock.json) |");
         }
         finally
         {

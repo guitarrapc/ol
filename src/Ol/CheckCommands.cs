@@ -615,11 +615,11 @@ internal static class CheckRenderer
         var components = report.Components;
         var summary = ScanSummary.Create(components);
 
-        WriteUtf8(writer, "## ol license check"u8);
+        WriteUtf8(writer, "# License Review (ol)"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
 
-        WriteUtf8(writer, "### Result"u8);
+        WriteUtf8(writer, "## Result"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
         WriteMarkdownResultBanner(writer, report.DeclaresNoComponents, violations, policyComponentCount);
@@ -651,7 +651,7 @@ internal static class CheckRenderer
         }
 
         WriteNewLine(writer);
-        WriteUtf8(writer, "### Violations"u8);
+        WriteUtf8(writer, "## Violations"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
         if (violations.IsEmpty)
@@ -718,7 +718,7 @@ internal static class CheckRenderer
         }
 
         WriteNewLine(writer);
-        WriteUtf8(writer, "### Resolved license usage"u8);
+        WriteUtf8(writer, "## Resolved license usage"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
         WriteMarkdownLicenseCounts(writer, components);
@@ -1159,7 +1159,7 @@ internal static class CheckRenderer
         DependencyResolutionContext[] contexts)
     {
         WriteNewLine(writer);
-        WriteUtf8(writer, "### Usage origins"u8);
+        WriteUtf8(writer, "## Usage origins"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
         var origins = projection.ByOrigin;
@@ -1478,7 +1478,7 @@ internal static class CheckRenderer
 
     private static void WriteMarkdownCoverage(IBufferWriter<byte> writer, in ScanSummary summary, ReadOnlySpan<ScanComponent> components)
     {
-        WriteUtf8(writer, "### Coverage"u8);
+        WriteUtf8(writer, "## Coverage"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
         WriteUtf8(writer, "| License status | Components |"u8);
@@ -1554,7 +1554,7 @@ internal static class CheckRenderer
     {
         var inventoryComponents = ComponentInventoryProjection.Create(inventory.Components, components);
         var origins = UsageOriginProjection.Create(inventory, [], inventoryComponents, allComponentCount: components.Length);
-        WriteUtf8(writer, "### All components"u8);
+        WriteUtf8(writer, "## All components"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
         WriteUtf8(writer, "<details>"u8);
@@ -1600,7 +1600,7 @@ internal static class CheckRenderer
 
     private static void WriteMarkdownScanDiagnostics(IBufferWriter<byte> writer, in ScanReport report)
     {
-        WriteUtf8(writer, "### Diagnostics"u8);
+        WriteUtf8(writer, "## Diagnostics"u8);
         WriteNewLine(writer);
         WriteNewLine(writer);
         WriteUtf8(writer, "- source: "u8);

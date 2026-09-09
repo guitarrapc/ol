@@ -362,7 +362,7 @@ public sealed class CliCheckTests
 
             await Assert.That(result.ExitCode).IsEqualTo(0);
             await Assert.That(result.Stderr).IsEmpty();
-            await Assert.That(result.Stdout).Contains("> ✅ **passed** — 1 component satisfies the allow-list.");
+            await Assert.That(result.Stdout).Contains("> ✅ No license issues found. — 1 component satisfies the allow-list.");
             await Assert.That(result.Stdout).Contains("No policy violations.");
             await Assert.That(result.Stdout).DoesNotContain("## Usage origins");
             await Assert.That(result.Stdout).DoesNotContain("Violation details");

@@ -1462,7 +1462,7 @@ internal static class CheckRenderer
         }
         else if (violations.IsEmpty)
         {
-            WriteUtf8(writer, "✅ **passed** — "u8);
+            WriteUtf8(writer, "✅ No license issues found. — "u8);
             WriteInt32(writer, policyComponentCount);
             WriteUtf8(writer, policyComponentCount == 1 ? " component satisfies the allow-list."u8 : " components satisfy the allow-list."u8);
         }

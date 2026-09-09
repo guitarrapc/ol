@@ -75,10 +75,12 @@ public readonly record struct ScanReportTool(string Name, string Version);
 /// <param name="DetectedFileCount">Physical input files discovery detected, including ones it then skipped.</param>
 /// <param name="IgnoredCandidates">Known inputs Ol cannot consume, named by the directory pattern that found them.</param>
 /// <param name="IncompleteInputSetCount">Companion sets discovery found incomplete and therefore skipped.</param>
+/// <param name="DetectedInputPaths">Logical paths of detected files, or null when not recorded.</param>
 public readonly record struct ScanReportInputDiscovery(
     int DetectedFileCount,
     string[] IgnoredCandidates,
-    int IncompleteInputSetCount);
+    int IncompleteInputSetCount,
+    string[]? DetectedInputPaths = null);
 
 /// <summary>Describes how the producing scan narrowed the components it wrote.</summary>
 /// <param name="DependencyFilter">
@@ -382,6 +384,7 @@ public static class ScanReportReader
     {
         var detectedFileCount = 0;
         string[] ignoredCandidates = [];
+        string[]? detectedInputPaths = null;
         var incompleteInputSetCount = 0;
         if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
         {
@@ -391,6 +394,7 @@ public static class ScanReportReader
         while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
         {
             if (reader.ValueTextEquals("detectedFileCount"u8)) detectedFileCount = ReadCount(ref reader);
+            else if (reader.ValueTextEquals("detectedInputPaths"u8)) detectedInputPaths = ReadStringArray(ref reader);
             else if (reader.ValueTextEquals("ignoredCandidates"u8)) ignoredCandidates = ReadStringArray(ref reader);
             else if (reader.ValueTextEquals("incompleteInputSetCount"u8)) incompleteInputSetCount = ReadCount(ref reader);
             else
@@ -400,7 +404,7 @@ public static class ScanReportReader
             }
         }
 
-        return new ScanReportInputDiscovery(detectedFileCount, ignoredCandidates, incompleteInputSetCount);
+        return new ScanReportInputDiscovery(detectedFileCount, ignoredCandidates, incompleteInputSetCount, detectedInputPaths);
     }
 
     /// <summary>Reads a count, treating an absent, non-numeric, or negative value as none observed.</summary>

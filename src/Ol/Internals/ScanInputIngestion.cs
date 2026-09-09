@@ -35,7 +35,8 @@ internal readonly record struct ScanInputIngestionResult(
     InputCandidateDiagnostics InputCandidateDiagnostics,
     SkippedIncompleteInput[] SkippedIncompleteInputs,
     int SkippedIncompleteInputCount,
-    string[] ExcludedInputPaths);
+    string[] ExcludedInputPaths,
+    string[] DetectedInputPaths);
 
 /// <summary>
 /// Turns named input paths into one combined dependency inventory.
@@ -297,7 +298,8 @@ internal static class ScanInputIngestion
                 inputCandidateDiagnostics,
                 skippedIncompleteInputs,
                 skippedIncompleteInputCount,
-                excludedInputPaths);
+                excludedInputPaths,
+                Array.ConvertAll(files, static file => file.LogicalPath));
         }
         finally
         {

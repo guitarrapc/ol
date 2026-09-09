@@ -1643,6 +1643,26 @@ internal static class CheckRenderer
             WriteUtf8(writer, "- detected input files: "u8);
             WriteInt32(writer, inputDiscovery.DetectedFileCount);
             WriteNewLine(writer);
+            if (inputDiscovery.DetectedInputPaths is { Length: > 0 } detectedInputPaths)
+            {
+                WriteNewLine(writer);
+                WriteUtf8(writer, "<details>"u8);
+                WriteNewLine(writer);
+                WriteUtf8(writer, "<summary>Detected input files</summary>"u8);
+                WriteNewLine(writer);
+                WriteNewLine(writer);
+                foreach (var path in detectedInputPaths.Order(StringComparer.Ordinal))
+                {
+                    WriteUtf8(writer, "- `"u8);
+                    WriteMarkdownValue(writer, path);
+                    WriteUtf8(writer, "`"u8);
+                    WriteNewLine(writer);
+                }
+                WriteNewLine(writer);
+                WriteUtf8(writer, "</details>"u8);
+                WriteNewLine(writer);
+                WriteNewLine(writer);
+            }
             if (inputDiscovery.IgnoredCandidates is { Length: > 0 })
             {
                 WriteUtf8(writer, "- ignored input candidates: "u8);

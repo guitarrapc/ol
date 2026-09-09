@@ -77,6 +77,9 @@
     },
     "inputDiscovery": {
       "detectedFileCount": 1,
+      "detectedInputPaths": [
+        "ol.cdx.json"
+      ],
       "ignoredCandidateCount": 0,
       "ignoredCandidates": [],
       "incompleteInputSetCount": 0

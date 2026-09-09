@@ -488,7 +488,9 @@ public sealed class CliCheckTests
     }
 
     [Test]
-    public async Task Check_WithMarkdownFormat_PreservesExcludedInputScope()
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Check_WithMarkdownFormat_PreservesExcludedInputScope(bool recordsDetectedPaths)
     {
         var root = FindRepositoryRoot();
         var inputPath = await WriteCycloneDxAsync("MIT");
@@ -502,7 +504,8 @@ public sealed class CliCheckTests
             var toolName = tool["name"]!.GetValue<string>();
             var toolVersion = tool["version"]!.GetValue<string>();
             var licenseListVersion = scanDocument["metadata"]!["spdx"]!["licenseListVersion"]!.GetValue<string>();
-            await File.WriteAllTextAsync(reportPath, AddInputScope(scan.Stdout, "product-a/docs", "product-b/docs"));
+            if (!recordsDetectedPaths) scanDocument["metadata"]!["inputDiscovery"]!.AsObject().Remove("detectedInputPaths");
+            await File.WriteAllTextAsync(reportPath, AddInputScope(scanDocument.ToJsonString(), "product-a/docs", "product-b/docs"));
 
             var result = await RunOlAsync(root, "check", "--report", reportPath, "--allow-licenses", "MIT", "--format", "markdown");
 
@@ -512,6 +515,15 @@ public sealed class CliCheckTests
             const string Input = "- input: `sbom/cyclonedx`";
             const string Excluded = "- excluded input paths: `product-a/docs`, `product-b/docs`";
             const string Detected = "- detected input files: 1";
+            if (recordsDetectedPaths)
+            {
+                await Assert.That(result.Stdout).Contains("<summary>Detected input files</summary>");
+                await Assert.That(result.Stdout).Contains($"- `{Path.GetFileName(inputPath)}`");
+            }
+            else
+            {
+                await Assert.That(result.Stdout).DoesNotContain("<summary>Detected input files</summary>");
+            }
             await Assert.That(result.Stdout).Contains(source);
             await Assert.That(result.Stdout).Contains(spdx);
             await Assert.That(result.Stdout).Contains("- excluded input paths: `product-a/docs`, `product-b/docs`");

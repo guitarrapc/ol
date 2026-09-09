@@ -47,10 +47,12 @@ internal readonly record struct ScanReportScope(
 /// a closed vocabulary Ol owns rather than anything read from the file system, so the field carries no path.
 /// </param>
 /// <param name="IncompleteInputSetCount">Companion sets discovery found incomplete and therefore skipped.</param>
+/// <param name="DetectedInputPaths">Logical paths of detected files, or null when not recorded.</param>
 internal readonly record struct ScanInputDiscovery(
     int DetectedFileCount,
     string[]? IgnoredCandidates,
-    int IncompleteInputSetCount);
+    int IncompleteInputSetCount,
+    string[]? DetectedInputPaths = null);
 
 internal static class ReportRenderer
 {
@@ -839,6 +841,12 @@ internal static class ReportRenderer
     {
         writer.WriteStartObject("inputDiscovery");
         writer.WriteNumber("detectedFileCount", discovery.DetectedFileCount);
+        if (discovery.DetectedInputPaths is { } detectedInputPaths)
+        {
+            writer.WriteStartArray("detectedInputPaths");
+            foreach (var path in detectedInputPaths) writer.WriteStringValue(path);
+            writer.WriteEndArray();
+        }
         var ignoredCandidates = discovery.IgnoredCandidates;
         writer.WriteNumber("ignoredCandidateCount", ignoredCandidates?.Length ?? 0);
         writer.WriteStartArray("ignoredCandidates");

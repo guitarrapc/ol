@@ -144,7 +144,8 @@ internal sealed class ScanCommands
                 var discovery = new ScanInputDiscovery(
                     completed.DetectedInputFileCount,
                     KnownUnsupportedInputCandidates.GetUnresolvedNames(completed.InputCandidateDiagnostics),
-                    completed.SkippedIncompleteInputCount);
+                    completed.SkippedIncompleteInputCount,
+                    completed.DetectedInputPaths);
                 var scope = new ScanReportScope(!noExternalEvidence, dependency is null or "" ? null : dependency, dependencyFilteredCount, excludedUnknownCount, completed.ExcludedInputPaths, discovery);
                 WriteJson(standardOutput ?? Console.OpenStandardOutput(), scanResult.Inventory, components, componentUsages, groups, groupBy, spdx, packageArtifactSummary, declaredGitHubFileSummary, packageMetadataSummary, sourceRepositorySummary, scope);
             }
